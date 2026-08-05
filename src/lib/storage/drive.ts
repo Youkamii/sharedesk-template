@@ -6,6 +6,7 @@ import {
   StorageError,
   UploadSession,
   assertValidName,
+  conflictError,
 } from "./types";
 
 // Google Drive v3 REST 어댑터 — googleapis 패키지 없이 fetch만 사용.
@@ -77,6 +78,58 @@ function resolveId(id: string): string {
   return real;
 }
 
+// drive.file scope는 "이 앱이 만든 파일"까지만 좁혀줄 뿐, 그 파일이 나중에 주인 손으로
+// ShareDesk 폴더 밖으로 옮겨져도 id만 알면 계속 닿는다. 앱이 약속한 경계는 루트 폴더이므로
+// 조상을 따라 올라가 루트 자손임을 직접 확인한다. 휴지통에 든 대상도 여기서 걸러진다.
+const MAX_ANCESTOR_HOPS = 32;
+const verifiedIds = new Map<string, number>();
+const VERIFIED_TTL_MS = 5 * 60 * 1000;
+
+function markVerified(id: string): void {
+  verifiedIds.set(id, Date.now() + VERIFIED_TTL_MS);
+  if (verifiedIds.size > 5000) {
+    const now = Date.now();
+    for (const [k, exp] of verifiedIds) if (exp < now) verifiedIds.delete(k);
+  }
+}
+
+async function assertInsideRoot(id: string): Promise<void> {
+  const root = rootFolderId();
+  if (id === root) return;
+  const cachedExp = verifiedIds.get(id);
+  if (cachedExp !== undefined && cachedExp > Date.now()) return;
+
+  const chain: string[] = [];
+  let current = id;
+  for (let hop = 0; hop < MAX_ANCESTOR_HOPS; hop++) {
+    const res = await driveFetch(
+      `${API}/files/${current}?fields=id,parents,trashed`,
+    );
+    const meta = (await res.json()) as {
+      id: string;
+      parents?: string[];
+      trashed?: boolean;
+    };
+    if (meta.trashed) {
+      throw new StorageError("NOT_FOUND", "대상이 휴지통에 있습니다");
+    }
+    chain.push(meta.id);
+    const parent = meta.parents?.[0];
+    if (!parent) break;
+    if (parent === root) {
+      for (const c of chain) markVerified(c);
+      return;
+    }
+    const parentExp = verifiedIds.get(parent);
+    if (parentExp !== undefined && parentExp > Date.now()) {
+      for (const c of chain) markVerified(c);
+      return;
+    }
+    current = parent;
+  }
+  throw new StorageError("NOT_FOUND", "공유 폴더 안에 없는 대상입니다");
+}
+
 function escapeQuery(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
@@ -127,9 +180,22 @@ function toEntry(f: DriveFile): Entry {
   };
 }
 
+// 같은 폴더에 같은 이름이 이미 있는지 확인 (충돌 정책 통일 — 덮어쓰지 않는다).
+async function assertNameFree(parent: string, name: string): Promise<void> {
+  const params = new URLSearchParams({
+    q: `'${parent}' in parents and name='${escapeQuery(name)}' and trashed=false`,
+    fields: "files(id)",
+    pageSize: "1",
+  });
+  const res = await driveFetch(`${API}/files?${params}`);
+  const body = (await res.json()) as { files: DriveFile[] };
+  if (body.files.length > 0) throw conflictError();
+}
+
 export class DriveAdapter implements StorageAdapter {
   async list(folderId: string): Promise<Entry[]> {
     const folder = resolveId(folderId);
+    await assertInsideRoot(folder);
     const files: DriveFile[] = [];
     let pageToken: string | undefined;
     do {
@@ -154,16 +220,8 @@ export class DriveAdapter implements StorageAdapter {
   async createFolder(parentId: string, name: string): Promise<Entry> {
     const clean = assertValidName(name);
     const parent = resolveId(parentId);
-    const dupParams = new URLSearchParams({
-      q: `'${parent}' in parents and name='${escapeQuery(clean)}' and trashed=false`,
-      fields: "files(id)",
-      pageSize: "1",
-    });
-    const dupRes = await driveFetch(`${API}/files?${dupParams}`);
-    const dup = (await dupRes.json()) as { files: DriveFile[] };
-    if (dup.files.length > 0) {
-      throw new StorageError("CONFLICT", "같은 이름이 이미 있습니다");
-    }
+    await assertInsideRoot(parent);
+    await assertNameFree(parent, clean);
     const res = await driveFetch(`${API}/files?fields=${FILE_FIELDS}`, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=UTF-8" },
@@ -182,6 +240,11 @@ export class DriveAdapter implements StorageAdapter {
     if (real === rootFolderId()) {
       throw new StorageError("BAD_ID", "루트 폴더는 이름을 바꿀 수 없습니다");
     }
+    await assertInsideRoot(real);
+    const metaRes = await driveFetch(`${API}/files/${real}?fields=id,parents`);
+    const parent = ((await metaRes.json()) as { parents?: string[] })
+      .parents?.[0];
+    if (parent) await assertNameFree(parent, clean);
     const res = await driveFetch(
       `${API}/files/${real}?fields=${FILE_FIELDS}`,
       {
@@ -198,6 +261,7 @@ export class DriveAdapter implements StorageAdapter {
     if (real === rootFolderId()) {
       throw new StorageError("BAD_ID", "루트 폴더는 삭제할 수 없습니다");
     }
+    await assertInsideRoot(real);
     await driveFetch(`${API}/files/${real}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json; charset=UTF-8" },
@@ -207,6 +271,7 @@ export class DriveAdapter implements StorageAdapter {
 
   async download(id: string): Promise<DownloadResult> {
     const real = resolveId(id);
+    await assertInsideRoot(real);
     const metaRes = await driveFetch(
       `${API}/files/${real}?fields=${FILE_FIELDS}`,
     );
@@ -236,6 +301,7 @@ export class DriveAdapter implements StorageAdapter {
     parent: string,
     name: string,
     mimeType: string,
+    size?: number,
     origin?: string,
   ): Promise<string> {
     const token = await accessToken();
@@ -243,6 +309,10 @@ export class DriveAdapter implements StorageAdapter {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json; charset=UTF-8",
     };
+    // 크기를 미리 알리면 구글이 불일치 업로드를 거부한다.
+    if (size !== undefined && size > 0) {
+      headers["X-Upload-Content-Length"] = String(size);
+    }
     if (origin) headers["Origin"] = origin;
     const res = await fetch(
       `${UPLOAD_API}/files?uploadType=resumable&fields=${FILE_FIELDS}`,
@@ -262,6 +332,8 @@ export class DriveAdapter implements StorageAdapter {
     return url;
   }
 
+  // UI는 항상 createUploadSession(direct)을 쓴다. 이 경로는 어댑터 계약을 채우고
+  // API를 직접 호출하는 클라이언트(curl 등)를 위한 서버 경유 폴백이다.
   async upload(
     parentId: string,
     name: string,
@@ -270,6 +342,8 @@ export class DriveAdapter implements StorageAdapter {
   ): Promise<Entry> {
     const clean = assertValidName(name);
     const parent = resolveId(parentId);
+    await assertInsideRoot(parent);
+    await assertNameFree(parent, clean);
     const sessionUrl = await this.initResumable(parent, clean, mimeType);
     const put = await fetch(sessionUrl, {
       method: "PUT",
@@ -292,12 +366,14 @@ export class DriveAdapter implements StorageAdapter {
     parentId: string,
     name: string,
     mimeType: string,
-    _size: number,
+    size: number,
     origin: string,
   ): Promise<UploadSession> {
     const clean = assertValidName(name);
     const parent = resolveId(parentId);
-    const url = await this.initResumable(parent, clean, mimeType, origin);
+    await assertInsideRoot(parent);
+    await assertNameFree(parent, clean);
+    const url = await this.initResumable(parent, clean, mimeType, size, origin);
     return { mode: "direct", url };
   }
 }

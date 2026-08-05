@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdapter } from "@/lib/storage";
-import { errorResponse } from "@/lib/api";
+import { errorResponse, requireSession } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json().catch(() => null);
   if (!body || typeof body.id !== "string") {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });

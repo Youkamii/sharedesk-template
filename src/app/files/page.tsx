@@ -81,7 +81,10 @@ export default function FilesPage() {
     router.replace("/");
   }
 
-  async function apiPost(pathname: string, body: unknown): Promise<void> {
+  async function apiPost<T = unknown>(
+    pathname: string,
+    body: unknown,
+  ): Promise<T> {
     const res = await fetch(pathname, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -91,10 +94,11 @@ export default function FilesPage() {
       router.replace("/");
       throw new Error("세션이 만료되었습니다");
     }
+    const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const data = await res.json().catch(() => null);
       throw new Error(data?.error ?? "요청에 실패했습니다");
     }
+    return data as T;
   }
 
   async function createFolder() {
@@ -136,21 +140,12 @@ export default function FilesPage() {
 
   async function uploadOne(file: File): Promise<void> {
     const mimeType = file.type || "application/octet-stream";
-    const sessRes = await fetch("/api/drive/upload-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parentId: current.id,
-        name: file.name,
-        mimeType,
-        size: file.size,
-      }),
+    const session = await apiPost<UploadSession>("/api/drive/upload-session", {
+      parentId: current.id,
+      name: file.name,
+      mimeType,
+      size: file.size,
     });
-    if (!sessRes.ok) {
-      const body = await sessRes.json().catch(() => null);
-      throw new Error(body?.error ?? "업로드 준비에 실패했습니다");
-    }
-    const session: UploadSession = await sessRes.json();
     if (session.mode === "direct") {
       const put = await fetch(session.url, { method: "PUT", body: file });
       if (!put.ok) throw new Error("드라이브 업로드에 실패했습니다");
@@ -160,6 +155,10 @@ export default function FilesPage() {
       `/api/drive/upload?parentId=${encodeURIComponent(current.id)}&name=${encodeURIComponent(file.name)}`,
       { method: "POST", headers: { "Content-Type": mimeType }, body: file },
     );
+    if (res.status === 401) {
+      router.replace("/");
+      throw new Error("세션이 만료되었습니다");
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       throw new Error(body?.error ?? "업로드에 실패했습니다");

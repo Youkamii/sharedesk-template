@@ -70,3 +70,9 @@ export interface StorageAdapter {
     origin: string,
   ): Promise<UploadSession>;
 }
+
+// 두 어댑터가 같은 충돌 정책을 쓰도록 계약으로 못 박는다: 같은 폴더에 같은 이름이
+// 이미 있으면 덮어쓰지 않고 CONFLICT로 거부한다 (mkdir·rename·upload 공통).
+export function conflictError(): StorageError {
+  return new StorageError("CONFLICT", "같은 이름이 이미 있습니다");
+}

@@ -11,6 +11,7 @@ import {
   StorageError,
   UploadSession,
   assertValidName,
+  conflictError,
 } from "./types";
 
 // 개발·검증용 어댑터 — 로컬 폴더를 드라이브처럼 취급한다.
@@ -82,11 +83,18 @@ export class LocalAdapter implements StorageAdapter {
       items = await readdir(absOf(rel), { withFileTypes: true });
     } catch (e) {
       if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "폴더가 없습니다");
+      if ((e as NodeJS.ErrnoException)?.code === "ENOTDIR") {
+        throw new StorageError("BAD_ID", "폴더가 아닙니다");
+      }
       throw e;
     }
-    const entries = await Promise.all(
-      items.map((d) => toEntry(joinRel(rel, d.name), d.name)),
+    // 목록을 만드는 사이 다른 세션이 항목을 지울 수 있다. 그 항목만 빼고 나머지는 보여준다.
+    const settled = await Promise.all(
+      items.map((d) =>
+        toEntry(joinRel(rel, d.name), d.name).catch(() => null),
+      ),
     );
+    const entries = settled.filter((e): e is Entry => e !== null);
     entries.sort((a, b) =>
       a.isFolder === b.isFolder
         ? a.name.localeCompare(b.name, "ko")
@@ -105,8 +113,7 @@ export class LocalAdapter implements StorageAdapter {
       await mkdir(absOf(childRel));
     } catch (e) {
       const code = (e as NodeJS.ErrnoException)?.code;
-      if (code === "EEXIST")
-        throw new StorageError("CONFLICT", "같은 이름이 이미 있습니다");
+      if (code === "EEXIST") throw conflictError();
       if (code === "ENOENT")
         throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
       throw e;
@@ -121,6 +128,11 @@ export class LocalAdapter implements StorageAdapter {
       throw new StorageError("BAD_ID", "루트 폴더는 이름을 바꿀 수 없습니다");
     const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
     const newRel = joinRel(dir, clean);
+    // fsRename은 목적지를 말없이 덮어쓴다. 이름만 바꾸는 경우(대소문자 변경 등)를
+    // 제외하고 목적지가 이미 있으면 거부한다.
+    if (newRel !== rel && (await stat(absOf(newRel)).catch(() => null))) {
+      throw conflictError();
+    }
     try {
       await fsRename(absOf(rel), absOf(newRel));
     } catch (e) {
@@ -178,10 +190,16 @@ export class LocalAdapter implements StorageAdapter {
     if (!parentStat?.isDirectory())
       throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
     const childRel = joinRel(parentRel, clean);
-    await pipeline(
-      Readable.fromWeb(data as import("node:stream/web").ReadableStream),
-      createWriteStream(absOf(childRel)),
-    );
+    // 기존 파일을 말없이 덮어쓰지 않는다 (wx: 존재하면 EEXIST).
+    try {
+      await pipeline(
+        Readable.fromWeb(data as import("node:stream/web").ReadableStream),
+        createWriteStream(absOf(childRel), { flags: "wx" }),
+      );
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code === "EEXIST") throw conflictError();
+      throw e;
+    }
     return toEntry(childRel, clean);
   }
 

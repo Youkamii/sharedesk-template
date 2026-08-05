@@ -4,7 +4,7 @@
 // 브라우저를 자동으로 열지 않는다: URL을 출력하면 사용자가 직접 연다.
 
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -16,11 +16,23 @@ const REDIRECT = `http://127.0.0.1:${PORT}/callback`;
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
+function newSessionSecret() {
+  return randomBytes(32).toString("hex");
+}
+
 export function parseEnv(text) {
   const env = {};
   for (const line of text.split(/\r?\n/)) {
     const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
-    if (m) env[m[1]] = m[2].trim();
+    if (!m) continue;
+    // dotenv 관례대로 감싼 따옴표를 벗긴다 — 벗기지 않으면 앱(Next dotenv)과
+    // 이 스크립트가 같은 파일을 다르게 읽는다.
+    const raw = m[2].trim();
+    env[m[1]] =
+      (raw.startsWith('"') && raw.endsWith('"')) ||
+      (raw.startsWith("'") && raw.endsWith("'"))
+        ? raw.slice(1, -1)
+        : raw;
   }
   return env;
 }
@@ -62,6 +74,15 @@ async function main() {
     process.exit(1);
   }
 
+  // state와 PKCE로 콜백 위조를 막는다 (RFC 8252 §8.1/§8.9).
+  // 이게 없으면 setup이 대기하는 동안 다른 탭이 127.0.0.1 콜백에 남의 code를 밀어넣어
+  // 공격자 드라이브의 토큰이 .env.local에 박힐 수 있다.
+  const state = randomBytes(16).toString("base64url");
+  const codeVerifier = randomBytes(32).toString("base64url");
+  const codeChallenge = createHash("sha256")
+    .update(codeVerifier)
+    .digest("base64url");
+
   const authUrl =
     "https://accounts.google.com/o/oauth2/v2/auth?" +
     new URLSearchParams({
@@ -71,6 +92,9 @@ async function main() {
       scope: SCOPE,
       access_type: "offline",
       prompt: "consent",
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
     });
 
   if (process.argv.includes("--check")) {
@@ -93,15 +117,31 @@ async function main() {
       }
       const err = u.searchParams.get("error");
       const c = u.searchParams.get("code");
+      const gotState = u.searchParams.get("state") ?? "";
+      const stateOk =
+        gotState.length === state.length &&
+        timingSafeEqual(Buffer.from(gotState), Buffer.from(state));
+      const ok = !err && c && stateOk;
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(
-        err || !c
-          ? "<h3>인증이 거부되었습니다. 터미널을 확인하세요.</h3>"
-          : "<h3>인증 완료 — 이 창을 닫고 터미널로 돌아가세요.</h3>",
+        ok
+          ? "<h3>인증 완료 — 이 창을 닫고 터미널로 돌아가세요.</h3>"
+          : "<h3>인증이 거부되었습니다. 터미널을 확인하세요.</h3>",
       );
       server.close();
-      if (err || !c) reject(new Error("동의가 거부되었습니다: " + (err ?? "code 없음")));
-      else resolve(c);
+      if (!ok) {
+        reject(
+          new Error(
+            err
+              ? "동의가 거부되었습니다: " + err
+              : !c
+                ? "code가 없습니다"
+                : "state 불일치 — 위조된 콜백일 수 있습니다",
+          ),
+        );
+      } else {
+        resolve(c);
+      }
     });
     server.on("error", (e) =>
       reject(
@@ -122,6 +162,7 @@ async function main() {
       client_secret: clientSecret,
       redirect_uri: REDIRECT,
       grant_type: "authorization_code",
+      code_verifier: codeVerifier,
     }),
   });
   if (!tokenRes.ok) {
@@ -162,12 +203,13 @@ async function main() {
   let accessKeys = fileEnv["ACCESS_KEYS"] || "";
   let generatedKey = null;
   if (!accessKeys) {
-    generatedKey = "sd-" + randomBytes(6).toString("hex");
+    // 추측 공격을 견디도록 충분히 길게 (96비트).
+    generatedKey = "sd-" + randomBytes(12).toString("base64url");
     accessKeys = generatedKey;
   }
   let sessionSecret = fileEnv["SESSION_SECRET"] || "";
   if (sessionSecret.length < 16) {
-    sessionSecret = randomBytes(32).toString("hex");
+    sessionSecret = newSessionSecret();
   }
 
   const merged = mergeEnv(raw, {

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
-import { errorResponse } from "@/lib/api";
+import { errorResponse, requireSession } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const parentId = req.nextUrl.searchParams.get("parentId") ?? ROOT_ID;
   const name = req.nextUrl.searchParams.get("name") ?? "";
   const mimeType =
