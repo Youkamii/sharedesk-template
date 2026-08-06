@@ -71,8 +71,12 @@ async function main() {
     console.error("구글 클라우드 콘솔(console.cloud.google.com)에서:");
     console.error("  1. 프로젝트 생성 → Google Drive API 사용 설정");
     console.error("  2. OAuth 동의 화면 구성 (외부, 프로덕션 게시)");
-    console.error("  3. 사용자 인증 정보 → OAuth 클라이언트 ID → 유형: '데스크톱 앱'");
-    console.error("  4. 발급된 클라이언트 ID/보안 비밀을 .env.local에 기입 후 재실행");
+    console.error("  3. 사용자 인증 정보 → OAuth 클라이언트 ID → 유형: '웹 애플리케이션'");
+    console.error("     (데스크톱 앱 유형은 배포 주소를 리디렉션에 못 넣는다)");
+    console.error("  4. 승인된 리디렉션 URI에 아래를 등록:");
+    console.error(`       ${REDIRECT}`);
+    console.error("       http://localhost:3000/api/auth/google/callback");
+    console.error("  5. 발급된 클라이언트 ID/보안 비밀을 .env.local에 기입 후 재실행");
     process.exit(1);
   }
 
@@ -247,11 +251,10 @@ async function main() {
   console.log(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)");
   console.log("루트 폴더 ID:", rootId);
   console.log("\n다음 단계:");
-  console.log("  1. 구글 클라우드 콘솔의 OAuth 클라이언트에 아래 리디렉션 URI를 추가하세요:");
-  console.log("     http://localhost:3000/api/auth/google/callback");
-  console.log("     (배포 후에는 https://도메인/api/auth/google/callback 도 추가)");
-  console.log("  2. npm run dev 실행 → http://localhost:3000 에서 구글 로그인");
-  console.log("  3. 다른 사람이 로그인하면 /admin 화면에서 승인하세요.");
+  console.log("  1. npm run dev 실행 → http://localhost:3000 에서 구글 로그인");
+  console.log("  2. 다른 사람이 로그인하면 /admin 화면에서 승인하세요.");
+  console.log("  3. 배포한 뒤에는 리디렉션 URI에 아래를 추가로 등록하세요:");
+  console.log("     https://<배포도메인>/api/auth/google/callback");
 }
 
 const invokedDirectly =

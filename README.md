@@ -44,7 +44,14 @@
    - 새 프로젝트 생성 → "API 및 서비스 → 라이브러리"에서 **Google Drive API 사용 설정**
    - "OAuth 동의 화면": User Type **외부**, 앱 이름 지정 → 만들기 → **앱 게시(프로덕션)** 로 전환
      (테스트 상태로 두면 로그인이 7일마다 만료된다)
-   - "사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID" → 유형 **데스크톱 앱**
+   - "사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID" → 유형 **웹 애플리케이션**
+     (데스크톱 앱 유형은 리디렉션 주소로 `127.0.0.1`만 허용해 배포 도메인을 넣을 수 없다)
+   - **승인된 리디렉션 URI**에 두 개를 등록:
+     ```
+     http://127.0.0.1:53682/callback
+     http://localhost:3000/api/auth/google/callback
+     ```
+     (앞은 최초 설정용, 뒤는 로컬 로그인용. localhost는 https가 아니어도 등록된다)
    - 발급된 **클라이언트 ID / 클라이언트 보안 비밀**을 복사
 
 2. **로컬 설정**
@@ -61,14 +68,7 @@
    - 로그인한 계정을 **관리자**로 등록 (`ADMIN_EMAILS`)
    - 세션 서명 비밀 생성
 
-3. **로그인 콜백 주소 등록** — 구글 클라우드 콘솔의 같은 OAuth 클라이언트에서
-   "승인된 리디렉션 URI"에 아래를 추가한다:
-   ```
-   http://localhost:3000/api/auth/google/callback
-   https://<배포도메인>/api/auth/google/callback
-   ```
-
-4. **실행**
+3. **실행**
    ```bash
    npm run dev   # http://localhost:3000
    ```
@@ -84,7 +84,7 @@
 | `PUBLIC_BASE_URL` | 배포 주소. 비우면 요청 origin으로 콜백 URL을 만든다 |
 | `STORAGE_DRIVER` | `drive` 또는 `local`(개발용 로컬 폴더) |
 | `LOCAL_STORAGE_ROOT` | local 드라이버가 쓸 폴더 (기본 `.devstorage`) |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth 클라이언트 (데스크톱 앱 유형) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth 클라이언트 (웹 애플리케이션 유형) |
 | `GOOGLE_REFRESH_TOKEN` | setup이 획득 |
 | `DRIVE_ROOT_FOLDER_ID` | setup이 생성한 루트 폴더 ID |
 
