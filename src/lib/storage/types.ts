@@ -52,6 +52,24 @@ export function assertValidName(name: string): string {
   return trimmed;
 }
 
+// 사용자가 직접 넣는 이름에 적용한다. 점으로 시작하는 이름은 앱 내부 영역(.sharedesk)과
+// 같은 공간을 쓰므로 금지한다 — 선점으로 내부 폴더를 가로채는 것을 막는다.
+export function assertUserName(name: string): string {
+  const clean = assertValidName(name);
+  if (clean.startsWith(".")) {
+    throw new StorageError(
+      "BAD_NAME",
+      "점(.)으로 시작하는 이름은 사용할 수 없습니다",
+    );
+  }
+  return clean;
+}
+
+export function stateAccessDenied(): StorageError {
+  // 존재 자체를 알리지 않도록 없는 것처럼 응답한다.
+  return new StorageError("NOT_FOUND", "대상이 없습니다");
+}
+
 export interface StorageAdapter {
   list(folderId: string): Promise<Entry[]>;
   // 앱 상태(사용자 명단 등)를 루트 폴더 안 숨김 경로에 JSON으로 보관한다.

@@ -15,7 +15,7 @@ export async function GET() {
   const stored = await listUsers();
   // 화면에 보이는 관리자 표시도 환경변수를 따른다 (명단 파일과 어긋나도 환경변수가 우선).
   const users = stored.map((u) => ({ ...u, isAdmin: isAdminEmail(u.email) }));
-  return NextResponse.json({ users, me: auth.session.userId });
+  return NextResponse.json({ users });
 }
 
 export async function POST(req: NextRequest) {

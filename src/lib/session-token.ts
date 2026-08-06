@@ -37,16 +37,17 @@ export function getAccessKeys(): string[] {
     .filter(Boolean);
 }
 
-// 비밀이 없으면 서명할 수 없다. 상수로 폴백하면 소스를 아는 누구나 토큰을 위조할 수
-// 있으므로 예외를 던져 fail-closed로 간다.
+// 비밀이 없으면 서명할 수 없다. 예외를 던져 fail-closed로 간다.
+// 접속 키에서 파생하는 폴백은 두지 않는다 — 손님에게 나눠준 값이 서명 비밀이 되면
+// 쿠키 하나로 오프라인 대입이 가능해지고, 키를 회수할 때 전원의 세션이 함께 끊긴다.
 function secretMaterial(): string {
   const s = process.env.SESSION_SECRET;
-  if (s && s.length >= 16) return s;
-  const keys = getAccessKeys();
-  if (keys.length === 0) {
-    throw new Error("SESSION_SECRET이 없습니다 — npm run setup으로 생성하세요");
+  if (!s || s.length < 16) {
+    throw new Error(
+      "SESSION_SECRET이 없거나 너무 짧습니다 — npm run setup으로 생성하세요",
+    );
   }
-  return "sharedesk-derived:" + keys.join(",");
+  return s;
 }
 
 let cached: { material: string; key: Promise<CryptoKey> } | null = null;

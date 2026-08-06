@@ -12,11 +12,21 @@ import { getAccessKeys } from "@/lib/session-token";
 
 const MAX_KEY_LENGTH = 256;
 const WINDOW_MS = 60_000;
-const MAX_ATTEMPTS = 10;
+const MAX_ATTEMPTS_PER_IP = 10;
+// IP는 요청자가 헤더로 위조할 수 있으므로(신뢰 프록시 뒤가 아닌 배포) IP별 제한만으로는
+// 무제한 대입을 막지 못한다. 창 전체에도 상한을 둬 총 시도량을 묶는다.
+const MAX_ATTEMPTS_TOTAL = 60;
 const attempts = new Map<string, { count: number; resetAt: number }>();
+let totalWindow = { count: 0, resetAt: 0 };
 
 function tooManyAttempts(ip: string): boolean {
   const now = Date.now();
+  if (now > totalWindow.resetAt) {
+    totalWindow = { count: 0, resetAt: now + WINDOW_MS };
+  }
+  totalWindow.count++;
+  if (totalWindow.count > MAX_ATTEMPTS_TOTAL) return true;
+
   const entry = attempts.get(ip);
   if (!entry || now > entry.resetAt) {
     attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
@@ -26,7 +36,7 @@ function tooManyAttempts(ip: string): boolean {
     return false;
   }
   entry.count++;
-  return entry.count > MAX_ATTEMPTS;
+  return entry.count > MAX_ATTEMPTS_PER_IP;
 }
 
 function clientIp(req: NextRequest): string {

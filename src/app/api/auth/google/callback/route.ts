@@ -63,8 +63,8 @@ export async function GET(req: NextRequest) {
     name?: string;
   };
   // 미인증 이메일을 그대로 받으면 남의 주소를 사칭한 계정이 관리자 이메일과
-  // 일치해버릴 수 있다.
-  if (!info.sub || !info.email || info.email_verified === false) {
+  // 일치해버릴 수 있다. 필드가 없는 응답도 통과시키지 않는다.
+  if (!info.sub || !info.email || info.email_verified !== true) {
     return fail(req, "profile");
   }
 

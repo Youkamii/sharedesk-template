@@ -19,8 +19,10 @@ import {
   StorageAdapter,
   StorageError,
   UploadSession,
+  assertUserName,
   assertValidName,
   conflictError,
+  stateAccessDenied,
 } from "./types";
 
 // 개발·검증용 어댑터 — 로컬 폴더를 드라이브처럼 취급한다.
@@ -36,12 +38,18 @@ function rootDir(): string {
 function idToRel(id: string): string {
   if (id === ROOT_ID || id === "") return "";
   const rel = Buffer.from(id, "base64url").toString("utf8");
+  const segments = rel.split("/");
   if (
     !rel ||
     rel.includes("\\") ||
-    rel.split("/").some((seg) => !seg || seg === "." || seg === "..")
+    segments.some((seg) => !seg || seg === "." || seg === "..")
   ) {
     throw new StorageError("BAD_ID", "잘못된 id입니다");
+  }
+  // 로컬 id는 경로의 base64url이라 누구나 계산할 수 있다. 앱 내부 영역(.sharedesk)은
+  // 파일 API로 열람·수정·삭제할 수 없어야 한다 — 명단이 곧 접근 권한이기 때문이다.
+  if (segments[0] === STATE_DIR) {
+    throw stateAccessDenied();
   }
   return rel;
 }
@@ -118,7 +126,7 @@ export class LocalAdapter implements StorageAdapter {
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
     await this.ensureRoot();
-    const clean = assertValidName(name);
+    const clean = assertUserName(name);
     const childRel = joinRel(idToRel(parentId), clean);
     try {
       await mkdir(absOf(childRel));
@@ -133,7 +141,7 @@ export class LocalAdapter implements StorageAdapter {
   }
 
   async rename(id: string, name: string): Promise<Entry> {
-    const clean = assertValidName(name);
+    const clean = assertUserName(name);
     const rel = idToRel(id);
     if (!rel)
       throw new StorageError("BAD_ID", "루트 폴더는 이름을 바꿀 수 없습니다");
@@ -195,7 +203,7 @@ export class LocalAdapter implements StorageAdapter {
     data: ReadableStream<Uint8Array>,
   ): Promise<Entry> {
     await this.ensureRoot();
-    const clean = assertValidName(name);
+    const clean = assertUserName(name);
     const parentRel = idToRel(parentId);
     const parentStat = await stat(absOf(parentRel)).catch(() => null);
     if (!parentStat?.isDirectory())
