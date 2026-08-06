@@ -13,7 +13,9 @@ import { pathToFileURL } from "node:url";
 const ENV_PATH = path.resolve(process.cwd(), ".env.local");
 const PORT = 53682;
 const REDIRECT = `http://127.0.0.1:${PORT}/callback`;
-const SCOPE = "https://www.googleapis.com/auth/drive.file";
+// drive.file: 이 앱이 만든 파일만 접근 / openid·email: 주인이 누구인지 확인해 관리자로 등록
+const SCOPE =
+  "https://www.googleapis.com/auth/drive.file openid email profile";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 
 function newSessionSecret() {
@@ -177,6 +179,27 @@ async function main() {
     process.exit(1);
   }
 
+  // 드라이브 주인이 곧 관리자다. 이 이메일로 로그인하면 자동 승인되고 관리 화면이 열린다.
+  let adminEmails = fileEnv["ADMIN_EMAILS"] || "";
+  if (!adminEmails) {
+    const meRes = await fetch(
+      "https://openidconnect.googleapis.com/v1/userinfo",
+      { headers: { Authorization: `Bearer ${tok.access_token}` } },
+    );
+    if (meRes.ok) {
+      const me = await meRes.json();
+      if (me.email) {
+        adminEmails = me.email;
+        console.log("관리자로 등록:", me.email);
+      }
+    }
+    if (!adminEmails) {
+      console.warn(
+        "경고: 관리자 이메일을 확인하지 못했습니다 — .env.local의 ADMIN_EMAILS를 직접 채우세요",
+      );
+    }
+  }
+
   let rootId = get("DRIVE_ROOT_FOLDER_ID");
   if (rootId) {
     console.log("기존 루트 폴더를 그대로 사용합니다:", rootId);
@@ -200,13 +223,9 @@ async function main() {
     console.log("드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:", rootId);
   }
 
-  let accessKeys = fileEnv["ACCESS_KEYS"] || "";
-  let generatedKey = null;
-  if (!accessKeys) {
-    // 추측 공격을 견디도록 충분히 길게 (96비트).
-    generatedKey = "sd-" + randomBytes(12).toString("base64url");
-    accessKeys = generatedKey;
-  }
+  // 기본 입장 경로는 구글 로그인 + 관리자 승인이다. 키는 자동 생성하지 않고,
+  // 손님용 임시 입장이 필요할 때만 ACCESS_KEYS에 직접 적어 넣는다.
+  const accessKeys = fileEnv["ACCESS_KEYS"] || "";
   let sessionSecret = fileEnv["SESSION_SECRET"] || "";
   if (sessionSecret.length < 16) {
     sessionSecret = newSessionSecret();
@@ -214,6 +233,7 @@ async function main() {
 
   const merged = mergeEnv(raw, {
     ACCESS_KEYS: accessKeys,
+    ADMIN_EMAILS: adminEmails,
     SESSION_SECRET: sessionSecret,
     STORAGE_DRIVER: "drive",
     GOOGLE_CLIENT_ID: clientId,
@@ -226,8 +246,12 @@ async function main() {
   console.log("\n=== 설정 완료 ===");
   console.log(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)");
   console.log("루트 폴더 ID:", rootId);
-  if (generatedKey) console.log("생성된 접속 키:", generatedKey);
-  console.log("\n다음 단계: npm run dev 실행 후 http://localhost:3000 에서 키로 입장하세요.");
+  console.log("\n다음 단계:");
+  console.log("  1. 구글 클라우드 콘솔의 OAuth 클라이언트에 아래 리디렉션 URI를 추가하세요:");
+  console.log("     http://localhost:3000/api/auth/google/callback");
+  console.log("     (배포 후에는 https://도메인/api/auth/google/callback 도 추가)");
+  console.log("  2. npm run dev 실행 → http://localhost:3000 에서 구글 로그인");
+  console.log("  3. 다른 사람이 로그인하면 /admin 화면에서 승인하세요.");
 }
 
 const invokedDirectly =

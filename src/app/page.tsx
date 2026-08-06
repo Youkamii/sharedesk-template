@@ -1,80 +1,63 @@
-"use client";
+import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { COOKIE_NAME, resolveSession } from "@/lib/auth";
+import { getAccessKeys } from "@/lib/session-token";
+import KeyForm from "./KeyForm";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+const ERRORS: Record<string, string> = {
+  denied: "구글 로그인이 취소되었습니다.",
+  state: "로그인 요청이 유효하지 않습니다. 다시 시도해 주세요.",
+  token: "구글 인증에 실패했습니다.",
+  userinfo: "계정 정보를 가져오지 못했습니다.",
+  profile: "이메일이 확인되지 않은 계정입니다.",
+  unconfigured: "구글 로그인이 아직 설정되지 않았습니다.",
+  invalid: "로그인 요청이 유효하지 않습니다.",
+};
 
-export default function Home() {
-  const router = useRouter();
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const autoTried = useRef(false);
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const session = await resolveSession((await cookies()).get(COOKIE_NAME)?.value);
+  if (session) redirect("/files");
 
-  async function submitKey(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: trimmed }),
-      });
-      if (res.ok) {
-        router.replace("/files");
-        return;
-      }
-      setError("키가 올바르지 않습니다.");
-    } catch {
-      setError("서버에 연결할 수 없습니다.");
-    }
-    setBusy(false);
-  }
-
-  useEffect(() => {
-    const urlKey = new URLSearchParams(window.location.search).get("key");
-    if (urlKey && !autoTried.current) {
-      autoTried.current = true;
-      setKey(urlKey);
-      void submitKey(urlKey);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { error } = await searchParams;
+  const keyLoginEnabled = getAccessKeys().length > 0;
 
   return (
     <main className="flex flex-1 items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          키를 입력하면 공유 드라이브가 열립니다.
+          구글 계정으로 로그인하면 관리자 승인 후 공유 드라이브가 열립니다.
         </p>
-        <form
-          className="mt-6 flex flex-col gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitKey(key);
-          }}
+
+        {error && (
+          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+            {ERRORS[error] ?? "로그인에 실패했습니다."}
+          </p>
+        )}
+
+        <Link
+          href="/api/auth/google"
+          prefetch={false}
+          className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
         >
-          <input
-            type="password"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder="접속 키"
-            autoFocus
-            className="rounded-lg border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
-          />
-          <button
-            type="submit"
-            disabled={busy || !key.trim()}
-            className="rounded-lg bg-foreground py-2 font-medium text-background transition-opacity disabled:opacity-40"
-          >
-            {busy ? "확인 중..." : "입장"}
-          </button>
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-          )}
-        </form>
+          구글 계정으로 로그인
+        </Link>
+
+        {keyLoginEnabled && (
+          <>
+            <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
+              <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+              또는 손님용 키
+              <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+            </div>
+            <KeyForm />
+          </>
+        )}
       </div>
     </main>
   );

@@ -1,134 +1,101 @@
-// 세션 토큰 서명/검증 — edge(proxy)와 Node(route) 양쪽에서 돌아야 하므로 Web Crypto만 사용한다.
+// 세션의 현재 유효성을 판정한다 (Node 런타임 전용 — 명단 조회가 저장소를 쓴다).
+//
+// 토큰은 서명된 자기완결 토큰(JWT와 동등한 구조)이지만, 검증 때 "이 사람이 아직
+// 승인 상태인가"를 반드시 조회한다. 조회 없이 토큰만 믿으면 관리자가 승인을 취소해도
+// 이미 발급된 세션이 만료까지 살아남는다 — 이 제품에서 실제로 겪은 결함이다(#1).
+// 그래서 만료는 길게 두고(90일), 끊는 책임은 명단 조회가 진다.
 
-const enc = new TextEncoder();
+import { findUserById, isAdminEmail } from "@/lib/users";
+import {
+  Payload,
+  getAccessKeys,
+  openSigned,
+  sha256Hex,
+  signPayload,
+} from "@/lib/session-token";
 
-export const COOKIE_NAME = "sharedesk_session";
-export const MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
-// 서버 간 시계 오차 허용치. 이보다 미래의 iat는 위조로 본다.
-const CLOCK_SKEW_SECONDS = 300;
+export { COOKIE_NAME, MAX_AGE_SECONDS } from "@/lib/session-token";
 
-function toB64Url(bytes: Uint8Array): string {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+export interface SessionInfo {
+  userId: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
+  isGuest: boolean;
 }
 
-function fromB64Url(s: string): Uint8Array<ArrayBuffer> | null {
-  try {
-    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  } catch {
-    return null;
-  }
+export async function createUserSession(userId: string): Promise<string> {
+  const payload: Payload = {
+    t: "user",
+    sub: userId,
+    iat: Math.floor(Date.now() / 1000),
+  };
+  return signPayload(payload);
 }
 
-export function getAccessKeys(): string[] {
-  return (process.env.ACCESS_KEYS ?? "")
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean);
+export async function createKeySession(keyHash: string): Promise<string> {
+  const payload: Payload = {
+    t: "key",
+    k: keyHash.slice(0, 32),
+    iat: Math.floor(Date.now() / 1000),
+  };
+  return signPayload(payload);
 }
 
-// SESSION_SECRET이 없으면 등록된 키에서 파생한다 — 키를 아는 사람은 이미 접근 권한이
-// 있으므로 개발 환경에선 안전한 폴백이다. 키마저 없으면 파생할 비밀이 없다는 뜻이라
-// 예외를 던져 fail-closed로 간다 (상수 비밀로 열리는 것을 막는다).
-function secretMaterial(): string {
-  const s = process.env.SESSION_SECRET;
-  if (s && s.length >= 16) return s;
-  const keys = getAccessKeys();
-  if (keys.length === 0) {
-    throw new Error(
-      "ACCESS_KEYS와 SESSION_SECRET이 모두 비어 있습니다 — 인증을 구성할 수 없습니다",
-    );
-  }
-  return "sharedesk-derived:" + keys.join(",");
-}
+// fresh: 명단 캐시를 건너뛰고 최신 상태를 읽는다. 화면 진입 판정처럼 "차단이 즉시
+// 반영되어야 하는" 자리에서 쓴다. 파일 API처럼 잦은 호출은 캐시를 그대로 쓴다.
+export async function resolveSession(
+  token: string | undefined | null,
+  opts?: { fresh?: boolean },
+): Promise<SessionInfo | null> {
+  const claims = await openSigned(token);
+  if (!claims) return null;
 
-let cached: { material: string; key: Promise<CryptoKey> } | null = null;
-function getHmacKey(): Promise<CryptoKey> {
-  const material = secretMaterial();
-  if (!cached || cached.material !== material) {
-    cached = {
-      material,
-      key: crypto.subtle.importKey(
-        "raw",
-        enc.encode(material),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign", "verify"],
-      ),
+  if (claims.t === "user") {
+    const user = await findUserById(claims.sub, opts);
+    if (!user || user.status !== "approved") return null;
+    // 관리자가 세션을 폐기했으면 그 시점 이전 토큰은 전부 무효.
+    if (claims.iat * 1000 < user.sessionsValidFrom) return null;
+    return {
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      // 관리자 판정은 명단 파일이 아니라 환경변수를 진실 원천으로 삼는다.
+      // 저장소의 users.json이 어떤 이유로든 바뀌어도 권한이 따라 올라가지 않는다.
+      isAdmin: isAdminEmail(user.email),
+      isGuest: false,
     };
   }
-  return cached.key;
-}
 
-async function sha256Hex(s: string): Promise<string> {
-  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)));
-  return Array.from(d, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-// 어떤 키로 입장했는지를 지문으로 남긴다. 주인이 ACCESS_KEYS에서 키를 빼면
-// 그 키로 발급된 세션은 다음 요청에서 즉시 무효가 된다.
-function keyFingerprint(keyHash: string): string {
-  return keyHash.slice(0, 32);
-}
-
-export async function createSessionToken(keyHash: string): Promise<string> {
-  const payload = enc.encode(
-    JSON.stringify({
-      k: keyFingerprint(keyHash),
-      iat: Math.floor(Date.now() / 1000),
-    }),
-  );
-  const sig = new Uint8Array(
-    await crypto.subtle.sign("HMAC", await getHmacKey(), payload),
-  );
-  return `${toB64Url(payload)}.${toB64Url(sig)}`;
-}
-
-export async function verifySessionToken(
-  token: string | undefined | null,
-): Promise<boolean> {
-  if (!token) return false;
-  const dot = token.indexOf(".");
-  if (dot < 0) return false;
-  const payload = fromB64Url(token.slice(0, dot));
-  const sig = fromB64Url(token.slice(dot + 1));
-  if (!payload || !sig) return false;
-
-  let hmacKey: CryptoKey;
-  try {
-    hmacKey = await getHmacKey();
-  } catch {
-    return false;
-  }
-  if (!(await crypto.subtle.verify("HMAC", hmacKey, sig, payload))) {
-    return false;
-  }
-
-  let claims: { k?: unknown; iat?: unknown };
-  try {
-    claims = JSON.parse(new TextDecoder().decode(payload));
-  } catch {
-    return false;
-  }
-  const { k, iat } = claims;
-  if (typeof k !== "string" || typeof iat !== "number") return false;
-
-  const now = Date.now() / 1000;
-  if (iat > now + CLOCK_SKEW_SECONDS) return false;
-  if (iat + MAX_AGE_SECONDS <= now) return false;
-
+  // 키 세션: 그 키가 아직 ACCESS_KEYS에 남아 있어야 유효.
   for (const key of getAccessKeys()) {
-    if (keyFingerprint(await sha256Hex(key)) === k) return true;
+    if ((await sha256Hex(key)).slice(0, 32) === claims.k) {
+      return {
+        userId: "key:" + claims.k.slice(0, 8),
+        email: "",
+        name: "손님",
+        isAdmin: false,
+        isGuest: true,
+      };
+    }
   }
-  return false;
+  return null;
+}
+
+// 승인 여부와 무관하게 "이 토큰의 주인이 누구인가"만 알아낸다.
+// 승인 대기 화면이 본인 이름을 보여주는 용도이며, 접근 허용에는 쓰지 않는다.
+export async function resolveIdentity(
+  token: string | undefined | null,
+): Promise<{ email: string; name: string; status: string } | null> {
+  const claims = await openSigned(token);
+  if (!claims || claims.t !== "user") return null;
+  const user = await findUserById(claims.sub, { fresh: true });
+  if (!user) return null;
+  if (claims.iat * 1000 < user.sessionsValidFrom) return null;
+  return { email: user.email, name: user.name, status: user.status };
 }
 
 // 문자열 직접 비교 대신 해시끼리 비교해 타이밍 누출을 막는다.
-// 성공 시 그 키의 해시를 돌려준다 (세션 지문 재료).
 export async function matchKey(submitted: string): Promise<string | null> {
   const target = await sha256Hex(submitted);
   let matched: string | null = null;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import { COOKIE_NAME, SessionInfo, resolveSession } from "@/lib/auth";
 import { StorageError, StorageErrorCode } from "@/lib/storage/types";
 
 const STATUS: Record<StorageErrorCode, number> = {
@@ -22,10 +22,39 @@ export function errorResponse(e: unknown) {
   return NextResponse.json({ error: "서버 오류가 발생했습니다" }, { status: 500 });
 }
 
-// 심층 방어: proxy가 이미 걸러주지만, matcher 오타나 파일 규약 변경 한 번이면
-// 방어선이 통째로 사라진다. 각 핸들러가 자기 힘으로도 세션을 확인한다.
-export async function requireSession(): Promise<NextResponse | null> {
-  const token = (await cookies()).get(COOKIE_NAME)?.value;
-  if (await verifySessionToken(token)) return null;
-  return NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 });
+export async function getSession(): Promise<SessionInfo | null> {
+  return resolveSession((await cookies()).get(COOKIE_NAME)?.value);
+}
+
+// 최종 판정. proxy가 이미 서명을 걸렀지만, 승인 취소·차단 반영은 여기서만 일어난다.
+// matcher 오타나 파일 규약 변경으로 proxy가 통째로 빠져도 이 검사가 남는다.
+export async function requireSession(): Promise<
+  { session: SessionInfo } | { response: NextResponse }
+> {
+  const session = await getSession();
+  if (!session) {
+    return {
+      response: NextResponse.json(
+        { error: "인증이 필요합니다" },
+        { status: 401 },
+      ),
+    };
+  }
+  return { session };
+}
+
+export async function requireAdmin(): Promise<
+  { session: SessionInfo } | { response: NextResponse }
+> {
+  const result = await requireSession();
+  if ("response" in result) return result;
+  if (!result.session.isAdmin) {
+    return {
+      response: NextResponse.json(
+        { error: "관리자만 사용할 수 있습니다" },
+        { status: 403 },
+      ),
+    };
+  }
+  return result;
 }

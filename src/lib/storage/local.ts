@@ -1,5 +1,13 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readdir, rename as fsRename, rm, stat } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename as fsRename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
@@ -7,6 +15,7 @@ import {
   DownloadResult,
   Entry,
   ROOT_ID,
+  STATE_DIR,
   StorageAdapter,
   StorageError,
   UploadSession,
@@ -94,7 +103,9 @@ export class LocalAdapter implements StorageAdapter {
         toEntry(joinRel(rel, d.name), d.name).catch(() => null),
       ),
     );
-    const entries = settled.filter((e): e is Entry => e !== null);
+    const entries = settled
+      .filter((e): e is Entry => e !== null)
+      .filter((e) => !e.name.startsWith("."));
     entries.sort((a, b) =>
       a.isFolder === b.isFolder
         ? a.name.localeCompare(b.name, "ko")
@@ -205,5 +216,24 @@ export class LocalAdapter implements StorageAdapter {
 
   async createUploadSession(): Promise<UploadSession> {
     return { mode: "proxy" };
+  }
+
+  async readState<T>(name: string): Promise<T | null> {
+    const abs = absOf(joinRel(STATE_DIR, assertValidName(name)));
+    try {
+      return JSON.parse(await readFile(abs, "utf8")) as T;
+    } catch (e) {
+      if (isNoEnt(e)) return null;
+      throw e;
+    }
+  }
+
+  async writeState(name: string, value: unknown): Promise<void> {
+    const rel = joinRel(STATE_DIR, assertValidName(name));
+    await mkdir(absOf(STATE_DIR), { recursive: true });
+    // 쓰다 죽어도 반쪽 파일이 남지 않도록 임시 파일에 쓰고 교체한다.
+    const tmp = absOf(rel + ".tmp");
+    await writeFile(tmp, JSON.stringify(value, null, 2), "utf8");
+    await fsRename(tmp, absOf(rel));
   }
 }

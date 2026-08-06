@@ -2,6 +2,7 @@ import {
   DownloadResult,
   Entry,
   ROOT_ID,
+  STATE_DIR,
   StorageAdapter,
   StorageError,
   UploadSession,
@@ -214,7 +215,8 @@ export class DriveAdapter implements StorageAdapter {
       files.push(...body.files);
       pageToken = body.nextPageToken;
     } while (pageToken);
-    return files.map(toEntry);
+    // 앱 내부 파일(.sharedesk 등)은 탐색기에 노출하지 않는다.
+    return files.filter((f) => !f.name.startsWith(".")).map(toEntry);
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
@@ -375,5 +377,93 @@ export class DriveAdapter implements StorageAdapter {
     await assertNameFree(parent, clean);
     const url = await this.initResumable(parent, clean, mimeType, size, origin);
     return { mode: "direct", url };
+  }
+
+  // --- 앱 상태 파일 (.sharedesk/*.json) ---
+
+  private stateDirId: string | null = null;
+  private stateFileIds = new Map<string, string>();
+
+  private async ensureStateDir(): Promise<string> {
+    if (this.stateDirId) return this.stateDirId;
+    const root = rootFolderId();
+    const params = new URLSearchParams({
+      q: `'${root}' in parents and name='${escapeQuery(STATE_DIR)}' and mimeType='${FOLDER_MIME}' and trashed=false`,
+      fields: "files(id)",
+      pageSize: "1",
+    });
+    const found = (await (await driveFetch(`${API}/files?${params}`)).json()) as {
+      files: DriveFile[];
+    };
+    if (found.files[0]) {
+      this.stateDirId = found.files[0].id;
+      return this.stateDirId;
+    }
+    const created = (await (
+      await driveFetch(`${API}/files?fields=id`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({
+          name: STATE_DIR,
+          mimeType: FOLDER_MIME,
+          parents: [root],
+        }),
+      })
+    ).json()) as DriveFile;
+    this.stateDirId = created.id;
+    return created.id;
+  }
+
+  private async findStateFile(name: string): Promise<string | null> {
+    const cached = this.stateFileIds.get(name);
+    if (cached) return cached;
+    const dir = await this.ensureStateDir();
+    const params = new URLSearchParams({
+      q: `'${dir}' in parents and name='${escapeQuery(name)}' and trashed=false`,
+      fields: "files(id)",
+      pageSize: "1",
+    });
+    const found = (await (await driveFetch(`${API}/files?${params}`)).json()) as {
+      files: DriveFile[];
+    };
+    const id = found.files[0]?.id ?? null;
+    if (id) this.stateFileIds.set(name, id);
+    return id;
+  }
+
+  async readState<T>(name: string): Promise<T | null> {
+    const clean = assertValidName(name);
+    const id = await this.findStateFile(clean);
+    if (!id) return null;
+    const res = await driveFetch(`${API}/files/${id}?alt=media`);
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new StorageError("UPSTREAM", `${clean}이 손상되었습니다`);
+    }
+  }
+
+  async writeState(name: string, value: unknown): Promise<void> {
+    const clean = assertValidName(name);
+    const body = JSON.stringify(value, null, 2);
+    let id = await this.findStateFile(clean);
+    if (!id) {
+      const dir = await this.ensureStateDir();
+      const created = (await (
+        await driveFetch(`${API}/files?fields=id`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=UTF-8" },
+          body: JSON.stringify({ name: clean, parents: [dir] }),
+        })
+      ).json()) as DriveFile;
+      id = created.id;
+      this.stateFileIds.set(clean, id);
+    }
+    await driveFetch(`${UPLOAD_API}/files/${id}?uploadType=media`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body,
+    });
   }
 }

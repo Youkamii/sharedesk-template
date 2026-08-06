@@ -4,8 +4,8 @@ import { ROOT_ID } from "@/lib/storage/types";
 import { errorResponse, requireSession } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
-  const denied = await requireSession();
-  if (denied) return denied;
+  const auth = await requireSession();
+  if ("response" in auth) return auth.response;
   const parentId = req.nextUrl.searchParams.get("parentId") ?? ROOT_ID;
   const name = req.nextUrl.searchParams.get("name") ?? "";
   const mimeType =

@@ -1,4 +1,6 @@
 export const ROOT_ID = "root";
+// 앱 내부 파일이 담기는 폴더. 탐색기 목록에서는 숨긴다.
+export const STATE_DIR = ".sharedesk";
 
 export interface Entry {
   id: string;
@@ -52,6 +54,10 @@ export function assertValidName(name: string): string {
 
 export interface StorageAdapter {
   list(folderId: string): Promise<Entry[]>;
+  // 앱 상태(사용자 명단 등)를 루트 폴더 안 숨김 경로에 JSON으로 보관한다.
+  // 별도 DB를 두지 않고 저장소 자체를 쓰는 것이 이 제품의 전제다.
+  readState<T>(path: string): Promise<T | null>;
+  writeState(path: string, value: unknown): Promise<void>;
   createFolder(parentId: string, name: string): Promise<Entry>;
   rename(id: string, name: string): Promise<Entry>;
   remove(id: string): Promise<void>;

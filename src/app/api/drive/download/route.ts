@@ -3,8 +3,8 @@ import { getAdapter } from "@/lib/storage";
 import { errorResponse, requireSession } from "@/lib/api";
 
 export async function GET(req: NextRequest) {
-  const denied = await requireSession();
-  if (denied) return denied;
+  const auth = await requireSession();
+  if ("response" in auth) return auth.response;
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "id가 필요합니다" }, { status: 400 });

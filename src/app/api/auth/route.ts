@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   COOKIE_NAME,
   MAX_AGE_SECONDS,
-  createSessionToken,
+  createKeySession,
   matchKey,
 } from "@/lib/auth";
+import { getAccessKeys } from "@/lib/session-token";
 
-// 접속 키가 유일한 인증 요소라 무제한 추측을 막는다. 인스턴스 메모리 기반이라
-// 서버리스에서는 인스턴스별로 적용된다 — 완전한 차단이 아니라 속도 제한이 목적.
+// 접속 키 입장 — ACCESS_KEYS가 설정된 경우에만 열린다(임시 손님용).
+// 기본 경로는 구글 로그인 + 관리자 승인이다.
+
 const MAX_KEY_LENGTH = 256;
 const WINDOW_MS = 60_000;
 const MAX_ATTEMPTS = 10;
@@ -33,6 +35,12 @@ function clientIp(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
+  if (getAccessKeys().length === 0) {
+    return NextResponse.json(
+      { ok: false, error: "키 입장이 꺼져 있습니다" },
+      { status: 404 },
+    );
+  }
   if (tooManyAttempts(clientIp(req))) {
     return NextResponse.json(
       { ok: false, error: "시도가 너무 많습니다. 잠시 후 다시 시도하세요" },
@@ -52,7 +60,7 @@ export async function POST(req: NextRequest) {
     );
   }
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, await createSessionToken(keyHash), {
+  res.cookies.set(COOKIE_NAME, await createKeySession(keyHash), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
