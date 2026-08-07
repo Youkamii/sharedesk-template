@@ -37,6 +37,9 @@ yarn-error.log*
 # 로컬 dev 스토리지
 /.devstorage
 
+# setup 진행 중 임시 상태 (state/PKCE)
+/.setup-pending.json
+
 # vercel
 .vercel
 

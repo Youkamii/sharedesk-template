@@ -3,14 +3,16 @@
 // OAuth 동의 → refresh token 획득 → 드라이브에 루트 폴더 생성 → .env.local 기록.
 // 브라우저를 자동으로 열지 않는다: URL을 출력하면 사용자가 직접 연다.
 
-import { createServer } from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ENV_PATH = path.resolve(process.cwd(), ".env.local");
+// 1단계가 만든 state/PKCE를 2단계가 이어받는다. 콜백을 기다리는 서버를 띄우지 않으므로
+// 장시간 대기 프로세스가 필요 없다 — 대기 중 프로세스가 죽어 설정이 날아가던 문제를 없앤다.
+const PENDING_PATH = path.resolve(process.cwd(), ".setup-pending.json");
 const PORT = 53682;
 const REDIRECT = `http://127.0.0.1:${PORT}/callback`;
 // drive.file: 이 앱이 만든 파일만 접근 / openid·email: 주인이 누구인지 확인해 관리자로 등록
@@ -80,84 +82,92 @@ async function main() {
     process.exit(1);
   }
 
-  // state와 PKCE로 콜백 위조를 막는다 (RFC 8252 §8.1/§8.9).
-  // 이게 없으면 setup이 대기하는 동안 다른 탭이 127.0.0.1 콜백에 남의 code를 밀어넣어
-  // 공격자 드라이브의 토큰이 .env.local에 박힐 수 있다.
-  const state = randomBytes(16).toString("base64url");
-  const codeVerifier = randomBytes(32).toString("base64url");
-  const codeChallenge = createHash("sha256")
-    .update(codeVerifier)
-    .digest("base64url");
+  const finishArg = process.argv.indexOf("--finish");
+  const isFinish = finishArg >= 0;
 
-  const authUrl =
-    "https://accounts.google.com/o/oauth2/v2/auth?" +
-    new URLSearchParams({
-      client_id: clientId,
-      redirect_uri: REDIRECT,
-      response_type: "code",
-      scope: SCOPE,
-      access_type: "offline",
-      prompt: "consent",
-      state,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-    });
+  // --- 1단계: 인증 URL 생성 ---
+  if (!isFinish) {
+    // state와 PKCE로 콜백 위조를 막는다 (RFC 8252 §8.1/§8.9).
+    const state = randomBytes(16).toString("base64url");
+    const codeVerifier = randomBytes(32).toString("base64url");
+    const codeChallenge = createHash("sha256")
+      .update(codeVerifier)
+      .digest("base64url");
 
-  if (process.argv.includes("--check")) {
-    console.log("[check] 환경 점검 통과. 인증 URL:");
-    console.log(authUrl);
+    const authUrl =
+      "https://accounts.google.com/o/oauth2/v2/auth?" +
+      new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: REDIRECT,
+        response_type: "code",
+        scope: SCOPE,
+        access_type: "offline",
+        prompt: "consent",
+        state,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+
+    if (process.argv.includes("--check")) {
+      console.log("[check] 환경 점검 통과. 인증 URL:");
+      console.log(authUrl);
+      return;
+    }
+
+    await writeFile(
+      PENDING_PATH,
+      JSON.stringify({ state, codeVerifier, createdAt: Date.now() }, null, 2),
+      "utf8",
+    );
+
+    console.log("1) 아래 URL을 브라우저에서 열어 구글 계정으로 로그인하고 동의하세요:\n");
+    console.log(authUrl + "\n");
+    console.log("2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서");
+    console.log("   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.");
+    console.log("   그때 주소창의 주소 전체를 복사하세요.\n");
+    console.log("3) 복사한 주소로 아래 명령을 실행하면 설정이 끝납니다:\n");
+    console.log('   npm run setup -- --finish "<복사한 주소>"');
     return;
   }
 
-  console.log("아래 URL을 브라우저에서 열어 구글 계정으로 로그인하고 동의하세요:\n");
-  console.log(authUrl + "\n");
-  console.log(`동의가 끝나면 자동으로 돌아옵니다 (127.0.0.1:${PORT} 대기 중, Ctrl+C로 중단)...`);
+  // --- 2단계: 붙여넣은 콜백 주소로 토큰 교환 ---
+  if (!existsSync(PENDING_PATH)) {
+    console.error("진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.");
+    process.exit(1);
+  }
+  const pending = JSON.parse(await readFile(PENDING_PATH, "utf8"));
+  const { state, codeVerifier } = pending;
 
-  const code = await new Promise((resolve, reject) => {
-    const server = createServer((req, res) => {
-      const u = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
-      if (u.pathname !== "/callback") {
-        res.writeHead(404);
-        res.end();
-        return;
-      }
-      const err = u.searchParams.get("error");
-      const c = u.searchParams.get("code");
-      const gotState = u.searchParams.get("state") ?? "";
-      const stateOk =
-        gotState.length === state.length &&
-        timingSafeEqual(Buffer.from(gotState), Buffer.from(state));
-      const ok = !err && c && stateOk;
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(
-        ok
-          ? "<h3>인증 완료 — 이 창을 닫고 터미널로 돌아가세요.</h3>"
-          : "<h3>인증이 거부되었습니다. 터미널을 확인하세요.</h3>",
-      );
-      server.close();
-      if (!ok) {
-        reject(
-          new Error(
-            err
-              ? "동의가 거부되었습니다: " + err
-              : !c
-                ? "code가 없습니다"
-                : "state 불일치 — 위조된 콜백일 수 있습니다",
-          ),
-        );
-      } else {
-        resolve(c);
-      }
-    });
-    server.on("error", (e) =>
-      reject(
-        e.code === "EADDRINUSE"
-          ? new Error(`포트 ${PORT}가 사용 중입니다 — 이전 setup이 떠 있는지 확인하세요`)
-          : e,
-      ),
-    );
-    server.listen(PORT, "127.0.0.1");
-  });
+  const pasted = process.argv[finishArg + 1];
+  if (!pasted) {
+    console.error('사용법: npm run setup -- --finish "<복사한 주소>"');
+    process.exit(1);
+  }
+  let callbackUrl;
+  try {
+    callbackUrl = new URL(pasted.trim());
+  } catch {
+    console.error("주소 형식이 올바르지 않습니다:", pasted.slice(0, 60));
+    process.exit(1);
+  }
+  const err = callbackUrl.searchParams.get("error");
+  if (err) {
+    console.error("동의가 거부되었습니다:", err);
+    process.exit(1);
+  }
+  const code = callbackUrl.searchParams.get("code");
+  const gotState = callbackUrl.searchParams.get("state") ?? "";
+  if (!code) {
+    console.error("주소에 code가 없습니다 — 동의 후 이동한 주소 전체를 붙여넣었는지 확인하세요.");
+    process.exit(1);
+  }
+  if (
+    gotState.length !== state.length ||
+    !timingSafeEqual(Buffer.from(gotState), Buffer.from(state))
+  ) {
+    console.error("state가 일치하지 않습니다 — 이 설정 회차의 주소가 아닙니다.");
+    process.exit(1);
+  }
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -246,6 +256,8 @@ async function main() {
     DRIVE_ROOT_FOLDER_ID: rootId,
   });
   await writeFile(ENV_PATH, merged, "utf8");
+  // 인증 코드는 한 번만 쓰이므로 남겨둘 이유가 없다.
+  await unlink(PENDING_PATH).catch(() => {});
 
   console.log("\n=== 설정 완료 ===");
   console.log(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)");
