@@ -44,6 +44,27 @@ test("README는 설치 문서로 짧게 안내하고 데스크 생성과 참여�
   );
 });
 
+test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
+  const [readme, design, screenshot] = await Promise.all([
+    readFile(new URL("README.md", root), "utf8"),
+    readFile(new URL("DESIGN.md", root), "utf8"),
+    readFile(new URL("docs/sharedesk-desktop.png", root)),
+  ]);
+
+  assert.match(
+    readme,
+    /!\[오른쪽 아래에 고정된 휴지통과 열린 폴더 창이 보이는 ShareDesk 바탕화면\]\(\.\/docs\/sharedesk-desktop\.png\)/,
+  );
+  assert.match(readme, /작업표시줄 버튼이 아니라 바탕화면에 따로 고정/);
+  assert.match(readme, /열린 창보다 뒤에 놓여 작업 중인 창을 가리지 않습니다/);
+  assert.match(design, /화면 오른쪽 아래에 고정하고 작업표시줄에는 넣지 않는다/);
+  assert.match(design, /작업표시줄에는 휴지통 버튼을 두지 않는다/);
+
+  assert.deepEqual([...screenshot.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(screenshot.readUInt32BE(16), 1_280);
+  assert.equal(screenshot.readUInt32BE(20), 720);
+});
+
 test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한곳에 둔다", async () => {
   const install = await readFile(new URL("docs/INSTALL.md", root), "utf8");
 
@@ -111,6 +132,11 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   );
   assert.match(verificationSection, /호스트 Google 계정으로 로그인/);
   assert.match(verificationSection, /`\/files`에서 테스트 폴더를 만들고 새로고침 뒤에도 남는지/);
+  assert.match(
+    verificationSection,
+    /화면 오른쪽 아래의 휴지통 아이콘을 눌러 휴지통 창을 열고, 폴더를 복원/,
+  );
+  assert.match(verificationSection, /열린 창과 겹칠 때 창 뒤로 가려지는지/);
   assert.match(verificationSection, /`\/admin`이 열리는지/);
   assert.match(verificationSection, /1회용[\s\S]*기간 내 무제한/);
 

@@ -154,6 +154,31 @@ const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
 
+function TrashCanIcon() {
+  return (
+    <svg
+      className={styles.trashLauncherGlyph}
+      viewBox="0 0 32 36"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M9 14H29L27 36H11Z" fill="#0a1020" />
+      <path d="M7 12H27L25 34H9Z" fill="#1b1b2f" />
+      <path d="M10 15H24L22 31H12Z" fill="#aab4a7" />
+      <path d="M12 15H15L14 29H12Z" fill="#eef1dc" />
+      <path d="M17 15H19V29H17Z" fill="#65756f" />
+      <path d="M21 15H23L22 29H20Z" fill="#65756f" />
+      <path d="M12 29H22V31H12Z" fill="#7f8f86" />
+      <path d="M5 8H29V14H3V10H5Z" fill="#0a1020" />
+      <path d="M3 6H27V8H29V12H1V8H3Z" fill="#1b1b2f" />
+      <path d="M5 8H25V10H3V8Z" fill="#d9dfcf" />
+      <path d="M11 0H21V2H23V6H19V4H13V6H9V2H11Z" fill="#1b1b2f" />
+      <path d="M13 2H19V4H13Z" fill="#eef1dc" />
+    </svg>
+  );
+}
+
 function blankFolder(loading = true): FolderData {
   return {
     entries: [],
@@ -3189,10 +3214,7 @@ export default function FilesView({
         aria-label="휴지통 열기"
         onClick={openTrash}
       >
-        <span
-          className={`${styles.trashGlyph} ${styles.trashLauncherGlyph}`}
-          aria-hidden="true"
-        />
+        <TrashCanIcon />
         <span>휴지통</span>
       </button>
 
