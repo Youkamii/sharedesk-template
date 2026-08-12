@@ -1,0 +1,36 @@
+{
+  "name": "sharedesk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "tsx --test tests/invitations.test.ts tests/device-sessions.test.ts tests/admin-invitations-api.test.ts tests/drive-sharing.test.ts tests/setup-state.test.ts tests/desktop-layout.test.ts tests/files-move-ui.test.ts tests/public-origin.test.ts tests/own-desk-onboarding.test.ts tests/onboarding-docs.test.ts",
+    "test:drive-operations": "node --env-file=.env.local --import tsx scripts/verify-drive-operations.ts --live",
+    "test:drive-preview": "node --env-file=.env.local --import tsx scripts/verify-drive-preview.ts --live",
+    "test:drive-sharing": "node --env-file=.env.local --import tsx scripts/verify-drive-sharing.ts --live",
+    "setup": "node scripts/setup.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.0",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  }
+}
