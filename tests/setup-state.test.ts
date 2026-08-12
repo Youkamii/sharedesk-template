@@ -413,6 +413,8 @@ test("setup은 생성 직후 동명 상태 파일이 늘어나도 중단한다",
 });
 
 test("setup 안내는 현재 Google Auth Platform 단계와 실제 OAuth 값을 빠짐없이 보여준다", () => {
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /1차 배포/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /고정 Production 도메인/);
   for (const page of ["Branding", "Audience", "Data Access", "Clients"]) {
     assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, new RegExp(page));
   }
@@ -457,13 +459,19 @@ test("setup 시작과 finish에서 재사용하는 callback 경고는 공유 금
   assert.match(CALLBACK_URL_SECURITY_WARNING, /이 컴퓨터의 터미널에만/);
 });
 
-test("setup 완료 안내는 초대 링크와 고정 Vercel Production 배포 흐름을 안내한다", () => {
+test("setup 완료 안내는 독립 데스크의 Vercel 배포와 이후 초대를 구분한다", () => {
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /독립 ShareDesk 하나/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /다른 사람의 ShareDesk와.*섞이지 않습니다/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/admin/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /1회용 초대 링크/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /지정된 Google 계정/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /고정 Production 도메인/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Preview URL/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /PUBLIC_BASE_URL=/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /VERCEL_PROJECT_PRODUCTION_URL/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Automatically expose System Environment Variables/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /OAuth를 따로 발급받지 않습니다/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /템플릿으로 별도 설치/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Redeploy/);
   assert.doesNotMatch(SETUP_COMPLETION_NEXT_STEPS, /다른 사람이 로그인하면.*승인/);
 });

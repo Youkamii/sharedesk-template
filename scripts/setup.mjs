@@ -44,6 +44,8 @@ export const CALLBACK_URL_SECURITY_WARNING = [
 ].join("\n");
 export const GOOGLE_AUTH_PLATFORM_GUIDANCE = [
   "Google Cloud Console에서 ShareDesk용 프로젝트를 선택한 뒤 아래 순서대로 설정하세요:",
+  "  0. 운영 배포라면 먼저 README의 '내 ShareDesk 만들기'에서 내 저장소와 Vercel 프로젝트를 만들고",
+  "     비밀값 없는 1차 배포로 고정 Production 도메인을 확인합니다.",
   "  1. APIs & Services > Library에서 Google Drive API를 사용 설정합니다.",
   "  2. Google Auth Platform > Branding에서 앱 이름, 사용자 지원 이메일, 개발자 연락처를 입력합니다.",
   "  3. Google Auth Platform > Audience에서 User type을 External로 정합니다.",
@@ -68,16 +70,23 @@ export const GOOGLE_AUTH_PLATFORM_GUIDANCE = [
   "     .env.local의 GOOGLE_CLIENT_ID와 GOOGLE_CLIENT_SECRET에 두 값을 넣고 setup을 다시 실행합니다.",
 ].join("\n");
 export const SETUP_COMPLETION_NEXT_STEPS = [
+  "이 setup은 이 저장소와 배포에 연결되는 독립 ShareDesk 하나를 준비했습니다.",
+  "다른 사람의 ShareDesk와 OAuth, Drive, 사용자 정보가 섞이지 않습니다.",
   "다음 단계:",
   "  1. npm run dev 실행 → http://localhost:3000 에서 호스트 Google 계정으로 로그인하세요.",
-  "  2. /admin에서 받을 사람의 이름과 Google 이메일을 지정해 1회용 초대 링크를 만드세요.",
-  "     링크를 받은 사람은 지정된 Google 계정으로 로그인해야 합니다.",
-  "  3. Vercel에서는 커밋별 Preview URL이 아닌 고정 Production 도메인을 정하세요.",
-  "  4. PUBLIC_BASE_URL=https://<고정된-운영-도메인>으로 설정하고,",
-  "     Google Auth Platform > Clients에 아래 운영 redirect URI를 등록하세요:",
+  "  2. 내 Vercel 프로젝트의 Production 환경에 .env.local의 운영 필수 값을 안전하게 옮기세요.",
+  "     비밀값을 채팅이나 명령 인자에 출력하지 마세요.",
+  "  3. Vercel의 고정 Production 도메인은 VERCEL_PROJECT_PRODUCTION_URL을 자동으로 사용합니다.",
+  "     Vercel Settings > Environment Variables에서 Automatically expose System Environment Variables를 켜세요.",
+  "     사용자 지정 도메인은 PUBLIC_BASE_URL=https://<고정된-운영-도메인>으로 고정하세요.",
+  "  4. Google Auth Platform > Clients에 아래 운영 redirect URI가 있는지 확인하세요:",
   "     https://<고정된-운영-도메인>/api/auth/google/callback",
+  "     커밋별 Preview URL은 등록하지 않습니다.",
   "  5. Vercel Production 환경 변수를 저장하거나 바꾼 뒤에는 반드시 Redeploy하세요.",
   "     환경 변수 변경은 이미 만들어진 배포에 자동으로 반영되지 않습니다.",
+  "  6. 운영 확인 뒤 /admin에서 받을 사람의 이름과 Google 이메일로 1회용 초대 링크를 만드세요.",
+  "     링크를 받은 사람은 지정된 Google 계정으로 로그인하며 OAuth를 따로 발급받지 않습니다.",
+  "     자기 데스크가 필요한 사람은 ShareDesk 템플릿으로 별도 설치를 진행합니다.",
 ].join("\n");
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const STATE_DIR = ".sharedesk";

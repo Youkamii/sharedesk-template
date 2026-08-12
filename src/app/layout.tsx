@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ShareDesk — 함께 쓰는 바탕화면",
-  description: "파일과 폴더를 같은 책상 위에 놓고 쓰는 도트 스타일 공유 바탕화면",
+  title: "ShareDesk — 내 Google Drive로 만드는 공유 바탕화면",
+  description: "내 Google Drive와 내 배포로 만드는 독립형 도트 스타일 공유 바탕화면",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

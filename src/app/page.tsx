@@ -5,6 +5,19 @@ import { COOKIE_NAME, resolveSession } from "@/lib/auth";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
 
+const CREATE_DESK_URL =
+  "https://github.com/Youkamii/sharedesk-template#내-sharedesk-만들기";
+
+const GOOGLE_LOGIN_ENV = [
+  "ADMIN_EMAILS",
+  "SESSION_SECRET",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REFRESH_TOKEN",
+  "DRIVE_ROOT_FOLDER_ID",
+  "DRIVE_STATE_FOLDER_ID",
+] as const;
+
 const ERRORS: Record<string, string> = {
   denied: "구글 로그인이 취소되었습니다.",
   state: "로그인 요청이 유효하지 않습니다. 다시 시도해 주세요.",
@@ -31,15 +44,29 @@ export default async function Home({
 
   const { error } = await searchParams;
   const keyLoginEnabled = getAccessKeys().length > 0;
+  const googleLoginEnabled =
+    process.env.STORAGE_DRIVER === "drive" &&
+    GOOGLE_LOGIN_ENV.every((name) => Boolean(process.env[name]?.trim()));
 
   return (
     <main className="flex flex-1 items-center justify-center p-6">
       <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          기존 사용자는 Google 계정으로 로그인하고, 처음 이용하는 사람은 관리자가
-          만든 초대 링크로 시작합니다.
-        </p>
+        {googleLoginEnabled ? (
+          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+            기존 사용자는 Google 계정으로 로그인하고, 처음 이용하는 사람은
+            관리자가 만든 초대 링크로 시작합니다.
+          </p>
+        ) : keyLoginEnabled ? (
+          <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+            OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.
+          </p>
+        ) : (
+          <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+            이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google
+            OAuth와 Drive 연결을 마쳐 주세요.
+          </p>
+        )}
 
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
@@ -47,24 +74,56 @@ export default async function Home({
           </p>
         )}
 
-        <Link
-          href="/api/auth/google"
-          prefetch={false}
-          className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
-        >
-          구글 계정으로 로그인
-        </Link>
+        {googleLoginEnabled ? (
+          <Link
+            href="/api/auth/google"
+            prefetch={false}
+            className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
+          >
+            구글 계정으로 로그인
+          </Link>
+        ) : !keyLoginEnabled ? (
+          <a
+            href={CREATE_DESK_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-6 flex items-center justify-center rounded-lg bg-foreground py-2.5 font-medium text-background"
+          >
+            설치 안내 열기
+          </a>
+        ) : null}
 
         {keyLoginEnabled && (
           <>
-            <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
-              <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
-              또는 손님용 키
-              <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+            {googleLoginEnabled && (
+              <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
+                <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+                또는 손님용 키
+                <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
+              </div>
+            )}
+            <div className={googleLoginEnabled ? "" : "mt-6"}>
+              <KeyForm />
             </div>
-            <KeyForm />
           </>
         )}
+
+        <section className="mt-6 border-t border-black/10 pt-6 dark:border-white/15">
+          <p className="text-sm font-medium">나만의 데스크가 필요한가요?</p>
+          <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+            이곳은 이미 만들어진 하나의 ShareDesk입니다. 아래에서 시작하면 내
+            계정의 별도 배포와 Google Drive를 쓰는 독립된 데스크를 만들 수
+            있습니다.
+          </p>
+          <a
+            href={CREATE_DESK_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 flex items-center justify-center rounded-lg border border-black/15 py-2.5 font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+          >
+            내 ShareDesk 만들기
+          </a>
+        </section>
       </div>
     </main>
   );

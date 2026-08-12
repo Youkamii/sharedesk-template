@@ -1,16 +1,55 @@
 # ShareDesk
 
-Google Drive 폴더 하나를 여러 사람이 함께 쓰는 도트 스타일 바탕화면으로 바꿔 주는 웹앱입니다. 파일과 폴더를 아이콘처럼 배치하고 창을 열어 미리 보거나 정리하는 구조입니다. 아이콘 위치와 파일 변경 내용은 참여자 모두에게 공유됩니다.
+내 Google Drive로 만드는 독립형 공유 파일 데스크입니다. 파일과 폴더를 아이콘처럼 배치하고 창을 열어 미리 보거나 정리할 수 있습니다.
+
+ShareDesk는 모두가 한 운영 서버에 가입하는 서비스가 아닙니다. 설치할 때마다 **내 GitHub 저장소, 내 Vercel 프로젝트, 내 Google OAuth 클라이언트, 내 Drive 폴더**가 따로 생깁니다. 다른 사람이 만든 ShareDesk와 파일·사용자·초대 정보가 섞이지 않습니다.
 
 ![ShareDesk에서 폴더와 파일을 바탕화면처럼 정리한 화면](./docs/sharedesk-desktop.png)
 
-> 처음 설치한다면 [AI에게 설치 맡기기](#ai에게-설치-맡기기)부터 시작하세요. 직접 진행하려면 [OAuth 없이 로컬에서 실행하기](#oauth-없이-로컬에서-실행하기) 또는 [운영 설치](#운영-설치)를 따라가면 됩니다.
+| 하고 싶은 일 | 시작 방법 |
+|---|---|
+| 내 ShareDesk 만들기 | [아래 만들기 안내](#내-sharedesk-만들기)에서 내 저장소와 Vercel 프로젝트를 만든 뒤 내 Google Drive를 연결합니다. |
+| 다른 사람의 ShareDesk 참여하기 | 관리자가 보낸 초대 링크를 열고 지정된 Google 계정으로 로그인합니다. OAuth나 Vercel 설정은 필요 없습니다. |
 
-빠른 링크: [AI에게 맡기기](#ai에게-설치-맡기기) · [OAuth 없이 실행](#oauth-없이-로컬에서-실행하기) · [Google OAuth 발급](#1-google-cloud-프로젝트-만들기) · [Vercel 배포](#4-vercel에-배포) · [문제 해결](#문제-해결)
+빠른 링크: [내 데스크 만들기](#내-sharedesk-만들기) · [AI에게 맡기기](#ai에게-설치-맡기기) · [OAuth 없이 실행](#oauth-없이-로컬에서-실행하기) · [Google OAuth 발급](#1-google-cloud-프로젝트-만들기) · [문제 해결](#문제-해결)
+
+## 내 ShareDesk 만들기
+
+가장 짧게 설치하려면 Vercel이 원본을 내 Git 계정에 복사하고 첫 배포까지 만들게 한 다음, 아래 프롬프트를 코딩 에이전트에게 맡기세요.
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk)
+
+첫 배포에는 아직 Google 비밀값이 없으므로 로그인할 수 없는 것이 정상입니다. 이 단계에서는 내 저장소, 내 Vercel 프로젝트, 고정 Production 주소부터 얻습니다. 템플릿만 먼저 복사하려면 [Use this template](https://github.com/Youkamii/sharedesk-template/generate)을 사용하세요.
+
+그다음 로컬 저장소와 터미널을 다룰 수 있는 코딩 에이전트에게 아래 내용을 그대로 보내세요.
+
+```text
+이 저장소를 바탕으로 내 Google Drive를 쓰는 독립 ShareDesk를 실제 Vercel 운영 주소까지 배포해줘. 목표는 로컬 데모가 아니라 공개 URL에서 호스트 로그인과 파일 생성이 실제로 되는 상태야.
+
+- README.md와 package.json을 먼저 읽고 현재 Git 원격, 로그인된 GitHub 계정, Vercel 계정을 확인해.
+- Youkamii/sharedesk-template 원본 저장소와 제작자의 Vercel 프로젝트는 수정하지 마. 내 계정에 새 저장소와 새 Vercel 프로젝트를 만들어 사용해.
+- 아직 없다면 먼저 비밀값 없이 Vercel에 1차 배포해 고정 Production URL을 확보해. 이때 로그인이 아직 안 되는 것은 정상이라고 알려줘.
+- 그 URL을 기준으로 Google Cloud의 Drive API, Branding, Audience, Data Access, Web application OAuth client를 설정하도록 안내해.
+- Google Cloud Console 로그인, 계정 선택, 동의처럼 내가 해야 하는 화면에서는 멈추고 현재 화면에서 누를 메뉴와 정확히 입력할 값을 한 단계씩 알려줘.
+- OAuth redirect URI에는 README의 로컬 주소 두 개와 `https://내-운영-도메인/api/auth/google/callback`을 정확히 등록해.
+- 기존 OAuth 클라이언트가 있다면 실제 설정을 먼저 확인해. 정상인 Audience 상태나 refresh token을 추측으로 바꾸거나 폐기하지 마.
+- `npm run setup -- --prepare-env`, `npm run setup`, `npm run setup -- --finish`를 순서대로 진행해.
+- GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN, callback URL의 일회용 code, .env.local 내용은 채팅·화면·명령 인자·로그에 출력하지 마. 비밀값은 내 로컬 파일이나 내 Vercel 환경 변수에만 저장해.
+- setup이 만든 운영 필수 환경 변수를 내 Vercel 프로젝트의 Production 환경에 넣고 Redeploy해.
+- 마지막에는 운영 URL에서 호스트 Google 로그인, /files 폴더 생성, 새로고침 뒤 유지, /admin 접근을 실제로 확인해.
+- 초대받아 참여하는 사람과 자기 ShareDesk를 새로 만드는 사람의 절차를 구분해서 보고해.
+- 완료 보고에는 내 저장소 URL, 운영 URL, 확인한 항목, 아직 사람이 직접 확인해야 할 항목만 적고 비밀값은 적지 마.
+
+이 요청은 내 새 저장소 생성·push와 내 Vercel 프로젝트 배포를 허용한다. 원본 저장소나 다른 사람의 프로젝트 변경은 허용하지 않는다.
+```
+
+이 과정이 끝나면 그 운영 주소는 내 독립 ShareDesk입니다. 그 안에서 사람을 초대할 수는 있지만 초대받은 사람에게 새 데스크가 생기지는 않습니다. 자기 데스크가 필요한 사람은 같은 템플릿으로 별도 설치를 진행하면 됩니다.
 
 ## AI에게 설치 맡기기
 
 처음 설치한다면 아래 절차를 처음부터 직접 읽을 필요는 없습니다. 이 저장소를 열고 터미널 명령을 실행할 수 있는 코딩 에이전트에게 맡기세요. AI는 저장소와 현재 환경을 확인한 뒤, 직접 처리할 수 있는 명령과 파일 작업을 진행합니다. Google 로그인이나 Cloud Console 선택처럼 본인이 해야 하는 단계에서는 멈춰서 현재 화면에서 눌러야 할 곳을 설명해 달라고 하면 됩니다.
+
+내 저장소 생성부터 실제 Vercel 배포까지 맡기려면 위의 [내 ShareDesk 만들기](#내-sharedesk-만들기) 프롬프트를 사용하세요. 아래 두 프롬프트는 로컬 화면 확인과 로컬 Drive 연결까지만 진행합니다.
 
 일반 채팅 AI보다는 로컬 저장소와 터미널을 다룰 수 있는 코딩 에이전트가 알맞습니다. 다만 `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, 인증 코드가 붙은 callback URL, `.env.local` 내용은 채팅에 붙이지 마세요. AI가 비밀값을 화면이나 로그에 출력하지 않고 로컬 파일 또는 배포 환경 변수에만 저장하도록 요청해야 합니다.
 
@@ -33,7 +72,7 @@ Google Drive 폴더 하나를 여러 사람이 함께 쓰는 도트 스타일 �
 
 이 방법은 내 컴퓨터에서만 실행됩니다. 인터넷에서 접속할 수 있는 서비스가 생기는 것은 아닙니다.
 
-### 실제 Google Drive까지 연결할 때
+### 실제 Google Drive를 로컬에서 확인할 때
 
 아래 요청은 Google Cloud 설정부터 로컬 확인까지 이어서 진행하도록 구성했습니다.
 
@@ -80,13 +119,15 @@ AI가 Google 계정의 비밀번호나 OAuth 비밀값을 대신 알아낼 수�
 ## 어떻게 동작하나요?
 
 ```text
-호스트 Google 계정 ── 최초 1회 setup ──▶ Google Drive의 ShareDesk 폴더
-                                                ▲
-                                                │ Drive API
-관리자 ── 1회용 초대 링크 ──▶ 참여자 로그인 ──▶ ShareDesk 서버
+공개 ShareDesk 템플릿
+        ├──▶ A의 GitHub · Vercel · Google OAuth ──▶ A의 Drive ──▶ A의 독립 데스크
+        └──▶ B의 GitHub · Vercel · Google OAuth ──▶ B의 Drive ──▶ B의 독립 데스크
+
+각 데스크의 관리자 ── 1회용 초대 링크 ──▶ 그 데스크의 참여자
 ```
 
-- Google Drive에 연결하는 계정은 호스트 한 명입니다. 참여자는 호스트의 Drive 용량을 함께 쓰며 자기 Drive 용량은 사용하지 않습니다.
+- **배포 1개가 독립 데스크 1개입니다.** 배포마다 OAuth 비밀값, Drive 루트, 사용자·초대 상태가 따로 있으며 다른 배포와 공유하지 않습니다.
+- 한 데스크에서 Google Drive에 연결하는 계정은 호스트 한 명입니다. 그 데스크의 참여자는 호스트의 Drive 용량을 함께 쓰며 자기 Drive 용량은 사용하지 않습니다.
 - 별도 데이터베이스는 없습니다. 사용자, 초대, 공유 권한, 아이콘 배치는 Drive의 `ShareDesk/.sharedesk/` 폴더에 저장합니다.
 - 브라우저만으로 동작하는 앱은 아닙니다. refresh token을 안전하게 보관하고 Drive API를 호출할 Next.js 서버 또는 Vercel 서버리스 환경이 필요합니다.
 - 호스트 설정은 `drive.file` 권한을 요청합니다. 이 권한은 앱이 만들었거나 사용자가 명시적으로 접근을 허용한 파일에 한정됩니다. ShareDesk는 여기에 자체 루트 폴더 경계 검사도 적용합니다.
@@ -106,8 +147,8 @@ Google Cloud 설정 전에 UI와 파일 작업을 확인하는 개발 모드입�
 ### 실행
 
 ```powershell
-git clone https://github.com/Youkamii/sharedesk.git
-cd sharedesk
+git clone https://github.com/Youkamii/sharedesk-template.git
+cd sharedesk-template
 npm ci
 npm run setup -- --prepare-env
 ```
@@ -137,11 +178,29 @@ npm run dev
 
 운영 설치는 다음 순서로 진행합니다.
 
-1. Google Cloud 프로젝트와 OAuth 클라이언트를 만드세요.
-2. 로컬에서 `npm run setup`을 실행해 호스트 Drive를 연결하세요.
+0. 원본을 내 Git 계정에 복사하고 Vercel에 1차 배포해 고정 Production 주소를 얻으세요.
+1. 그 주소로 Google Cloud 프로젝트와 OAuth 클라이언트를 설정하세요.
+2. 내 저장소를 로컬에 받아 `npm run setup`으로 호스트 Drive를 연결하세요.
 3. 로컬 로그인이 되는지 확인하세요.
-4. Vercel의 고정 운영 주소를 Google OAuth와 환경 변수에 등록하세요.
-5. `/admin`에서 참여자별 초대 링크를 만드세요.
+4. setup이 만든 환경 변수를 Vercel에 넣고 다시 배포하세요.
+5. 운영 확인 뒤 `/admin`에서 참여자별 초대 링크를 만드세요.
+
+## 0. 내 저장소와 운영 주소 만들기
+
+[Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk)을 열어 내 Git 계정에 새 저장소를 만들고 Vercel 프로젝트를 배포하세요. 원본 `Youkamii/sharedesk-template`이나 제작자의 Vercel 프로젝트를 직접 수정하는 단계가 아닙니다.
+
+환경 변수는 아직 비워 둬도 됩니다. 첫 배포에서는 다음 두 주소를 확보합니다.
+
+- 내 Git 저장소 주소: 예) `https://github.com/내-계정/my-sharedesk`
+- 고정 Production 주소: 예) `https://my-sharedesk.vercel.app`
+
+로그인 버튼 대신 설치 안내가 보이면 정상입니다. 커밋마다 달라지는 Preview 주소나 긴 배포 주소가 아니라, 프로젝트에 계속 붙어 있는 짧은 Production 주소를 기록하세요. 이후 Google OAuth에는 다음 콜백을 등록합니다.
+
+```text
+https://my-sharedesk.vercel.app/api/auth/google/callback
+```
+
+Vercel을 쓰지 않는다면 [Use this template](https://github.com/Youkamii/sharedesk-template/generate)로 내 저장소를 먼저 만든 뒤, 고정 HTTPS 주소를 제공하는 Next.js 호스팅 환경에 배포해도 됩니다.
 
 ## 1. Google Cloud 프로젝트 만들기
 
@@ -202,20 +261,15 @@ https://www.googleapis.com/auth/drive.file
 1. Application type은 **Web application**을 선택하세요. Desktop app을 고르면 운영 웹 주소를 같은 클라이언트에 연결할 수 없습니다.
 2. 이름은 알아보기 쉽게 정하세요. 예: `ShareDesk web`
 3. **Authorized JavaScript origins는 비워 두세요.** ShareDesk는 Google JavaScript SDK를 사용하지 않습니다.
-4. **Authorized redirect URIs**에 아래 두 주소를 정확히 등록하세요.
+4. **Authorized redirect URIs**에 아래 세 주소를 정확히 등록하세요.
 
 ```text
 http://127.0.0.1:53682/callback
 http://localhost:3000/api/auth/google/callback
+https://my-sharedesk.vercel.app/api/auth/google/callback
 ```
 
-고정 운영 도메인이 이미 있다면 세 번째 주소도 추가하세요.
-
-```text
-https://sharedesk.example.com/api/auth/google/callback
-```
-
-`sharedesk.example.com`은 실제 운영 도메인으로 바꾸세요. Vercel의 커밋별 Preview URL은 주소가 바뀌므로 등록하지 않습니다.
+`my-sharedesk.vercel.app`은 0단계에서 얻은 실제 Production 도메인으로 바꾸세요. Vercel의 커밋별 Preview URL은 주소가 바뀌므로 등록하지 않습니다.
 
 기존 클라이언트와 운영 주소가 있다면 새 클라이언트를 만들지 마세요. 현재 주소가 목록에 있는지 확인하고, 빠진 운영 callback만 추가하면 됩니다.
 
@@ -232,14 +286,16 @@ Client secret은 생성 직후에만 화면에 보일 수 있습니다. 공개 �
 
 ### 2-1. 로컬 환경 파일 준비
 
-저장소를 아직 받지 않았다면 먼저 설치하세요.
+0단계에서 만든 **내 저장소**를 로컬에 받으세요.
 
 ```powershell
-git clone https://github.com/Youkamii/sharedesk.git
-cd sharedesk
+git clone https://github.com/<내-GitHub-계정>/my-sharedesk.git
+cd my-sharedesk
 npm ci
 npm run setup -- --prepare-env
 ```
+
+`git remote -v`로 내 저장소가 `origin`인지 확인하세요. 원본 저장소를 직접 clone해 설정하면 내 저장소의 자동 배포와 이어지지 않습니다.
 
 `--prepare-env`는 기존 `.env.local`을 절대 덮어쓰지 않습니다. 파일이 없으면 먼저 소유자 전용으로 잠근 뒤 `.env.example` 내용을 채웁니다. 이미 있으면 내용은 그대로 둔 채 권한만 확인합니다. Windows에서는 현재 사용자만 접근할 수 있게 합니다. macOS와 Linux에서는 `0600`으로 맞춥니다. 권한 설정이나 확인에 실패하면 비밀값을 쓰지 않고 중단합니다.
 
@@ -304,11 +360,9 @@ npm run dev
 
 ## 4. Vercel에 배포
 
-### 4-1. 고정 운영 주소 정하기
+### 4-1. 기존 Vercel 프로젝트로 돌아가기
 
-GitHub 저장소를 Vercel 프로젝트로 가져오세요. Vercel이 제공한 고정 Production 주소(예: `https://my-sharedesk.vercel.app`)를 쓰거나 직접 연결한 도메인을 사용하세요.
-
-커밋마다 달라지는 Preview URL은 OAuth 운영 주소로 쓰지 않습니다. 처음 설치하는 경우 Google 비밀값도 Production 환경에만 넣는 편이 단순합니다.
+0단계에서 만든 내 Vercel 프로젝트를 여세요. 기본 `*.vercel.app` Production 주소를 그대로 쓰거나 직접 연결한 고정 도메인을 사용할 수 있습니다. 커밋마다 달라지는 Preview URL은 OAuth 운영 주소로 쓰지 않습니다.
 
 ### 4-2. Google 클라이언트에 운영 콜백 추가
 
@@ -331,14 +385,14 @@ Vercel 프로젝트의 `Settings` → `Environment Variables`에서 아래 값�
 | `ADMIN_EMAILS` | 관리자 Google 이메일. 여러 명이면 쉼표로 구분 |
 | `SESSION_SECRET` | setup이 만든 긴 무작위 값 |
 | `STORAGE_DRIVER` | `drive` |
-| `PUBLIC_BASE_URL` | `https://실제-운영-도메인` |
+| `PUBLIC_BASE_URL` | 사용자 지정 도메인을 쓸 때 `https://실제-운영-도메인`. 기본 Vercel 주소만 쓰면 생략 가능 |
 | `GOOGLE_CLIENT_ID` | Google OAuth Client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Client secret |
 | `GOOGLE_REFRESH_TOKEN` | setup이 발급받은 호스트 refresh token |
 | `DRIVE_ROOT_FOLDER_ID` | setup이 만든 ShareDesk 폴더 ID |
 | `DRIVE_STATE_FOLDER_ID` | setup이 만든 `.sharedesk` 폴더 ID |
 
-`PUBLIC_BASE_URL`에는 origin만 입력합니다. 경로, 끝 슬래시, `/api/auth/google/callback`, Vercel Preview URL을 붙이지 마세요. 이 값은 OAuth 콜백뿐 아니라 초대 링크 주소에도 사용합니다.
+ShareDesk는 `PUBLIC_BASE_URL`이 없으면 Vercel의 `VERCEL_PROJECT_PRODUCTION_URL`을 사용합니다. Vercel 프로젝트의 `Settings` → `Environment Variables`에서 **Automatically expose System Environment Variables**가 켜져 있어야 합니다. 사용자 지정 도메인을 고정하거나 시스템 환경 변수를 노출하지 않을 때는 `PUBLIC_BASE_URL`을 직접 입력하세요. 값에는 origin만 넣고 경로, 끝 슬래시, `/api/auth/google/callback`, Preview URL은 붙이지 않습니다.
 
 `ACCESS_KEYS`는 임시 손님용 키 로그인을 쓸 때만 추가합니다. `LOCAL_STORAGE_ROOT`와 `SHAREDESK_SHARE_TEST_EMAIL`은 운영 배포에 넣지 않습니다. 비밀값에 `NEXT_PUBLIC_` 접두사를 붙이면 브라우저에 공개될 위험이 있으므로 사용하지 마세요.
 
@@ -423,7 +477,7 @@ Google Client secret을 교체했거나 refresh token을 다시 받아야 한다
 | `ADMIN_EMAILS` | 운영 필수 | 관리자 Google 이메일. 여러 개면 쉼표로 구분합니다. |
 | `SESSION_SECRET` | 필수 | 로그인 쿠키 서명 비밀입니다. 16자 이상이어야 하며 setup이 안전한 값을 만듭니다. |
 | `STORAGE_DRIVER` | 필수 | 운영은 `drive`, OAuth 없는 개발은 `local`입니다. |
-| `PUBLIC_BASE_URL` | 운영 필수 | 고정 운영 origin입니다. 경로와 끝 슬래시를 넣지 않습니다. |
+| `PUBLIC_BASE_URL` | 조건부 | 사용자 지정 도메인을 고정하거나 Vercel 시스템 환경 변수를 쓰지 않을 때 입력하는 고정 운영 origin입니다. |
 | `GOOGLE_CLIENT_ID` | Drive/로그인 필수 | Web application 유형의 OAuth Client ID입니다. |
 | `GOOGLE_CLIENT_SECRET` | Drive/로그인 필수 | OAuth Client secret입니다. |
 | `GOOGLE_REFRESH_TOKEN` | Drive 필수 | setup이 받은 호스트의 오프라인 토큰입니다. |
@@ -500,4 +554,4 @@ Drive 모드에서는 `ShareDesk/.sharedesk/`에 다음 상태를 둡니다.
 
 변경 전 `npm test`, `npm run lint`, `npm run build`를 실행해 주세요. 버그를 제보할 때는 재현 순서와 브라우저·Node.js 버전을 적되, `.env.local`, OAuth 콜백 주소, 토큰, Client secret은 절대 첨부하지 마세요.
 
-현재 저장소에는 별도 라이선스 파일이 없습니다. 재사용이나 배포 조건이 필요하면 저장소 관리자에게 먼저 확인하세요.
+코드는 [MIT License](./LICENSE)로 배포합니다. 함께 제공되는 Galmuri 글꼴은 [SIL Open Font License 1.1](./public/fonts/Galmuri-LICENSE.txt)을 따릅니다.

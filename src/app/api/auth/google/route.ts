@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "node:crypto";
+import { resolvePublicOrigin } from "@/lib/public-origin";
 
 // 구글 로그인 시작 — 동의 화면으로 보낸다.
 // state와 PKCE 검증값은 짧은 수명의 httpOnly 쿠키에 담아 콜백에서 대조한다.
@@ -12,11 +13,7 @@ export const LOGIN_OAUTH_SCOPES = [
 ];
 
 export function loginRedirectUri(req: NextRequest): string {
-  const configured = process.env.PUBLIC_BASE_URL?.trim();
-  const origin = configured
-    ? configured.replace(/\/$/, "")
-    : req.nextUrl.origin;
-  return `${origin}/api/auth/google/callback`;
+  return `${resolvePublicOrigin(req.nextUrl.origin)}/api/auth/google/callback`;
 }
 
 export async function GET(req: NextRequest) {

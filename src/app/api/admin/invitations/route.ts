@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
 import { createInvitationToken } from "@/lib/invite-token";
+import { resolvePublicOrigin } from "@/lib/public-origin";
 import {
   Invitation,
   createInvitation,
@@ -9,16 +10,11 @@ import {
   updateInvitation,
 } from "@/lib/users";
 
-function publicOrigin(req: NextRequest): string {
-  const configured = process.env.PUBLIC_BASE_URL?.trim();
-  return configured ? configured.replace(/\/$/, "") : req.nextUrl.origin;
-}
-
 function toSummary(req: NextRequest, invitation: Invitation) {
   const { tokenVersion, ...safe } = invitation;
   const link = invitation.usedAt
     ? null
-    : `${publicOrigin(req)}/i/${createInvitationToken({
+    : `${resolvePublicOrigin(req.nextUrl.origin)}/i/${createInvitationToken({
         id: invitation.id,
         tokenVersion,
       })}`;
