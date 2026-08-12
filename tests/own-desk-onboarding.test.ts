@@ -11,14 +11,55 @@ test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들�
   assert.match(source, /href="\/api\/auth\/google"/);
   assert.match(
     source,
-    /처음 이용하는 사람은[\s\S]*?관리자가[\s\S]*?초대 링크로 시작합니다/,
+    /Google 계정으로 먼저 로그인[\s\S]*?처음 이용하는 분은[\s\S]*?로그인 후[\s\S]*?초대 코드를 입력합니다/,
   );
+  assert.match(source, /Google로 계속하기/);
+  assert.match(source, /resolveIdentity/);
+  assert.match(source, /identity\?\.status === "pending"[\s\S]*?redirect\("\/join"\)/);
   assert.match(source, /내 ShareDesk 만들기/);
   assert.match(source, /내[\s\S]*?별도 배포와 Google Drive를 쓰는 독립된 데스크/);
   assert.match(
     source,
     /https:\/\/github\.com\/Youkamii\/sharedesk-template#내-sharedesk-만들기/,
   );
+});
+
+test("신규 사용자는 로그인한 뒤 기간제 초대 코드로 가입한다", async () => {
+  const [pageSource, formSource, apiSource, filesSource, adminSource] = await Promise.all([
+    readFile(new URL("../src/app/join/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/join/JoinCodeForm.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/api/invitations/code/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/admin/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(pageSource, /resolveIdentity/);
+  assert.match(pageSource, /me\.status === "approved"[\s\S]*?redirect\("\/files"\)/);
+  assert.match(pageSource, /기간제 초대 코드/);
+  assert.match(
+    formSource,
+    /<form[\s\S]*?action="\/api\/invitations\/code"[\s\S]*?method="post"/,
+  );
+  assert.match(formSource, /name="code"/);
+  assert.match(formSource, /autoComplete="off"/);
+  assert.match(formSource, /maxLength=\{96\}/);
+  assert.match(formSource, /placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"/);
+  assert.match(
+    apiSource,
+    /if \(!checked\.ok\) return redirect\(req, "\/join", checked\.reason\)/,
+  );
+  assert.match(
+    apiSource,
+    /if \(!redeemed\.ok\) return redirect\(req, "\/join", redeemed\.reason\)/,
+  );
+  assert.match(filesSource, /identity\?\.status === "pending"[\s\S]*?"\/join"/);
+  assert.match(adminSource, /identity\?\.status === "pending"[\s\S]*?"\/join"/);
 });
 
 test("OAuth를 아직 설정하지 않은 새 배포는 실패하는 로그인 링크를 감춘다", async () => {

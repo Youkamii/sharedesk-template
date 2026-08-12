@@ -57,6 +57,23 @@ test("기기별 세션을 개별·전체 폐기하고 오래된 명단을 안전
             },
           ],
         },
+        {
+          id: "pending-sub",
+          email: "pending@example.com",
+          name: "승인 대기 사용자",
+          status: "pending",
+          isAdmin: false,
+          createdAt: "2025-01-01T00:00:00.000Z",
+          sessionsValidFrom: 0,
+          sessionVersion: 0,
+          sessions: [
+            {
+              id: "pending-session-00000000000000000000",
+              createdAt: "2025-01-01T01:00:00.000Z",
+              deviceLabel: "Chrome · Windows",
+            },
+          ],
+        },
       ],
     }),
     "utf8",
@@ -83,6 +100,26 @@ test("기기별 세션을 개별·전체 폐기하고 오래된 명단을 안전
     assert.ok(member);
     assert.deepEqual(member.sessions, [], "sessions 없는 예전 레코드를 빈 목록으로 읽는다");
 
+    const pending = normalized.find((user) => user.id === "pending-sub");
+    assert.ok(pending);
+    const pendingToken = await auth.createUserSession(
+      pending.id,
+      pending.sessionVersion,
+      pending.sessions[0].id,
+    );
+    assert.deepEqual(await auth.resolveIdentity(pendingToken), {
+      userId: pending.id,
+      email: pending.email,
+      name: pending.name,
+      status: "pending",
+      isAdmin: false,
+    });
+    assert.equal(
+      await auth.resolveSession(pendingToken, { fresh: true }),
+      null,
+      "승인 대기 토큰은 파일·관리자·API의 공통 세션 검사를 통과하지 못한다",
+    );
+
     const adminLogin = await users.loginWithGoogle({
       id: "admin-sub",
       email: "admin@example.com",
@@ -103,7 +140,6 @@ test("기기별 세션을 개별·전체 폐기하고 오래된 명단을 안전
 
     const chromeLogin = await users.loginWithGoogle(
       { id: member.id, email: member.email, name: member.name },
-      undefined,
       {
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36",
@@ -111,7 +147,6 @@ test("기기별 세션을 개별·전체 폐기하고 오래된 명단을 안전
     );
     const firefoxLogin = await users.loginWithGoogle(
       { id: member.id, email: member.email, name: member.name },
-      undefined,
       {
         userAgent:
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15) Firefox/141.0",

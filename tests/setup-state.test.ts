@@ -463,7 +463,7 @@ test("setup 완료 안내는 독립 데스크의 Vercel 배포와 이후 초대�
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /독립 ShareDesk 하나/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /다른 사람의 ShareDesk와.*섞이지 않습니다/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/admin/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /1회용 초대 링크/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /유효 기간.*1회용 초대 코드/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /지정된 Google 계정/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /고정 Production 도메인/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Preview URL/);

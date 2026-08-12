@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("초대 링크 생성·전환·1회 소비", async () => {
+test("기간제 초대 코드 생성·전환·1회 소비", async () => {
+  const originalDateNow = Date.now;
+  let fakeNow = originalDateNow();
+  Date.now = () => fakeNow;
   const root = await mkdtemp(path.join(tmpdir(), "sharedesk-invite-"));
   await mkdir(path.join(root, ".sharedesk"), { recursive: true });
   await writeFile(
     path.join(root, ".sharedesk", "users.json"),
     JSON.stringify({
-      version: 1,
+      version: 2,
       rev: 1,
       users: [
         {
@@ -21,6 +24,23 @@ test("초대 링크 생성·전환·1회 소비", async () => {
           isAdmin: true,
           createdAt: "2026-08-01T00:00:00.000Z",
           sessionsValidFrom: 0,
+        },
+      ],
+      invitations: [
+        {
+          id: "00000000-0000-4000-8000-000000000001",
+          recipientName: "예전 초대 사용자",
+          email: "legacy-expired@example.com",
+          note: "기간 필드가 없던 초대",
+          active: true,
+          tokenVersion: 1,
+          createdAt: new Date(fakeNow - 9 * 24 * 60 * 60_000).toISOString(),
+          updatedAt: new Date(fakeNow - 8 * 24 * 60 * 60_000).toISOString(),
+          createdByUserId: "admin-google-sub",
+          createdByEmail: "admin@example.com",
+          usedAt: null,
+          usedByUserId: null,
+          usedByEmail: null,
         },
       ],
     }),
@@ -34,6 +54,9 @@ test("초대 링크 생성·전환·1회 소비", async () => {
 
   const users = await import("@/lib/users");
   const tokens = await import("@/lib/invite-token");
+  const auth = await import("@/lib/auth");
+  const sessionTokens = await import("@/lib/session-token");
+  const { NextRequest } = await import("next/server");
 
   try {
     const migrated = await users.listUsers();
@@ -42,16 +65,38 @@ test("초대 링크 생성·전환·1회 소비", async () => {
     assert.equal(migrated[0].sessionVersion, 0, "기존 명단은 세션 버전 0으로 읽는다");
     assert.deepEqual(migrated[0].sessions, [], "기존 명단은 기기 세션 없이 읽는다");
 
+    const legacy = (await users.listInvitations({ fresh: true }))[0];
+    assert.equal(
+      legacy.durationMinutes,
+      users.LEGACY_INVITATION_DURATION_MINUTES,
+    );
+    assert.equal(
+      legacy.expiresAt,
+      new Date(
+        Date.parse(legacy.updatedAt) +
+          users.LEGACY_INVITATION_DURATION_MINUTES * 60_000,
+      ).toISOString(),
+      "기존 무기한 초대는 updatedAt부터 7일로 결정론적으로 바꾼다",
+    );
+    assert.deepEqual(
+      await users.findInvitation(
+        { id: legacy.id, tokenVersion: legacy.tokenVersion },
+        { fresh: true },
+      ),
+      { ok: false, reason: "invite_expired" },
+    );
+
     const directUnknown = await users.loginWithGoogle({
       id: "new-user",
       email: "new@example.com",
       name: "신규 사용자",
     });
-    assert.deepEqual(directUnknown, { ok: false, reason: "invite_required" });
+    assert.ok(directUnknown.ok);
+    assert.equal(directUnknown.user.status, "pending");
     assert.equal(
-      (await users.listUsers()).some((user) => user.id === "new-user"),
-      false,
-      "초대 없는 신규 로그인은 명단을 만들지 않는다",
+      (await users.findUserById("new-user", { fresh: true }))?.status,
+      "pending",
+      "Google 인증을 마친 신규 사용자는 코드 입력용 pending 세션을 갖는다",
     );
 
     const invitation = await users.createInvitation(
@@ -63,23 +108,380 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
+    assert.equal(
+      invitation.durationMinutes,
+      users.DEFAULT_INVITATION_DURATION_MINUTES,
+    );
+    assert.equal(
+      Date.parse(invitation.expiresAt) - Date.parse(invitation.createdAt),
+      users.DEFAULT_INVITATION_DURATION_MINUTES * 60_000,
+    );
+    await assert.rejects(
+      users.createInvitation(
+        {
+          recipientName: "너무 짧은 초대",
+          email: "too-short@example.com",
+          expiresInMinutes: 4,
+        },
+        { userId: "admin-google-sub", email: "admin@example.com" },
+      ),
+      /초대 기간/,
+    );
+    await assert.rejects(
+      users.createInvitation(
+        {
+          recipientName: "정수가 아닌 초대",
+          email: "fraction@example.com",
+          expiresInMinutes: 5.5,
+        },
+        { userId: "admin-google-sub", email: "admin@example.com" },
+      ),
+      /초대 기간/,
+    );
+    await assert.rejects(
+      users.createInvitation(
+        {
+          recipientName: "너무 긴 초대",
+          email: "too-long@example.com",
+          expiresInMinutes: users.MAX_INVITATION_DURATION_MINUTES + 1,
+        },
+        { userId: "admin-google-sub", email: "admin@example.com" },
+      ),
+      /초대 기간/,
+    );
     const ref = { id: invitation.id, tokenVersion: invitation.tokenVersion };
-    const token = tokens.createInvitationToken(ref);
-    assert.deepEqual(tokens.openInvitationToken(token), ref);
-    assert.equal(tokens.openInvitationToken(`${token}x`), null, "변조 링크는 거절한다");
+    const code = tokens.createInvitationCode(ref);
+    assert.match(code, /^(?:[A-HJ-NP-Z]{4}-){5}[A-HJ-NP-Z]{4}$/);
+    assert.equal(tokens.createInvitationCode(ref), code, "코드는 같은 초대 버전에서 결정적이다");
+    const noisyCode = `  ${code.toLowerCase().replaceAll("-", " - \n")}  `;
+    assert.equal(
+      tokens.normalizeInvitationCode(noisyCode),
+      code.replaceAll("-", ""),
+      "공백·하이픈·대소문자는 입력 편의를 위해 정규화한다",
+    );
+    assert.equal((await tokens.findInvitationByCode(noisyCode)).ok, true);
+    const compactCode = code.replaceAll("-", "");
+    const changedFirst = compactCode[0] === "A" ? "B" : "A";
+    assert.deepEqual(
+      await tokens.findInvitationByCode(changedFirst + compactCode.slice(1)),
+      { ok: false, reason: "invite_invalid" },
+      "한 글자 변조한 코드는 거절한다",
+    );
+    assert.equal(tokens.normalizeInvitationCode("A".repeat(97)), null);
+    assert.equal(
+      tokens.normalizeInvitationCode("ß".repeat(12)),
+      null,
+      "대문자 변환 때 길이가 늘어나는 비 ASCII 문자는 받지 않는다",
+    );
+    const storedAfterCreate = await readFile(
+      path.join(root, ".sharedesk", "users.json"),
+      "utf8",
+    );
+    const persisted = JSON.parse(storedAfterCreate) as {
+      invitations: Array<{
+        id: string;
+        durationMinutes?: number;
+        expiresAt?: string;
+      }>;
+    };
+    const persistedLegacy = persisted.invitations.find(
+      (item) => item.id === legacy.id,
+    );
+    assert.equal(
+      persistedLegacy?.durationMinutes,
+      users.LEGACY_INVITATION_DURATION_MINUTES,
+    );
+    assert.equal(persistedLegacy?.expiresAt, legacy.expiresAt);
+    assert.equal(storedAfterCreate.includes(code), false, "사람용 코드를 저장하지 않는다");
+    assert.equal(
+      storedAfterCreate.includes(process.env.SESSION_SECRET!),
+      false,
+      "코드 파생 비밀을 저장하지 않는다",
+    );
 
-    const mismatch = await users.loginWithGoogle(
+    const expiring = await users.createInvitation(
       {
-        id: "wrong-user",
-        email: "wrong@example.com",
-        name: "다른 사람",
+        recipientName: "곧 만료될 사용자",
+        email: "expires@example.com",
+        expiresInMinutes: 5,
       },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const expiringRef = {
+      id: expiring.id,
+      tokenVersion: expiring.tokenVersion,
+    };
+    fakeNow += 5 * 60_000;
+    assert.deepEqual(
+      await users.findInvitation(expiringRef, { fresh: true }),
+      { ok: false, reason: "invite_expired" },
+    );
+    const expiredPending = await users.loginWithGoogle({
+      id: "expired-user",
+      email: expiring.email,
+      name: "만료 사용자",
+    });
+    assert.ok(expiredPending.ok);
+    assert.deepEqual(
+      await users.redeemInvitationForUser(expiredPending.user.id, expiringRef),
+      { ok: false, reason: "invite_expired" },
+    );
+    assert.deepEqual(
+      await tokens.findInvitationByCode(
+        tokens.createInvitationCode(expiringRef),
+      ),
+      { ok: false, reason: "invite_expired" },
+    );
+
+    const pendingInvite = await users.createInvitation(
+      {
+        recipientName: directUnknown.user.name,
+        email: directUnknown.user.email,
+        expiresInMinutes: 60,
+      },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const pendingSessionToken = await auth.createUserSession(
+      directUnknown.user.id,
+      directUnknown.user.sessionVersion,
+      directUnknown.session.id,
+    );
+    const codeRoute = await import("@/app/api/invitations/code/route");
+    const formResponse = await codeRoute.POST(
+      new NextRequest("http://localhost:3000/api/invitations/code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `sharedesk_session=${pendingSessionToken}`,
+        },
+        body: new URLSearchParams({
+          code: tokens.createInvitationCode({
+            id: pendingInvite.id,
+            tokenVersion: pendingInvite.tokenVersion,
+          }),
+        }),
+      }),
+    );
+    assert.equal(formResponse.status, 303);
+    assert.equal(
+      new URL(formResponse.headers.get("location") ?? "").pathname,
+      "/files",
+    );
+    assert.equal(
+      (await users.findUserById(directUnknown.user.id, { fresh: true }))?.status,
+      "approved",
+    );
+    assert.ok(
+      await auth.resolveSession(pendingSessionToken, { fresh: true }),
+      "승인 전 세션은 코드 사용 직후 승인 세션으로 이어진다",
+    );
+    assert.deepEqual(
+      await users.findInvitation(
+        { id: pendingInvite.id, tokenVersion: pendingInvite.tokenVersion },
+        { fresh: true },
+      ),
+      { ok: false, reason: "invite_used" },
+    );
+
+    const jsonPending = await users.loginWithGoogle({
+      id: "json-pending-user",
+      email: "json-pending@example.com",
+      name: "JSON 가입 사용자",
+    });
+    assert.ok(jsonPending.ok);
+    const jsonInvite = await users.createInvitation(
+      {
+        recipientName: jsonPending.user.name,
+        email: jsonPending.user.email,
+      },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const jsonSessionToken = await auth.createUserSession(
+      jsonPending.user.id,
+      jsonPending.user.sessionVersion,
+      jsonPending.session.id,
+    );
+    const jsonResponse = await codeRoute.POST(
+      new NextRequest("http://localhost:3000/api/invitations/code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `sharedesk_session=${jsonSessionToken}`,
+        },
+        body: JSON.stringify({
+          code: tokens.createInvitationCode({
+            id: jsonInvite.id,
+            tokenVersion: jsonInvite.tokenVersion,
+          }),
+        }),
+      }),
+    );
+    assert.equal(jsonResponse.status, 303);
+    assert.equal(
+      new URL(jsonResponse.headers.get("location") ?? "").pathname,
+      "/files",
+      "JSON 코드 제출도 받는다",
+    );
+
+    const invalidPending = await users.loginWithGoogle({
+      id: "invalid-code-user",
+      email: "invalid-code@example.com",
+      name: "잘못된 코드 사용자",
+    });
+    assert.ok(invalidPending.ok);
+    const invalidSessionToken = await auth.createUserSession(
+      invalidPending.user.id,
+      invalidPending.user.sessionVersion,
+      invalidPending.session.id,
+    );
+    const invalidResponse = await codeRoute.POST(
+      new NextRequest("http://localhost:3000/api/invitations/code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `sharedesk_session=${invalidSessionToken}`,
+        },
+        body: new URLSearchParams({ code: "not-a-code" }),
+      }),
+    );
+    const invalidLocation = new URL(
+      invalidResponse.headers.get("location") ?? "",
+    );
+    assert.equal(invalidResponse.status, 303);
+    assert.equal(invalidLocation.pathname, "/join");
+    assert.equal(invalidLocation.searchParams.get("error"), "invite_invalid");
+    for (let attempt = 1; attempt < 10; attempt += 1) {
+      const repeatedInvalid = await codeRoute.POST(
+        new NextRequest("http://localhost:3000/api/invitations/code", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Cookie: `sharedesk_session=${invalidSessionToken}`,
+          },
+          body: new URLSearchParams({ code: "not-a-code" }),
+        }),
+      );
+      assert.equal(
+        new URL(repeatedInvalid.headers.get("location") ?? "").searchParams.get(
+          "error",
+        ),
+        "invite_invalid",
+      );
+    }
+    const rateLimited = await codeRoute.POST(
+      new NextRequest("http://localhost:3000/api/invitations/code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `sharedesk_session=${invalidSessionToken}`,
+        },
+        body: new URLSearchParams({ code: "not-a-code" }),
+      }),
+    );
+    assert.equal(
+      new URL(rateLimited.headers.get("location") ?? "").searchParams.get(
+        "error",
+      ),
+      "invite_rate_limited",
+      "한 사용자의 반복 코드 대입은 분당 상한에서 멈춘다",
+    );
+
+    const oversizedPending = await users.loginWithGoogle({
+      id: "oversized-code-user",
+      email: "oversized-code@example.com",
+      name: "큰 본문 사용자",
+    });
+    assert.ok(oversizedPending.ok);
+    const oversizedToken = await auth.createUserSession(
+      oversizedPending.user.id,
+      oversizedPending.user.sessionVersion,
+      oversizedPending.session.id,
+    );
+    const oversizedRequest = new NextRequest(
+      "http://localhost:3000/api/invitations/code",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `sharedesk_session=${oversizedToken}`,
+        },
+        body: JSON.stringify({ code: "A".repeat(5_000) }),
+      },
+    );
+    assert.equal(oversizedRequest.headers.get("content-length"), null);
+    const oversizedResponse = await codeRoute.POST(oversizedRequest);
+    assert.equal(
+      new URL(oversizedResponse.headers.get("location") ?? "").searchParams.get(
+        "error",
+      ),
+      "invite_invalid",
+      "Content-Length가 없어도 4KB를 넘는 본문은 코드로 읽지 않는다",
+    );
+
+    const mismatchInvite = await users.createInvitation(
+      {
+        recipientName: "다른 이메일 사용자",
+        email: "different-email@example.com",
+      },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const mismatchRef = {
+      id: mismatchInvite.id,
+      tokenVersion: mismatchInvite.tokenVersion,
+    };
+    assert.deepEqual(
+      await users.redeemInvitationForUser(invalidPending.user.id, mismatchRef),
+      { ok: false, reason: "invite_email_mismatch" },
+    );
+    assert.equal(
+      (await users.findInvitation(mismatchRef, { fresh: true })).ok,
+      true,
+      "이메일이 다른 코드 사용 실패는 초대를 소비하지 않는다",
+    );
+
+    const casPending = await users.loginWithGoogle({
+      id: "cas-pending-user",
+      email: "cas-pending@example.com",
+      name: "동시 가입 사용자",
+    });
+    assert.ok(casPending.ok);
+    const casInvite = await users.createInvitation(
+      {
+        recipientName: casPending.user.name,
+        email: casPending.user.email,
+      },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const casRef = {
+      id: casInvite.id,
+      tokenVersion: casInvite.tokenVersion,
+    };
+    const redemptions = await Promise.all([
+      users.redeemInvitationForUser(casPending.user.id, casRef),
+      users.redeemInvitationForUser(casPending.user.id, casRef),
+    ]);
+    assert.equal(redemptions.filter((result) => result.ok).length, 1);
+    assert.equal(
+      redemptions.filter((result) => !result.ok).length,
+      1,
+      "동시 코드 사용도 CAS로 한 번만 승인한다",
+    );
+    assert.deepEqual(
+      await users.findInvitation(casRef, { fresh: true }),
+      { ok: false, reason: "invite_used" },
+    );
+
+    const wrongPending = await users.loginWithGoogle({
+      id: "wrong-user",
+      email: "wrong@example.com",
+      name: "다른 사람",
+    });
+    assert.ok(wrongPending.ok);
+    const mismatch = await users.redeemInvitationForUser(
+      wrongPending.user.id,
       ref,
     );
-    assert.deepEqual(mismatch, {
-      ok: false,
-      reason: "invite_email_mismatch",
-    });
+    assert.deepEqual(mismatch, { ok: false, reason: "invite_email_mismatch" });
     assert.equal((await users.findInvitation(ref, { fresh: true })).ok, true);
 
     await users.updateInvitation(invitation.id, { active: false });
@@ -92,14 +494,16 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       email: "invitee@example.com",
       name: "초대 사용자",
     };
+    const pendingProfile = await users.loginWithGoogle(profile);
+    assert.ok(pendingProfile.ok);
     const attempts = await Promise.all([
-      users.loginWithGoogle(profile, ref),
-      users.loginWithGoogle(profile, ref),
+      users.redeemInvitationForUser(profile.id, ref),
+      users.redeemInvitationForUser(profile.id, ref),
     ]);
     assert.equal(attempts.filter((result) => result.ok).length, 1);
     assert.deepEqual(
       attempts.find((result) => !result.ok),
-      { ok: false, reason: "invite_used" },
+      { ok: false, reason: "invite_required" },
       "동시 소비 중 하나만 성공한다",
     );
 
@@ -110,8 +514,6 @@ test("초대 링크 생성·전환·1회 소비", async () => {
     assert.equal(repeatedLogin.ok, true, "기존 사용자는 재로그인한다");
     assert.ok(repeatedLogin.ok);
 
-    const auth = await import("@/lib/auth");
-    const sessionTokens = await import("@/lib/session-token");
     assert.ok(approved);
     const currentSession = await auth.createUserSession(
       repeatedLogin.user.id,
@@ -155,6 +557,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         recipientName: "재발급 대상",
         email: "rotate@example.com",
         note: "",
+        expiresInMinutes: 10,
       },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
@@ -162,14 +565,37 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       id: rotateTarget.id,
       tokenVersion: rotateTarget.tokenVersion,
     };
+    const oldCode = tokens.createInvitationCode(oldRef);
+    fakeNow += 7 * 60_000;
     const rotated = await users.rotateInvitation(rotateTarget.id);
     assert.ok(rotated);
+    assert.equal(rotated.durationMinutes, 10);
+    assert.equal(
+      rotated.expiresAt,
+      new Date(fakeNow + 10 * 60_000).toISOString(),
+      "재발급은 기존 기간을 현재 시각부터 다시 준다",
+    );
     assert.equal((await users.findInvitation(oldRef, { fresh: true })).ok, false);
+    assert.deepEqual(await tokens.findInvitationByCode(oldCode), {
+      ok: false,
+      reason: "invite_invalid",
+    });
     assert.equal(
       (
         await users.findInvitation(
           { id: rotated.id, tokenVersion: rotated.tokenVersion },
           { fresh: true },
+        )
+      ).ok,
+      true,
+    );
+    assert.equal(
+      (
+        await tokens.findInvitationByCode(
+          tokens.createInvitationCode({
+            id: rotated.id,
+            tokenVersion: rotated.tokenVersion,
+          }),
         )
       ).ok,
       true,
@@ -188,9 +614,11 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       email: "remove@example.com",
       name: "삭제할 사용자",
     };
+    const removablePending = await users.loginWithGoogle(removableProfile);
+    assert.ok(removablePending.ok);
     assert.equal(
       (
-        await users.loginWithGoogle(removableProfile, {
+        await users.redeemInvitationForUser(removableProfile.id, {
           id: removableInvite.id,
           tokenVersion: removableInvite.tokenVersion,
         })
@@ -201,7 +629,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       {
         recipientName: "삭제할 사용자",
         email: removableProfile.email,
-        note: "첫 번째 미사용 링크",
+        note: "첫 번째 미사용 코드",
       },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
@@ -209,7 +637,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       {
         recipientName: "삭제할 사용자",
         email: removableProfile.email,
-        note: "두 번째 미사용 링크",
+        note: "두 번째 미사용 코드",
       },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
@@ -230,16 +658,18 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       assert.equal(invalidated?.active, false);
       assert.equal(invalidated?.tokenVersion, ref.tokenVersion + 1);
       assert.ok(Number.isFinite(Date.parse(invalidated?.updatedAt ?? "")));
-      assert.deepEqual(
-        await users.loginWithGoogle(removableProfile, ref),
-        { ok: false, reason: "invite_invalid" },
-        "사용자를 삭제하면 그 이메일의 기존 미사용 링크가 즉시 폐기된다",
-      );
+      assert.deepEqual(await users.findInvitation(ref, { fresh: true }), {
+        ok: false,
+        reason: "invite_invalid",
+      });
     }
-    assert.deepEqual(await users.loginWithGoogle(removableProfile), {
-      ok: false,
-      reason: "invite_required",
-    });
+    const afterRemovalLogin = await users.loginWithGoogle(removableProfile);
+    assert.ok(afterRemovalLogin.ok);
+    assert.equal(
+      afterRemovalLogin.user.status,
+      "pending",
+      "삭제된 사용자가 다시 Google 인증하면 코드 입력 대기 상태가 된다",
+    );
     const reinvite = await users.createInvitation(
       {
         recipientName: "다시 초대한 사용자",
@@ -250,7 +680,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
     );
     assert.equal(
       (
-        await users.loginWithGoogle(removableProfile, {
+        await users.redeemInvitationForUser(removableProfile.id, {
           id: reinvite.id,
           tokenVersion: reinvite.tokenVersion,
         })
@@ -268,7 +698,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
-    const blockedResult = await users.loginWithGoogle(profile, {
+    const blockedResult = await users.redeemInvitationForUser(profile.id, {
       id: blockedInvite.id,
       tokenVersion: blockedInvite.tokenVersion,
     });
@@ -281,13 +711,12 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         )
       ).ok,
       true,
-      "차단 사용자의 실패는 링크를 소비하지 않는다",
+      "차단 사용자의 실패는 코드를 소비하지 않는다",
     );
 
     process.env.GOOGLE_CLIENT_ID = "test-client-id";
     process.env.GOOGLE_CLIENT_SECRET = "private-oauth-secret";
     process.env.PUBLIC_BASE_URL = "http://localhost:3000";
-    const { NextRequest } = await import("next/server");
     const callbackRoute = await import(
       "@/app/api/auth/google/callback/route"
     );
@@ -299,14 +728,12 @@ test("초대 링크 생성·전환·1회 소비", async () => {
     ]);
     const { getAdapter } = await import("@/lib/storage");
     const originalFetch = globalThis.fetch;
-    const callbackRequest = (withInvite = false) =>
+    const callbackRequest = () =>
       new NextRequest(
         "http://localhost:3000/api/auth/google/callback?code=test-code&state=test-state",
         {
           headers: {
-            Cookie: `sharedesk_oauth=test-state.test-verifier${
-              withInvite ? "; sharedesk_invite=leftover" : ""
-            }`,
+            Cookie: "sharedesk_oauth=test-state.test-verifier",
             "User-Agent":
               "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36",
           },
@@ -320,7 +747,6 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       assert.match(location, new RegExp(`[?&]error=${reason}(?:&|$)`));
       assert.doesNotMatch(location, /private-oauth-secret|test-code/);
       assert.equal(response.cookies.get("sharedesk_oauth")?.value, "");
-      assert.equal(response.cookies.get("sharedesk_invite")?.value, "");
     };
 
     try {
@@ -330,7 +756,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         throw new TypeError("private-oauth-secret network detail");
       }) as typeof fetch;
       assertCallbackFailure(
-        await callbackRoute.GET(callbackRequest(true)),
+        await callbackRoute.GET(callbackRequest()),
         "token",
       );
       assert.equal(receivedTimeoutSignal, true, "OAuth 요청에 timeout signal을 건다");
@@ -338,7 +764,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
       globalThis.fetch = (async () =>
         new Response("not-json", { status: 200 })) as typeof fetch;
       assertCallbackFailure(
-        await callbackRoute.GET(callbackRequest(true)),
+        await callbackRoute.GET(callbackRequest()),
         "token",
       );
 
@@ -351,7 +777,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         throw new TypeError("userinfo network detail");
       }) as typeof fetch;
       assertCallbackFailure(
-        await callbackRoute.GET(callbackRequest(true)),
+        await callbackRoute.GET(callbackRequest()),
         "userinfo",
       );
 
@@ -363,7 +789,7 @@ test("초대 링크 생성·전환·1회 소비", async () => {
           : new Response("not-json", { status: 200 });
       }) as typeof fetch;
       assertCallbackFailure(
-        await callbackRoute.GET(callbackRequest(true)),
+        await callbackRoute.GET(callbackRequest()),
         "userinfo",
       );
 
@@ -432,6 +858,40 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         return fetchCount === 1
           ? Response.json({ access_token: "private-oauth-secret" })
           : Response.json({
+              sub: "oauth-pending-user",
+              email: "oauth-pending@example.com",
+              email_verified: true,
+              name: "가입 대기 사용자",
+            });
+      }) as typeof fetch;
+      const pendingCallback = await callbackRoute.GET(callbackRequest());
+      assert.equal(
+        new URL(pendingCallback.headers.get("location") ?? "").pathname,
+        "/join",
+        "미등록 Google 사용자는 인증 뒤 코드 입력 화면으로 간다",
+      );
+      const pendingCookie = pendingCallback.cookies.get(
+        "sharedesk_session",
+      )?.value;
+      assert.deepEqual(await auth.resolveIdentity(pendingCookie), {
+        userId: "oauth-pending-user",
+        email: "oauth-pending@example.com",
+        name: "가입 대기 사용자",
+        status: "pending",
+        isAdmin: false,
+      });
+      assert.equal(
+        await auth.resolveSession(pendingCookie, { fresh: true }),
+        null,
+        "pending 세션은 신원 확인에만 쓰이고 승인 영역은 열지 않는다",
+      );
+
+      fetchCount = 0;
+      globalThis.fetch = (async () => {
+        fetchCount += 1;
+        return fetchCount === 1
+          ? Response.json({ access_token: "private-oauth-secret" })
+          : Response.json({
               sub: "admin-google-sub",
               email: "admin@example.com",
               email_verified: true,
@@ -459,11 +919,11 @@ test("초대 링크 생성·전환·1회 소비", async () => {
         assert.equal(oauthSession?.deviceLabel, "Chrome · Windows");
       }
       assert.equal(success.cookies.get("sharedesk_oauth")?.value, "");
-      assert.equal(success.cookies.get("sharedesk_invite")?.value, "");
     } finally {
       globalThis.fetch = originalFetch;
     }
   } finally {
+    Date.now = originalDateNow;
     await rm(root, { recursive: true, force: true });
   }
 });

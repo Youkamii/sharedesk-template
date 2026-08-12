@@ -1,40 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
-import { createInvitationToken } from "@/lib/invite-token";
-import { resolvePublicOrigin } from "@/lib/public-origin";
+import { createInvitationCode } from "@/lib/invite-token";
 import {
   Invitation,
   createInvitation,
+  isInvitationExpired,
   listInvitations,
   rotateInvitation,
   updateInvitation,
 } from "@/lib/users";
 
-function toSummary(req: NextRequest, invitation: Invitation) {
+function toSummary(invitation: Invitation) {
   const { tokenVersion, ...safe } = invitation;
-  const link = invitation.usedAt
-    ? null
-    : `${resolvePublicOrigin(req.nextUrl.origin)}/i/${createInvitationToken({
-        id: invitation.id,
-        tokenVersion,
-      })}`;
+  const expired = !invitation.usedAt && isInvitationExpired(invitation);
+  const code =
+    invitation.usedAt || expired || !invitation.active
+      ? null
+      : createInvitationCode({ id: invitation.id, tokenVersion });
   return {
     ...safe,
     state: invitation.usedAt
       ? ("used" as const)
-      : invitation.active
-        ? ("active" as const)
-        : ("inactive" as const),
-    link,
+      : expired
+        ? ("expired" as const)
+        : invitation.active
+          ? ("active" as const)
+          : ("inactive" as const),
+    code,
   };
 }
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const auth = await requireAdmin();
   if ("response" in auth) return auth.response;
-  const invitations = (await listInvitations()).map((invitation) =>
-    toSummary(req, invitation),
-  );
+  const invitations = (await listInvitations()).map(toSummary);
   return NextResponse.json({ invitations });
 }
 
@@ -50,6 +49,10 @@ export async function POST(req: NextRequest) {
         email: typeof body?.email === "string" ? body.email : "",
         note: typeof body?.note === "string" ? body.note : "",
         active: body?.active !== false,
+        expiresInMinutes:
+          typeof body?.expiresInMinutes === "number"
+            ? body.expiresInMinutes
+            : undefined,
       },
       {
         userId: auth.session.userId,
@@ -62,7 +65,7 @@ export async function POST(req: NextRequest) {
       actorUserId: auth.session.userId,
     });
     return NextResponse.json(
-      { invitation: toSummary(req, invitation) },
+      { invitation: toSummary(invitation) },
       { status: 201 },
     );
   } catch (error) {
@@ -110,7 +113,7 @@ export async function PATCH(req: NextRequest) {
       actorUserId: auth.session.userId,
       active: invitation.active,
     });
-    return NextResponse.json({ invitation: toSummary(req, invitation) });
+    return NextResponse.json({ invitation: toSummary(invitation) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "초대를 바꾸지 못했습니다" },

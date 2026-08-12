@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { COOKIE_NAME, resolveSession } from "@/lib/auth";
+import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
 
@@ -26,10 +26,11 @@ const ERRORS: Record<string, string> = {
   profile: "이메일이 확인되지 않은 계정입니다.",
   unconfigured: "구글 로그인이 아직 설정되지 않았습니다.",
   invalid: "로그인 요청이 유효하지 않습니다.",
-  invite_required: "처음 이용하려면 관리자가 만든 초대 링크가 필요합니다.",
-  invite_invalid: "초대 링크가 올바르지 않거나 새 링크로 교체됐습니다.",
+  invite_required: "처음 이용하려면 Google 로그인 뒤 관리자가 만든 초대 코드를 입력해야 합니다.",
+  invite_invalid: "초대 코드가 올바르지 않거나 새 코드로 교체됐습니다.",
   invite_inactive: "현재 비활성화된 초대입니다. 관리자에게 문의해 주세요.",
-  invite_used: "이미 사용 완료된 초대입니다.",
+  invite_used: "이미 사용 완료된 초대 코드입니다.",
+  invite_expired: "사용 기간이 끝난 초대 코드입니다.",
   invite_email_mismatch: "초대받은 이메일의 Google 계정으로 로그인해 주세요.",
   blocked: "차단된 사용자입니다. 관리자에게 문의해 주세요.",
 };
@@ -39,8 +40,12 @@ export default async function Home({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const session = await resolveSession((await cookies()).get(COOKIE_NAME)?.value);
+  const token = (await cookies()).get(COOKIE_NAME)?.value;
+  const session = await resolveSession(token);
   if (session) redirect("/files");
+  const identity = await resolveIdentity(token);
+  if (identity?.status === "pending") redirect("/join");
+  if (identity?.status === "blocked") redirect("/pending");
 
   const { error } = await searchParams;
   const keyLoginEnabled = getAccessKeys().length > 0;
@@ -54,8 +59,8 @@ export default async function Home({
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         {googleLoginEnabled ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            기존 사용자는 Google 계정으로 로그인하고, 처음 이용하는 사람은
-            관리자가 만든 초대 링크로 시작합니다.
+            Google 계정으로 먼저 로그인하세요. 처음 이용하는 분은
+            로그인 후 관리자에게 받은 초대 코드를 입력합니다.
           </p>
         ) : keyLoginEnabled ? (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
@@ -80,7 +85,7 @@ export default async function Home({
             prefetch={false}
             className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
           >
-            구글 계정으로 로그인
+            Google로 계속하기
           </Link>
         ) : !keyLoginEnabled ? (
           <a

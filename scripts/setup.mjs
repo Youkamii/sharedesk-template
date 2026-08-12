@@ -84,8 +84,8 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
   "     커밋별 Preview URL은 등록하지 않습니다.",
   "  5. Vercel Production 환경 변수를 저장하거나 바꾼 뒤에는 반드시 Redeploy하세요.",
   "     환경 변수 변경은 이미 만들어진 배포에 자동으로 반영되지 않습니다.",
-  "  6. 운영 확인 뒤 /admin에서 받을 사람의 이름과 Google 이메일로 1회용 초대 링크를 만드세요.",
-  "     링크를 받은 사람은 지정된 Google 계정으로 로그인하며 OAuth를 따로 발급받지 않습니다.",
+  "  6. 운영 확인 뒤 /admin에서 받을 사람의 이름과 Google 이메일, 유효 기간을 정해 1회용 초대 코드를 만드세요.",
+  "     참여자는 지정된 Google 계정으로 먼저 로그인한 뒤 받은 코드를 입력하며 OAuth를 따로 발급받지 않습니다.",
   "     자기 데스크가 필요한 사람은 ShareDesk 템플릿으로 별도 설치를 진행합니다.",
 ].join("\n");
 const FOLDER_MIME = "application/vnd.google-apps.folder";
