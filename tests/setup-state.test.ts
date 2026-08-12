@@ -15,8 +15,10 @@ import {
   CALLBACK_URL_SECURITY_WARNING,
   GOOGLE_AUTH_PLATFORM_GUIDANCE,
   HOST_OAUTH_SCOPES,
+  REFRESH_TOKEN_RECOVERY_GUIDANCE,
   SETUP_COMPLETION_NEXT_STEPS,
   ensureCoreStateFiles,
+  parseCallbackUrl,
   parseWhoamiUserSid,
   prepareEnvFile,
   protectPrivateDirectory,
@@ -412,20 +414,10 @@ test("setup은 생성 직후 동명 상태 파일이 늘어나도 중단한다",
   );
 });
 
-test("setup 안내는 현재 Google Auth Platform 단계와 실제 OAuth 값을 빠짐없이 보여준다", () => {
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /1차 배포/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /고정 Production 도메인/);
-  for (const page of ["Branding", "Audience", "Data Access", "Clients"]) {
-    assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, new RegExp(page));
-  }
-  for (const scope of [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    "https://www.googleapis.com/auth/drive.file",
-  ]) {
-    assert.ok(GOOGLE_AUTH_PLATFORM_GUIDANCE.includes(scope));
-  }
+test("setup 안내는 상세 절차를 설치 문서에 맡기고 현장에서 필요한 값만 보여준다", () => {
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /docs\/INSTALL\.md/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup -- --prepare-env/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /Client ID와 Client secret을 직접 입력/);
   assert.deepEqual(HOST_OAUTH_SCOPES, [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -439,16 +431,12 @@ test("setup 안내는 현재 Google Auth Platform 단계와 실제 OAuth 값을 
   ]) {
     assert.ok(GOOGLE_AUTH_PLATFORM_GUIDANCE.includes(redirectUri));
   }
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /Web application/);
-  assert.match(
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /비밀값이나 callback URL/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /채팅, 이슈, 스크린샷에 공유하지 마세요/);
+  assert.doesNotMatch(
     GOOGLE_AUTH_PLATFORM_GUIDANCE,
-    /Authorized JavaScript origins는 비워 두고/,
+    /Authorized JavaScript origins|Publish app|In production|7일 뒤 만료/,
   );
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /In production/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /이미 In production이면 상태와 기존 refresh token을 그대로 둡니다/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /refresh token은 7일 뒤 만료/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /운영 setup보다 먼저/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup -- --prepare-env/);
 });
 
 test("setup 시작과 finish에서 재사용하는 callback 경고는 공유 금지 대상을 명시한다", () => {
@@ -459,24 +447,46 @@ test("setup 시작과 finish에서 재사용하는 callback 경고는 공유 금
   assert.match(CALLBACK_URL_SECURITY_WARNING, /이 컴퓨터의 터미널에만/);
 });
 
-test("setup 완료 안내는 독립 데스크의 Vercel 배포와 이후 초대를 구분한다", () => {
+test("잘못된 callback URL 오류에는 사용자가 붙여넣은 값이 포함되지 않는다", () => {
+  const pastedSecret = "not-a-url?code=one-time-secret-value";
+  assert.throws(
+    () => parseCallbackUrl(pastedSecret),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /callback URL 형식이 올바르지 않습니다/);
+      assert.doesNotMatch(error.message, /one-time-secret-value/);
+      return true;
+    },
+  );
+});
+
+test("올바른 callback URL은 인증 코드와 state를 그대로 읽는다", () => {
+  const callback = parseCallbackUrl(
+    "http://127.0.0.1:53682/callback?code=test-code&state=test-state",
+  );
+  assert.equal(callback.origin, "http://127.0.0.1:53682");
+  assert.equal(callback.pathname, "/callback");
+  assert.equal(callback.searchParams.get("code"), "test-code");
+  assert.equal(callback.searchParams.get("state"), "test-state");
+});
+
+test("refresh token 복구 안내는 기존 연결을 무조건 폐기하지 않는다", () => {
+  assert.match(REFRESH_TOKEN_RECOVERY_GUIDANCE, /기존 연결과 Audience 상태를 먼저 확인/);
+  assert.match(
+    REFRESH_TOKEN_RECOVERY_GUIDANCE,
+    /새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만/,
+  );
+});
+
+test("setup 완료 안내는 설치 문서의 다음 단계와 남은 현장 검증만 가리킨다", () => {
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /독립 ShareDesk 하나/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /다른 사람의 ShareDesk와.*섞이지 않습니다/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/admin/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /유효 기간과 사용 방식\(1회용 또는 기간 내 무제한\)/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /이름, 이메일, 비고는 입력하지 않습니다/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /1회용은 한 명이 가입에 성공하면 바로 소진/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /기간 내 무제한은 유효 기간이 끝나거나 호스트가 비활성화할 때까지 여러 명/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /고정 Production 도메인/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Preview URL/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /PUBLIC_BASE_URL=/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /VERCEL_PROJECT_PRODUCTION_URL/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Automatically expose System Environment Variables/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /OAuth를 따로 발급받지 않습니다/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /템플릿으로 별도 설치/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Redeploy/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Vercel Firewall/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/api\/invitations\/code \+ POST \+ sharedesk_session 쿠키 존재.*IP당 60초에 10회/);
-  assert.doesNotMatch(SETUP_COMPLETION_NEXT_STEPS, /다른 사람이 로그인하면.*승인/);
-  assert.doesNotMatch(SETUP_COMPLETION_NEXT_STEPS, /받을 사람의 이름|지정된 Google 계정/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /docs\/INSTALL\.md/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Vercel Production 환경 변수와 재배포/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /비밀값을 Production 환경에 안전하게 옮긴 뒤 재배포/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Firewall과 운영 로그인을 실제로 확인/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /README.*사람 초대하기/);
+  assert.doesNotMatch(
+    SETUP_COMPLETION_NEXT_STEPS,
+    /PUBLIC_BASE_URL=|VERCEL_PROJECT_PRODUCTION_URL|Fixed Window|\/api\/invitations\/code|IP당 60초/,
+  );
 });

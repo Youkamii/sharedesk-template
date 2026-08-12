@@ -42,55 +42,22 @@ export const CALLBACK_URL_SECURITY_WARNING = [
   "주의: callback URL에는 Google이 발급한 짧게 유효한 일회용 인증 코드가 들어 있습니다.",
   "이 주소는 이 컴퓨터의 터미널에만 붙여넣고 채팅, 이슈, 스크린샷에 공유하지 마세요.",
 ].join("\n");
+export const REFRESH_TOKEN_RECOVERY_GUIDANCE =
+  "refresh_token을 받지 못했습니다. 기존 연결과 Audience 상태를 먼저 확인하세요. 새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만 https://myaccount.google.com/permissions 에서 이 앱 권한을 제거한 뒤 다시 실행하세요.";
 export const GOOGLE_AUTH_PLATFORM_GUIDANCE = [
-  "Google Cloud Console에서 ShareDesk용 프로젝트를 선택한 뒤 아래 순서대로 설정하세요:",
-  "  0. 운영 배포라면 먼저 README의 '내 ShareDesk 만들기'에서 내 저장소와 Vercel 프로젝트를 만들고",
-  "     비밀값 없는 1차 배포로 고정 Production 도메인을 확인합니다.",
-  "  1. APIs & Services > Library에서 Google Drive API를 사용 설정합니다.",
-  "  2. Google Auth Platform > Branding에서 앱 이름, 사용자 지원 이메일, 개발자 연락처를 입력합니다.",
-  "  3. Google Auth Platform > Audience에서 User type을 External로 정합니다.",
-  "  4. Google Auth Platform > Data Access > Add or remove scopes에서 아래 4개 scope를 추가합니다:",
-  "       openid",
-  "       https://www.googleapis.com/auth/userinfo.email",
-  "       https://www.googleapis.com/auth/userinfo.profile",
-  "       https://www.googleapis.com/auth/drive.file",
-  "  5. Audience가 Testing일 때만 Publish app을 눌러 In production으로 전환합니다.",
-  "     이미 In production이면 상태와 기존 refresh token을 그대로 둡니다.",
-  "     ShareDesk 호스트 연결은 drive.file과 offline access를 함께 요청하므로,",
-  "     Testing 상태에서 받은 refresh token은 7일 뒤 만료됩니다. 운영 setup보다 먼저 전환하세요.",
-  "  6. Google Auth Platform > Clients > Create client에서 Application type을 Web application으로 고릅니다.",
-  "     Authorized JavaScript origins는 비워 두고, Authorized redirect URIs에 아래 3개를 등록합니다:",
-  `       ${REDIRECT}`,
-  "       http://localhost:3000/api/auth/google/callback",
-  "       https://<고정된-운영-도메인>/api/auth/google/callback",
-  "     운영 URI는 Vercel의 커밋별 Preview URL이 아니라 고정 Production 도메인을 사용하세요.",
-  "  7. 생성 직후 표시되는 Client ID와 Client secret을 안전한 곳에 복사합니다.",
-  "     Client secret은 다시 표시되지 않을 수 있습니다.",
-  "  8. npm run setup -- --prepare-env를 먼저 실행한 뒤,",
-  "     .env.local의 GOOGLE_CLIENT_ID와 GOOGLE_CLIENT_SECRET에 두 값을 넣고 setup을 다시 실행합니다.",
+  "Google Cloud 설정과 운영 배포 순서는 docs/INSTALL.md를 따르세요.",
+  "먼저 npm run setup -- --prepare-env를 실행한 뒤 .env.local에 Client ID와 Client secret을 직접 입력합니다.",
+  "설치 문서에는 Drive API, Branding, Audience, Data Access, Clients와 아래 redirect URI가 정리돼 있습니다:",
+  `  ${REDIRECT}`,
+  "  http://localhost:3000/api/auth/google/callback",
+  "  https://<고정된-운영-도메인>/api/auth/google/callback",
+  "비밀값이나 callback URL은 채팅, 이슈, 스크린샷에 공유하지 마세요.",
 ].join("\n");
 export const SETUP_COMPLETION_NEXT_STEPS = [
   "이 setup은 이 저장소와 배포에 연결되는 독립 ShareDesk 하나를 준비했습니다.",
-  "다른 사람의 ShareDesk와 OAuth, Drive, 사용자 정보가 섞이지 않습니다.",
-  "다음 단계:",
-  "  1. npm run dev 실행 → http://localhost:3000 에서 호스트 Google 계정으로 로그인하세요.",
-  "  2. 내 Vercel 프로젝트의 Production 환경에 .env.local의 운영 필수 값을 안전하게 옮기세요.",
-  "     비밀값을 채팅이나 명령 인자에 출력하지 마세요.",
-  "  3. Vercel의 고정 Production 도메인은 VERCEL_PROJECT_PRODUCTION_URL을 자동으로 사용합니다.",
-  "     Vercel Settings > Environment Variables에서 Automatically expose System Environment Variables를 켜세요.",
-  "     사용자 지정 도메인은 PUBLIC_BASE_URL=https://<고정된-운영-도메인>으로 고정하세요.",
-  "  4. Google Auth Platform > Clients에 아래 운영 redirect URI가 있는지 확인하세요:",
-  "     https://<고정된-운영-도메인>/api/auth/google/callback",
-  "     커밋별 Preview URL은 등록하지 않습니다.",
-  "  5. Vercel Production 환경 변수를 저장하거나 바꾼 뒤에는 반드시 Redeploy하세요.",
-  "     환경 변수 변경은 이미 만들어진 배포에 자동으로 반영되지 않습니다.",
-  "  6. Vercel Firewall에서 /api/invitations/code + POST + sharedesk_session 쿠키 존재 조건을 모두 넣고, IP당 60초에 10회로 제한하는 Fixed Window 규칙을 Publish하세요.",
-  "     운영의 분산 초대 요청 제한이며, Vercel 요금 안내를 확인한 뒤 적용합니다.",
-  "  7. 운영 확인 뒤 /admin에서 초대 코드의 유효 기간과 사용 방식(1회용 또는 기간 내 무제한)을 정하고 참여자에게 전달하세요.",
-  "     이름, 이메일, 비고는 입력하지 않습니다. 1회용은 한 명이 가입에 성공하면 바로 소진됩니다.",
-  "     기간 내 무제한은 유효 기간이 끝나거나 호스트가 비활성화할 때까지 여러 명이 같은 코드로 가입합니다.",
-  "     참여자는 받은 코드를 입력할 뿐 OAuth를 따로 발급받지 않습니다.",
-  "     자기 데스크가 필요한 사람은 ShareDesk 템플릿으로 별도 설치를 진행합니다.",
+  "다음은 docs/INSTALL.md의 'Vercel Production 환경 변수와 재배포' 단계부터 이어서 진행하세요.",
+  "비밀값을 Production 환경에 안전하게 옮긴 뒤 재배포하고, Firewall과 운영 로그인을 실제로 확인해야 설치가 끝납니다.",
+  "사람 초대와 별도 데스크 설치의 차이는 README의 '사람 초대하기'를 참고하세요.",
 ].join("\n");
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const STATE_DIR = ".sharedesk";
@@ -489,6 +456,14 @@ export function mergeEnv(text, updates) {
   return out.join("\n");
 }
 
+export function parseCallbackUrl(value) {
+  try {
+    return new URL(value.trim());
+  } catch {
+    throw new Error("callback URL 형식이 올바르지 않습니다.");
+  }
+}
+
 function assertSingleCoreStateFiles(files) {
   for (const { name } of CORE_STATE_FILES) {
     const matches = files.filter((file) => file.name === name);
@@ -720,9 +695,9 @@ async function main() {
   }
   let callbackUrl;
   try {
-    callbackUrl = new URL(pasted.trim());
-  } catch {
-    console.error("주소 형식이 올바르지 않습니다:", pasted.slice(0, 60));
+    callbackUrl = parseCallbackUrl(pasted);
+  } catch (error) {
+    console.error(error.message);
     process.exit(1);
   }
   const err = callbackUrl.searchParams.get("error");
@@ -762,9 +737,7 @@ async function main() {
   }
   const tok = await tokenRes.json();
   if (!tok.refresh_token) {
-    console.error(
-      "refresh_token을 받지 못했습니다 — https://myaccount.google.com/permissions 에서 이 앱을 제거한 뒤 다시 실행하세요.",
-    );
+    console.error(REFRESH_TOKEN_RECOVERY_GUIDANCE);
     process.exit(1);
   }
 
