@@ -31,7 +31,6 @@ const ERRORS: Record<string, string> = {
   invite_inactive: "현재 비활성화된 초대입니다. 관리자에게 문의해 주세요.",
   invite_used: "이미 사용 완료된 초대 코드입니다.",
   invite_expired: "사용 기간이 끝난 초대 코드입니다.",
-  invite_email_mismatch: "초대받은 이메일의 Google 계정으로 로그인해 주세요.",
   blocked: "차단된 사용자입니다. 관리자에게 문의해 주세요.",
 };
 
@@ -59,8 +58,9 @@ export default async function Home({
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         {googleLoginEnabled ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Google 계정으로 먼저 로그인하세요. 처음 이용하는 분은
-            로그인 후 관리자에게 받은 초대 코드를 입력합니다.
+            Google 계정으로 먼저 로그인하세요. 처음 이용하는 분은 로그인 후
+            관리자에게 받은 초대 코드를 입력합니다. 코드의 유효 기간과
+            1회용·기간 내 무제한 여부는 관리자가 정합니다.
           </p>
         ) : keyLoginEnabled ? (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">

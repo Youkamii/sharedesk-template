@@ -9,9 +9,6 @@ import { StorageError } from "@/lib/storage/types";
 const FILE = "users.json";
 const CACHE_MS = 5_000;
 const WRITE_RETRIES = 3;
-const MAX_NAME_LENGTH = 100;
-const MAX_EMAIL_LENGTH = 320;
-const MAX_NOTE_LENGTH = 500;
 export const MIN_INVITATION_DURATION_MINUTES = 5;
 export const MAX_INVITATION_DURATION_MINUTES = 30 * 24 * 60;
 export const DEFAULT_INVITATION_DURATION_MINUTES = 24 * 60;
@@ -21,6 +18,7 @@ export const MAX_DEVICE_LABEL_LENGTH = 80;
 const MAX_USER_AGENT_LENGTH = 512;
 
 export type UserStatus = "pending" | "approved" | "blocked";
+export type InvitationUsageMode = "once" | "unlimited";
 
 export interface UserSession {
   id: string;
@@ -45,36 +43,25 @@ export interface User {
 
 export interface Invitation {
   id: string;
-  recipientName: string;
-  email: string;
-  note: string;
   active: boolean;
   // 코드를 재발급하면 증가한다. 파생 코드의 값도 바뀌어 예전 코드는 즉시 무효다.
   tokenVersion: number;
+  usageMode: InvitationUsageMode;
+  usageCount: number;
   durationMinutes: number;
   expiresAt: string;
   createdAt: string;
   updatedAt: string;
   createdByUserId: string;
   createdByEmail: string;
-  usedAt: string | null;
-  usedByUserId: string | null;
-  usedByEmail: string | null;
+  lastUsedAt: string | null;
+  lastUsedByUserId: string | null;
+  lastUsedByEmail: string | null;
 }
 
 export interface InvitationInput {
-  recipientName: string;
-  email: string;
-  note?: string;
-  active?: boolean;
   expiresInMinutes?: number;
-}
-
-export interface InvitationPatch {
-  recipientName?: string;
-  email?: string;
-  note?: string;
-  active?: boolean;
+  usageMode: InvitationUsageMode;
 }
 
 export interface InvitationTokenRef {
@@ -88,7 +75,6 @@ export type LoginFailureReason =
   | "invite_inactive"
   | "invite_used"
   | "invite_expired"
-  | "invite_email_mismatch"
   | "blocked";
 
 export type LoginResult =
@@ -289,6 +275,26 @@ function normalize(raw: unknown): UserFile {
     )
     .map((invitation) => {
       const updatedAt = isoOrEpoch(invitation.updatedAt);
+      const legacyUsage = invitation as Invitation & {
+        usedAt?: unknown;
+        usedByUserId?: unknown;
+        usedByEmail?: unknown;
+      };
+      const legacyRecipientBound =
+        typeof (invitation as { recipientName?: unknown }).recipientName ===
+          "string" ||
+        typeof (invitation as { email?: unknown }).email === "string" ||
+        typeof (invitation as { note?: unknown }).note === "string";
+      const storedTokenVersion =
+        Number.isSafeInteger(invitation.tokenVersion) &&
+        invitation.tokenVersion >= 1
+          ? invitation.tokenVersion
+          : 1;
+      const tokenVersion = legacyRecipientBound
+        ? storedTokenVersion === Number.MAX_SAFE_INTEGER
+          ? 1
+          : storedTokenVersion + 1
+        : storedTokenVersion;
       const durationMinutes =
         storedDurationMinutes(invitation.durationMinutes) ??
         LEGACY_INVITATION_DURATION_MINUTES;
@@ -300,23 +306,30 @@ function normalize(raw: unknown): UserFile {
         Number.isFinite(Date.parse(invitation.expiresAt))
           ? new Date(invitation.expiresAt).toISOString()
           : expiresAtFrom(updatedAt, durationMinutes);
+      const usageMode: InvitationUsageMode =
+        invitation.usageMode === "unlimited" ? "unlimited" : "once";
+      const lastUsedAtSource =
+        typeof invitation.lastUsedAt === "string"
+          ? invitation.lastUsedAt
+          : legacyUsage.usedAt;
+      const lastUsedAt =
+        typeof lastUsedAtSource === "string"
+          ? isoOrEpoch(lastUsedAtSource)
+          : null;
+      const storedUsageCount =
+        Number.isSafeInteger(invitation.usageCount) &&
+        invitation.usageCount >= 0
+          ? invitation.usageCount
+          : 0;
+      const usageCount = Math.max(storedUsageCount, lastUsedAt ? 1 : 0);
       return {
         id: invitation.id,
-        recipientName:
-          typeof invitation.recipientName === "string"
-            ? invitation.recipientName
-            : "",
-        email:
-          typeof invitation.email === "string"
-            ? normalizeEmail(invitation.email)
-            : "",
-        note: typeof invitation.note === "string" ? invitation.note : "",
-        active: invitation.active === true,
-        tokenVersion:
-          Number.isSafeInteger(invitation.tokenVersion) &&
-          invitation.tokenVersion >= 1
-            ? invitation.tokenVersion
-            : 1,
+        // 예전 이메일 전용 코드를 같은 값의 범용 코드로 넓히지 않는다.
+        // 관리자가 다시 활성화하거나 회전하면 새 버전의 범용 코드가 표시된다.
+        active: invitation.active === true && !legacyRecipientBound,
+        tokenVersion,
+        usageMode,
+        usageCount,
         durationMinutes,
         expiresAt,
         createdAt: isoOrEpoch(invitation.createdAt),
@@ -329,16 +342,19 @@ function normalize(raw: unknown): UserFile {
           typeof invitation.createdByEmail === "string"
             ? normalizeEmail(invitation.createdByEmail)
             : "",
-        usedAt:
-          typeof invitation.usedAt === "string" ? invitation.usedAt : null,
-        usedByUserId:
-          typeof invitation.usedByUserId === "string"
-            ? invitation.usedByUserId
-            : null,
-        usedByEmail:
-          typeof invitation.usedByEmail === "string"
-            ? normalizeEmail(invitation.usedByEmail)
-            : null,
+        lastUsedAt,
+        lastUsedByUserId:
+          typeof invitation.lastUsedByUserId === "string"
+            ? invitation.lastUsedByUserId
+            : typeof legacyUsage.usedByUserId === "string"
+              ? legacyUsage.usedByUserId
+              : null,
+        lastUsedByEmail:
+          typeof invitation.lastUsedByEmail === "string"
+            ? normalizeEmail(invitation.lastUsedByEmail)
+            : typeof legacyUsage.usedByEmail === "string"
+              ? normalizeEmail(legacyUsage.usedByEmail)
+              : null,
       };
     });
   return {
@@ -377,12 +393,16 @@ async function load(force = false): Promise<UserFile> {
 }
 
 // 인스턴스 안에서는 직렬화하고, 인스턴스 사이는 저장소 CAS로 조정한다.
-async function mutate<T>(fn: (file: UserFile) => T | Promise<T>): Promise<T> {
+async function mutate<T>(
+  fn: (file: UserFile) => T | Promise<T>,
+  shouldWrite: (result: T) => boolean = () => true,
+): Promise<T> {
   const run = writeChain.then(async () => {
     for (let attempt = 0; attempt <= WRITE_RETRIES; attempt++) {
       const before = await loadState(true);
       const draft = JSON.parse(JSON.stringify(before.data)) as UserFile;
       const result = await fn(draft);
+      if (!shouldWrite(result)) return result;
       draft.version = 2;
       draft.rev = before.data.rev + 1;
       try {
@@ -446,34 +466,6 @@ function nextSessionVersion(current: number): number {
   return current + 1;
 }
 
-function cleanRequired(value: string, label: string, max: number): string {
-  const clean = value.trim();
-  if (!clean || clean.length > max) {
-    throw new Error(`${label}을(를) 확인해 주세요`);
-  }
-  return clean;
-}
-
-function cleanEmail(value: string): string {
-  const email = normalizeEmail(value);
-  if (
-    !email ||
-    email.length > MAX_EMAIL_LENGTH ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-  ) {
-    throw new Error("Google 이메일을 확인해 주세요");
-  }
-  return email;
-}
-
-function cleanNote(value: string | undefined): string {
-  const note = (value ?? "").trim();
-  if (note.length > MAX_NOTE_LENGTH) {
-    throw new Error(`비고는 ${MAX_NOTE_LENGTH}자 이하로 입력해 주세요`);
-  }
-  return note;
-}
-
 function cleanInvitationDuration(value: number | undefined): number {
   const duration = value ?? DEFAULT_INVITATION_DURATION_MINUTES;
   if (
@@ -502,7 +494,9 @@ function invitationFailureReason(
   LoginFailureReason,
   "invite_inactive" | "invite_used" | "invite_expired"
 > | null {
-  if (invitation.usedAt) return "invite_used";
+  if (invitation.usageMode === "once" && invitation.usageCount > 0) {
+    return "invite_used";
+  }
   if (isInvitationExpired(invitation)) return "invite_expired";
   if (!invitation.active) return "invite_inactive";
   return null;
@@ -545,66 +539,47 @@ export async function createInvitation(
   creator: { userId: string; email: string },
 ): Promise<Invitation> {
   const now = new Date(Date.now()).toISOString();
-  const email = cleanEmail(input.email);
   const durationMinutes = cleanInvitationDuration(input.expiresInMinutes);
+  if (input.usageMode !== "once" && input.usageMode !== "unlimited") {
+    throw new Error("초대 사용 방식을 확인해 주세요");
+  }
   const invitation: Invitation = {
     id: randomUUID(),
-    recipientName: cleanRequired(
-      input.recipientName,
-      "이름",
-      MAX_NAME_LENGTH,
-    ),
-    email,
-    note: cleanNote(input.note),
-    active: input.active !== false,
+    active: true,
     tokenVersion: 1,
+    usageMode: input.usageMode,
+    usageCount: 0,
     durationMinutes,
     expiresAt: expiresAtFrom(now, durationMinutes),
     createdAt: now,
     updatedAt: now,
     createdByUserId: creator.userId,
     createdByEmail: normalizeEmail(creator.email),
-    usedAt: null,
-    usedByUserId: null,
-    usedByEmail: null,
+    lastUsedAt: null,
+    lastUsedByUserId: null,
+    lastUsedByEmail: null,
   };
   return mutate((file) => {
-    // 같은 이메일의 미사용 코드는 최신 것 하나만 남긴다.
-    for (const current of file.invitations) {
-      if (current.email === email && !current.usedAt && current.active) {
-        current.active = false;
-        current.updatedAt = now;
-      }
-    }
     file.invitations.push(invitation);
     return invitation;
   });
 }
 
-export async function updateInvitation(
+export async function setInvitationActive(
   id: string,
-  patch: InvitationPatch,
+  active: boolean,
 ): Promise<Invitation | null> {
   return mutate((file) => {
     const invitation = file.invitations.find((item) => item.id === id);
     if (!invitation) return null;
-    const email = patch.email === undefined ? invitation.email : cleanEmail(patch.email);
-    if (invitation.usedAt && (patch.email !== undefined || patch.active === true)) {
+    if (
+      invitation.usageMode === "once" &&
+      invitation.usageCount > 0 &&
+      active
+    ) {
       throw new Error("사용 완료 초대는 다시 활성화할 수 없습니다");
     }
-    if (patch.recipientName !== undefined) {
-      invitation.recipientName = cleanRequired(
-        patch.recipientName,
-        "이름",
-        MAX_NAME_LENGTH,
-      );
-    }
-    if (patch.note !== undefined) invitation.note = cleanNote(patch.note);
-    if (patch.active !== undefined) invitation.active = patch.active;
-    if (email !== invitation.email) {
-      invitation.email = email;
-      invitation.tokenVersion += 1;
-    }
+    invitation.active = active;
     invitation.updatedAt = new Date().toISOString();
     return invitation;
   });
@@ -614,7 +589,7 @@ export async function rotateInvitation(id: string): Promise<Invitation | null> {
   return mutate((file) => {
     const invitation = file.invitations.find((item) => item.id === id);
     if (!invitation) return null;
-    if (invitation.usedAt) {
+    if (invitation.usageMode === "once" && invitation.usageCount > 0) {
       throw new Error("사용 완료 초대는 새 초대로 다시 만들어 주세요");
     }
     const now = new Date(Date.now()).toISOString();
@@ -724,7 +699,7 @@ export async function redeemInvitationForUser(
   ref: InvitationTokenRef,
   sessionReference?: UserSessionReference,
 ): Promise<InvitationRedemptionResult> {
-  return mutate((file) => {
+  return mutate<InvitationRedemptionResult>((file) => {
     const user = file.users.find((item) => item.id === userId);
     if (!user) return { ok: false, reason: "invite_required" } as const;
     if (user.status === "blocked") {
@@ -749,20 +724,18 @@ export async function redeemInvitationForUser(
     }
     const reason = invitationFailureReason(invitation);
     if (reason) return { ok: false, reason } as const;
-    if (invitation.email !== user.email) {
-      return { ok: false, reason: "invite_email_mismatch" } as const;
-    }
 
     const now = new Date(Date.now()).toISOString();
-    invitation.active = false;
-    invitation.usedAt = now;
-    invitation.usedByUserId = user.id;
-    invitation.usedByEmail = user.email;
+    if (invitation.usageMode === "once") invitation.active = false;
+    invitation.usageCount += 1;
+    invitation.lastUsedAt = now;
+    invitation.lastUsedByUserId = user.id;
+    invitation.lastUsedByEmail = user.email;
     invitation.updatedAt = now;
     user.status = "approved";
     if (!user.invitationId) user.invitationId = invitation.id;
     return { ok: true, user } as const;
-  });
+  }, (result) => result.ok);
 }
 
 export async function setStatus(
@@ -828,13 +801,6 @@ export async function removeUser(id: string): Promise<boolean> {
     const email = file.users[index].email;
     if (isAdminEmail(email)) {
       throw new Error("관리자 계정은 삭제할 수 없습니다");
-    }
-    const now = new Date().toISOString();
-    for (const invitation of file.invitations) {
-      if (invitation.email !== email || invitation.usedAt) continue;
-      invitation.active = false;
-      invitation.tokenVersion += 1;
-      invitation.updatedAt = now;
     }
     file.users.splice(index, 1);
     return true;

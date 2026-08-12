@@ -84,8 +84,12 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
   "     커밋별 Preview URL은 등록하지 않습니다.",
   "  5. Vercel Production 환경 변수를 저장하거나 바꾼 뒤에는 반드시 Redeploy하세요.",
   "     환경 변수 변경은 이미 만들어진 배포에 자동으로 반영되지 않습니다.",
-  "  6. 운영 확인 뒤 /admin에서 받을 사람의 이름과 Google 이메일, 유효 기간을 정해 1회용 초대 코드를 만드세요.",
-  "     참여자는 지정된 Google 계정으로 먼저 로그인한 뒤 받은 코드를 입력하며 OAuth를 따로 발급받지 않습니다.",
+  "  6. Vercel Firewall에서 /api/invitations/code + POST + sharedesk_session 쿠키 존재 조건을 모두 넣고, IP당 60초에 10회로 제한하는 Fixed Window 규칙을 Publish하세요.",
+  "     운영의 분산 초대 요청 제한이며, Vercel 요금 안내를 확인한 뒤 적용합니다.",
+  "  7. 운영 확인 뒤 /admin에서 초대 코드의 유효 기간과 사용 방식(1회용 또는 기간 내 무제한)을 정하고 참여자에게 전달하세요.",
+  "     이름, 이메일, 비고는 입력하지 않습니다. 1회용은 한 명이 가입에 성공하면 바로 소진됩니다.",
+  "     기간 내 무제한은 유효 기간이 끝나거나 호스트가 비활성화할 때까지 여러 명이 같은 코드로 가입합니다.",
+  "     참여자는 받은 코드를 입력할 뿐 OAuth를 따로 발급받지 않습니다.",
   "     자기 데스크가 필요한 사람은 ShareDesk 템플릿으로 별도 설치를 진행합니다.",
 ].join("\n");
 const FOLDER_MIME = "application/vnd.google-apps.folder";

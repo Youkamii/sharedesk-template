@@ -9,18 +9,31 @@ import test from "node:test";
 
 const SESSION_SECRET = "integration-session-secret-with-32-characters";
 
-test("관리자 초대 폼은 선택한 유효 기간을 API로 보낸다", async () => {
+test("관리자 초대 폼은 받는 사람 정보 없이 기간과 사용 방식을 고른다", async () => {
   const source = await readFile(
     new URL("../src/app/admin/AdminView.tsx", import.meta.url),
     "utf8",
   );
+  const inviteSection = source.match(
+    /<section aria-labelledby="invite-title">([\s\S]*?)<section aria-labelledby="user-title">/,
+  )?.[1];
+  assert.ok(inviteSection);
 
-  assert.match(source, /expiresInMinutes: 1_440/);
-  assert.match(source, /value=\{inviteForm\.expiresInMinutes\}/);
+  assert.match(inviteSection, /<span>유효 기간<\/span>/);
   for (const minutes of [60, "1_440", "10_080", "43_200"]) {
-    assert.match(source, new RegExp(`<option value=\\{${minutes}\\}>`));
+    assert.match(inviteSection, new RegExp(`<option value=\\{${minutes}\\}>`));
   }
-  assert.match(source, /body: JSON\.stringify\(inviteForm\)/);
+  assert.match(inviteSection, /<span>사용 방식<\/span>/);
+  assert.match(inviteSection, /<option value="once">1회용<\/option>/);
+  assert.match(
+    inviteSection,
+    /<option value="unlimited">기간 내 무제한<\/option>/,
+  );
+  assert.match(inviteSection, /받는 사람을 미리 지정하지 않습니다/);
+  assert.match(inviteSection, /사용 기록/);
+  assert.match(inviteSection, /초대 코드 생성/);
+  assert.doesNotMatch(inviteSection, /<span>(이름|Google 이메일|비고)<\/span>/);
+  assert.doesNotMatch(inviteSection, /정보 수정/);
 });
 
 function session(userId: string): string {
@@ -142,6 +155,36 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
           durationMinutes: 60,
           expiresAt: "2000-01-01T01:00:00.000Z",
         },
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          active: true,
+          tokenVersion: 1,
+          createdAt: "2026-08-01T00:00:00.000Z",
+          updatedAt: "2026-08-02T00:00:00.000Z",
+          createdByUserId: "admin-sub",
+          createdByEmail: "admin@example.com",
+          usedAt: "2026-08-02T00:00:00.000Z",
+          usedByUserId: "member-sub",
+          usedByEmail: "member@example.com",
+          durationMinutes: 10_080,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          active: true,
+          tokenVersion: 1,
+          createdAt: "2026-08-03T00:00:00.000Z",
+          updatedAt: "2026-08-04T00:00:00.000Z",
+          createdByUserId: "admin-sub",
+          createdByEmail: "admin@example.com",
+          usageMode: "unlimited",
+          usageCount: 3,
+          lastUsedAt: "2026-08-04T00:00:00.000Z",
+          lastUsedByUserId: "member-sub",
+          lastUsedByEmail: "member@example.com",
+          durationMinutes: 43_200,
+          expiresAt: "2099-02-01T00:00:00.000Z",
+        },
       ],
     }),
     "utf8",
@@ -191,22 +234,49 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
     headers: { Cookie: adminCookie },
   });
   assert.equal(listedInvitations.status, 200);
-  const expiredInvitation = (
-    (await listedInvitations.json()) as {
-      invitations: Array<{
-        email: string;
-        state: string;
-        code: string | null;
-        expiresAt: string;
-        durationMinutes: number;
-      }>;
-    }
-  ).invitations.find((invitation) => invitation.email === "expired@example.com");
+  const listedBody = (await listedInvitations.json()) as {
+    invitations: Array<{
+      id: string;
+      state: string;
+      code: string | null;
+      expiresAt: string;
+      durationMinutes: number;
+      usageMode: "once" | "unlimited";
+      usageCount: number;
+      lastUsedAt: string | null;
+      lastUsedByEmail: string | null;
+    }>;
+  };
+  const expiredInvitation = listedBody.invitations.find(
+    (invitation) => invitation.id === "11111111-1111-4111-8111-111111111111",
+  );
   assert.ok(expiredInvitation);
+  assert.equal("recipientName" in expiredInvitation, false);
+  assert.equal("email" in expiredInvitation, false);
+  assert.equal("note" in expiredInvitation, false);
   assert.equal(expiredInvitation.state, "expired");
   assert.equal(expiredInvitation.code, null);
   assert.equal(expiredInvitation.expiresAt, "2000-01-01T01:00:00.000Z");
   assert.equal(expiredInvitation.durationMinutes, 60);
+  const usedInvitation = listedBody.invitations.find(
+    (invitation) => invitation.id === "22222222-2222-4222-8222-222222222222",
+  );
+  assert.ok(usedInvitation);
+  assert.equal(usedInvitation.state, "used");
+  assert.equal(usedInvitation.code, null);
+  assert.equal(usedInvitation.usageMode, "once");
+  assert.equal(usedInvitation.usageCount, 1);
+  assert.equal(usedInvitation.lastUsedByEmail, "member@example.com");
+  const unlimitedInvitation = listedBody.invitations.find(
+    (invitation) => invitation.id === "33333333-3333-4333-8333-333333333333",
+  );
+  assert.ok(unlimitedInvitation);
+  assert.equal(unlimitedInvitation.state, "active");
+  assert.equal(unlimitedInvitation.usageMode, "unlimited");
+  assert.equal(unlimitedInvitation.usageCount, 3);
+  assert.equal(unlimitedInvitation.lastUsedAt, "2026-08-04T00:00:00.000Z");
+  assert.equal(unlimitedInvitation.lastUsedByEmail, "member@example.com");
+  assert.ok(unlimitedInvitation.code);
   const unauthorizedSessionRevoke = await fetch(`${origin}/api/admin/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -302,11 +372,8 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
       Cookie: adminCookie,
     },
     body: JSON.stringify({
-      recipientName: "초대 사용자",
-      email: "invitee@example.com",
-      note: "프로젝트 영상 공유",
-      active: true,
       expiresInMinutes: 60,
+      usageMode: "once",
     }),
   });
   assert.equal(created.status, 201);
@@ -315,18 +382,119 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
       id: string;
       state: string;
       code: string;
-      note: string;
       expiresAt: string;
       durationMinutes: number;
+      usageMode: "once" | "unlimited";
+      usageCount: number;
+      lastUsedAt: string | null;
+      lastUsedByEmail: string | null;
     };
   };
   assert.equal(createdBody.invitation.state, "active");
-  assert.equal(createdBody.invitation.note, "프로젝트 영상 공유");
+  assert.equal("recipientName" in createdBody.invitation, false);
+  assert.equal("email" in createdBody.invitation, false);
+  assert.equal("note" in createdBody.invitation, false);
+  assert.equal("active" in createdBody.invitation, false);
+  assert.equal("updatedAt" in createdBody.invitation, false);
+  assert.equal("createdByUserId" in createdBody.invitation, false);
+  assert.equal("usedByUserId" in createdBody.invitation, false);
+  assert.equal("lastUsedByUserId" in createdBody.invitation, false);
   assert.ok(createdBody.invitation.code.length > 0);
   assert.equal(createdBody.invitation.durationMinutes, 60);
+  assert.equal(createdBody.invitation.usageMode, "once");
+  assert.equal(createdBody.invitation.usageCount, 0);
+  assert.equal(createdBody.invitation.lastUsedAt, null);
+  assert.equal(createdBody.invitation.lastUsedByEmail, null);
   assert.ok(
     Date.parse(createdBody.invitation.expiresAt) > Date.now() + 59 * 60_000,
   );
+
+  const createdUnlimited = await fetch(`${origin}/api/admin/invitations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({
+      expiresInMinutes: 10_080,
+      usageMode: "unlimited",
+    }),
+  });
+  assert.equal(createdUnlimited.status, 201);
+  const createdUnlimitedInvitation = (
+    (await createdUnlimited.json()) as {
+      invitation: {
+        usageMode: "once" | "unlimited";
+        usageCount: number;
+        state: string;
+        code: string;
+      };
+    }
+  ).invitation;
+  assert.equal(createdUnlimitedInvitation.usageMode, "unlimited");
+  assert.equal(createdUnlimitedInvitation.usageCount, 0);
+  assert.equal(createdUnlimitedInvitation.state, "active");
+  assert.ok(createdUnlimitedInvitation.code);
+
+  for (const invalidDuration of [undefined, null, "5"]) {
+    const invalidCreate = await fetch(`${origin}/api/admin/invitations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify(
+        invalidDuration === undefined
+          ? {}
+          : { expiresInMinutes: invalidDuration, usageMode: "once" },
+      ),
+    });
+    assert.equal(invalidCreate.status, 400);
+  }
+
+  for (const invalidUsageMode of [undefined, null, "many", 1]) {
+    const invalidCreate = await fetch(`${origin}/api/admin/invitations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify(
+        invalidUsageMode === undefined
+          ? { expiresInMinutes: 60 }
+          : { expiresInMinutes: 60, usageMode: invalidUsageMode },
+      ),
+    });
+    assert.equal(invalidCreate.status, 400);
+  }
+
+  for (const unsupportedDuration of [0, 61, 525_600]) {
+    const invalidCreate = await fetch(`${origin}/api/admin/invitations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: adminCookie,
+      },
+      body: JSON.stringify({
+        expiresInMinutes: unsupportedDuration,
+        usageMode: "once",
+      }),
+    });
+    assert.equal(invalidCreate.status, 400);
+  }
+
+  const emptyUpdate = await fetch(`${origin}/api/admin/invitations`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({
+      id: createdBody.invitation.id,
+      action: "update",
+    }),
+  });
+  assert.equal(emptyUpdate.status, 400);
 
   const disabled = await fetch(`${origin}/api/admin/invitations`, {
     method: "PATCH",
@@ -349,6 +517,27 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
   };
   assert.equal(disabledSummary.invitation.state, "inactive");
   assert.equal(disabledSummary.invitation.code, null);
+
+  const rotated = await fetch(`${origin}/api/admin/invitations`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({
+      id: createdBody.invitation.id,
+      action: "rotate",
+    }),
+  });
+  assert.equal(rotated.status, 200);
+  const rotatedInvitation = (
+    (await rotated.json()) as {
+      invitation: { state: string; code: string; expiresAt: string };
+    }
+  ).invitation;
+  assert.equal(rotatedInvitation.state, "active");
+  assert.notEqual(rotatedInvitation.code, createdBody.invitation.code);
+  assert.ok(Date.parse(rotatedInvitation.expiresAt) > Date.now() + 59 * 60_000);
 
   const fileId = Buffer.from("report.txt", "utf8").toString("base64url");
   const unauthorizedShare = await fetch(

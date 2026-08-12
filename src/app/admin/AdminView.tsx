@@ -5,38 +5,26 @@ import { useRouter } from "next/navigation";
 import type { User } from "@/lib/users";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
+type InvitationUsageMode = "once" | "unlimited";
 
 interface InvitationSummary {
   id: string;
-  recipientName: string;
-  email: string;
-  note: string;
-  active: boolean;
   createdAt: string;
-  updatedAt: string;
-  createdByUserId: string;
   createdByEmail: string;
-  usedAt: string | null;
-  usedByUserId: string | null;
-  usedByEmail: string | null;
   expiresAt: string;
   durationMinutes: number;
+  usageMode: InvitationUsageMode;
+  usageCount: number;
+  lastUsedAt: string | null;
+  lastUsedByEmail: string | null;
   state: InvitationState;
   code: string | null;
 }
-
-type InvitationEdit = Pick<
-  InvitationSummary,
-  "id" | "recipientName" | "email" | "note"
->;
 
 type LastInvitationAccess = {
   invitationId: string;
   code: string;
 };
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const STATUS_LABEL: Record<User["status"], string> = {
   pending: "코드 입력 대기",
@@ -66,6 +54,11 @@ const INVITE_STYLE: Record<InvitationState, string> = {
   expired: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
 };
 
+const USAGE_MODE_LABEL: Record<InvitationUsageMode, string> = {
+  once: "1회용",
+  unlimited: "기간 내 무제한",
+};
+
 function formatDate(value: string | null): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -84,8 +77,6 @@ function formatDuration(minutes: number): string {
 
 export default function AdminView() {
   const router = useRouter();
-  const editDialogRef = useRef<HTMLElement>(null);
-  const editOpenerRef = useRef<HTMLElement | null>(null);
   const mutationInFlightRef = useRef(false);
   const [users, setUsers] = useState<User[]>([]);
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
@@ -95,14 +86,9 @@ export default function AdminView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [lastAccess, setLastAccess] = useState<LastInvitationAccess | null>(null);
-  const [editingInvite, setEditingInvite] = useState<InvitationEdit | null>(null);
-  const [editError, setEditError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({
-    recipientName: "",
-    email: "",
-    note: "",
-    active: true,
     expiresInMinutes: 1_440,
+    usageMode: "once" as InvitationUsageMode,
   });
 
   const load = useCallback(async () => {
@@ -159,24 +145,6 @@ export default function AdminView() {
     const initial = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(initial);
   }, [load]);
-
-  const editDialogOpen = editingInvite !== null;
-  useEffect(() => {
-    if (!editDialogOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      editDialogRef.current
-        ?.querySelector<HTMLElement>("[data-initial-focus]")
-        ?.focus();
-    });
-    return () => {
-      window.cancelAnimationFrame(frame);
-      const opener = editOpenerRef.current;
-      editOpenerRef.current = null;
-      window.requestAnimationFrame(() => {
-        if (opener?.isConnected) opener.focus();
-      });
-    };
-  }, [editDialogOpen]);
 
   function beginMutation(operationId: string): boolean {
     if (mutationInFlightRef.current) return false;
@@ -243,11 +211,8 @@ export default function AdminView() {
           : null,
       );
       setInviteForm({
-        recipientName: "",
-        email: "",
-        note: "",
-        active: true,
         expiresInMinutes: 1_440,
+        usageMode: "once",
       });
       setNotice("초대 코드를 만들었습니다. 아래 코드를 전달해 주세요.");
       await load();
@@ -277,7 +242,7 @@ export default function AdminView() {
             : {
                 id: invitation.id,
                 action: "update",
-                active: !invitation.active,
+                active: invitation.state !== "active",
               },
         ),
       });
@@ -292,7 +257,9 @@ export default function AdminView() {
               }
             : null,
         );
-        setNotice("예전 코드를 무효화하고 같은 사용 기간의 새 코드를 만들었습니다.");
+        setNotice(
+          "예전 코드를 무효화하고 같은 사용 기간의 새 코드를 만들었습니다. 사용 횟수와 마지막 사용 기록은 유지됩니다.",
+        );
       } else if (
         body.invitation.state === "active" &&
         body.invitation.code
@@ -311,118 +278,6 @@ export default function AdminView() {
       setError(caught instanceof Error ? caught.message : "초대를 바꾸지 못했습니다");
     } finally {
       finishMutation();
-    }
-  }
-
-  function beginInvitationEdit(
-    invitation: InvitationSummary,
-    opener: HTMLElement,
-  ) {
-    editOpenerRef.current = opener;
-    setEditError(null);
-    setEditingInvite({
-      id: invitation.id,
-      recipientName: invitation.recipientName,
-      email: invitation.email,
-      note: invitation.note,
-    });
-  }
-
-  function closeInvitationEdit() {
-    if (editingInvite && busyId === null) {
-      setEditingInvite(null);
-      setEditError(null);
-    }
-  }
-
-  async function saveInvitationEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editingInvite) return;
-    const previousInvitation = invitations.find(
-      (invitation) => invitation.id === editingInvite.id,
-    );
-    const busyKey = `invite:${editingInvite.id}`;
-    if (!beginMutation(busyKey)) return;
-    setEditError(null);
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch("/api/admin/invitations", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: editingInvite.id,
-          action: "update",
-          recipientName: editingInvite.recipientName,
-          email: editingInvite.email,
-          note: editingInvite.note,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "초대 정보를 저장하지 못했습니다");
-      }
-      if (
-        body.invitation.state === "active" &&
-        body.invitation.code
-      ) {
-        setLastAccess((current) =>
-          !previousInvitation ||
-          previousInvitation.code !== body.invitation.code ||
-          current?.invitationId === editingInvite.id
-              ? {
-                  invitationId: body.invitation.id,
-                  code: body.invitation.code,
-              }
-            : current,
-        );
-      } else {
-        setLastAccess((current) =>
-          current?.invitationId === editingInvite.id ? null : current,
-        );
-      }
-      setEditingInvite(null);
-      setNotice("초대 정보를 저장했습니다.");
-      await load();
-    } catch (caught) {
-      setEditError(
-        caught instanceof Error
-          ? caught.message
-          : "초대 정보를 저장하지 못했습니다",
-      );
-    } finally {
-      finishMutation();
-    }
-  }
-
-  function handleEditDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
-    if (!editingInvite) return;
-    const isBusy = busyId !== null;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      if (!isBusy) closeInvitationEdit();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-    );
-    if (!focusable.length) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable.at(-1)!;
-    const active = document.activeElement;
-    if (event.shiftKey && (active === first || !event.currentTarget.contains(active))) {
-      event.preventDefault();
-      last.focus();
-    } else if (
-      !event.shiftKey &&
-      (active === last || !event.currentTarget.contains(active))
-    ) {
-      event.preventDefault();
-      first.focus();
     }
   }
 
@@ -478,49 +333,18 @@ export default function AdminView() {
               초대 코드
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              지정한 Google 이메일에서 유효 기간 안에 한 번만 사용할 수
-              있습니다.
+              받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인
+              사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면
+              소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이
+              함께 씁니다.
             </p>
           </div>
 
           <form
             onSubmit={createInvite}
-            className="grid gap-3 rounded-xl border border-black/10 p-4 md:grid-cols-2 dark:border-white/15"
+            className="flex flex-wrap items-end gap-3 rounded-xl border border-black/10 p-4 dark:border-white/15"
           >
-            <label className="space-y-1 text-xs text-zinc-500">
-              <span>이름</span>
-              <input
-                required
-                maxLength={100}
-                value={inviteForm.recipientName}
-                onChange={(event) =>
-                  setInviteForm((current) => ({
-                    ...current,
-                    recipientName: event.target.value,
-                  }))
-                }
-                className={inputClass}
-                placeholder="초대받을 사람 이름"
-              />
-            </label>
-            <label className="space-y-1 text-xs text-zinc-500">
-              <span>Google 이메일</span>
-              <input
-                required
-                type="email"
-                maxLength={320}
-                value={inviteForm.email}
-                onChange={(event) =>
-                  setInviteForm((current) => ({
-                    ...current,
-                    email: event.target.value,
-                  }))
-                }
-                className={inputClass}
-                placeholder="name@gmail.com"
-              />
-            </label>
-            <label className="space-y-1 text-xs text-zinc-500 md:col-span-2">
+            <label className="min-w-48 flex-1 space-y-1 text-xs text-zinc-500">
               <span>유효 기간</span>
               <select
                 value={inviteForm.expiresInMinutes}
@@ -538,44 +362,29 @@ export default function AdminView() {
                 <option value={43_200}>30일</option>
               </select>
             </label>
-            <label className="space-y-1 text-xs text-zinc-500 md:col-span-2">
-              <span>비고</span>
-              <textarea
-                maxLength={500}
-                rows={2}
-                value={inviteForm.note}
+            <label className="min-w-48 flex-1 space-y-1 text-xs text-zinc-500">
+              <span>사용 방식</span>
+              <select
+                value={inviteForm.usageMode}
                 onChange={(event) =>
                   setInviteForm((current) => ({
                     ...current,
-                    note: event.target.value,
+                    usageMode: event.target.value as InvitationUsageMode,
                   }))
                 }
                 className={inputClass}
-                placeholder="소속, 용도 등 관리 메모"
-              />
-            </label>
-            <div className="flex items-center justify-between md:col-span-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={inviteForm.active}
-                  onChange={(event) =>
-                    setInviteForm((current) => ({
-                      ...current,
-                      active: event.target.checked,
-                    }))
-                  }
-                />
-                생성 즉시 활성화
-              </label>
-              <button
-                type="submit"
-                disabled={busyId !== null}
-                className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-40"
               >
-                {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
-              </button>
-            </div>
+                <option value="once">1회용</option>
+                <option value="unlimited">기간 내 무제한</option>
+              </select>
+            </label>
+            <button
+              type="submit"
+              disabled={busyId !== null}
+              className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-40"
+            >
+              {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
+            </button>
           </form>
 
           {lastAccess && (
@@ -603,13 +412,14 @@ export default function AdminView() {
           )}
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-black/10 dark:border-white/15">
-            <table className="w-full min-w-[1080px] text-sm">
+            <table className="w-full min-w-[940px] text-sm">
               <thead>
                 <tr className="border-b border-black/10 text-left text-zinc-500 dark:border-white/15 dark:text-zinc-400">
-                  <th className="px-4 py-2.5 font-medium">대상</th>
                   <th className="px-4 py-2.5 font-medium">초대 코드</th>
                   <th className="px-4 py-2.5 font-medium">만료일</th>
-                  <th className="px-4 py-2.5 font-medium">비고</th>
+                  <th className="px-4 py-2.5 font-medium">사용 방식</th>
+                  <th className="px-4 py-2.5 font-medium">사용 기록</th>
+                  <th className="px-4 py-2.5 font-medium">생성 정보</th>
                   <th className="px-4 py-2.5 font-medium">상태</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
@@ -617,13 +427,13 @@ export default function AdminView() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
                       불러오는 중…
                     </td>
                   </tr>
                 ) : invitations.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
                       아직 만든 초대가 없습니다
                     </td>
                   </tr>
@@ -633,10 +443,6 @@ export default function AdminView() {
                       key={invitation.id}
                       className="border-b border-black/5 last:border-b-0 dark:border-white/5"
                     >
-                      <td className="px-4 py-2">
-                        <div className="font-medium">{invitation.recipientName}</div>
-                        <div className="text-xs text-zinc-500">{invitation.email}</div>
-                      </td>
                       <td className="px-4 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-300">
                         {invitation.code ?? "—"}
                       </td>
@@ -644,8 +450,20 @@ export default function AdminView() {
                         <div>{formatDate(invitation.expiresAt)}</div>
                         <div>{formatDuration(invitation.durationMinutes)}</div>
                       </td>
-                      <td className="max-w-64 whitespace-pre-wrap px-4 py-2 text-xs text-zinc-600 dark:text-zinc-300">
-                        {invitation.note || "—"}
+                      <td className="px-4 py-2 text-xs text-zinc-500">
+                        {USAGE_MODE_LABEL[invitation.usageMode]}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-zinc-500">
+                        <div>{invitation.usageCount}회</div>
+                        {invitation.lastUsedAt && (
+                          <div>
+                            {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt)}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-zinc-500">
+                        <div>{invitation.createdByEmail}</div>
+                        <div>{formatDate(invitation.createdAt)}</div>
                       </td>
                       <td className="px-4 py-2">
                         <span
@@ -653,11 +471,6 @@ export default function AdminView() {
                         >
                           {INVITE_LABEL[invitation.state]}
                         </span>
-                        {invitation.usedAt && (
-                          <div className="mt-1 text-xs text-zinc-500">
-                            {invitation.usedByEmail} · {formatDate(invitation.usedAt)}
-                          </div>
-                        )}
                       </td>
                       <td className="px-4 py-2 text-right">
                         {invitation.state !== "used" && (
@@ -683,19 +496,6 @@ export default function AdminView() {
                                   </button>
                                 </>
                               )}
-                            <button
-                              type="button"
-                              disabled={busyId !== null}
-                              onClick={(event) =>
-                                beginInvitationEdit(
-                                  invitation,
-                                  event.currentTarget,
-                                )
-                              }
-                              className={buttonClass}
-                            >
-                              정보 수정
-                            </button>
                             {invitation.state !== "expired" && (
                               <button
                                 type="button"
@@ -705,7 +505,9 @@ export default function AdminView() {
                                 }
                                 className={buttonClass}
                               >
-                                {invitation.active ? "비활성" : "활성"}
+                                {invitation.state === "active"
+                                  ? "비활성"
+                                  : "활성"}
                               </button>
                             )}
                             <button
@@ -728,122 +530,6 @@ export default function AdminView() {
             </table>
           </div>
         </section>
-
-        {editingInvite && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-            role="presentation"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) closeInvitationEdit();
-            }}
-          >
-            <section
-              ref={editDialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="invite-edit-title"
-              aria-describedby={editError ? "invite-edit-error" : undefined}
-              onKeyDown={handleEditDialogKeyDown}
-              className="w-full max-w-xl rounded-xl bg-background p-5 shadow-2xl ring-1 ring-black/10 dark:ring-white/15"
-            >
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 id="invite-edit-title" className="text-base font-semibold">
-                  초대 정보 수정
-                </h2>
-                <button
-                  type="button"
-                  aria-label="닫기"
-                  disabled={busyId !== null}
-                  onClick={closeInvitationEdit}
-                  className={buttonClass}
-                >
-                  닫기
-                </button>
-              </div>
-              <form
-                onSubmit={saveInvitationEdit}
-                className="grid gap-3 sm:grid-cols-2"
-              >
-                <label className="space-y-1 text-xs text-zinc-500">
-                  <span>이름</span>
-                  <input
-                    data-initial-focus
-                    required
-                    maxLength={100}
-                    value={editingInvite.recipientName}
-                    onChange={(event) =>
-                      setEditingInvite((current) =>
-                        current
-                          ? { ...current, recipientName: event.target.value }
-                          : current,
-                      )
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                <label className="space-y-1 text-xs text-zinc-500">
-                  <span>Google 이메일</span>
-                  <input
-                    required
-                    type="email"
-                    maxLength={320}
-                    value={editingInvite.email}
-                    onChange={(event) =>
-                      setEditingInvite((current) =>
-                        current
-                          ? { ...current, email: event.target.value }
-                          : current,
-                      )
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                <label className="space-y-1 text-xs text-zinc-500 sm:col-span-2">
-                  <span>비고</span>
-                  <textarea
-                    maxLength={500}
-                    rows={4}
-                    value={editingInvite.note}
-                    onChange={(event) =>
-                      setEditingInvite((current) =>
-                        current
-                          ? { ...current, note: event.target.value }
-                          : current,
-                      )
-                    }
-                    className={inputClass}
-                  />
-                </label>
-                {editError && (
-                  <p
-                    id="invite-edit-error"
-                    role="alert"
-                    className="text-sm text-red-600 sm:col-span-2 dark:text-red-400"
-                  >
-                    {editError}
-                  </p>
-                )}
-                <div className="flex flex-wrap justify-end gap-2 sm:col-span-2">
-                  <button
-                    type="button"
-                    disabled={busyId !== null}
-                    onClick={closeInvitationEdit}
-                    className="rounded-lg border border-black/10 px-4 py-2 text-sm disabled:opacity-40 dark:border-white/15"
-                  >
-                    취소
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={busyId !== null}
-                    className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-40"
-                  >
-                    {busyId === `invite:${editingInvite.id}` ? "저장 중…" : "저장"}
-                  </button>
-                </div>
-              </form>
-            </section>
-          </div>
-        )}
 
         <section aria-labelledby="user-title">
           <h2 id="user-title" className="mb-3 text-base font-semibold">

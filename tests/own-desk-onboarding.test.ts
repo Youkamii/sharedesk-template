@@ -24,7 +24,7 @@ test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들�
   );
 });
 
-test("신규 사용자는 로그인한 뒤 기간제 초대 코드로 가입한다", async () => {
+test("Google 로그인한 신규 사용자는 기간제 1회용 또는 기간 내 무제한 코드로 가입한다", async () => {
   const [pageSource, formSource, apiSource, filesSource, adminSource] = await Promise.all([
     readFile(new URL("../src/app/join/page.tsx", import.meta.url), "utf8"),
     readFile(
@@ -42,22 +42,27 @@ test("신규 사용자는 로그인한 뒤 기간제 초대 코드로 가입한�
   assert.match(pageSource, /resolveIdentity/);
   assert.match(pageSource, /me\.status === "approved"[\s\S]*?redirect\("\/files"\)/);
   assert.match(pageSource, /기간제 초대 코드/);
+  assert.match(pageSource, /1회용은 한 명이[\s\S]*가입하면 끝납니다/);
+  assert.match(pageSource, /기간 내 무제한은 만료되거나 관리자가 끌 때까지[\s\S]*여러 명/);
   assert.match(
     formSource,
     /<form[\s\S]*?action="\/api\/invitations\/code"[\s\S]*?method="post"/,
   );
+  assert.match(formSource, /maxLength=\{96\}/);
   assert.match(formSource, /name="code"/);
   assert.match(formSource, /autoComplete="off"/);
-  assert.match(formSource, /maxLength=\{96\}/);
-  assert.match(formSource, /placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"/);
+  assert.match(formSource, /placeholder="XXXX-XXXX-XXXX-XXXX-…"/);
   assert.match(
     apiSource,
-    /if \(!checked\.ok\) return redirect\(req, "\/join", checked\.reason\)/,
+    /const invitation = parseInvitationCode\(await readCode\(req\)\)/,
   );
+  assert.match(apiSource, /if \(!invitation\) return redirect\(req, "\/join", "invite_invalid"\)/);
   assert.match(
     apiSource,
     /if \(!redeemed\.ok\) return redirect\(req, "\/join", redeemed\.reason\)/,
   );
+  assert.match(apiSource, /redeemInvitationForUser\([\s\S]*?claims\.sub[\s\S]*?invitation/);
+  assert.doesNotMatch(apiSource, /invitation\.(?:email|name|note)/);
   assert.match(filesSource, /identity\?\.status === "pending"[\s\S]*?"\/join"/);
   assert.match(adminSource, /identity\?\.status === "pending"[\s\S]*?"\/join"/);
 });

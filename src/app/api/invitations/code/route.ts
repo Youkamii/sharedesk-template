@@ -3,7 +3,7 @@ import {
   COOKIE_NAME,
   openSigned,
 } from "@/lib/session-token";
-import { findInvitationByCode } from "@/lib/invite-token";
+import { parseInvitationCode } from "@/lib/invite-token";
 import { redeemInvitationForUser } from "@/lib/users";
 
 const MAX_BODY_BYTES = 4_096;
@@ -94,15 +94,11 @@ export async function POST(req: NextRequest) {
   if (tooManyAttempts(claims.sub)) {
     return redirect(req, "/join", "invite_rate_limited");
   }
-
-  const checked = await findInvitationByCode(await readCode(req));
-  if (!checked.ok) return redirect(req, "/join", checked.reason);
+  const invitation = parseInvitationCode(await readCode(req));
+  if (!invitation) return redirect(req, "/join", "invite_invalid");
   const redeemed = await redeemInvitationForUser(
     claims.sub,
-    {
-      id: checked.invitation.id,
-      tokenVersion: checked.invitation.tokenVersion,
-    },
+    invitation,
     {
       issuedAtSeconds: claims.iat,
       sessionVersion: claims.sv,
