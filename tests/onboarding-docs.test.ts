@@ -9,15 +9,30 @@ test("README는 독립 데스크 생성과 기존 데스크 참여를 처음부�
   const opening = readme.slice(0, readme.indexOf("## 주요 기능"));
 
   assert.match(opening, /내 ShareDesk 만들기/);
-  assert.match(opening, /다른 사람의 ShareDesk 참여하기/);
-  assert.match(opening, /Google 계정으로 로그인한 뒤 관리자가 발급한 기간제 초대 코드/);
+  assert.match(opening, /다른 사람의 ShareDesk에 참여하기/);
+  assert.match(opening, /Google 계정으로 로그인한 뒤 호스트가 공유한 기간제 초대 코드/);
+  assert.match(opening, /1회용 코드는 한 명이 가입에 성공하면 바로 소진/);
+  assert.match(opening, /기간 내 무제한 코드는 만료되거나 호스트가 끌 때까지 여러 명이 함께 씁니다/);
   assert.match(opening, /OAuth나 Vercel 설정은 필요 없습니다/);
   assert.match(readme, /배포 1개가 독립 데스크 1개/);
   assert.match(readme, /https:\/\/github\.com\/Youkamii\/sharedesk-template\/generate/);
   assert.match(readme, /https:\/\/vercel\.com\/new\/clone\?repository-url=/);
   assert.match(readme, /repository-url=https%3A%2F%2Fgithub\.com%2FYoukamii%2Fsharedesk-template/);
   assert.match(readme, /1시간[\s\S]*24시간[\s\S]*7일[\s\S]*30일/);
-  assert.match(readme, /만료됐거나 비활성화됐거나 이미 사용한 코드는 거부/);
+  assert.match(readme, /이미 소진된 1회용 코드도 거부/);
+  assert.match(readme, /Request Path.*`\/api\/invitations\/code`[\s\S]*Method.*`POST`[\s\S]*Cookie `sharedesk_session`[\s\S]*Fixed Window[\s\S]*IP[\s\S]*60초[\s\S]*10회/);
+  assert.match(readme, /Rate Limiting은 모든 플랜[\s\S]*포함량과 요금은 플랜·지역/);
+
+  const inviteSection = readme.slice(
+    readme.indexOf("## 5. 사람 초대하기"),
+    readme.indexOf("## Google Drive로 직접 공유하기"),
+  );
+  assert.match(inviteSection, /유효 기간[\s\S]*1회용[\s\S]*무제한[\s\S]*이름, 이메일, 비고는 입력하지 않습니다/);
+  assert.match(inviteSection, /특정 사람이나 이메일에 미리 묶이지 않습니다/);
+  assert.match(inviteSection, /1회용:[\s\S]*한 명이 가입에 성공하면 바로 소진/);
+  assert.match(inviteSection, /기간 내 무제한:[\s\S]*유효 기간이 끝나거나 호스트가 코드를 비활성화할 때까지 여러 명/);
+  assert.match(inviteSection, /자기 소유의 별도 데스크[\s\S]*독립 배포/);
+  assert.doesNotMatch(inviteSection, /받을 사람의 이름|실제로 로그인할 Google 이메일|비고를 남기/);
 });
 
 test("운영용 AI 프롬프트는 사용자 소유 배포를 끝까지 만들고 비밀을 노출하지 않는다", async () => {

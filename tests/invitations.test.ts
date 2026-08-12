@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("기간제 초대 코드 생성·전환·1회 소비", async () => {
+test("기간제 초대 코드 생성·전환·사용 방식", async () => {
   const originalDateNow = Date.now;
   let fakeNow = originalDateNow();
   Date.now = () => fakeNow;
@@ -42,6 +42,20 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
           usedByUserId: null,
           usedByEmail: null,
         },
+        {
+          id: "00000000-0000-4000-8000-000000000002",
+          active: false,
+          tokenVersion: 3,
+          durationMinutes: 60,
+          expiresAt: new Date(fakeNow + 60 * 60_000).toISOString(),
+          createdAt: new Date(fakeNow - 60 * 60_000).toISOString(),
+          updatedAt: new Date(fakeNow - 30 * 60_000).toISOString(),
+          createdByUserId: "admin-google-sub",
+          createdByEmail: "admin@example.com",
+          usedAt: new Date(fakeNow - 30 * 60_000).toISOString(),
+          usedByUserId: "legacy-used-user",
+          usedByEmail: "legacy-used@example.com",
+        },
       ],
     }),
     "utf8",
@@ -65,7 +79,20 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     assert.equal(migrated[0].sessionVersion, 0, "기존 명단은 세션 버전 0으로 읽는다");
     assert.deepEqual(migrated[0].sessions, [], "기존 명단은 기기 세션 없이 읽는다");
 
-    const legacy = (await users.listInvitations({ fresh: true }))[0];
+    const migratedInvitations = await users.listInvitations({ fresh: true });
+    const legacy = migratedInvitations.find(
+      (item) => item.id === "00000000-0000-4000-8000-000000000001",
+    );
+    assert.ok(legacy);
+    assert.equal("recipientName" in legacy, false);
+    assert.equal("email" in legacy, false);
+    assert.equal("note" in legacy, false);
+    assert.equal(legacy.active, false, "기존 이메일 전용 초대는 범용 코드로 열지 않는다");
+    assert.equal(
+      legacy.tokenVersion,
+      2,
+      "기존에 전달된 코드 값도 토큰 버전을 올려 무효화한다",
+    );
     assert.equal(
       legacy.durationMinutes,
       users.LEGACY_INVITATION_DURATION_MINUTES,
@@ -85,6 +112,26 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       ),
       { ok: false, reason: "invite_expired" },
     );
+    const migratedUsed = migratedInvitations.find(
+      (item) => item.id === "00000000-0000-4000-8000-000000000002",
+    );
+    assert.ok(migratedUsed);
+    assert.equal(migratedUsed.usageMode, "once");
+    assert.equal(migratedUsed.usageCount, 1);
+    assert.equal(
+      migratedUsed.lastUsedAt,
+      new Date(fakeNow - 30 * 60_000).toISOString(),
+    );
+    assert.equal(migratedUsed.lastUsedByUserId, "legacy-used-user");
+    assert.equal(migratedUsed.lastUsedByEmail, "legacy-used@example.com");
+    assert.deepEqual(
+      await users.findInvitation(
+        { id: migratedUsed.id, tokenVersion: migratedUsed.tokenVersion },
+        { fresh: true },
+      ),
+      { ok: false, reason: "invite_used" },
+      "기존 usedAt 감사 정보는 1회 사용 완료 상태로 옮긴다",
+    );
 
     const directUnknown = await users.loginWithGoogle({
       id: "new-user",
@@ -100,12 +147,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     );
 
     const invitation = await users.createInvitation(
-      {
-        recipientName: "초대 사용자",
-        email: "invitee@example.com",
-        note: "영상팀",
-        active: true,
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     assert.equal(
@@ -118,11 +160,21 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     );
     await assert.rejects(
       users.createInvitation(
-        {
-          recipientName: "너무 짧은 초대",
-          email: "too-short@example.com",
-          expiresInMinutes: 4,
-        },
+        { expiresInMinutes: 4, usageMode: "once" },
+        { userId: "admin-google-sub", email: "admin@example.com" },
+      ),
+      /초대 기간/,
+    );
+    await assert.rejects(
+      users.createInvitation(
+        {} as Parameters<typeof users.createInvitation>[0],
+        { userId: "admin-google-sub", email: "admin@example.com" },
+      ),
+      /사용 방식/,
+    );
+    await assert.rejects(
+      users.createInvitation(
+        { expiresInMinutes: 5.5, usageMode: "once" },
         { userId: "admin-google-sub", email: "admin@example.com" },
       ),
       /초대 기간/,
@@ -130,20 +182,8 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     await assert.rejects(
       users.createInvitation(
         {
-          recipientName: "정수가 아닌 초대",
-          email: "fraction@example.com",
-          expiresInMinutes: 5.5,
-        },
-        { userId: "admin-google-sub", email: "admin@example.com" },
-      ),
-      /초대 기간/,
-    );
-    await assert.rejects(
-      users.createInvitation(
-        {
-          recipientName: "너무 긴 초대",
-          email: "too-long@example.com",
           expiresInMinutes: users.MAX_INVITATION_DURATION_MINUTES + 1,
+          usageMode: "once",
         },
         { userId: "admin-google-sub", email: "admin@example.com" },
       ),
@@ -151,7 +191,10 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     );
     const ref = { id: invitation.id, tokenVersion: invitation.tokenVersion };
     const code = tokens.createInvitationCode(ref);
-    assert.match(code, /^(?:[A-HJ-NP-Z]{4}-){5}[A-HJ-NP-Z]{4}$/);
+    assert.match(
+      code,
+      /^(?!.*[01IO])(?:[2-9A-Z]{4}-){15}[2-9A-Z]{4}$/,
+    );
     assert.equal(tokens.createInvitationCode(ref), code, "코드는 같은 초대 버전에서 결정적이다");
     const noisyCode = `  ${code.toLowerCase().replaceAll("-", " - \n")}  `;
     assert.equal(
@@ -159,15 +202,15 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       code.replaceAll("-", ""),
       "공백·하이픈·대소문자는 입력 편의를 위해 정규화한다",
     );
-    assert.equal((await tokens.findInvitationByCode(noisyCode)).ok, true);
+    assert.deepEqual(tokens.parseInvitationCode(noisyCode), ref);
     const compactCode = code.replaceAll("-", "");
-    const changedFirst = compactCode[0] === "A" ? "B" : "A";
-    assert.deepEqual(
-      await tokens.findInvitationByCode(changedFirst + compactCode.slice(1)),
-      { ok: false, reason: "invite_invalid" },
+    const changedFirst = compactCode[0] === "2" ? "3" : "2";
+    assert.equal(
+      tokens.parseInvitationCode(changedFirst + compactCode.slice(1)),
+      null,
       "한 글자 변조한 코드는 거절한다",
     );
-    assert.equal(tokens.normalizeInvitationCode("A".repeat(97)), null);
+    assert.equal(tokens.normalizeInvitationCode("A".repeat(193)), null);
     assert.equal(
       tokens.normalizeInvitationCode("ß".repeat(12)),
       null,
@@ -192,6 +235,13 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       users.LEGACY_INVITATION_DURATION_MINUTES,
     );
     assert.equal(persistedLegacy?.expiresAt, legacy.expiresAt);
+    assert.equal(
+      storedAfterCreate.includes("legacy-expired@example.com"),
+      false,
+      "기존 수신자 정보는 다음 저장 때 제거한다",
+    );
+    assert.equal(storedAfterCreate.includes("예전 초대 사용자"), false);
+    assert.equal(storedAfterCreate.includes("기간 필드가 없던 초대"), false);
     assert.equal(storedAfterCreate.includes(code), false, "사람용 코드를 저장하지 않는다");
     assert.equal(
       storedAfterCreate.includes(process.env.SESSION_SECRET!),
@@ -200,11 +250,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     );
 
     const expiring = await users.createInvitation(
-      {
-        recipientName: "곧 만료될 사용자",
-        email: "expires@example.com",
-        expiresInMinutes: 5,
-      },
+      { expiresInMinutes: 5, usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const expiringRef = {
@@ -218,7 +264,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     );
     const expiredPending = await users.loginWithGoogle({
       id: "expired-user",
-      email: expiring.email,
+      email: "expires@example.com",
       name: "만료 사용자",
     });
     assert.ok(expiredPending.ok);
@@ -227,18 +273,13 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       { ok: false, reason: "invite_expired" },
     );
     assert.deepEqual(
-      await tokens.findInvitationByCode(
-        tokens.createInvitationCode(expiringRef),
-      ),
-      { ok: false, reason: "invite_expired" },
+      tokens.parseInvitationCode(tokens.createInvitationCode(expiringRef)),
+      expiringRef,
+      "코드 해석은 저장소를 보지 않고 만료 여부를 최종 사용 단계에 맡긴다",
     );
 
     const pendingInvite = await users.createInvitation(
-      {
-        recipientName: directUnknown.user.name,
-        email: directUnknown.user.email,
-        expiresInMinutes: 60,
-      },
+      { expiresInMinutes: 60, usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const pendingSessionToken = await auth.createUserSession(
@@ -290,10 +331,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     });
     assert.ok(jsonPending.ok);
     const jsonInvite = await users.createInvitation(
-      {
-        recipientName: jsonPending.user.name,
-        email: jsonPending.user.email,
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const jsonSessionToken = await auth.createUserSession(
@@ -334,15 +372,56 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       invalidPending.user.sessionVersion,
       invalidPending.session.id,
     );
-    const invalidResponse = await codeRoute.POST(
-      new NextRequest("http://localhost:3000/api/invitations/code", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Cookie: `sharedesk_session=${invalidSessionToken}`,
-        },
-        body: new URLSearchParams({ code: "not-a-code" }),
-      }),
+    const storage = await import("@/lib/storage");
+    const invalidCodeAdapter = storage.getAdapter();
+    const originalReadStateVersioned = invalidCodeAdapter.readStateVersioned;
+    let invalidCodeStateReads = 0;
+    const invalidCodeStatePath = path.join(root, ".sharedesk", "users.json");
+    const revBeforeInvalidCode = (
+      JSON.parse(await readFile(invalidCodeStatePath, "utf8")) as { rev: number }
+    ).rev;
+    invalidCodeAdapter.readStateVersioned = (async (...args) => {
+      invalidCodeStateReads += 1;
+      return originalReadStateVersioned.apply(invalidCodeAdapter, args);
+    }) as typeof originalReadStateVersioned;
+    let invalidResponse: Awaited<ReturnType<typeof codeRoute.POST>>;
+    let tamperedResponse: Awaited<ReturnType<typeof codeRoute.POST>>;
+    try {
+      invalidResponse = await codeRoute.POST(
+        new NextRequest("http://localhost:3000/api/invitations/code", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Cookie: `sharedesk_session=${invalidSessionToken}`,
+          },
+          body: new URLSearchParams({ code: "not-a-code" }),
+        }),
+      );
+      tamperedResponse = await codeRoute.POST(
+        new NextRequest("http://localhost:3000/api/invitations/code", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Cookie: `sharedesk_session=${invalidSessionToken}`,
+          },
+          body: new URLSearchParams({
+            code: changedFirst + compactCode.slice(1),
+          }),
+        }),
+      );
+    } finally {
+      invalidCodeAdapter.readStateVersioned = originalReadStateVersioned;
+    }
+    assert.equal(
+      invalidCodeStateReads,
+      0,
+      "형식이 틀리거나 서명이 맞지 않는 코드는 사용자·초대 저장소를 읽지 않는다",
+    );
+    assert.equal(
+      (JSON.parse(await readFile(invalidCodeStatePath, "utf8")) as { rev: number })
+        .rev,
+      revBeforeInvalidCode,
+      "잘못된 코드 요청은 사용자·초대 상태도 바꾸지 않는다",
     );
     const invalidLocation = new URL(
       invalidResponse.headers.get("location") ?? "",
@@ -350,7 +429,13 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     assert.equal(invalidResponse.status, 303);
     assert.equal(invalidLocation.pathname, "/join");
     assert.equal(invalidLocation.searchParams.get("error"), "invite_invalid");
-    for (let attempt = 1; attempt < 10; attempt += 1) {
+    assert.equal(
+      new URL(tamperedResponse.headers.get("location") ?? "").searchParams.get(
+        "error",
+      ),
+      "invite_invalid",
+    );
+    for (let attempt = 2; attempt < 10; attempt += 1) {
       const repeatedInvalid = await codeRoute.POST(
         new NextRequest("http://localhost:3000/api/invitations/code", {
           method: "POST",
@@ -418,38 +503,94 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       "Content-Length가 없어도 4KB를 넘는 본문은 코드로 읽지 않는다",
     );
 
-    const mismatchInvite = await users.createInvitation(
-      {
-        recipientName: "다른 이메일 사용자",
-        email: "different-email@example.com",
-      },
+    const genericInvite = await users.createInvitation(
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
-    const mismatchRef = {
-      id: mismatchInvite.id,
-      tokenVersion: mismatchInvite.tokenVersion,
+    const genericRef = {
+      id: genericInvite.id,
+      tokenVersion: genericInvite.tokenVersion,
     };
+    assert.equal(
+      (
+        await users.redeemInvitationForUser(
+          invalidPending.user.id,
+          genericRef,
+        )
+      ).ok,
+      true,
+      "범용 코드는 생성할 때 특정한 수신자와 무관하게 pending 사용자가 쓴다",
+    );
+    const genericUsed = (await users.listInvitations({ fresh: true })).find(
+      (item) => item.id === genericInvite.id,
+    );
+    assert.equal(genericUsed?.usageCount, 1);
+    assert.equal(genericUsed?.lastUsedByUserId, invalidPending.user.id);
+    assert.equal(genericUsed?.lastUsedByEmail, invalidPending.user.email);
+    assert.equal("recipientName" in genericInvite, false);
+    assert.equal("email" in genericInvite, false);
+    assert.equal("note" in genericInvite, false);
+
+    const statePath = path.join(root, ".sharedesk", "users.json");
+    const beforeRepeatedRedemption = JSON.parse(
+      await readFile(statePath, "utf8"),
+    ) as { rev: number };
     assert.deepEqual(
-      await users.redeemInvitationForUser(invalidPending.user.id, mismatchRef),
-      { ok: false, reason: "invite_email_mismatch" },
+      await users.redeemInvitationForUser(invalidPending.user.id, genericRef),
+      { ok: false, reason: "invite_required" },
+    );
+    const afterRepeatedRedemption = JSON.parse(
+      await readFile(statePath, "utf8"),
+    ) as { rev: number };
+    assert.equal(
+      afterRepeatedRedemption.rev,
+      beforeRepeatedRedemption.rev,
+      "승인된 사용자의 실패한 재입력은 사용자 상태를 다시 저장하지 않는다",
+    );
+    const approvedCodeResponse = await codeRoute.POST(
+      new NextRequest("http://localhost:3000/api/invitations/code", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Cookie: `sharedesk_session=${jsonSessionToken}`,
+        },
+        body: new URLSearchParams({
+          code: tokens.createInvitationCode(genericRef),
+        }),
+      }),
+    );
+    const approvedCodeLocation = new URL(
+      approvedCodeResponse.headers.get("location") ?? "",
     );
     assert.equal(
-      (await users.findInvitation(mismatchRef, { fresh: true })).ok,
-      true,
-      "이메일이 다른 코드 사용 실패는 초대를 소비하지 않는다",
+      approvedCodeLocation.pathname,
+      "/join",
+      "서명 확인 뒤 CAS가 현재 사용자 상태까지 최종 판정한다",
+    );
+    assert.equal(
+      approvedCodeLocation.searchParams.get("error"),
+      "invite_required",
+    );
+    assert.equal(
+      (JSON.parse(await readFile(statePath, "utf8")) as { rev: number }).rev,
+      beforeRepeatedRedemption.rev,
+      "승인된 세션의 코드 제출 API도 사용자 상태를 저장하지 않는다",
     );
 
-    const casPending = await users.loginWithGoogle({
-      id: "cas-pending-user",
-      email: "cas-pending@example.com",
-      name: "동시 가입 사용자",
+    const casPendingOne = await users.loginWithGoogle({
+      id: "cas-pending-user-one",
+      email: "cas-pending-one@example.com",
+      name: "동시 가입 사용자 1",
     });
-    assert.ok(casPending.ok);
+    const casPendingTwo = await users.loginWithGoogle({
+      id: "cas-pending-user-two",
+      email: "cas-pending-two@example.com",
+      name: "동시 가입 사용자 2",
+    });
+    assert.ok(casPendingOne.ok);
+    assert.ok(casPendingTwo.ok);
     const casInvite = await users.createInvitation(
-      {
-        recipientName: casPending.user.name,
-        email: casPending.user.email,
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const casRef = {
@@ -457,37 +598,181 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       tokenVersion: casInvite.tokenVersion,
     };
     const redemptions = await Promise.all([
-      users.redeemInvitationForUser(casPending.user.id, casRef),
-      users.redeemInvitationForUser(casPending.user.id, casRef),
+      users.redeemInvitationForUser(casPendingOne.user.id, casRef),
+      users.redeemInvitationForUser(casPendingTwo.user.id, casRef),
     ]);
     assert.equal(redemptions.filter((result) => result.ok).length, 1);
     assert.equal(
       redemptions.filter((result) => !result.ok).length,
       1,
-      "동시 코드 사용도 CAS로 한 번만 승인한다",
+      "서로 다른 사용자의 동시 코드 사용도 CAS로 한 번만 승인한다",
     );
+    assert.deepEqual(redemptions.find((result) => !result.ok), {
+      ok: false,
+      reason: "invite_used",
+    });
     assert.deepEqual(
       await users.findInvitation(casRef, { fresh: true }),
       { ok: false, reason: "invite_used" },
     );
-
-    const wrongPending = await users.loginWithGoogle({
-      id: "wrong-user",
-      email: "wrong@example.com",
-      name: "다른 사람",
-    });
-    assert.ok(wrongPending.ok);
-    const mismatch = await users.redeemInvitationForUser(
-      wrongPending.user.id,
-      ref,
+    await assert.rejects(
+      users.setInvitationActive(casInvite.id, true),
+      /사용 완료/,
     );
-    assert.deepEqual(mismatch, { ok: false, reason: "invite_email_mismatch" });
-    assert.equal((await users.findInvitation(ref, { fresh: true })).ok, true);
+    await assert.rejects(
+      users.rotateInvitation(casInvite.id),
+      /사용 완료/,
+    );
 
-    await users.updateInvitation(invitation.id, { active: false });
+    const unlimitedPendingOne = await users.loginWithGoogle({
+      id: "unlimited-pending-one",
+      email: "unlimited-one@example.com",
+      name: "무제한 가입 사용자 1",
+    });
+    const unlimitedPendingTwo = await users.loginWithGoogle({
+      id: "unlimited-pending-two",
+      email: "unlimited-two@example.com",
+      name: "무제한 가입 사용자 2",
+    });
+    const unlimitedPendingThree = await users.loginWithGoogle({
+      id: "unlimited-pending-three",
+      email: "unlimited-three@example.com",
+      name: "무제한 가입 사용자 3",
+    });
+    const unlimitedPendingFour = await users.loginWithGoogle({
+      id: "unlimited-pending-four",
+      email: "unlimited-four@example.com",
+      name: "무제한 가입 사용자 4",
+    });
+    assert.ok(unlimitedPendingOne.ok);
+    assert.ok(unlimitedPendingTwo.ok);
+    assert.ok(unlimitedPendingThree.ok);
+    assert.ok(unlimitedPendingFour.ok);
+    const unlimitedInvite = await users.createInvitation(
+      { expiresInMinutes: 60, usageMode: "unlimited" },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const unlimitedRef = {
+      id: unlimitedInvite.id,
+      tokenVersion: unlimitedInvite.tokenVersion,
+    };
+    const unlimitedCode = tokens.createInvitationCode(unlimitedRef);
+    const unlimitedRedemptions = await Promise.all([
+      users.redeemInvitationForUser(unlimitedPendingOne.user.id, unlimitedRef),
+      users.redeemInvitationForUser(unlimitedPendingTwo.user.id, unlimitedRef),
+    ]);
+    assert.equal(
+      unlimitedRedemptions.filter((result) => result.ok).length,
+      2,
+      "무제한 코드는 서로 다른 사용자가 동시에 써도 모두 승인한다",
+    );
+    let unlimitedStored = (await users.listInvitations({ fresh: true })).find(
+      (item) => item.id === unlimitedInvite.id,
+    );
+    assert.equal(unlimitedStored?.usageCount, 2);
+    assert.equal(unlimitedStored?.active, true);
+    assert.equal((await users.findInvitation(unlimitedRef)).ok, true);
+    assert.deepEqual(tokens.parseInvitationCode(unlimitedCode), unlimitedRef);
+
+    assert.deepEqual(
+      await users.redeemInvitationForUser(
+        unlimitedPendingOne.user.id,
+        unlimitedRef,
+      ),
+      { ok: false, reason: "invite_required" },
+      "이미 가입한 사용자가 같은 코드를 다시 입력해도 사용 횟수를 늘리지 않는다",
+    );
+    unlimitedStored = (await users.listInvitations({ fresh: true })).find(
+      (item) => item.id === unlimitedInvite.id,
+    );
+    assert.equal(unlimitedStored?.usageCount, 2);
+
+    await users.setInvitationActive(unlimitedInvite.id, false);
+    assert.deepEqual(await users.findInvitation(unlimitedRef, { fresh: true }), {
+      ok: false,
+      reason: "invite_inactive",
+    });
+    assert.deepEqual(
+      await users.redeemInvitationForUser(
+        unlimitedPendingThree.user.id,
+        unlimitedRef,
+      ),
+      { ok: false, reason: "invite_inactive" },
+    );
+    await users.setInvitationActive(unlimitedInvite.id, true);
+    assert.equal(
+      (
+        await users.redeemInvitationForUser(
+          unlimitedPendingThree.user.id,
+          unlimitedRef,
+        )
+      ).ok,
+      true,
+    );
+    const beforeUnlimitedRotate = (
+      await users.listInvitations({ fresh: true })
+    ).find((item) => item.id === unlimitedInvite.id);
+    assert.equal(beforeUnlimitedRotate?.usageCount, 3);
+    const rotatedUnlimited = await users.rotateInvitation(unlimitedInvite.id);
+    assert.ok(rotatedUnlimited);
+    assert.equal(rotatedUnlimited.usageCount, 3);
+    assert.equal(rotatedUnlimited.lastUsedAt, beforeUnlimitedRotate?.lastUsedAt);
+    assert.equal(
+      rotatedUnlimited.lastUsedByEmail,
+      unlimitedPendingThree.user.email,
+    );
+    assert.deepEqual(
+      tokens.parseInvitationCode(unlimitedCode),
+      unlimitedRef,
+      "재발급 전 코드도 서명 자체는 해석되고 저장 단계에서 버전이 거절된다",
+    );
+    const rotatedUnlimitedRef = {
+      id: rotatedUnlimited.id,
+      tokenVersion: rotatedUnlimited.tokenVersion,
+    };
+    assert.deepEqual(
+      await users.redeemInvitationForUser(
+        unlimitedPendingFour.user.id,
+        tokens.parseInvitationCode(unlimitedCode)!,
+      ),
+      { ok: false, reason: "invite_invalid" },
+      "재발급 전 코드의 버전은 최종 저장 단계에서 거절한다",
+    );
+    assert.equal(
+      (
+        await users.redeemInvitationForUser(
+          unlimitedPendingFour.user.id,
+          rotatedUnlimitedRef,
+        )
+      ).ok,
+      true,
+      "무제한 코드는 사용 뒤 재발급해도 누적 감사값을 이어서 쓴다",
+    );
+    unlimitedStored = (await users.listInvitations({ fresh: true })).find(
+      (item) => item.id === unlimitedInvite.id,
+    );
+    assert.equal(unlimitedStored?.usageCount, 4);
+    assert.equal(unlimitedStored?.lastUsedByEmail, unlimitedPendingFour.user.email);
+
+    const expiringUnlimited = await users.createInvitation(
+      { expiresInMinutes: 5, usageMode: "unlimited" },
+      { userId: "admin-google-sub", email: "admin@example.com" },
+    );
+    const expiringUnlimitedRef = {
+      id: expiringUnlimited.id,
+      tokenVersion: expiringUnlimited.tokenVersion,
+    };
+    fakeNow += 5 * 60_000;
+    assert.deepEqual(
+      await users.findInvitation(expiringUnlimitedRef, { fresh: true }),
+      { ok: false, reason: "invite_expired" },
+      "무제한 코드도 유효기간이 지나면 더 쓸 수 없다",
+    );
+
+    await users.setInvitationActive(invitation.id, false);
     const inactive = await users.findInvitation(ref, { fresh: true });
     assert.deepEqual(inactive, { ok: false, reason: "invite_inactive" });
-    await users.updateInvitation(invitation.id, { active: true });
+    await users.setInvitationActive(invitation.id, true);
 
     const profile = {
       id: "invitee-google-sub",
@@ -553,12 +838,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
     assert.ok(await auth.resolveSession(renewedSession, { fresh: true }));
 
     const rotateTarget = await users.createInvitation(
-      {
-        recipientName: "재발급 대상",
-        email: "rotate@example.com",
-        note: "",
-        expiresInMinutes: 10,
-      },
+      { expiresInMinutes: 10, usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const oldRef = {
@@ -576,10 +856,7 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       "재발급은 기존 기간을 현재 시각부터 다시 준다",
     );
     assert.equal((await users.findInvitation(oldRef, { fresh: true })).ok, false);
-    assert.deepEqual(await tokens.findInvitationByCode(oldCode), {
-      ok: false,
-      reason: "invite_invalid",
-    });
+    assert.deepEqual(tokens.parseInvitationCode(oldCode), oldRef);
     assert.equal(
       (
         await users.findInvitation(
@@ -589,24 +866,18 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       ).ok,
       true,
     );
-    assert.equal(
-      (
-        await tokens.findInvitationByCode(
-          tokens.createInvitationCode({
-            id: rotated.id,
-            tokenVersion: rotated.tokenVersion,
-          }),
-        )
-      ).ok,
-      true,
+    assert.deepEqual(
+      tokens.parseInvitationCode(
+        tokens.createInvitationCode({
+          id: rotated.id,
+          tokenVersion: rotated.tokenVersion,
+        }),
+      ),
+      { id: rotated.id, tokenVersion: rotated.tokenVersion },
     );
 
     const removableInvite = await users.createInvitation(
-      {
-        recipientName: "삭제할 사용자",
-        email: "remove@example.com",
-        note: "가입용",
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const removableProfile = {
@@ -626,19 +897,11 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       true,
     );
     const firstUnused = await users.createInvitation(
-      {
-        recipientName: "삭제할 사용자",
-        email: removableProfile.email,
-        note: "첫 번째 미사용 코드",
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const secondUnused = await users.createInvitation(
-      {
-        recipientName: "삭제할 사용자",
-        email: removableProfile.email,
-        note: "두 번째 미사용 코드",
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const firstUnusedRef = {
@@ -650,18 +913,18 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       tokenVersion: secondUnused.tokenVersion,
     };
     assert.equal(await users.removeUser(removableProfile.id), true);
-    const invalidatedInvitations = await users.listInvitations();
+    const invitationsAfterRemoval = await users.listInvitations();
     for (const ref of [firstUnusedRef, secondUnusedRef]) {
-      const invalidated = invalidatedInvitations.find(
+      const unaffected = invitationsAfterRemoval.find(
         (item) => item.id === ref.id,
       );
-      assert.equal(invalidated?.active, false);
-      assert.equal(invalidated?.tokenVersion, ref.tokenVersion + 1);
-      assert.ok(Number.isFinite(Date.parse(invalidated?.updatedAt ?? "")));
-      assert.deepEqual(await users.findInvitation(ref, { fresh: true }), {
-        ok: false,
-        reason: "invite_invalid",
-      });
+      assert.equal(unaffected?.active, true);
+      assert.equal(unaffected?.tokenVersion, ref.tokenVersion);
+      assert.equal(
+        (await users.findInvitation(ref, { fresh: true })).ok,
+        true,
+        "사용자 삭제는 특정 수신자가 없는 범용 코드를 바꾸지 않는다",
+      );
     }
     const afterRemovalLogin = await users.loginWithGoogle(removableProfile);
     assert.ok(afterRemovalLogin.ok);
@@ -670,32 +933,26 @@ test("기간제 초대 코드 생성·전환·1회 소비", async () => {
       "pending",
       "삭제된 사용자가 다시 Google 인증하면 코드 입력 대기 상태가 된다",
     );
-    const reinvite = await users.createInvitation(
-      {
-        recipientName: "다시 초대한 사용자",
-        email: removableProfile.email,
-        note: "관리자가 새로 발급",
-      },
-      { userId: "admin-google-sub", email: "admin@example.com" },
-    );
     assert.equal(
       (
         await users.redeemInvitationForUser(removableProfile.id, {
-          id: reinvite.id,
-          tokenVersion: reinvite.tokenVersion,
+          id: firstUnused.id,
+          tokenVersion: firstUnused.tokenVersion,
         })
       ).ok,
       true,
-      "삭제 뒤 관리자가 새 초대를 만들면 다시 가입할 수 있다",
+      "삭제 뒤 다시 로그인한 사용자도 기존 범용 코드를 쓸 수 있다",
+    );
+    assert.equal(
+      (await users.findInvitation(secondUnusedRef, { fresh: true })).ok,
+      true,
+      "다른 범용 코드는 그대로 남는다",
     );
 
     const blockedUser = await users.setStatus(profile.id, "blocked");
     assert.equal(blockedUser?.sessionVersion, 2, "차단도 세션 버전을 올린다");
     const blockedInvite = await users.createInvitation(
-      {
-        recipientName: "차단 사용자",
-        email: profile.email,
-      },
+      { usageMode: "once" },
       { userId: "admin-google-sub", email: "admin@example.com" },
     );
     const blockedResult = await users.redeemInvitationForUser(profile.id, {

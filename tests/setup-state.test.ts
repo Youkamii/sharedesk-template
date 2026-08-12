@@ -463,8 +463,10 @@ test("setup 완료 안내는 독립 데스크의 Vercel 배포와 이후 초대�
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /독립 ShareDesk 하나/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /다른 사람의 ShareDesk와.*섞이지 않습니다/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/admin/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /유효 기간.*1회용 초대 코드/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /지정된 Google 계정/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /유효 기간과 사용 방식\(1회용 또는 기간 내 무제한\)/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /이름, 이메일, 비고는 입력하지 않습니다/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /1회용은 한 명이 가입에 성공하면 바로 소진/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /기간 내 무제한은 유효 기간이 끝나거나 호스트가 비활성화할 때까지 여러 명/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /고정 Production 도메인/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Preview URL/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /PUBLIC_BASE_URL=/);
@@ -473,5 +475,8 @@ test("setup 완료 안내는 독립 데스크의 Vercel 배포와 이후 초대�
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /OAuth를 따로 발급받지 않습니다/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /템플릿으로 별도 설치/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Redeploy/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Vercel Firewall/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /\/api\/invitations\/code \+ POST \+ sharedesk_session 쿠키 존재.*IP당 60초에 10회/);
   assert.doesNotMatch(SETUP_COMPLETION_NEXT_STEPS, /다른 사람이 로그인하면.*승인/);
+  assert.doesNotMatch(SETUP_COMPLETION_NEXT_STEPS, /받을 사람의 이름|지정된 Google 계정/);
 });

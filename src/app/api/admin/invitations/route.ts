@@ -7,19 +7,30 @@ import {
   isInvitationExpired,
   listInvitations,
   rotateInvitation,
-  updateInvitation,
+  setInvitationActive,
 } from "@/lib/users";
 
+const ALLOWED_INVITATION_DURATIONS = new Set([60, 1_440, 10_080, 43_200]);
+
 function toSummary(invitation: Invitation) {
-  const { tokenVersion, ...safe } = invitation;
-  const expired = !invitation.usedAt && isInvitationExpired(invitation);
+  const { tokenVersion } = invitation;
+  const used = invitation.usageMode === "once" && invitation.usageCount > 0;
+  const expired = !used && isInvitationExpired(invitation);
   const code =
-    invitation.usedAt || expired || !invitation.active
+    used || expired || !invitation.active
       ? null
       : createInvitationCode({ id: invitation.id, tokenVersion });
   return {
-    ...safe,
-    state: invitation.usedAt
+    id: invitation.id,
+    createdAt: invitation.createdAt,
+    createdByEmail: invitation.createdByEmail,
+    expiresAt: invitation.expiresAt,
+    durationMinutes: invitation.durationMinutes,
+    usageMode: invitation.usageMode,
+    usageCount: invitation.usageCount,
+    lastUsedAt: invitation.lastUsedAt,
+    lastUsedByEmail: invitation.lastUsedByEmail,
+    state: used
       ? ("used" as const)
       : expired
         ? ("expired" as const)
@@ -41,18 +52,26 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdmin({ fresh: true });
   if ("response" in auth) return auth.response;
   const body = await req.json().catch(() => null);
+  if (
+    typeof body?.expiresInMinutes !== "number" ||
+    !ALLOWED_INVITATION_DURATIONS.has(body.expiresInMinutes)
+  ) {
+    return NextResponse.json(
+      { error: "초대 기간을 확인해 주세요" },
+      { status: 400 },
+    );
+  }
+  if (body?.usageMode !== "once" && body?.usageMode !== "unlimited") {
+    return NextResponse.json(
+      { error: "초대 코드 사용 방식을 확인해 주세요" },
+      { status: 400 },
+    );
+  }
   try {
     const invitation = await createInvitation(
       {
-        recipientName:
-          typeof body?.recipientName === "string" ? body.recipientName : "",
-        email: typeof body?.email === "string" ? body.email : "",
-        note: typeof body?.note === "string" ? body.note : "",
-        active: body?.active !== false,
-        expiresInMinutes:
-          typeof body?.expiresInMinutes === "number"
-            ? body.expiresInMinutes
-            : undefined,
+        expiresInMinutes: body.expiresInMinutes,
+        usageMode: body.usageMode,
       },
       {
         userId: auth.session.userId,
@@ -86,20 +105,17 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
   }
   try {
+    if (action === "update" && typeof body.active !== "boolean") {
+      return NextResponse.json(
+        { error: "활성 상태를 확인해 주세요" },
+        { status: 400 },
+      );
+    }
     const invitation =
       action === "rotate"
         ? await rotateInvitation(id)
         : action === "update"
-          ? await updateInvitation(id, {
-              recipientName:
-                typeof body.recipientName === "string"
-                  ? body.recipientName
-                  : undefined,
-              email: typeof body.email === "string" ? body.email : undefined,
-              note: typeof body.note === "string" ? body.note : undefined,
-              active:
-                typeof body.active === "boolean" ? body.active : undefined,
-            })
+          ? await setInvitationActive(id, body.active)
           : null;
     if (!invitation) {
       return NextResponse.json(
@@ -111,7 +127,7 @@ export async function PATCH(req: NextRequest) {
       event: action === "rotate" ? "rotated" : "updated",
       invitationId: invitation.id,
       actorUserId: auth.session.userId,
-      active: invitation.active,
+      state: toSummary(invitation).state,
     });
     return NextResponse.json({ invitation: toSummary(invitation) });
   } catch (error) {

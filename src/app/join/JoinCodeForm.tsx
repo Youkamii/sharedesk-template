@@ -11,7 +11,7 @@ export default function JoinCodeForm() {
           autoCapitalize="characters"
           spellCheck={false}
           maxLength={96}
-          placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+          placeholder="XXXX-XXXX-XXXX-XXXX-…"
           className="w-full rounded-lg border border-black/10 bg-transparent px-3 py-2.5 font-mono text-sm uppercase tracking-wide outline-none focus:border-blue-500 dark:border-white/15"
         />
       </label>
