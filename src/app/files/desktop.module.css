@@ -881,23 +881,12 @@
 }
 
 .trashLauncherGlyph {
-  width: 30px;
-  height: 34px;
-  color: var(--cream);
+  display: block;
+  width: 32px;
+  height: 36px;
+  overflow: visible;
   filter: drop-shadow(2px 2px 0 #0a1020);
-}
-
-.trashLauncherGlyph::before {
-  left: 2px;
-  right: 2px;
-  height: 4px;
-}
-
-.trashLauncherGlyph::after {
-  top: 6px;
-  left: 4px;
-  right: 4px;
-  border-width: 3px;
+  image-rendering: pixelated;
 }
 
 .deskButton,
@@ -1215,7 +1204,7 @@
   .taskButton { min-width: 52px; width: 52px; height: 46px; padding: 0; justify-content: center; }
   .taskTitle { display: none; }
   .trashLauncher { right: max(8px, env(safe-area-inset-right)); bottom: 76px; width: 64px; min-height: 68px; }
-  .trashLauncherGlyph { width: 26px; height: 30px; }
+  .trashLauncherGlyph { width: 32px; height: 36px; }
   .uploadChip {
     position: fixed;
     right: calc(max(8px, env(safe-area-inset-right)) + 72px);

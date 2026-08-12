@@ -175,6 +175,13 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.ok(launcherIndex >= 0 && launcherIndex < taskbarStart);
   assert.doesNotMatch(source.slice(taskbarStart, taskbarEnd), /onClick=\{openTrash\}/);
   assert.match(source, /aria-label="휴지통 열기"/);
+  assert.match(source, /function TrashCanIcon\(\)/);
+  assert.match(source, /shapeRendering="crispEdges"/);
+  assert.match(source, /viewBox="0 0 32 36"/);
+  assert.ok(
+    (source.match(/<path /g) ?? []).length >= 10,
+    "휴지통 아이콘은 뚜껑, 손잡이, 몸통과 세로 홈을 구분해 그려야 합니다.",
+  );
   assert.match(launcherStyle, /position: fixed;/);
   assert.match(launcherStyle, /right: max\(18px, env\(safe-area-inset-right\)\);/);
   assert.match(launcherStyle, /bottom: 76px;/);
@@ -187,5 +194,5 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
     css,
     /right: calc\(max\(8px, env\(safe-area-inset-right\)\) \+ 72px\);/,
   );
-  assert.match(readme, /화면 우측 하단의 고정 휴지통 아이콘/);
+  assert.match(readme, /휴지통 아이콘은 작업표시줄이 아닌 화면 오른쪽 아래에 고정/);
 });
