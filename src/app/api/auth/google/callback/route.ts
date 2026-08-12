@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { COOKIE_NAME, MAX_AGE_SECONDS, createUserSession } from "@/lib/auth";
-import { INVITE_COOKIE, openInvitationToken } from "@/lib/invite-token";
 import { loginWithGoogle } from "@/lib/users";
 import { STATE_COOKIE, loginRedirectUri } from "../route";
 
@@ -12,7 +11,6 @@ function fail(req: NextRequest, reason: string) {
   url.searchParams.set("error", reason);
   const res = NextResponse.redirect(url);
   res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });
-  res.cookies.set(INVITE_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 }
 
@@ -107,9 +105,6 @@ export async function GET(req: NextRequest) {
     return fail(req, "profile");
   }
 
-  const inviteToken = req.cookies.get(INVITE_COOKIE)?.value;
-  const inviteRef = inviteToken ? openInvitationToken(inviteToken) : undefined;
-  if (inviteToken && !inviteRef) return fail(req, "invite_invalid");
   let login: Awaited<ReturnType<typeof loginWithGoogle>>;
   let sessionSigningFailed = false;
   try {
@@ -119,7 +114,6 @@ export async function GET(req: NextRequest) {
         email: info.email,
         name: typeof info.name === "string" ? info.name : "",
       },
-      inviteRef ?? undefined,
       {
         userAgent: req.headers.get("user-agent"),
         issueSessionToken: async (userId, sessionVersion, sessionId) => {
@@ -138,9 +132,11 @@ export async function GET(req: NextRequest) {
   if (!login.ok) return fail(req, login.reason);
   if (!login.sessionToken) return fail(req, "session");
 
-  const res = NextResponse.redirect(new URL("/files", req.url));
+  if (login.user.status === "blocked") return fail(req, "blocked");
+  const destination = login.user.status === "approved" ? "/files" : "/join";
+
+  const res = NextResponse.redirect(new URL(destination, req.url));
   res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });
-  res.cookies.set(INVITE_COOKIE, "", { path: "/", maxAge: 0 });
   res.cookies.set(COOKIE_NAME, login.sessionToken, {
     httpOnly: true,
     sameSite: "lax",

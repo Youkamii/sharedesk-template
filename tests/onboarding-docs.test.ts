@@ -10,11 +10,14 @@ test("README는 독립 데스크 생성과 기존 데스크 참여를 처음부�
 
   assert.match(opening, /내 ShareDesk 만들기/);
   assert.match(opening, /다른 사람의 ShareDesk 참여하기/);
+  assert.match(opening, /Google 계정으로 로그인한 뒤 관리자가 발급한 기간제 초대 코드/);
   assert.match(opening, /OAuth나 Vercel 설정은 필요 없습니다/);
   assert.match(readme, /배포 1개가 독립 데스크 1개/);
   assert.match(readme, /https:\/\/github\.com\/Youkamii\/sharedesk-template\/generate/);
   assert.match(readme, /https:\/\/vercel\.com\/new\/clone\?repository-url=/);
   assert.match(readme, /repository-url=https%3A%2F%2Fgithub\.com%2FYoukamii%2Fsharedesk-template/);
+  assert.match(readme, /1시간[\s\S]*24시간[\s\S]*7일[\s\S]*30일/);
+  assert.match(readme, /만료됐거나 비활성화됐거나 이미 사용한 코드는 거부/);
 });
 
 test("운영용 AI 프롬프트는 사용자 소유 배포를 끝까지 만들고 비밀을 노출하지 않는다", async () => {

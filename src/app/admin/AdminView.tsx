@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@/lib/users";
 
-type InvitationState = "active" | "inactive" | "used";
+type InvitationState = "active" | "inactive" | "used" | "expired";
 
 interface InvitationSummary {
   id: string;
@@ -19,8 +19,10 @@ interface InvitationSummary {
   usedAt: string | null;
   usedByUserId: string | null;
   usedByEmail: string | null;
+  expiresAt: string;
+  durationMinutes: number;
   state: InvitationState;
-  link: string | null;
+  code: string | null;
 }
 
 type InvitationEdit = Pick<
@@ -28,16 +30,16 @@ type InvitationEdit = Pick<
   "id" | "recipientName" | "email" | "note"
 >;
 
-type LastInvitationLink = {
+type LastInvitationAccess = {
   invitationId: string;
-  link: string;
+  code: string;
 };
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const STATUS_LABEL: Record<User["status"], string> = {
-  pending: "승인 대기",
+  pending: "코드 입력 대기",
   approved: "승인됨",
   blocked: "차단됨",
 };
@@ -53,6 +55,7 @@ const INVITE_LABEL: Record<InvitationState, string> = {
   active: "사용 가능",
   inactive: "비활성",
   used: "사용 완료",
+  expired: "기간 만료",
 };
 
 const INVITE_STYLE: Record<InvitationState, string> = {
@@ -60,6 +63,7 @@ const INVITE_STYLE: Record<InvitationState, string> = {
     "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
   inactive: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   used: "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
+  expired: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
 };
 
 function formatDate(value: string | null): string {
@@ -68,6 +72,14 @@ function formatDate(value: string | null): string {
   return Number.isFinite(date.getTime())
     ? date.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })
     : "—";
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes === 60) return "1시간";
+  if (minutes === 1_440) return "24시간";
+  if (minutes === 10_080) return "7일";
+  if (minutes === 43_200) return "30일";
+  return `${minutes}분`;
 }
 
 export default function AdminView() {
@@ -82,7 +94,7 @@ export default function AdminView() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
-  const [lastLink, setLastLink] = useState<LastInvitationLink | null>(null);
+  const [lastAccess, setLastAccess] = useState<LastInvitationAccess | null>(null);
   const [editingInvite, setEditingInvite] = useState<InvitationEdit | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
   const [inviteForm, setInviteForm] = useState({
@@ -90,6 +102,7 @@ export default function AdminView() {
     email: "",
     note: "",
     active: true,
+    expiresInMinutes: 1_440,
   });
 
   const load = useCallback(async () => {
@@ -121,13 +134,16 @@ export default function AdminView() {
       }
       setUsers(userBody.users);
       setInvitations(inviteBody.invitations);
-      setLastLink((current) => {
+      setLastAccess((current) => {
         if (!current) return null;
         const invitation = inviteBody.invitations.find(
           (item: InvitationSummary) => item.id === current.invitationId,
         );
-        return invitation?.state === "active" && invitation.link
-          ? { invitationId: invitation.id, link: invitation.link }
+        return invitation?.state === "active" && invitation.code
+          ? {
+              invitationId: invitation.id,
+              code: invitation.code,
+            }
           : null;
       });
     } catch (caught) {
@@ -215,22 +231,29 @@ export default function AdminView() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "초대 링크를 만들지 못했습니다");
+        throw new Error(body?.error ?? "초대 코드를 만들지 못했습니다");
       }
-      setLastLink(
-        body.invitation.state === "active" && body.invitation.link
+      setLastAccess(
+        body.invitation.state === "active" &&
+          body.invitation.code
           ? {
               invitationId: body.invitation.id,
-              link: body.invitation.link,
+              code: body.invitation.code,
             }
           : null,
       );
-      setInviteForm({ recipientName: "", email: "", note: "", active: true });
-      setNotice("초대 링크를 만들었습니다. 아래 링크를 전달해 주세요.");
+      setInviteForm({
+        recipientName: "",
+        email: "",
+        note: "",
+        active: true,
+        expiresInMinutes: 1_440,
+      });
+      setNotice("초대 코드를 만들었습니다. 아래 코드를 전달해 주세요.");
       await load();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "초대 링크를 만들지 못했습니다",
+        caught instanceof Error ? caught.message : "초대 코드를 만들지 못했습니다",
       );
     } finally {
       finishMutation();
@@ -261,18 +284,25 @@ export default function AdminView() {
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error ?? "초대를 바꾸지 못했습니다");
       if (action === "rotate") {
-        setLastLink({
+        setLastAccess(
+          body.invitation.code
+            ? {
+                invitationId: body.invitation.id,
+                code: body.invitation.code,
+              }
+            : null,
+        );
+        setNotice("예전 코드를 무효화하고 같은 사용 기간의 새 코드를 만들었습니다.");
+      } else if (
+        body.invitation.state === "active" &&
+        body.invitation.code
+      ) {
+        setLastAccess({
           invitationId: body.invitation.id,
-          link: body.invitation.link,
-        });
-        setNotice("예전 링크를 무효화하고 새 링크를 만들었습니다.");
-      } else if (body.invitation.state === "active" && body.invitation.link) {
-        setLastLink({
-          invitationId: body.invitation.id,
-          link: body.invitation.link,
+          code: body.invitation.code,
         });
       } else {
-        setLastLink((current) =>
+        setLastAccess((current) =>
           current?.invitationId === invitation.id ? null : current,
         );
       }
@@ -332,19 +362,22 @@ export default function AdminView() {
       if (!response.ok) {
         throw new Error(body?.error ?? "초대 정보를 저장하지 못했습니다");
       }
-      if (body.invitation.state === "active" && body.invitation.link) {
-        setLastLink((current) =>
+      if (
+        body.invitation.state === "active" &&
+        body.invitation.code
+      ) {
+        setLastAccess((current) =>
           !previousInvitation ||
-          previousInvitation.link !== body.invitation.link ||
+          previousInvitation.code !== body.invitation.code ||
           current?.invitationId === editingInvite.id
-            ? {
-                invitationId: body.invitation.id,
-                link: body.invitation.link,
+              ? {
+                  invitationId: body.invitation.id,
+                  code: body.invitation.code,
               }
             : current,
         );
       } else {
-        setLastLink((current) =>
+        setLastAccess((current) =>
           current?.invitationId === editingInvite.id ? null : current,
         );
       }
@@ -393,15 +426,18 @@ export default function AdminView() {
     }
   }
 
-  async function copyLink(link: string, invitationId: string) {
+  async function copyInvitationValue(
+    value: string,
+    invitation: LastInvitationAccess,
+  ) {
     if (mutationInFlightRef.current) return;
     setError(null);
     try {
-      await navigator.clipboard.writeText(link);
-      setNotice("초대 링크를 복사했습니다.");
+      await navigator.clipboard.writeText(value);
+      setNotice("초대 코드를 복사했습니다.");
     } catch {
-      setLastLink({ invitationId, link });
-      setNotice("아래 링크를 직접 선택해 복사해 주세요.");
+      setLastAccess(invitation);
+      setNotice("아래 코드를 직접 선택해 복사해 주세요.");
     }
   }
 
@@ -426,7 +462,7 @@ export default function AdminView() {
       <main className="mx-auto w-full max-w-6xl flex-1 space-y-8 px-6 py-6">
         {pending.length > 0 && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-            기존 승인 대기 사용자가 {pending.length}명 있습니다.
+            초대 코드 입력을 기다리는 사용자가 {pending.length}명 있습니다.
           </p>
         )}
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -439,10 +475,11 @@ export default function AdminView() {
         <section aria-labelledby="invite-title">
           <div className="mb-3">
             <h2 id="invite-title" className="text-base font-semibold">
-              초대 링크
+              초대 코드
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              지정한 Google 이메일에서 한 번만 사용할 수 있습니다.
+              지정한 Google 이메일에서 유효 기간 안에 한 번만 사용할 수
+              있습니다.
             </p>
           </div>
 
@@ -484,6 +521,24 @@ export default function AdminView() {
               />
             </label>
             <label className="space-y-1 text-xs text-zinc-500 md:col-span-2">
+              <span>유효 기간</span>
+              <select
+                value={inviteForm.expiresInMinutes}
+                onChange={(event) =>
+                  setInviteForm((current) => ({
+                    ...current,
+                    expiresInMinutes: Number(event.target.value),
+                  }))
+                }
+                className={inputClass}
+              >
+                <option value={60}>1시간</option>
+                <option value={1_440}>24시간 (기본)</option>
+                <option value={10_080}>7일</option>
+                <option value={43_200}>30일</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-zinc-500 md:col-span-2">
               <span>비고</span>
               <textarea
                 maxLength={500}
@@ -518,39 +573,42 @@ export default function AdminView() {
                 disabled={busyId !== null}
                 className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-40"
               >
-                {busyId === "invite:create" ? "생성 중…" : "초대 링크 생성"}
+                {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
               </button>
             </div>
           </form>
 
-          {lastLink && (
-            <div className="mt-3 flex gap-2 rounded-lg bg-black/5 p-3 dark:bg-white/5">
-              <input
-                readOnly
-                value={lastLink.link}
-                onFocus={(event) => event.currentTarget.select()}
-                className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-                aria-label="생성된 초대 링크"
-              />
-              <button
-                type="button"
-                disabled={busyId !== null}
-                onClick={() =>
-                  void copyLink(lastLink.link, lastLink.invitationId)
-                }
-                className={buttonClass}
-              >
-                복사
-              </button>
+          {lastAccess && (
+            <div className="mt-3 space-y-2 rounded-lg bg-black/5 p-3 dark:bg-white/5">
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={lastAccess.code}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="min-w-0 flex-1 bg-transparent font-mono text-xs outline-none"
+                  aria-label="생성된 초대 코드"
+                />
+                <button
+                  type="button"
+                  disabled={busyId !== null}
+                  onClick={() =>
+                    void copyInvitationValue(lastAccess.code, lastAccess)
+                  }
+                  className={buttonClass}
+                >
+                  코드 복사
+                </button>
+              </div>
             </div>
           )}
 
           <div className="mt-4 overflow-x-auto rounded-xl border border-black/10 dark:border-white/15">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[1080px] text-sm">
               <thead>
                 <tr className="border-b border-black/10 text-left text-zinc-500 dark:border-white/15 dark:text-zinc-400">
                   <th className="px-4 py-2.5 font-medium">대상</th>
-                  <th className="px-4 py-2.5 font-medium">생성일</th>
+                  <th className="px-4 py-2.5 font-medium">초대 코드</th>
+                  <th className="px-4 py-2.5 font-medium">만료일</th>
                   <th className="px-4 py-2.5 font-medium">비고</th>
                   <th className="px-4 py-2.5 font-medium">상태</th>
                   <th className="px-4 py-2.5"></th>
@@ -559,13 +617,13 @@ export default function AdminView() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
                       불러오는 중…
                     </td>
                   </tr>
                 ) : invitations.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-zinc-400">
+                    <td colSpan={6} className="px-4 py-8 text-center text-zinc-400">
                       아직 만든 초대가 없습니다
                     </td>
                   </tr>
@@ -579,8 +637,12 @@ export default function AdminView() {
                         <div className="font-medium">{invitation.recipientName}</div>
                         <div className="text-xs text-zinc-500">{invitation.email}</div>
                       </td>
+                      <td className="px-4 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-300">
+                        {invitation.code ?? "—"}
+                      </td>
                       <td className="px-4 py-2 text-xs text-zinc-500">
-                        {formatDate(invitation.createdAt)}
+                        <div>{formatDate(invitation.expiresAt)}</div>
+                        <div>{formatDuration(invitation.durationMinutes)}</div>
                       </td>
                       <td className="max-w-64 whitespace-pre-wrap px-4 py-2 text-xs text-zinc-600 dark:text-zinc-300">
                         {invitation.note || "—"}
@@ -600,18 +662,27 @@ export default function AdminView() {
                       <td className="px-4 py-2 text-right">
                         {invitation.state !== "used" && (
                           <span className="flex items-center justify-end gap-1">
-                            {invitation.state === "active" && invitation.link && (
-                              <button
-                                type="button"
-                                disabled={busyId !== null}
-                                onClick={() =>
-                                  void copyLink(invitation.link!, invitation.id)
-                                }
-                                className={buttonClass}
-                              >
-                                링크 복사
-                              </button>
-                            )}
+                            {invitation.state === "active" &&
+                              invitation.code && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busyId !== null}
+                                    onClick={() =>
+                                      void copyInvitationValue(
+                                        invitation.code!,
+                                        {
+                                          invitationId: invitation.id,
+                                          code: invitation.code!,
+                                        },
+                                      )
+                                    }
+                                    className={buttonClass}
+                                  >
+                                    코드 복사
+                                  </button>
+                                </>
+                              )}
                             <button
                               type="button"
                               disabled={busyId !== null}
@@ -625,16 +696,18 @@ export default function AdminView() {
                             >
                               정보 수정
                             </button>
-                            <button
-                              type="button"
-                              disabled={busyId !== null}
-                              onClick={() =>
-                                void invitationAction(invitation, "toggle")
-                              }
-                              className={buttonClass}
-                            >
-                              {invitation.active ? "비활성" : "활성"}
-                            </button>
+                            {invitation.state !== "expired" && (
+                              <button
+                                type="button"
+                                disabled={busyId !== null}
+                                onClick={() =>
+                                  void invitationAction(invitation, "toggle")
+                                }
+                                className={buttonClass}
+                              >
+                                {invitation.active ? "비활성" : "활성"}
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={busyId !== null}
@@ -643,7 +716,7 @@ export default function AdminView() {
                               }
                               className={buttonClass}
                             >
-                              새 링크
+                              새 코드
                             </button>
                           </span>
                         )}
@@ -890,15 +963,6 @@ export default function AdminView() {
                           </span>
                         ) : (
                           <span className="flex items-center justify-end gap-1">
-                            {user.status !== "approved" && (
-                              <button
-                                disabled={busyId !== null}
-                                onClick={() => void act(user.id, "approve")}
-                                className="whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-                              >
-                                승인
-                              </button>
-                            )}
                             {user.status === "approved" && (
                               <>
                                 <button
@@ -949,7 +1013,7 @@ export default function AdminView() {
             </li>
             <li>
               차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시
-              승인해도 새로 로그인해야 합니다.
+              가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.
             </li>
           </ul>
         </section>

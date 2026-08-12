@@ -8,7 +8,13 @@ export default async function AdminPage() {
   const session = await resolveSession(token, { fresh: true });
   if (!session) {
     const identity = await resolveIdentity(token);
-    redirect(identity ? "/pending" : "/");
+    redirect(
+      identity?.status === "pending"
+        ? "/join"
+        : identity?.status === "blocked"
+          ? "/pending"
+          : "/",
+    );
   }
   if (!session.isAdmin) redirect("/files");
   return <AdminView />;

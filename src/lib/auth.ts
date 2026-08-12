@@ -25,6 +25,14 @@ export interface SessionInfo {
   isGuest: boolean;
 }
 
+export interface IdentityInfo {
+  userId: string;
+  email: string;
+  name: string;
+  status: User["status"];
+  isAdmin: boolean;
+}
+
 export async function createUserSession(
   userId: string,
   sessionVersion: number,
@@ -117,13 +125,19 @@ export async function resolveSession(
 // 승인 대기 화면이 본인 이름을 보여주는 용도이며, 접근 허용에는 쓰지 않는다.
 export async function resolveIdentity(
   token: string | undefined | null,
-): Promise<{ email: string; name: string; status: string } | null> {
+): Promise<IdentityInfo | null> {
   const claims = await openSigned(token);
   if (!claims || claims.t !== "user") return null;
   const user = await findUserById(claims.sub, { fresh: true });
   if (!user) return null;
   if (!userClaimsAreCurrent(claims, user)) return null;
-  return { email: user.email, name: user.name, status: user.status };
+  return {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    status: user.status,
+    isAdmin: isAdminEmail(user.email),
+  };
 }
 
 // 문자열 직접 비교 대신 해시끼리 비교해 타이밍 누출을 막는다.

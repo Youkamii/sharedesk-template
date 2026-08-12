@@ -9,6 +9,20 @@ import test from "node:test";
 
 const SESSION_SECRET = "integration-session-secret-with-32-characters";
 
+test("관리자 초대 폼은 선택한 유효 기간을 API로 보낸다", async () => {
+  const source = await readFile(
+    new URL("../src/app/admin/AdminView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /expiresInMinutes: 1_440/);
+  assert.match(source, /value=\{inviteForm\.expiresInMinutes\}/);
+  for (const minutes of [60, "1_440", "10_080", "43_200"]) {
+    assert.match(source, new RegExp(`<option value=\\{${minutes}\\}>`));
+  }
+  assert.match(source, /body: JSON\.stringify\(inviteForm\)/);
+});
+
 function session(userId: string): string {
   const body = Buffer.from(
     JSON.stringify({
@@ -59,7 +73,7 @@ async function waitForServer(origin: string, child: ChildProcess): Promise<void>
   throw new Error("Next 테스트 서버가 준비되지 않았습니다");
 }
 
-test("관리자 초대 API 권한과 상태 변경", async (t) => {
+test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "sharedesk-invite-api-"));
   const stateDir = path.join(root, ".sharedesk");
   await mkdir(stateDir, { recursive: true });
@@ -110,7 +124,25 @@ test("관리자 초대 API 권한과 상태 변경", async (t) => {
           ],
         },
       ],
-      invitations: [],
+      invitations: [
+        {
+          id: "11111111-1111-4111-8111-111111111111",
+          recipientName: "만료된 초대",
+          email: "expired@example.com",
+          note: "만료 상태 검증",
+          active: true,
+          tokenVersion: 1,
+          createdAt: "2000-01-01T00:00:00.000Z",
+          updatedAt: "2000-01-01T00:00:00.000Z",
+          createdByUserId: "admin-sub",
+          createdByEmail: "admin@example.com",
+          usedAt: null,
+          usedByUserId: null,
+          usedByEmail: null,
+          durationMinutes: 60,
+          expiresAt: "2000-01-01T01:00:00.000Z",
+        },
+      ],
     }),
     "utf8",
   );
@@ -155,6 +187,26 @@ test("관리자 초대 API 권한과 상태 변경", async (t) => {
   assert.equal(forbidden.status, 403);
 
   const adminCookie = `sharedesk_session=${session("admin-sub")}`;
+  const listedInvitations = await fetch(`${origin}/api/admin/invitations`, {
+    headers: { Cookie: adminCookie },
+  });
+  assert.equal(listedInvitations.status, 200);
+  const expiredInvitation = (
+    (await listedInvitations.json()) as {
+      invitations: Array<{
+        email: string;
+        state: string;
+        code: string | null;
+        expiresAt: string;
+        durationMinutes: number;
+      }>;
+    }
+  ).invitations.find((invitation) => invitation.email === "expired@example.com");
+  assert.ok(expiredInvitation);
+  assert.equal(expiredInvitation.state, "expired");
+  assert.equal(expiredInvitation.code, null);
+  assert.equal(expiredInvitation.expiresAt, "2000-01-01T01:00:00.000Z");
+  assert.equal(expiredInvitation.durationMinutes, 60);
   const unauthorizedSessionRevoke = await fetch(`${origin}/api/admin/users`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -191,6 +243,20 @@ test("관리자 초대 API 권한과 상태 변경", async (t) => {
   assert.equal(
     listedMember?.sessions[0]?.id,
     "member-device-session-0000000000000001",
+  );
+
+  const manualApproval = await fetch(`${origin}/api/admin/users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({ id: "member-sub", action: "approve" }),
+  });
+  assert.equal(
+    manualApproval.status,
+    400,
+    "관리자는 기간제 코드를 건너뛰고 사용자를 수동 승인할 수 없다",
   );
 
   const revokedSession = await fetch(`${origin}/api/admin/users`, {
@@ -240,15 +306,27 @@ test("관리자 초대 API 권한과 상태 변경", async (t) => {
       email: "invitee@example.com",
       note: "프로젝트 영상 공유",
       active: true,
+      expiresInMinutes: 60,
     }),
   });
   assert.equal(created.status, 201);
   const createdBody = (await created.json()) as {
-    invitation: { id: string; state: string; link: string; note: string };
+    invitation: {
+      id: string;
+      state: string;
+      code: string;
+      note: string;
+      expiresAt: string;
+      durationMinutes: number;
+    };
   };
   assert.equal(createdBody.invitation.state, "active");
   assert.equal(createdBody.invitation.note, "프로젝트 영상 공유");
-  assert.match(createdBody.invitation.link, new RegExp(`^${origin}/i/`));
+  assert.ok(createdBody.invitation.code.length > 0);
+  assert.equal(createdBody.invitation.durationMinutes, 60);
+  assert.ok(
+    Date.parse(createdBody.invitation.expiresAt) > Date.now() + 59 * 60_000,
+  );
 
   const disabled = await fetch(`${origin}/api/admin/invitations`, {
     method: "PATCH",
@@ -263,11 +341,14 @@ test("관리자 초대 API 권한과 상태 변경", async (t) => {
     }),
   });
   assert.equal(disabled.status, 200);
-  assert.equal(
-    ((await disabled.json()) as { invitation: { state: string } }).invitation
-      .state,
-    "inactive",
-  );
+  const disabledSummary = (await disabled.json()) as {
+    invitation: {
+      state: string;
+      code: string | null;
+    };
+  };
+  assert.equal(disabledSummary.invitation.state, "inactive");
+  assert.equal(disabledSummary.invitation.code, null);
 
   const fileId = Buffer.from("report.txt", "utf8").toString("base64url");
   const unauthorizedShare = await fetch(

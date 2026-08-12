@@ -46,19 +46,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    if (action === "approve" || action === "block" || action === "pending") {
-      const status: UserStatus =
-        action === "approve"
-          ? "approved"
-          : action === "block"
-            ? "blocked"
-            : "pending";
+    if (action === "block" || action === "pending") {
+      const status: UserStatus = action === "block" ? "blocked" : "pending";
       const user = await setStatus(id, status);
       if (!user) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }
-      const warning =
-        status === "approved" ? null : await revokeManagedShares(id);
+      const warning = await revokeManagedShares(id);
       return NextResponse.json({ user, warning });
     }
     if (action === "revoke") {
