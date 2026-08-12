@@ -5,10 +5,11 @@
 // 이미 발급된 세션이 만료까지 살아남는다 — 이 제품에서 실제로 겪은 결함이다(#1).
 // 그래서 만료는 길게 두고(90일), 끊는 책임은 명단 조회가 진다.
 
-import { findUserById, isAdminEmail } from "@/lib/users";
+import { findUserById, isAdminEmail, type User } from "@/lib/users";
 import {
   Payload,
   getAccessKeys,
+  isValidSessionId,
   openSigned,
   sha256Hex,
   signPayload,
@@ -24,13 +25,44 @@ export interface SessionInfo {
   isGuest: boolean;
 }
 
-export async function createUserSession(userId: string): Promise<string> {
+export async function createUserSession(
+  userId: string,
+  sessionVersion: number,
+  sessionId: string,
+): Promise<string> {
+  if (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0) {
+    throw new Error("올바르지 않은 세션 버전입니다");
+  }
+  if (!isValidSessionId(sessionId)) {
+    throw new Error("올바르지 않은 세션 ID입니다");
+  }
   const payload: Payload = {
     t: "user",
     sub: userId,
+    sv: sessionVersion,
+    sid: sessionId,
     iat: Math.floor(Date.now() / 1000),
   };
   return signPayload(payload);
+}
+
+function userClaimsAreCurrent(
+  claims: Extract<Payload, { t: "user" }>,
+  user: User,
+): boolean {
+  if (
+    (claims.sv === undefined && user.sessionVersion !== 0) ||
+    (claims.sv !== undefined && claims.sv !== user.sessionVersion)
+  ) {
+    return false;
+  }
+  if (claims.iat * 1000 < user.sessionsValidFrom) return false;
+  if (claims.sid !== undefined) {
+    return user.sessions.some((session) => session.id === claims.sid);
+  }
+  // 기존 sid 없는 쿠키는 마이그레이션 동안 유지한다. 개별 식별은 불가능하므로
+  // 세션 버전 변경(전체 끊기·차단·대기)과 발급 시각으로만 무효화한다.
+  return true;
 }
 
 export async function createKeySession(keyHash: string): Promise<string> {
@@ -54,8 +86,7 @@ export async function resolveSession(
   if (claims.t === "user") {
     const user = await findUserById(claims.sub, opts);
     if (!user || user.status !== "approved") return null;
-    // 관리자가 세션을 폐기했으면 그 시점 이전 토큰은 전부 무효.
-    if (claims.iat * 1000 < user.sessionsValidFrom) return null;
+    if (!userClaimsAreCurrent(claims, user)) return null;
     return {
       userId: user.id,
       email: user.email,
@@ -91,7 +122,7 @@ export async function resolveIdentity(
   if (!claims || claims.t !== "user") return null;
   const user = await findUserById(claims.sub, { fresh: true });
   if (!user) return null;
-  if (claims.iat * 1000 < user.sessionsValidFrom) return null;
+  if (!userClaimsAreCurrent(claims, user)) return null;
   return { email: user.email, name: user.name, status: user.status };
 }
 

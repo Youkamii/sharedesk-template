@@ -22,16 +22,23 @@ export function errorResponse(e: unknown) {
   return NextResponse.json({ error: "서버 오류가 발생했습니다" }, { status: 500 });
 }
 
-export async function getSession(): Promise<SessionInfo | null> {
-  return resolveSession((await cookies()).get(COOKIE_NAME)?.value);
+type SessionOptions = { fresh?: boolean };
+
+export async function getSession(
+  options?: SessionOptions,
+): Promise<SessionInfo | null> {
+  return resolveSession(
+    (await cookies()).get(COOKIE_NAME)?.value,
+    options,
+  );
 }
 
 // 최종 판정. proxy가 이미 서명을 걸렀지만, 승인 취소·차단 반영은 여기서만 일어난다.
 // matcher 오타나 파일 규약 변경으로 proxy가 통째로 빠져도 이 검사가 남는다.
-export async function requireSession(): Promise<
+export async function requireSession(options?: SessionOptions): Promise<
   { session: SessionInfo } | { response: NextResponse }
 > {
-  const session = await getSession();
+  const session = await getSession(options);
   if (!session) {
     return {
       response: NextResponse.json(
@@ -43,10 +50,10 @@ export async function requireSession(): Promise<
   return { session };
 }
 
-export async function requireAdmin(): Promise<
+export async function requireAdmin(options?: SessionOptions): Promise<
   { session: SessionInfo } | { response: NextResponse }
 > {
-  const result = await requireSession();
+  const result = await requireSession(options);
   if ("response" in result) return result;
   if (!result.session.isAdmin) {
     return {

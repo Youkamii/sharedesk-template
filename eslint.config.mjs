@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 로컬 브라우저 QA가 만드는 실행 스크립트와 캡처물.
+    ".gstack/**",
   ]),
 ]);
 

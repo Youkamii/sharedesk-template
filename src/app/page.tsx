@@ -13,6 +13,12 @@ const ERRORS: Record<string, string> = {
   profile: "이메일이 확인되지 않은 계정입니다.",
   unconfigured: "구글 로그인이 아직 설정되지 않았습니다.",
   invalid: "로그인 요청이 유효하지 않습니다.",
+  invite_required: "처음 이용하려면 관리자가 만든 초대 링크가 필요합니다.",
+  invite_invalid: "초대 링크가 올바르지 않거나 새 링크로 교체됐습니다.",
+  invite_inactive: "현재 비활성화된 초대입니다. 관리자에게 문의해 주세요.",
+  invite_used: "이미 사용 완료된 초대입니다.",
+  invite_email_mismatch: "초대받은 이메일의 Google 계정으로 로그인해 주세요.",
+  blocked: "차단된 사용자입니다. 관리자에게 문의해 주세요.",
 };
 
 export default async function Home({
@@ -31,7 +37,8 @@ export default async function Home({
       <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-          구글 계정으로 로그인하면 관리자 승인 후 공유 드라이브가 열립니다.
+          기존 사용자는 Google 계정으로 로그인하고, 처음 이용하는 사람은 관리자가
+          만든 초대 링크로 시작합니다.
         </p>
 
         {error && (

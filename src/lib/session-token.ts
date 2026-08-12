@@ -5,13 +5,25 @@ const enc = new TextEncoder();
 
 export const COOKIE_NAME = "sharedesk_session";
 export const MAX_AGE_SECONDS = 60 * 60 * 24 * 90;
+export const MAX_SESSION_ID_LENGTH = 64;
 const CLOCK_SKEW_SECONDS = 300;
+const MIN_SESSION_ID_LENGTH = 20;
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export type Payload =
   // 구글 로그인 등으로 인증된 사용자 세션
-  | { t: "user"; sub: string; iat: number }
+  | { t: "user"; sub: string; sv?: number; sid?: string; iat: number }
   // ACCESS_KEYS를 쓰는 임시 손님 세션 (키가 설정된 경우에만 발급)
   | { t: "key"; k: string; iat: number };
+
+export function isValidSessionId(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= MIN_SESSION_ID_LENGTH &&
+    value.length <= MAX_SESSION_ID_LENGTH &&
+    SESSION_ID_PATTERN.test(value)
+  );
+}
 
 function toB64Url(bytes: Uint8Array): string {
   let bin = "";
@@ -106,6 +118,18 @@ export async function openSigned(
   }
   if (typeof claims?.iat !== "number") return null;
   if (claims.t !== "user" && claims.t !== "key") return null;
+  if (claims.t === "user") {
+    if (typeof claims.sub !== "string" || !claims.sub) return null;
+    if (
+      claims.sv !== undefined &&
+      (!Number.isSafeInteger(claims.sv) || claims.sv < 0)
+    ) {
+      return null;
+    }
+    if (claims.sid !== undefined && !isValidSessionId(claims.sid)) return null;
+  } else if (typeof claims.k !== "string" || !claims.k) {
+    return null;
+  }
   const now = Date.now() / 1000;
   if (claims.iat > now + CLOCK_SKEW_SECONDS) return null;
   if (claims.iat + MAX_AGE_SECONDS <= now) return null;

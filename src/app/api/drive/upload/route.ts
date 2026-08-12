@@ -4,7 +4,7 @@ import { ROOT_ID } from "@/lib/storage/types";
 import { errorResponse, requireSession } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
-  const auth = await requireSession();
+  const auth = await requireSession({ fresh: true });
   if ("response" in auth) return auth.response;
   const parentId = req.nextUrl.searchParams.get("parentId") ?? ROOT_ID;
   const name = req.nextUrl.searchParams.get("name") ?? "";

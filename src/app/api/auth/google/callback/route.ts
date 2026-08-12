@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { COOKIE_NAME, MAX_AGE_SECONDS, createUserSession } from "@/lib/auth";
-import { upsertOnLogin } from "@/lib/users";
+import { INVITE_COOKIE, openInvitationToken } from "@/lib/invite-token";
+import { loginWithGoogle } from "@/lib/users";
 import { STATE_COOKIE, loginRedirectUri } from "../route";
+
+const OAUTH_TIMEOUT_MS = 10_000;
 
 function fail(req: NextRequest, reason: string) {
   const url = new URL("/", req.url);
   url.searchParams.set("error", reason);
   const res = NextResponse.redirect(url);
   res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });
+  res.cookies.set(INVITE_COOKIE, "", { path: "/", maxAge: 0 });
   return res;
 }
 
@@ -35,51 +39,109 @@ export async function GET(req: NextRequest) {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) return fail(req, "unconfigured");
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: loginRedirectUri(req),
-      grant_type: "authorization_code",
-      code_verifier: verifier,
-    }),
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: loginRedirectUri(req),
+        grant_type: "authorization_code",
+        code_verifier: verifier,
+      }),
+      signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
+    });
+  } catch {
+    return fail(req, "token");
+  }
   if (!tokenRes.ok) return fail(req, "token");
-  const token = (await tokenRes.json()) as { access_token?: string };
-  if (!token.access_token) return fail(req, "token");
+  let accessToken: string;
+  try {
+    const token = (await tokenRes.json()) as { access_token?: unknown } | null;
+    if (!token || typeof token.access_token !== "string" || !token.access_token) {
+      return fail(req, "token");
+    }
+    accessToken = token.access_token;
+  } catch {
+    return fail(req, "token");
+  }
 
-  const infoRes = await fetch(
-    "https://openidconnect.googleapis.com/v1/userinfo",
-    { headers: { Authorization: `Bearer ${token.access_token}` } },
-  );
+  let infoRes: Response;
+  try {
+    infoRes = await fetch(
+      "https://openidconnect.googleapis.com/v1/userinfo",
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(OAUTH_TIMEOUT_MS),
+      },
+    );
+  } catch {
+    return fail(req, "userinfo");
+  }
   if (!infoRes.ok) return fail(req, "userinfo");
-  const info = (await infoRes.json()) as {
-    sub?: string;
-    email?: string;
-    email_verified?: boolean;
-    name?: string;
+  let info: {
+    sub?: unknown;
+    email?: unknown;
+    email_verified?: unknown;
+    name?: unknown;
   };
+  try {
+    const value = (await infoRes.json()) as typeof info | null;
+    if (!value || typeof value !== "object") return fail(req, "userinfo");
+    info = value;
+  } catch {
+    return fail(req, "userinfo");
+  }
   // 미인증 이메일을 그대로 받으면 남의 주소를 사칭한 계정이 관리자 이메일과
   // 일치해버릴 수 있다. 필드가 없는 응답도 통과시키지 않는다.
-  if (!info.sub || !info.email || info.email_verified !== true) {
+  if (
+    typeof info.sub !== "string" ||
+    !info.sub ||
+    typeof info.email !== "string" ||
+    !info.email ||
+    info.email_verified !== true
+  ) {
     return fail(req, "profile");
   }
 
-  const user = await upsertOnLogin({
-    id: info.sub,
-    email: info.email,
-    name: info.name ?? "",
-  });
+  const inviteToken = req.cookies.get(INVITE_COOKIE)?.value;
+  const inviteRef = inviteToken ? openInvitationToken(inviteToken) : undefined;
+  if (inviteToken && !inviteRef) return fail(req, "invite_invalid");
+  let login: Awaited<ReturnType<typeof loginWithGoogle>>;
+  let sessionSigningFailed = false;
+  try {
+    login = await loginWithGoogle(
+      {
+        id: info.sub,
+        email: info.email,
+        name: typeof info.name === "string" ? info.name : "",
+      },
+      inviteRef ?? undefined,
+      {
+        userAgent: req.headers.get("user-agent"),
+        issueSessionToken: async (userId, sessionVersion, sessionId) => {
+          try {
+            return await createUserSession(userId, sessionVersion, sessionId);
+          } catch (error) {
+            sessionSigningFailed = true;
+            throw error;
+          }
+        },
+      },
+    );
+  } catch {
+    return fail(req, sessionSigningFailed ? "session" : "login");
+  }
+  if (!login.ok) return fail(req, login.reason);
+  if (!login.sessionToken) return fail(req, "session");
 
-  const dest = user.status === "approved" ? "/files" : "/pending";
-  const res = NextResponse.redirect(new URL(dest, req.url));
+  const res = NextResponse.redirect(new URL("/files", req.url));
   res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });
-  // 승인 대기 상태에도 세션은 발급한다 — 대기 화면이 본인을 알아보려면 필요하고,
-  // 접근 권한은 resolveSession이 승인 여부로 따로 판정한다.
-  res.cookies.set(COOKIE_NAME, await createUserSession(user.id), {
+  res.cookies.set(INVITE_COOKIE, "", { path: "/", maxAge: 0 });
+  res.cookies.set(COOKIE_NAME, login.sessionToken, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

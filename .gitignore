@@ -39,6 +39,7 @@ yarn-error.log*
 
 # setup 진행 중 임시 상태 (state/PKCE)
 /.setup-pending.json
+/.sharedesk-private-*
 
 # vercel
 .vercel

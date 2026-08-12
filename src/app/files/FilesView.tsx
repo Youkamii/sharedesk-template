@@ -1,30 +1,321 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
-import type { Entry, UploadSession } from "@/lib/storage/types";
+import {
+  classifyMoveFailure,
+  confirmedMoveEntries,
+  dragTerminalAction,
+  foldersAwaitingIdle,
+  isDragPointer,
+  needsDetachedFolderRefresh,
+  shouldRetryFolderReconciliation,
+  windowsContainingFolder,
+} from "@/lib/client/file-move";
+import { previewKindOf, type PreviewKind } from "@/lib/preview";
+import PixelFileIcon from "./PixelFileIcon";
+import ShareDialog from "./ShareDialog";
+import styles from "./desktop.module.css";
+
+type Entry = {
+  id: string;
+  layoutKey: string;
+  name: string;
+  isFolder: boolean;
+  size: number | null;
+  modifiedAt: string | null;
+  mimeType: string | null;
+  version: string | null;
+};
+
+type UploadSession =
+  | { mode: "direct"; url: string }
+  | { mode: "proxy" };
+
+type Placement = { x: number; y: number; version: number };
+
+type LayoutSnapshot = {
+  folderIdentity: string | null;
+  revision: number;
+  positions: Record<string, Placement>;
+};
+
+type FolderData = LayoutSnapshot & {
+  entries: Entry[];
+  loading: boolean;
+  error: string | null;
+  layoutError: string | null;
+};
 
 type Crumb = { id: string; name: string };
 
-function formatSize(size: number | null): string {
-  if (size === null) return "—";
-  if (size < 1024) return `${size} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let v = size;
-  let i = -1;
-  do {
-    v /= 1024;
-    i++;
-  } while (v >= 1024 && i < units.length - 1);
-  return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
+type TrashEntry = Entry & { version: string; trashedAt: string | null };
+
+type PreviewWindowState = {
+  entry: Entry;
+  kind: PreviewKind;
+  x: number;
+  y: number;
+  z: number;
+  text: string | null;
+  textLoading: boolean;
+  textError: string | null;
+};
+
+type TrashWindowState = {
+  x: number;
+  y: number;
+  z: number;
+  entries: TrashEntry[];
+  loading: boolean;
+  error: string | null;
+  busyId: string | null;
+  confirmId: string | null; // 완전삭제 2단계 확인 대상 ("__empty__"는 비우기)
+};
+
+type DeskWindow = {
+  id: string;
+  path: Crumb[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z: number;
+  minimized: boolean;
+  maximized: boolean;
+  restoreRect?: { x: number; y: number; width: number; height: number };
+  data: FolderData;
+};
+
+type ContextMenuState = {
+  x: number;
+  y: number;
+  scopeId: string;
+  entry?: Entry;
+  opener: HTMLElement | null;
+};
+
+type ScopedRequest = {
+  generation: number;
+  controller: AbortController;
+};
+
+type LayoutSaveNode = {
+  scopeId: string;
+  folderId: string;
+  folderIdentity: string;
+  generation: number;
+  entry: Entry;
+  controller: AbortController | null;
+  next: { x: number; y: number } | null;
+  inFlight: boolean;
+  baseVersion: number;
+};
+
+type DialogState =
+  | { kind: "create"; scopeId: string; value: string }
+  | { kind: "rename"; scopeId: string; entry: Entry; value: string }
+  | { kind: "delete"; scopeId: string; entry: Entry };
+
+const DIALOG_FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+const ROOT_ID = "root";
+const ROOT_SCOPE = "desktop";
+// 배경은 개인 취향이라 공유 상태가 아닌 localStorage에 저장한다 (왕복 0·충돌 0).
+const WALLPAPER_STORAGE_KEY = "sharedesk.wallpaper";
+const WALLPAPERS = [
+  { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
+  { id: "night", name: "깊은 밤", src: "/art/wall-night.svg" },
+  { id: "dawn", name: "새벽", src: "/art/wall-dawn.svg" },
+  { id: "tide", name: "밤바다", src: "/art/wall-tide.svg" },
+] as const;
+type WallpaperId = (typeof WALLPAPERS)[number]["id"];
+const TOP_BAR = 34;
+const TASK_BAR = 58;
+const ICON_WIDTH = 88;
+const ICON_HEIGHT = 94;
+const ICON_COLUMN_WIDTH = 96;
+const ICON_ROW_HEIGHT = 104;
+const ICON_COLUMNS = 6;
+const ICON_INSET_X = 12;
+const ICON_INSET_Y = 10;
+const PLANE_MIN_WIDTH = 600;
+const PLANE_MIN_HEIGHT = 220;
+const MAX_LOGICAL_COORDINATE = 1_000_000;
+const LAYOUT_POLL_MS = 5_000;
+const LIST_POLL_MS = 30_000;
+const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
+
+function blankFolder(loading = true): FolderData {
+  return {
+    entries: [],
+    folderIdentity: null,
+    positions: {},
+    revision: 0,
+    loading,
+    error: null,
+    layoutError: null,
+  };
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
+function mergeFolderData(current: FolderData, incoming: FolderData): FolderData {
+  if (
+    current.folderIdentity &&
+    incoming.folderIdentity &&
+    current.folderIdentity !== incoming.folderIdentity
+  ) {
+    return incoming;
+  }
+  if (incoming.revision >= current.revision) return incoming;
+  return {
+    ...incoming,
+    revision: current.revision,
+    positions: current.positions,
+  };
+}
+
+function sortedEntries(entries: Entry[]): Entry[] {
+  return [...entries].sort((a, b) =>
+    a.isFolder === b.isFolder
+      ? a.name.localeCompare(b.name, "ko")
+      : a.isFolder
+        ? -1
+        : 1,
+  );
+}
+
+function subscribeViewport(listener: () => void) {
+  window.addEventListener("resize", listener);
+  return () => window.removeEventListener("resize", listener);
+}
+
+function viewportSnapshot() {
+  return `${window.innerWidth}:${window.innerHeight}`;
+}
+
+function useViewport() {
+  const snapshot = useSyncExternalStore(
+    subscribeViewport,
+    viewportSnapshot,
+    () => "1280:800",
+  );
+  const [width, height] = snapshot.split(":").map(Number);
+  return { width, height };
+}
+
+function clamp(value: number, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function detachedListScope(folderId: string) {
+  return `${DETACHED_LIST_SCOPE_PREFIX}${folderId}`;
+}
+
+function defaultPlacement(index: number): Placement {
+  const column = index % ICON_COLUMNS;
+  const row = Math.floor(index / ICON_COLUMNS);
+  return {
+    x: ICON_INSET_X + column * ICON_COLUMN_WIDTH,
+    y: ICON_INSET_Y + row * ICON_ROW_HEIGHT,
+    version: 0,
+  };
+}
+
+function beginScopedRequest(
+  requests: Map<string, ScopedRequest>,
+  scopeId: string,
+) {
+  const previous = requests.get(scopeId);
+  previous?.controller.abort();
+  const request = {
+    generation: (previous?.generation ?? 0) + 1,
+    controller: new AbortController(),
+  };
+  requests.set(scopeId, request);
+  return request;
+}
+
+function cancelScopedRequest(
+  requests: Map<string, ScopedRequest>,
+  scopeId: string,
+) {
+  requests.get(scopeId)?.controller.abort();
+  requests.delete(scopeId);
+}
+
+function finishScopedRequest(
+  requests: Map<string, ScopedRequest>,
+  scopeId: string,
+  request: ScopedRequest,
+) {
+  if (requests.get(scopeId) === request) requests.delete(scopeId);
+}
+
+function abortAllRequests(requests: Map<string, ScopedRequest>) {
+  for (const request of requests.values()) request.controller.abort();
+  requests.clear();
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function formatSize(bytes: number | null) {
+  if (bytes === null) return "폴더";
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatDate(iso: string | null) {
+  if (!iso) return "수정일 없음";
   return new Date(iso).toLocaleString("ko-KR", {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+function errorMessage(value: unknown, fallback: string) {
+  return value instanceof Error ? value.message : fallback;
+}
+
+function previewUrl(entry: Entry) {
+  return `/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`;
+}
+
+function MenuButton({
+  children,
+  onClick,
+  danger = false,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      className={`${styles.menuItem} ${danger ? styles.menuDanger : ""}`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
 }
 
 export default function FilesView({
@@ -37,52 +328,2168 @@ export default function FilesView({
   isGuest: boolean;
 }) {
   const router = useRouter();
-  const [path, setPath] = useState<Crumb[]>([
-    { id: "root", name: "공유 드라이브" },
-  ]);
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameVal, setRenameVal] = useState("");
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const current = path[path.length - 1];
+  const viewport = useViewport();
+  const rootCanvasRef = useRef<HTMLDivElement>(null);
+  const windowCanvasRefs = useRef(new Map<string, HTMLDivElement>());
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const shareDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  const previewRef = useRef<HTMLElement>(null);
+  const previewOpenerRef = useRef<{
+    element: HTMLElement;
+    scopeId: string;
+    entryId: string;
+  } | null>(null);
+  const deskButtonRef = useRef<HTMLButtonElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadScopeRef = useRef(ROOT_SCOPE);
+  const rootDataRef = useRef<FolderData>(blankFolder());
+  const windowsRef = useRef<DeskWindow[]>([]);
+  const listRequestsRef = useRef(new Map<string, ScopedRequest>());
+  const layoutRequestsRef = useRef(new Map<string, ScopedRequest>());
+  const folderMutationVersionsRef = useRef(new Map<string, number>());
+  const pendingFolderMutationsRef = useRef(new Map<string, number>());
+  const folderIdleWaitersRef = useRef(
+    new Map<string, Set<() => void>>(),
+  );
+  const foldersNeedingRefreshRef = useRef(new Set<string>());
+  const savingPositionKeysRef = useRef(new Set<string>());
+  const movingEntryIdsRef = useRef(new Set<string>());
+  // 아이콘별 저장 큐 — 저장 중에도 자유롭게 다시 끌 수 있고, 항상 최신 좌표
+  // 하나만 전송한다. 서버 왕복(구글 업로드 ~2초)이 체감되지 않게 하는 장치.
+  const saveQueueRef = useRef(new Map<string, LayoutSaveNode>());
+  const layoutSaveGenerationsRef = useRef(new Map<string, number>());
+  const invalidateLayoutSavesForIdentityChangeRef = useRef<
+    (
+      scopeId: string,
+      currentIdentity: string | null,
+      incomingIdentity: string | null,
+    ) => void
+  >(() => undefined);
+  const applySnapshotRef = useRef<
+    (scopeId: string, folderId: string, snapshot: LayoutSnapshot) => void
+  >(() => undefined);
+  const draggingKeyRef = useRef<string | null>(null);
+  const zRef = useRef(20);
+  const windowIdRef = useRef(0);
+  const suppressedClickRef = useRef(new Set<string>());
 
-  const load = useCallback(
-    async (folderId: string) => {
-      setLoading(true);
-      setError(null);
+  const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
+  const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
+  const [selected, setSelected] = useState<{
+    scopeId: string;
+    layoutKey: string;
+  } | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  const [shareEntry, setShareEntry] = useState<Entry | null>(null);
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dragOverScope, setDragOverScope] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number;
+    total: number;
+    name: string;
+  } | null>(null);
+  const [transientPositions, setTransientPositions] = useState<
+    Record<string, Placement>
+  >({});
+  const [savingPositions, setSavingPositions] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [clock, setClock] = useState<Date | null>(null);
+  // 아이콘 드래그로 이동할 때: 끌리는 아이콘(히트테스트 제외용)과 드롭 대상 하이라이트.
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  const [trashWindow, setTrashWindow] = useState<TrashWindowState | null>(null);
+  const [previewWindow, setPreviewWindow] =
+    useState<PreviewWindowState | null>(null);
+  const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
+  // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
+  const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
+
+  rootDataRef.current = rootData;
+  windowsRef.current = deskWindows;
+  const dialogOpen = dialog !== null;
+
+  const fetchFolder = useCallback(
+    async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
+      const listResponse = await fetch(
+        `/api/drive/list?folderId=${encodeURIComponent(folderId)}`,
+        { cache: "no-store", signal },
+      );
+      if (listResponse.status === 401) {
+        router.replace("/");
+        throw new Error("세션이 만료되었습니다");
+      }
+      const listBody = await listResponse.json().catch(() => null);
+      if (!listResponse.ok) {
+        throw new Error(listBody?.error ?? "폴더를 불러오지 못했습니다");
+      }
+
+      const snapshot: LayoutSnapshot = listBody.layout ?? {
+        folderIdentity: null,
+        revision: 0,
+        positions: {},
+      };
+      const layoutError =
+        typeof listBody.layoutError === "string" ? listBody.layoutError : null;
+
+      return {
+        entries: Array.isArray(listBody.entries) ? listBody.entries : [],
+        folderIdentity: snapshot.folderIdentity ?? null,
+        positions: snapshot.positions ?? {},
+        revision: snapshot.revision ?? 0,
+        loading: false,
+        error: null,
+        layoutError,
+      };
+    },
+    [router],
+  );
+
+  const loadRoot = useCallback(
+    async (quiet = false) => {
+      if ((pendingFolderMutationsRef.current.get(ROOT_ID) ?? 0) > 0) {
+        foldersNeedingRefreshRef.current.add(ROOT_ID);
+        return false;
+      }
+      const request = beginScopedRequest(listRequestsRef.current, ROOT_SCOPE);
+      const mutationVersion = folderMutationVersionsRef.current.get(ROOT_ID) ?? 0;
+      if (!quiet) {
+        setRootData((current) => ({ ...current, loading: true, error: null }));
+      }
       try {
-        const res = await fetch(
-          `/api/drive/list?folderId=${encodeURIComponent(folderId)}`,
+        const data = await fetchFolder(ROOT_ID, request.controller.signal);
+        if (
+          listRequestsRef.current.get(ROOT_SCOPE) !== request ||
+          (pendingFolderMutationsRef.current.get(ROOT_ID) ?? 0) > 0 ||
+          (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) !==
+            mutationVersion
+        ) {
+          if (
+            (pendingFolderMutationsRef.current.get(ROOT_ID) ?? 0) > 0 ||
+            (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) !==
+              mutationVersion
+          ) {
+            foldersNeedingRefreshRef.current.add(ROOT_ID);
+          }
+          return false;
+        }
+        invalidateLayoutSavesForIdentityChangeRef.current(
+          ROOT_SCOPE,
+          rootDataRef.current.folderIdentity,
+          data.folderIdentity,
         );
-        if (res.status === 401) {
-          router.replace("/");
-          return;
+        setRootData((current) =>
+          (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) ===
+          mutationVersion
+            ? mergeFolderData(current, data)
+            : current,
+        );
+        return true;
+      } catch (error) {
+        if (
+          isAbortError(error) ||
+          listRequestsRef.current.get(ROOT_SCOPE) !== request ||
+          (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) !==
+            mutationVersion
+        ) {
+          if (
+            (pendingFolderMutationsRef.current.get(ROOT_ID) ?? 0) > 0 ||
+            (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) !==
+              mutationVersion
+          ) {
+            foldersNeedingRefreshRef.current.add(ROOT_ID);
+          }
+          return false;
         }
-        const body = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(body?.error ?? "목록을 불러오지 못했습니다");
-        }
-        setEntries(body.entries);
-      } catch (e) {
-        setError(
-          e instanceof Error ? e.message : "목록을 불러오지 못했습니다",
+        setRootData((current) => ({
+          ...current,
+          loading: false,
+          error: errorMessage(error, "바탕화면을 불러오지 못했습니다"),
+        }));
+        return false;
+      } finally {
+        finishScopedRequest(listRequestsRef.current, ROOT_SCOPE, request);
+      }
+    },
+    [fetchFolder],
+  );
+
+  const loadDeskWindow = useCallback(
+    async (windowId: string, folderId: string, quiet = false) => {
+      if ((pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0) {
+        foldersNeedingRefreshRef.current.add(folderId);
+        return false;
+      }
+      const request = beginScopedRequest(listRequestsRef.current, windowId);
+      const mutationVersion =
+        folderMutationVersionsRef.current.get(folderId) ?? 0;
+      if (!quiet) {
+        setDeskWindows((current) =>
+          current.map((item) =>
+            item.id === windowId && item.path.at(-1)?.id === folderId
+              ? { ...item, data: { ...item.data, loading: true, error: null } }
+              : item,
+          ),
         );
       }
-      setLoading(false);
+      try {
+        const data = await fetchFolder(folderId, request.controller.signal);
+        if (
+          listRequestsRef.current.get(windowId) !== request ||
+          (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+          (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+            mutationVersion
+        ) {
+          if (
+            (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+            (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+              mutationVersion
+          ) {
+            foldersNeedingRefreshRef.current.add(folderId);
+          }
+          return false;
+        }
+        const currentWindow = windowsRef.current.find(
+          (item) => item.id === windowId && item.path.at(-1)?.id === folderId,
+        );
+        invalidateLayoutSavesForIdentityChangeRef.current(
+          windowId,
+          currentWindow?.data.folderIdentity ?? null,
+          data.folderIdentity,
+        );
+        setDeskWindows((current) =>
+          (folderMutationVersionsRef.current.get(folderId) ?? 0) ===
+          mutationVersion
+            ? current.map((item) =>
+                item.id === windowId && item.path.at(-1)?.id === folderId
+                  ? { ...item, data: mergeFolderData(item.data, data) }
+                  : item,
+              )
+            : current,
+        );
+        return true;
+      } catch (error) {
+        if (
+          isAbortError(error) ||
+          listRequestsRef.current.get(windowId) !== request ||
+          (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+            mutationVersion
+        ) {
+          if (
+            (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+            (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+              mutationVersion
+          ) {
+            foldersNeedingRefreshRef.current.add(folderId);
+          }
+          return false;
+        }
+        setDeskWindows((current) =>
+          current.map((item) =>
+            item.id === windowId && item.path.at(-1)?.id === folderId
+              ? {
+                  ...item,
+                  data: {
+                    ...item.data,
+                    loading: false,
+                    error: errorMessage(
+                      error,
+                      "폴더를 불러오지 못했습니다",
+                    ),
+                  },
+                }
+              : item,
+          ),
+        );
+        return false;
+      } finally {
+        finishScopedRequest(listRequestsRef.current, windowId, request);
+      }
+    },
+    [fetchFolder],
+  );
+
+  const loadLayout = useCallback(
+    async (scopeId: string, folderId: string) => {
+      const request = beginScopedRequest(layoutRequestsRef.current, scopeId);
+      try {
+        const response = await fetch(
+          `/api/desktop/layout?folderId=${encodeURIComponent(folderId)}`,
+          { cache: "no-store", signal: request.controller.signal },
+        );
+        if (response.status === 401) {
+          router.replace("/");
+          throw new Error("세션이 만료되었습니다");
+        }
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.error ?? "공유 배치를 불러오지 못했습니다");
+        }
+        if (layoutRequestsRef.current.get(scopeId) !== request) return;
+        // 저장 응답과 같은 병합 규칙(revision 단조성 + layoutError 초기화)을 쓴다.
+        applySnapshotRef.current(scopeId, folderId, body as LayoutSnapshot);
+      } catch (error) {
+        if (
+          isAbortError(error) ||
+          layoutRequestsRef.current.get(scopeId) !== request
+        ) {
+          return;
+        }
+        const layoutError = errorMessage(
+          error,
+          "공유 배치를 불러오지 못했습니다",
+        );
+        if (scopeId === ROOT_SCOPE) {
+          setRootData((current) => ({ ...current, layoutError }));
+          return;
+        }
+        setDeskWindows((current) =>
+          current.map((item) =>
+            item.id === scopeId && item.path.at(-1)?.id === folderId
+              ? { ...item, data: { ...item.data, layoutError } }
+              : item,
+          ),
+        );
+      } finally {
+        finishScopedRequest(layoutRequestsRef.current, scopeId, request);
+      }
     },
     [router],
   );
 
   useEffect(() => {
-    void load(current.id);
-  }, [current.id, load]);
+    const initial = window.setTimeout(() => void loadRoot(), 0);
+    const layoutPoll = window.setInterval(() => {
+      void loadLayout(ROOT_SCOPE, ROOT_ID);
+      for (const item of windowsRef.current) {
+        const folderId = item.path.at(-1)?.id;
+        if (folderId && !item.minimized) {
+          void loadLayout(item.id, folderId);
+        }
+      }
+    }, LAYOUT_POLL_MS);
+    const listPoll = window.setInterval(() => {
+      void loadRoot(true);
+      for (const item of windowsRef.current) {
+        const folderId = item.path.at(-1)?.id;
+        if (folderId && !item.minimized) {
+          void loadDeskWindow(item.id, folderId, true);
+        }
+      }
+    }, LIST_POLL_MS);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(layoutPoll);
+      window.clearInterval(listPoll);
+    };
+  }, [loadDeskWindow, loadLayout, loadRoot]);
+
+  useEffect(
+    () => () => {
+      abortAllRequests(listRequestsRef.current);
+      abortAllRequests(layoutRequestsRef.current);
+      for (const node of saveQueueRef.current.values()) {
+        node.controller?.abort();
+      }
+      saveQueueRef.current.clear();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    setClock(new Date());
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
+    if (saved && WALLPAPERS.some((w) => w.id === saved)) {
+      setWallpaperId(saved as WallpaperId);
+    }
+  }, []);
+
+  function selectWallpaper(id: WallpaperId) {
+    setWallpaperId(id);
+    try {
+      window.localStorage.setItem(WALLPAPER_STORAGE_KEY, id);
+    } catch {
+      // 시크릿 모드 등에서 저장이 막혀도 이번 세션 동안은 적용된다.
+    }
+    setContextMenu(null);
+  }
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      contextMenuRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]')
+        ?.focus();
+    });
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!contextMenuRef.current?.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer, true);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("pointerdown", closeOnOutsidePointer, true);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      dialogRef.current
+        ?.querySelector<HTMLElement>("[data-dialog-initial-focus]")
+        ?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      const opener = dialogOpenerRef.current;
+      dialogOpenerRef.current = null;
+      window.requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+  }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!previewFocusRequest) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      previewRef.current
+        ?.querySelector<HTMLElement>("[data-preview-initial-focus]")
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [previewFocusRequest]);
+
+  async function apiJson<T>(pathname: string, init: RequestInit): Promise<T> {
+    const response = await fetch(pathname, init);
+    if (response.status === 401) {
+      router.replace("/");
+      const error = new Error("세션이 만료되었습니다");
+      Object.assign(error, { status: response.status });
+      throw error;
+    }
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(body?.error ?? "요청에 실패했습니다");
+      Object.assign(error, { status: response.status });
+      throw error;
+    }
+    return body as T;
+  }
+
+  function scopeWindow(scopeId: string) {
+    return deskWindows.find((item) => item.id === scopeId);
+  }
+
+  function scopeData(scopeId: string) {
+    return scopeId === ROOT_SCOPE ? rootData : scopeWindow(scopeId)?.data;
+  }
+
+  function scopeFolderId(scopeId: string) {
+    if (scopeId === ROOT_SCOPE) return ROOT_ID;
+    return scopeWindow(scopeId)?.path.at(-1)?.id ?? ROOT_ID;
+  }
+
+  function scopeParentFolderId(scopeId: string) {
+    if (scopeId === ROOT_SCOPE) return null;
+    return scopeWindow(scopeId)?.path.at(-2)?.id ?? null;
+  }
+
+  function entryContextMenuHeight(scopeId: string) {
+    return (isAdmin ? 250 : 205) + (scopeParentFolderId(scopeId) ? 45 : 0);
+  }
+
+  function scopeCanvas(scopeId: string) {
+    return scopeId === ROOT_SCOPE
+      ? rootCanvasRef.current
+      : windowCanvasRefs.current.get(scopeId) ?? null;
+  }
+
+  function findEntryButton(scopeId: string, entryId: string) {
+    return Array.from(
+      scopeCanvas(scopeId)?.querySelectorAll<HTMLButtonElement>(
+        "button[data-entry-id]",
+      ) ?? [],
+    ).find((button) => button.dataset.entryId === entryId);
+  }
+
+  function focusAfterDelete(
+    scopeId: string,
+    deletedEntryId: string,
+    candidateEntryIds: string[],
+  ) {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const canvas = scopeCanvas(scopeId);
+        const remainingButtons = Array.from(
+          canvas?.querySelectorAll<HTMLButtonElement>(
+            "button[data-entry-id]",
+          ) ?? [],
+        ).filter((button) => button.dataset.entryId !== deletedEntryId);
+        const candidate = candidateEntryIds
+          .map((entryId) =>
+            remainingButtons.find(
+              (button) => button.dataset.entryId === entryId,
+            ),
+          )
+          .find((button): button is HTMLButtonElement => !!button);
+        (candidate ?? remainingButtons[0] ?? canvas ?? deskButtonRef.current)?.focus();
+      });
+    });
+  }
+
+  function refreshScope(scopeId: string, quiet = false) {
+    if (scopeId === ROOT_SCOPE) return loadRoot(quiet);
+    return loadDeskWindow(scopeId, scopeFolderId(scopeId), quiet);
+  }
+
+  function markFolderMutation(folderId: string) {
+    folderMutationVersionsRef.current.set(
+      folderId,
+      (folderMutationVersionsRef.current.get(folderId) ?? 0) + 1,
+    );
+  }
+
+  function waitForFolderIdle(folderId: string) {
+    if ((pendingFolderMutationsRef.current.get(folderId) ?? 0) === 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const waiters = folderIdleWaitersRef.current.get(folderId) ?? new Set();
+      waiters.add(resolve);
+      folderIdleWaitersRef.current.set(folderId, waiters);
+    });
+  }
+
+  function notifyFolderIdle(folderId: string) {
+    const waiters = folderIdleWaitersRef.current.get(folderId);
+    if (!waiters) return;
+    folderIdleWaitersRef.current.delete(folderId);
+    for (const resolve of waiters) resolve();
+  }
+
+  async function waitForFoldersIdle(folderIds: string[]) {
+    while (true) {
+      const pendingFolderIds = foldersAwaitingIdle(
+        folderIds,
+        pendingFolderMutationsRef.current,
+      );
+      if (pendingFolderIds.length === 0) return;
+      await Promise.all(pendingFolderIds.map(waitForFolderIdle));
+    }
+  }
+
+  function folderMutationSnapshot(folderIds: string[]) {
+    return new Map(
+      folderIds.map((folderId) => [
+        folderId,
+        folderMutationVersionsRef.current.get(folderId) ?? 0,
+      ] as const),
+    );
+  }
+
+  function cancelFolderListRequests(folderId: string): boolean {
+    let interruptedRequest = false;
+    let incompleteView = false;
+    const detachedScope = detachedListScope(folderId);
+    if (listRequestsRef.current.has(detachedScope)) {
+      interruptedRequest = true;
+      cancelScopedRequest(listRequestsRef.current, detachedScope);
+    }
+    if (folderId === ROOT_ID) {
+      incompleteView ||= rootData.loading;
+      if (listRequestsRef.current.has(ROOT_SCOPE)) {
+        interruptedRequest = true;
+        cancelScopedRequest(listRequestsRef.current, ROOT_SCOPE);
+      }
+    }
+    for (const item of windowsRef.current) {
+      if (item.path.at(-1)?.id !== folderId) continue;
+      incompleteView ||= item.data.loading;
+      if (listRequestsRef.current.has(item.id)) {
+        interruptedRequest = true;
+        cancelScopedRequest(listRequestsRef.current, item.id);
+      }
+    }
+    if (interruptedRequest || incompleteView) {
+      foldersNeedingRefreshRef.current.add(folderId);
+    }
+    return interruptedRequest;
+  }
+
+  function updateFolderEntries(
+    folderId: string,
+    update: (entries: Entry[]) => Entry[],
+  ) {
+    if (folderId === ROOT_ID) {
+      setRootData((current) => ({
+        ...current,
+        entries: update(current.entries),
+      }));
+    }
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.path.at(-1)?.id === folderId
+          ? { ...item, data: { ...item.data, entries: update(item.data.entries) } }
+          : item,
+      ),
+    );
+  }
+
+  function removeFolderEntry(folderId: string, entryId: string) {
+    updateFolderEntries(folderId, (entries) =>
+      entries.filter((entry) => entry.id !== entryId),
+    );
+  }
+
+  function upsertFolderEntry(folderId: string, entry: Entry) {
+    updateFolderEntries(folderId, (entries) =>
+      sortedEntries([
+        ...entries.filter((current) => current.id !== entry.id),
+        entry,
+      ]),
+    );
+  }
+
+  async function refreshDetachedFolder(folderId: string) {
+    if ((pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0) {
+      foldersNeedingRefreshRef.current.add(folderId);
+      return false;
+    }
+    const scopeId = detachedListScope(folderId);
+    const request = beginScopedRequest(listRequestsRef.current, scopeId);
+    const mutationVersion = folderMutationVersionsRef.current.get(folderId) ?? 0;
+    try {
+      await fetchFolder(folderId, request.controller.signal);
+      if (
+        listRequestsRef.current.get(scopeId) !== request ||
+        (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+        (folderMutationVersionsRef.current.get(folderId) ?? 0) !== mutationVersion
+      ) {
+        if (
+          (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+          (folderMutationVersionsRef.current.get(folderId) ?? 0) !== mutationVersion
+        ) {
+          foldersNeedingRefreshRef.current.add(folderId);
+        }
+        return false;
+      }
+      return true;
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        listRequestsRef.current.get(scopeId) !== request ||
+        (folderMutationVersionsRef.current.get(folderId) ?? 0) !== mutationVersion
+      ) {
+        if (
+          (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+          (folderMutationVersionsRef.current.get(folderId) ?? 0) !== mutationVersion
+        ) {
+          foldersNeedingRefreshRef.current.add(folderId);
+        }
+        return false;
+      }
+      return false;
+    } finally {
+      finishScopedRequest(listRequestsRef.current, scopeId, request);
+    }
+  }
+
+  async function refreshFolderInstances(folderId: string) {
+    const jobs: Promise<boolean>[] = [];
+    if (folderId === ROOT_ID) jobs.push(loadRoot(true));
+    for (const item of windowsRef.current) {
+      if (item.path.at(-1)?.id === folderId) {
+        jobs.push(loadDeskWindow(item.id, folderId, true));
+      }
+    }
+    if (needsDetachedFolderRefresh(jobs.length)) {
+      jobs.push(refreshDetachedFolder(folderId));
+    }
+    const results = await Promise.all(jobs);
+    return results.every(Boolean);
+  }
+
+  async function refreshFolders(folderIds: string[]) {
+    const results = await Promise.all(
+      folderIds.map((folderId) => refreshFolderInstances(folderId)),
+    );
+    return results.every(Boolean);
+  }
+
+  function layoutSaveGeneration(scopeId: string) {
+    return layoutSaveGenerationsRef.current.get(scopeId) ?? 0;
+  }
+
+  function cancelLayoutSaves(scopeId: string) {
+    layoutSaveGenerationsRef.current.set(
+      scopeId,
+      layoutSaveGeneration(scopeId) + 1,
+    );
+    const cancelledKeys: string[] = [];
+    for (const [key, node] of saveQueueRef.current) {
+      if (node.scopeId !== scopeId) continue;
+      node.next = null;
+      node.controller?.abort();
+      saveQueueRef.current.delete(key);
+      savingPositionKeysRef.current.delete(key);
+      cancelledKeys.push(key);
+    }
+    if (cancelledKeys.length === 0) return;
+    const cancelled = new Set(cancelledKeys);
+    setSavingPositions((current) => {
+      const next = new Set(current);
+      for (const key of cancelled) next.delete(key);
+      return next;
+    });
+    setTransientPositions((current) => {
+      const next = { ...current };
+      for (const key of cancelled) delete next[key];
+      return next;
+    });
+  }
+
+  function invalidateLayoutSavesForIdentityChange(
+    scopeId: string,
+    currentIdentity: string | null,
+    incomingIdentity: string | null,
+  ) {
+    if (
+      currentIdentity &&
+      incomingIdentity &&
+      currentIdentity !== incomingIdentity
+    ) {
+      cancelScopedRequest(layoutRequestsRef.current, scopeId);
+      cancelLayoutSaves(scopeId);
+    }
+  }
+  invalidateLayoutSavesForIdentityChangeRef.current =
+    invalidateLayoutSavesForIdentityChange;
+
+  function cancelScopeRequests(scopeId: string) {
+    cancelScopedRequest(listRequestsRef.current, scopeId);
+    cancelScopedRequest(layoutRequestsRef.current, scopeId);
+    cancelLayoutSaves(scopeId);
+  }
+
+  function closeWindow(windowId: string) {
+    cancelScopeRequests(windowId);
+    setDeskWindows((current) =>
+      current.filter((item) => item.id !== windowId),
+    );
+    setSelected((current) =>
+      current?.scopeId === windowId ? null : current,
+    );
+  }
+
+  function closeWindowsContainingFolder(folderId: string) {
+    const affected = windowsContainingFolder(windowsRef.current, folderId);
+    if (affected.length === 0) return;
+    const affectedWindowIds = new Set(affected.map((item) => item.id));
+    const affectedEntryIds = new Set(
+      affected.flatMap((item) => item.data.entries.map((entry) => entry.id)),
+    );
+    for (const windowId of affectedWindowIds) cancelScopeRequests(windowId);
+    setDeskWindows((current) =>
+      current.filter((item) => !affectedWindowIds.has(item.id)),
+    );
+    setSelected((current) =>
+      current && affectedWindowIds.has(current.scopeId) ? null : current,
+    );
+    setPreviewWindow((current) => {
+      if (
+        !current ||
+        (!affectedEntryIds.has(current.entry.id) &&
+          !affectedWindowIds.has(previewOpenerRef.current?.scopeId ?? ""))
+      ) {
+        return current;
+      }
+      previewOpenerRef.current = null;
+      return null;
+    });
+  }
+
+  function focusWindow(windowId: string) {
+    const z = ++zRef.current;
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? { ...item, z, minimized: false }
+          : item,
+      ),
+    );
+  }
+
+  function openFolder(entry: Entry, scopeId: string) {
+    setContextMenu(null);
+    if (scopeId !== ROOT_SCOPE) {
+      cancelScopeRequests(scopeId);
+      setSelected((current) =>
+        current?.scopeId === scopeId ? null : current,
+      );
+      setDeskWindows((current) =>
+        current.map((item) =>
+          item.id === scopeId
+            ? {
+                ...item,
+                path: [...item.path, { id: entry.id, name: entry.name }],
+                data: blankFolder(),
+              }
+            : item,
+        ),
+      );
+      void loadDeskWindow(scopeId, entry.id);
+      return;
+    }
+
+    const existing = deskWindows.find(
+      (item) => item.path.at(-1)?.id === entry.id,
+    );
+    if (existing) {
+      focusWindow(existing.id);
+      return;
+    }
+
+    const id = `folder-${++windowIdRef.current}`;
+    const width = Math.min(720, Math.max(390, viewport.width - 48));
+    const height = Math.min(500, Math.max(300, viewport.height - 112));
+    const cascade = (windowIdRef.current % 5) * 24;
+    const x = clamp(
+      (viewport.width - width) / 2 + cascade - 48,
+      8,
+      Math.max(8, viewport.width - width - 8),
+    );
+    const y = clamp(
+      TOP_BAR + 28 + cascade,
+      TOP_BAR + 6,
+      Math.max(TOP_BAR + 6, viewport.height - TASK_BAR - height - 6),
+    );
+    const next: DeskWindow = {
+      id,
+      path: [
+        { id: ROOT_ID, name: "바탕화면" },
+        { id: entry.id, name: entry.name },
+      ],
+      x,
+      y,
+      width,
+      height,
+      z: ++zRef.current,
+      minimized: false,
+      maximized: false,
+      data: blankFolder(),
+    };
+    setDeskWindows((current) => [...current, next]);
+    void loadDeskWindow(id, entry.id);
+  }
+
+  function downloadEntry(entry: Entry) {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
+    anchor.download = entry.name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  async function loadPreviewText(entry: Entry) {
+    try {
+      // 앞부분만 Range로 받는다 — 수백 MB짜리 로그를 통째로 문자열화하면 탭이 멎는다.
+      const PREVIEW_BYTES = 256 * 1024;
+      const response = await fetch(previewUrl(entry), {
+        cache: "no-store",
+        headers: { Range: `bytes=0-${PREVIEW_BYTES - 1}` },
+      });
+      if (!response.ok && response.status !== 206) {
+        throw new Error("내용을 불러오지 못했습니다");
+      }
+      const raw = await response.text();
+      const truncated =
+        response.status === 206 &&
+        (entry.size === null || entry.size > PREVIEW_BYTES);
+      const text = truncated
+        ? `${raw}\n\n… 앞부분만 미리봅니다. 전체는 다운로드로 받아 주세요.`
+        : raw;
+      setPreviewWindow((current) =>
+        current?.entry.id === entry.id
+          ? { ...current, text, textLoading: false }
+          : current,
+      );
+    } catch (error) {
+      setPreviewWindow((current) =>
+        current?.entry.id === entry.id
+          ? {
+              ...current,
+              textLoading: false,
+              textError: errorMessage(error, "내용을 불러오지 못했습니다"),
+            }
+          : current,
+      );
+    }
+  }
+
+  function openPreview(
+    entry: Entry,
+    keyboardOpener?: { element: HTMLElement; scopeId: string },
+  ) {
+    const kind = previewKindOf(entry);
+    if (!kind) {
+      downloadEntry(entry);
+      return;
+    }
+    previewOpenerRef.current = keyboardOpener
+      ? {
+          ...keyboardOpener,
+          entryId: entry.id,
+        }
+      : null;
+    setContextMenu(null);
+    const z = ++zRef.current;
+    setPreviewWindow({
+      entry,
+      kind,
+      x: clamp(viewport.width * 0.14, 8, 400),
+      y: clamp(TOP_BAR + 24, TOP_BAR + 6, viewport.height / 3),
+      z,
+      text: null,
+      textLoading: kind === "text",
+      textError: null,
+    });
+    if (keyboardOpener) {
+      setPreviewFocusRequest((current) => current + 1);
+    }
+    if (kind === "text") void loadPreviewText(entry);
+  }
+
+  function closePreview() {
+    const opener = previewOpenerRef.current;
+    previewOpenerRef.current = null;
+    setPreviewWindow(null);
+    window.requestAnimationFrame(() => {
+      if (opener?.element.isConnected) {
+        opener.element.focus();
+        return;
+      }
+      if (opener) findEntryButton(opener.scopeId, opener.entryId)?.focus();
+    });
+  }
+
+  function movePreviewWindow(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!previewWindow || viewport.width < 640) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    const z = ++zRef.current;
+    setPreviewWindow((current) => (current ? { ...current, z } : current));
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = previewWindow.x;
+    const originY = previewWindow.y;
+    const onMove = (next: PointerEvent) => {
+      // 창 폭을 JS에서 알 수 없어(폭은 CSS가 정함) 최소 120px는 화면 안에 남긴다.
+      const x = clamp(
+        originX + next.clientX - startX,
+        4,
+        Math.max(4, window.innerWidth - 120),
+      );
+      const y = clamp(
+        originY + next.clientY - startY,
+        TOP_BAR + 4,
+        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+      );
+      setPreviewWindow((current) =>
+        current ? { ...current, x, y } : current,
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  }
+
+  function activateEntry(
+    entry: Entry,
+    scopeId: string,
+    keyboardOpener?: HTMLElement,
+  ) {
+    if (movingEntryIdsRef.current.has(entry.id)) return;
+    if (entry.isFolder) openFolder(entry, scopeId);
+    else if (previewKindOf(entry)) {
+      openPreview(
+        entry,
+        keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
+      );
+    }
+    else downloadEntry(entry);
+  }
+
+  function navigateWindow(windowId: string, crumbIndex: number) {
+    const item = scopeWindow(windowId);
+    if (!item || crumbIndex >= item.path.length - 1) return;
+    const nextPath = item.path.slice(0, crumbIndex + 1);
+    if (nextPath.length === 1) {
+      closeWindow(windowId);
+      return;
+    }
+    const folderId = nextPath.at(-1)!.id;
+    cancelScopeRequests(windowId);
+    setSelected((current) =>
+      current?.scopeId === windowId ? null : current,
+    );
+    setDeskWindows((current) =>
+      current.map((value) =>
+        value.id === windowId
+          ? { ...value, path: nextPath, data: blankFolder() }
+          : value,
+      ),
+    );
+    void loadDeskWindow(windowId, folderId);
+  }
+
+  function moveWindow(
+    event: ReactPointerEvent<HTMLDivElement>,
+    item: DeskWindow,
+  ) {
+    if (viewport.width < 640 || item.maximized) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    focusWindow(item.id);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = item.x;
+    const originY = item.y;
+
+    const onMove = (next: PointerEvent) => {
+      const x = clamp(
+        originX + next.clientX - startX,
+        4,
+        Math.max(4, window.innerWidth - item.width - 4),
+      );
+      const y = clamp(
+        originY + next.clientY - startY,
+        TOP_BAR + 4,
+        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+      );
+      setDeskWindows((current) =>
+        current.map((value) =>
+          value.id === item.id ? { ...value, x, y } : value,
+        ),
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  }
+
+  function resizeWindow(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    item: DeskWindow,
+  ) {
+    if (viewport.width < 640 || item.maximized) return;
+    event.preventDefault();
+    event.stopPropagation();
+    focusWindow(item.id);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originWidth = item.width;
+    const originHeight = item.height;
+
+    const onMove = (next: PointerEvent) => {
+      const width = clamp(
+        originWidth + next.clientX - startX,
+        390,
+        Math.max(390, window.innerWidth - item.x - 6),
+      );
+      const height = clamp(
+        originHeight + next.clientY - startY,
+        300,
+        Math.max(300, window.innerHeight - TASK_BAR - item.y - 6),
+      );
+      setDeskWindows((current) =>
+        current.map((value) =>
+          value.id === item.id ? { ...value, width, height } : value,
+        ),
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  }
+
+  function toggleMaximize(item: DeskWindow) {
+    focusWindow(item.id);
+    setDeskWindows((current) =>
+      current.map((value) => {
+        if (value.id !== item.id) return value;
+        if (value.maximized && value.restoreRect) {
+          return {
+            ...value,
+            ...value.restoreRect,
+            maximized: false,
+            restoreRect: undefined,
+          };
+        }
+        return {
+          ...value,
+          restoreRect: {
+            x: value.x,
+            y: value.y,
+            width: value.width,
+            height: value.height,
+          },
+          x: 6,
+          y: TOP_BAR + 6,
+          width: Math.max(390, viewport.width - 12),
+          height: Math.max(300, viewport.height - TOP_BAR - TASK_BAR - 12),
+          maximized: true,
+        };
+      }),
+    );
+  }
+
+  function placementFor(scopeId: string, entry: Entry, index: number) {
+    const transient = transientPositions[`${scopeId}:${entry.layoutKey}`];
+    if (transient) return transient;
+    const stored = scopeData(scopeId)?.positions[entry.layoutKey];
+    if (stored) return stored;
+    return defaultPlacement(index);
+  }
+
+  function planeDimensions(scopeId: string, entries: Entry[]) {
+    let width = PLANE_MIN_WIDTH;
+    let height = PLANE_MIN_HEIGHT;
+    entries.forEach((entry, index) => {
+      const placement = placementFor(scopeId, entry, index);
+      width = Math.max(width, placement.x + ICON_WIDTH + ICON_INSET_X);
+      height = Math.max(height, placement.y + ICON_HEIGHT + ICON_INSET_Y);
+    });
+    return { width: Math.ceil(width), height: Math.ceil(height) };
+  }
+
+  function applySnapshot(
+    scopeId: string,
+    folderId: string,
+    snapshot: LayoutSnapshot,
+  ) {
+    if (scopeId === ROOT_SCOPE) {
+      const identityChanged = Boolean(
+        rootDataRef.current.folderIdentity &&
+        snapshot.folderIdentity &&
+        rootDataRef.current.folderIdentity !== snapshot.folderIdentity,
+      );
+      invalidateLayoutSavesForIdentityChange(
+        scopeId,
+        rootDataRef.current.folderIdentity,
+        snapshot.folderIdentity,
+      );
+      if (identityChanged) {
+        void loadRoot(true);
+        return;
+      }
+      setRootData((current) =>
+        snapshot.folderIdentity === current.folderIdentity &&
+        snapshot.revision < current.revision
+          ? current
+          : { ...current, ...snapshot, layoutError: null },
+      );
+      return;
+    }
+    const currentWindow = windowsRef.current.find(
+      (item) => item.id === scopeId && item.path.at(-1)?.id === folderId,
+    );
+    const identityChanged = Boolean(
+      currentWindow?.data.folderIdentity &&
+      snapshot.folderIdentity &&
+      currentWindow.data.folderIdentity !== snapshot.folderIdentity,
+    );
+    invalidateLayoutSavesForIdentityChange(
+      scopeId,
+      currentWindow?.data.folderIdentity ?? null,
+      snapshot.folderIdentity,
+    );
+    if (identityChanged) {
+      void loadDeskWindow(scopeId, folderId, true);
+      return;
+    }
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === scopeId && item.path.at(-1)?.id === folderId
+          ? {
+              ...item,
+              data:
+                snapshot.folderIdentity === item.data.folderIdentity &&
+                snapshot.revision < item.data.revision
+                  ? item.data
+                  : { ...item.data, ...snapshot, layoutError: null },
+            }
+          : item,
+      ),
+    );
+  }
+  applySnapshotRef.current = applySnapshot;
+
+  function queuePlacement(
+    scopeId: string,
+    folderId: string,
+    folderIdentity: string | null,
+    generation: number,
+    entry: Entry,
+    placement: Placement,
+  ) {
+    const key = `${scopeId}:${entry.layoutKey}`;
+    if (
+      !folderIdentity ||
+      generation !== layoutSaveGeneration(scopeId) ||
+      scopeFolderId(scopeId) !== folderId ||
+      scopeData(scopeId)?.folderIdentity !== folderIdentity
+    ) {
+      setTransientPositions((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    const existing = saveQueueRef.current.get(key);
+    if (existing) {
+      // 이미 저장이 진행 중이다 — 최신 좌표로 덮고, 끝나면 이어서 보낸다.
+      existing.next = { x: placement.x, y: placement.y };
+      if (!existing.inFlight) void pumpSave(key);
+      return;
+    }
+    saveQueueRef.current.set(key, {
+      scopeId,
+      folderId,
+      folderIdentity,
+      generation,
+      entry,
+      controller: null,
+      next: { x: placement.x, y: placement.y },
+      inFlight: false,
+      baseVersion: placement.version,
+    });
+    setSavingPositions((current) => new Set(current).add(key));
+    void pumpSave(key);
+  }
+
+  function isActiveSave(key: string, node: LayoutSaveNode) {
+    return (
+      saveQueueRef.current.get(key) === node &&
+      layoutSaveGeneration(node.scopeId) === node.generation
+    );
+  }
+
+  function finishSave(key: string, node: LayoutSaveNode) {
+    if (saveQueueRef.current.get(key) !== node) return;
+    saveQueueRef.current.delete(key);
+    savingPositionKeysRef.current.delete(key);
+    setSavingPositions((current) => {
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+    if (draggingKeyRef.current !== key) {
+      setTransientPositions((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
+  async function pumpSave(key: string) {
+    const node = saveQueueRef.current.get(key);
+    if (!node || node.inFlight || !node.next) return;
+    const coords = node.next;
+    node.next = null;
+    node.inFlight = true;
+    const controller = new AbortController();
+    node.controller = controller;
+    try {
+      const snapshot = await apiJson<LayoutSnapshot>("/api/desktop/layout", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          folderId: node.folderId,
+          folderIdentity: node.folderIdentity,
+          updates: [
+            {
+              entryId: node.entry.id,
+              expectedVersion: node.baseVersion,
+              x: coords.x,
+              y: coords.y,
+            },
+          ],
+        }),
+      });
+      if (!isActiveSave(key, node)) return;
+      node.inFlight = false;
+      node.controller = null;
+      if (
+        snapshot.folderIdentity !== node.folderIdentity ||
+        scopeFolderId(node.scopeId) !== node.folderId ||
+        scopeData(node.scopeId)?.folderIdentity !== node.folderIdentity
+      ) {
+        cancelLayoutSaves(node.scopeId);
+        return;
+      }
+      node.baseVersion =
+        snapshot.positions[node.entry.layoutKey]?.version ??
+        node.baseVersion + 1;
+      applySnapshot(node.scopeId, node.folderId, snapshot);
+      if (node.next) {
+        void pumpSave(key);
+        return;
+      }
+      finishSave(key, node);
+    } catch (error) {
+      if (!isActiveSave(key, node) || isAbortError(error)) return;
+      node.inFlight = false;
+      node.controller = null;
+      finishSave(key, node);
+      if ((error as Error & { status?: number }).status === 409) {
+        setNotice("다른 사람이 먼저 옮긴 위치를 반영했습니다");
+        if (scopeFolderId(node.scopeId) === node.folderId) {
+          if (node.scopeId === ROOT_SCOPE) await loadRoot(true);
+          else await loadDeskWindow(node.scopeId, node.folderId, true);
+        }
+      } else {
+        setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+      }
+    }
+  }
+
+  // 포인터 아래의 이동 대상(폴더 아이콘 또는 다른 창의 캔버스)을 찾는다.
+  // 끌리는 아이콘은 pointer-events: none이라 히트테스트에 걸리지 않는다.
+  function findMoveTarget(
+    clientX: number,
+    clientY: number,
+    sourceScopeId: string,
+    sourceFolderId: string,
+    entry: Entry,
+  ): { folderId: string; highlightKey: string } | null {
+    const element = document.elementFromPoint(clientX, clientY);
+    if (!element) return null;
+    const icon = element.closest<HTMLElement>("[data-drop-folder]");
+    if (icon?.dataset.dropFolder && icon.dataset.dropScope) {
+      const folderId = icon.dataset.dropFolder;
+      if (folderId !== entry.id) {
+        return {
+          folderId,
+          highlightKey: `icon:${icon.dataset.dropScope}:${folderId}`,
+        };
+      }
+      return null;
+    }
+    const canvas = element.closest<HTMLElement>("[data-canvas-scope]");
+    const canvasScope = canvas?.dataset.canvasScope;
+    const canvasFolder = canvas?.dataset.canvasFolder;
+    if (
+      canvasScope &&
+      canvasFolder &&
+      canvasScope !== sourceScopeId &&
+      canvasFolder !== sourceFolderId &&
+      canvasFolder !== entry.id
+    ) {
+      return { folderId: canvasFolder, highlightKey: `canvas:${canvasScope}` };
+    }
+    return null;
+  }
+
+  async function moveEntry(
+    sourceScopeId: string,
+    entry: Entry,
+    targetFolderId: string,
+  ) {
+    const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
+    if (!entry.version) {
+      setTransientPositions((current) => {
+        const next = { ...current };
+        delete next[transientKey];
+        return next;
+      });
+      setNotice("항목 정보가 오래되어 옮기지 못했습니다 — 잠시 후 다시 시도해 주세요");
+      await refreshScope(sourceScopeId, true);
+      return;
+    }
+    if (movingEntryIdsRef.current.has(entry.id)) return;
+    const sourceFolderId = scopeFolderId(sourceScopeId);
+    const affectedFolderIds = [...new Set([sourceFolderId, targetFolderId])];
+    affectedFolderIds.forEach((folderId) => {
+      markFolderMutation(folderId);
+      pendingFolderMutationsRef.current.set(
+        folderId,
+        (pendingFolderMutationsRef.current.get(folderId) ?? 0) + 1,
+      );
+    });
+    const finishFolderMutations = () => {
+      const foldersToRefresh: string[] = [];
+      affectedFolderIds.forEach((folderId) => {
+        markFolderMutation(folderId);
+        const remaining =
+          (pendingFolderMutationsRef.current.get(folderId) ?? 1) - 1;
+        if (remaining > 0) {
+          pendingFolderMutationsRef.current.set(folderId, remaining);
+        } else {
+          pendingFolderMutationsRef.current.delete(folderId);
+          notifyFolderIdle(folderId);
+          if (foldersNeedingRefreshRef.current.delete(folderId)) {
+            foldersToRefresh.push(folderId);
+          }
+        }
+      });
+      return foldersToRefresh;
+    };
+    cancelFolderListRequests(sourceFolderId);
+    cancelFolderListRequests(targetFolderId);
+    movingEntryIdsRef.current.add(entry.id);
+    setSelected((current) =>
+      current?.scopeId === sourceScopeId && current.layoutKey === entry.layoutKey
+        ? null
+        : current,
+    );
+    setContextMenu(null);
+    setTransientPositions((current) => {
+      const next = { ...current };
+      delete next[transientKey];
+      return next;
+    });
+    removeFolderEntry(sourceFolderId, entry.id);
+    upsertFolderEntry(targetFolderId, entry);
+    try {
+      const body = await apiJson<{ entry: Entry }>("/api/drive/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: entry.id,
+          targetFolderId,
+          expectedVersion: entry.version,
+        }),
+      });
+      cancelFolderListRequests(sourceFolderId);
+      cancelFolderListRequests(targetFolderId);
+      if (entry.isFolder) {
+        closeWindowsContainingFolder(entry.id);
+      } else if (body.entry.id !== entry.id) {
+        setPreviewWindow((current) =>
+          current?.entry.id === entry.id
+            ? { ...current, entry: body.entry }
+            : current,
+        );
+        if (previewOpenerRef.current?.entryId === entry.id) {
+          previewOpenerRef.current = null;
+        }
+      }
+      removeFolderEntry(sourceFolderId, entry.id);
+      movingEntryIdsRef.current.delete(entry.id);
+      updateFolderEntries(targetFolderId, (entries) =>
+        sortedEntries(confirmedMoveEntries(entries, entry.id, body.entry)),
+      );
+      const foldersToRefresh = finishFolderMutations();
+      setNotice(`‘${entry.name}’ 항목을 옮겼습니다`);
+      if (foldersToRefresh.length > 0) {
+        void refreshFolders(foldersToRefresh);
+      }
+    } catch (error) {
+      const failureKind = classifyMoveFailure(error);
+      if (failureKind === "definitive") {
+        movingEntryIdsRef.current.delete(entry.id);
+        removeFolderEntry(targetFolderId, entry.id);
+        upsertFolderEntry(sourceFolderId, entry);
+      } else {
+        if (entry.isFolder) {
+          closeWindowsContainingFolder(entry.id);
+        } else {
+          setPreviewWindow((current) =>
+            current?.entry.id === entry.id ? null : current,
+          );
+          if (previewOpenerRef.current?.entryId === entry.id) {
+            previewOpenerRef.current = null;
+          }
+        }
+        setNotice(`‘${entry.name}’ 항목의 실제 위치를 확인하고 있습니다`);
+      }
+      affectedFolderIds.forEach((folderId) =>
+        foldersNeedingRefreshRef.current.add(folderId),
+      );
+      const foldersToRefresh = finishFolderMutations();
+      if (failureKind === "definitive") {
+        setNotice(errorMessage(error, "옮기지 못했습니다"));
+        await refreshFolders(foldersToRefresh);
+        return;
+      }
+
+      let refreshed = false;
+      try {
+        while (true) {
+          await waitForFoldersIdle(affectedFolderIds);
+          const startedVersions = folderMutationSnapshot(affectedFolderIds);
+          refreshed = await refreshFolders(affectedFolderIds);
+          if (
+            refreshed ||
+            !shouldRetryFolderReconciliation(
+              affectedFolderIds,
+              pendingFolderMutationsRef.current,
+              startedVersions,
+              folderMutationVersionsRef.current,
+            )
+          ) {
+            break;
+          }
+        }
+      } finally {
+        movingEntryIdsRef.current.delete(entry.id);
+      }
+      setNotice(
+        refreshed
+          ? `‘${entry.name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다`
+          : `‘${entry.name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요`,
+      );
+    }
+  }
+
+  async function loadTrash() {
+    try {
+      const body = await apiJson<{ entries: TrashEntry[] }>(
+        "/api/drive/trash",
+        { method: "GET" },
+      );
+      setTrashWindow((current) =>
+        current
+          ? { ...current, entries: body.entries, loading: false, error: null }
+          : current,
+      );
+    } catch (error) {
+      setTrashWindow((current) =>
+        current
+          ? {
+              ...current,
+              loading: false,
+              error: errorMessage(error, "휴지통을 불러오지 못했습니다"),
+            }
+          : current,
+      );
+    }
+  }
+
+  function openTrash() {
+    setContextMenu(null);
+    const z = ++zRef.current;
+    setTrashWindow((current) => {
+      if (current) return { ...current, z };
+      const width = Math.min(480, Math.max(320, viewport.width - 32));
+      return {
+        x: clamp(
+          (viewport.width - width) / 2 + 60,
+          8,
+          Math.max(8, viewport.width - width - 8),
+        ),
+        y: clamp(TOP_BAR + 52, TOP_BAR + 6, viewport.height / 2),
+        z,
+        entries: [],
+        loading: true,
+        error: null,
+        busyId: null,
+        confirmId: null,
+      };
+    });
+    void loadTrash();
+  }
+
+  async function refreshEverything() {
+    const jobs: Promise<boolean>[] = [loadRoot(true)];
+    for (const item of windowsRef.current) {
+      const folderId = item.path.at(-1)?.id;
+      if (folderId && !item.minimized) {
+        jobs.push(loadDeskWindow(item.id, folderId, true));
+      }
+    }
+    await Promise.all(jobs);
+  }
+
+  async function trashAction(
+    action: "restore" | "purge" | "empty",
+    id?: string,
+    version?: string,
+  ) {
+    const busyId = id ?? "__empty__";
+    setTrashWindow((current) =>
+      current ? { ...current, busyId, confirmId: null } : current,
+    );
+    try {
+      const result = await apiJson<{ warning?: string | null }>(
+        "/api/drive/trash",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action,
+            id,
+            version,
+            targets:
+              action === "empty"
+                ? (trashWindow?.entries ?? []).map((entry) => ({
+                    id: entry.id,
+                    version: entry.version,
+                  }))
+                : undefined,
+          }),
+        },
+      );
+      setNotice(
+        result.warning ??
+          (action === "restore"
+            ? "복원했습니다"
+            : action === "purge"
+              ? "완전히 삭제했습니다"
+              : "휴지통을 비웠습니다"),
+      );
+      if (action === "restore") await refreshEverything();
+    } catch (error) {
+      setNotice(errorMessage(error, "휴지통 작업에 실패했습니다"));
+    } finally {
+      setTrashWindow((current) =>
+        current ? { ...current, busyId: null, loading: true } : current,
+      );
+      await loadTrash();
+    }
+  }
+
+  function moveTrashWindow(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!trashWindow || viewport.width < 640) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    const z = ++zRef.current;
+    setTrashWindow((current) => (current ? { ...current, z } : current));
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = trashWindow.x;
+    const originY = trashWindow.y;
+    const onMove = (next: PointerEvent) => {
+      // 창 폭을 JS에서 알 수 없어(폭은 CSS가 정함) 최소 120px는 화면 안에 남긴다.
+      const x = clamp(
+        originX + next.clientX - startX,
+        4,
+        Math.max(4, window.innerWidth - 120),
+      );
+      const y = clamp(
+        originY + next.clientY - startY,
+        TOP_BAR + 4,
+        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+      );
+      setTrashWindow((current) => (current ? { ...current, x, y } : current));
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
+  }
+
+  function startIconDrag(
+    event: ReactPointerEvent<HTMLButtonElement>,
+    scopeId: string,
+    entry: Entry,
+    index: number,
+  ) {
+    if (event.button !== 0) return;
+    const transientKey = `${scopeId}:${entry.layoutKey}`;
+    if (
+      savingPositionKeysRef.current.has(transientKey) ||
+      movingEntryIdsRef.current.has(entry.id)
+    ) {
+      return;
+    }
+    const canvas = scopeCanvas(scopeId);
+    if (!canvas) return;
+    const startPlacement = placementFor(scopeId, entry, index);
+    const folderId = scopeFolderId(scopeId);
+    const folderIdentity = scopeData(scopeId)?.folderIdentity ?? null;
+    const saveGeneration = layoutSaveGeneration(scopeId);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const pointerId = event.pointerId;
+    const startLeft = startPlacement.x;
+    const startTop = startPlacement.y;
+    const dragThreshold =
+      event.pointerType === "touch" ||
+      window.matchMedia("(pointer: coarse)").matches
+        ? 12
+        : 5;
+    let moved = false;
+    let lastClientX = startX;
+    let lastClientY = startY;
+    let moveTarget: { folderId: string; highlightKey: string } | null = null;
+    event.preventDefault();
+
+    const onMove = (next: PointerEvent) => {
+      if (!isDragPointer(pointerId, next.pointerId)) return;
+      lastClientX = next.clientX;
+      lastClientY = next.clientY;
+      const dx = next.clientX - startX;
+      const dy = next.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < dragThreshold) return;
+      moved = true;
+      setDraggingKey(transientKey);
+      draggingKeyRef.current = transientKey;
+      const x = clamp(startLeft + dx, 0, MAX_LOGICAL_COORDINATE);
+      const y = clamp(startTop + dy, 0, MAX_LOGICAL_COORDINATE);
+      setTransientPositions((current) => ({
+        ...current,
+        [transientKey]: { x, y, version: startPlacement.version },
+      }));
+      moveTarget = findMoveTarget(
+        next.clientX,
+        next.clientY,
+        scopeId,
+        folderId,
+        entry,
+      );
+      setDropTargetKey(moveTarget?.highlightKey ?? null);
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onCancel);
+      setDraggingKey(null);
+      draggingKeyRef.current = null;
+      setDropTargetKey(null);
+    };
+    const onEnd = (next: PointerEvent) => {
+      const action = dragTerminalAction(
+        "pointerup",
+        isDragPointer(pointerId, next.pointerId),
+        moved,
+      );
+      if (action === "ignore") return;
+      cleanup();
+      if (action !== "commit") return;
+      suppressedClickRef.current.add(transientKey);
+      window.setTimeout(
+        () => suppressedClickRef.current.delete(transientKey),
+        0,
+      );
+      if (moveTarget) {
+        void moveEntry(scopeId, entry, moveTarget.folderId);
+        return;
+      }
+      const x = clamp(
+        startLeft + (lastClientX - startX),
+        0,
+        MAX_LOGICAL_COORDINATE,
+      );
+      const y = clamp(
+        startTop + (lastClientY - startY),
+        0,
+        MAX_LOGICAL_COORDINATE,
+      );
+      queuePlacement(scopeId, folderId, folderIdentity, saveGeneration, entry, {
+        ...startPlacement,
+        x,
+        y,
+      });
+    };
+    const onCancel = (next: PointerEvent) => {
+      const action = dragTerminalAction(
+        "pointercancel",
+        isDragPointer(pointerId, next.pointerId),
+        moved,
+      );
+      if (action === "ignore") return;
+      cleanup();
+      if (action !== "discard") return;
+      setTransientPositions((current) => {
+        const updated = { ...current };
+        delete updated[transientKey];
+        return updated;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onCancel);
+  }
+
+  function openContextMenu(
+    event: React.MouseEvent,
+    scopeId: string,
+    entry?: Entry,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (entry && movingEntryIdsRef.current.has(entry.id)) return;
+    if (scopeData(scopeId)?.loading) return;
+    const width = 210;
+    // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
+    const height = entry
+      ? entryContextMenuHeight(scopeId)
+      : scopeId === ROOT_SCOPE
+        ? 290
+        : 154;
+    const target = event.target as HTMLElement;
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setContextMenu({
+      x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+      scopeId,
+      entry,
+      opener:
+        target.closest<HTMLElement>("button, a, [tabindex]") ?? activeElement,
+    });
+    if (entry) setSelected({ scopeId, layoutKey: entry.layoutKey });
+  }
+
+  function openKeyboardMenu(
+    target: HTMLElement,
+    scopeId: string,
+    entry: Entry,
+  ) {
+    const rect = target.getBoundingClientRect();
+    const menuHeight = entryContextMenuHeight(scopeId);
+    setContextMenu({
+      x: Math.min(rect.left + 24, window.innerWidth - 218),
+      y: Math.max(
+        8,
+        Math.min(rect.top + 32, window.innerHeight - menuHeight - 8),
+      ),
+      scopeId,
+      entry,
+      opener: target,
+    });
+    setSelected({ scopeId, layoutKey: entry.layoutKey });
+  }
+
+  function openShareDialog(entry: Entry) {
+    shareDialogOpenerRef.current = contextMenu?.opener ?? null;
+    setContextMenu(null);
+    setShareEntry(entry);
+  }
+
+  function closeShareDialog() {
+    const opener = shareDialogOpenerRef.current;
+    shareDialogOpenerRef.current = null;
+    setShareEntry(null);
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
+  function openDialog(nextDialog: DialogState, opener?: HTMLElement | null) {
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    dialogOpenerRef.current = opener ?? activeElement;
+    setDialog(nextDialog);
+  }
+
+  function closeDialog() {
+    setDialog(null);
+  }
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (!dialogBusy) closeDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function handleContextMenuKeyDown(
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const opener = contextMenu?.opener;
+      setContextMenu(null);
+      window.requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      return;
+    }
+    event.preventDefault();
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        '[role="menuitem"]:not([disabled])',
+      ),
+    );
+    if (!items.length) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+    let nextIndex = currentIndex;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = items.length - 1;
+    if (event.key === "ArrowDown") {
+      nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length;
+    }
+    if (event.key === "ArrowUp") {
+      nextIndex =
+        currentIndex < 0
+          ? items.length - 1
+          : (currentIndex - 1 + items.length) % items.length;
+    }
+    items[nextIndex]?.focus();
+  }
+
+  function requestUpload(scopeId: string) {
+    uploadScopeRef.current = scopeId;
+    setContextMenu(null);
+    fileInputRef.current?.click();
+  }
+
+  async function uploadOne(file: File, folderId: string) {
+    const mimeType = file.type || "application/octet-stream";
+    const session = await apiJson<UploadSession>("/api/drive/upload-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parentId: folderId,
+        name: file.name,
+        mimeType,
+        size: file.size,
+      }),
+    });
+    if (session.mode === "direct") {
+      const response = await fetch(session.url, { method: "PUT", body: file });
+      if (!response.ok) throw new Error("드라이브 업로드에 실패했습니다");
+      return;
+    }
+    const response = await fetch(
+      `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": mimeType },
+        body: file,
+      },
+    );
+    if (response.status === 401) {
+      router.replace("/");
+      throw new Error("세션이 만료되었습니다");
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new Error(body?.error ?? "업로드에 실패했습니다");
+    }
+  }
+
+  async function uploadFiles(files: FileList | File[], scopeId: string) {
+    const list = Array.from(files);
+    if (!list.length) return;
+    const folderId = scopeFolderId(scopeId);
+    const failed: string[] = [];
+    for (let index = 0; index < list.length; index += 1) {
+      const file = list[index];
+      setUploadProgress({ current: index + 1, total: list.length, name: file.name });
+      try {
+        await uploadOne(file, folderId);
+      } catch (error) {
+        failed.push(`${file.name}: ${errorMessage(error, "실패")}`);
+      }
+    }
+    setUploadProgress(null);
+    setNotice(
+      failed.length
+        ? `일부 파일을 올리지 못했습니다 · ${failed.join(" / ")}`
+        : `${list.length}개 파일을 올렸습니다`,
+    );
+    await refreshScope(scopeId);
+  }
+
+  async function submitDialog() {
+    if (!dialog || dialogBusy) return;
+    setDialogBusy(true);
+    let deleteFocus:
+      | {
+          scopeId: string;
+          deletedEntryId: string;
+          candidateEntryIds: string[];
+        }
+      | null = null;
+    try {
+      const folderId = scopeFolderId(dialog.scopeId);
+      if (dialog.kind === "create") {
+        await apiJson("/api/drive/mkdir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ parentId: folderId, name: dialog.value }),
+        });
+        setNotice(`‘${dialog.value.trim()}’ 폴더를 만들었습니다`);
+      } else if (dialog.kind === "rename") {
+        const result = await apiJson<{ entry: Entry }>("/api/drive/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: dialog.entry.id, name: dialog.value }),
+        });
+        const renamedName = result.entry?.name ?? dialog.value.trim();
+        if (dialog.entry.isFolder && result.entry.id !== dialog.entry.id) {
+          closeWindowsContainingFolder(dialog.entry.id);
+        } else {
+          setDeskWindows((current) =>
+            current.map((item) => ({
+              ...item,
+              path: item.path.map((crumb) =>
+                crumb.id === dialog.entry.id
+                  ? { id: result.entry.id, name: renamedName }
+                  : crumb,
+              ),
+            })),
+          );
+        }
+        if (!dialog.entry.isFolder) {
+          setPreviewWindow((current) =>
+            current?.entry.id === dialog.entry.id
+              ? { ...current, entry: result.entry }
+              : current,
+          );
+          if (
+            result.entry.id !== dialog.entry.id &&
+            previewOpenerRef.current?.entryId === dialog.entry.id
+          ) {
+            previewOpenerRef.current = null;
+          }
+        }
+        setNotice("이름을 바꿨습니다");
+      } else {
+        const entries = scopeData(dialog.scopeId)?.entries ?? [];
+        const deletedIndex = entries.findIndex(
+          (entry) => entry.id === dialog.entry.id,
+        );
+        deleteFocus = {
+          scopeId: dialog.scopeId,
+          deletedEntryId: dialog.entry.id,
+          candidateEntryIds:
+            deletedIndex < 0
+              ? []
+              : [entries[deletedIndex + 1]?.id, entries[deletedIndex - 1]?.id].filter(
+                  (id): id is string => !!id,
+                ),
+        };
+        await apiJson("/api/drive/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: dialog.entry.id }),
+        });
+        if (dialog.entry.isFolder) {
+          const affectedWindowIds = windowsRef.current
+            .filter((item) =>
+              item.path.some((crumb) => crumb.id === dialog.entry.id),
+            )
+            .map((item) => item.id);
+          for (const windowId of affectedWindowIds) {
+            cancelScopeRequests(windowId);
+          }
+          setDeskWindows((current) =>
+            current.filter(
+              (item) =>
+                !item.path.some((crumb) => crumb.id === dialog.entry.id),
+            ),
+          );
+          setSelected((current) =>
+            current && affectedWindowIds.includes(current.scopeId)
+              ? null
+              : current,
+          );
+        }
+        setNotice(`‘${dialog.entry.name}’을 삭제했습니다`);
+        // 삭제 성공 뒤에는 곧 사라질 아이콘으로 포커스를 되돌리지 않는다.
+        dialogOpenerRef.current = null;
+        if (trashWindow) {
+          setTrashWindow((current) =>
+            current ? { ...current, loading: true } : current,
+          );
+          void loadTrash();
+        }
+      }
+      const scopeId = dialog.scopeId;
+      closeDialog();
+      setContextMenu(null);
+      setSelected(null);
+      await refreshScope(scopeId);
+      if (deleteFocus) {
+        focusAfterDelete(
+          deleteFocus.scopeId,
+          deleteFocus.deletedEntryId,
+          deleteFocus.candidateEntryIds,
+        );
+      }
+    } catch (error) {
+      if (
+        dialog.kind === "rename" &&
+        classifyMoveFailure(error) === "uncertain"
+      ) {
+        if (dialog.entry.isFolder) {
+          closeWindowsContainingFolder(dialog.entry.id);
+        } else {
+          setPreviewWindow((current) =>
+            current?.entry.id === dialog.entry.id ? null : current,
+          );
+          if (previewOpenerRef.current?.entryId === dialog.entry.id) {
+            previewOpenerRef.current = null;
+          }
+        }
+        await refreshScope(dialog.scopeId, true);
+      }
+      setNotice(errorMessage(error, "작업을 마치지 못했습니다"));
+    } finally {
+      setDialogBusy(false);
+    }
+  }
 
   async function logout() {
     await fetch("/api/auth", { method: "DELETE" });
@@ -90,387 +2497,1040 @@ export default function FilesView({
     router.refresh();
   }
 
-  async function apiPost<T = unknown>(
-    pathname: string,
-    body: unknown,
-  ): Promise<T> {
-    const res = await fetch(pathname, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.status === 401) {
-      router.replace("/");
-      throw new Error("세션이 만료되었습니다");
-    }
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      throw new Error(data?.error ?? "요청에 실패했습니다");
-    }
-    return data as T;
-  }
+  function renderCanvas(scopeId: string) {
+    const data = scopeData(scopeId) ?? blankFolder(false);
+    const isRoot = scopeId === ROOT_SCOPE;
+    const setCanvasRef = (element: HTMLDivElement | null) => {
+      if (isRoot) return;
+      if (element) windowCanvasRefs.current.set(scopeId, element);
+      else windowCanvasRefs.current.delete(scopeId);
+    };
+    const dimensions = planeDimensions(scopeId, data.entries);
 
-  async function createFolder() {
-    try {
-      await apiPost("/api/drive/mkdir", {
-        parentId: current.id,
-        name: newName,
-      });
-      setCreating(false);
-      setNewName("");
-      setNotice(null);
-      await load(current.id);
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "폴더를 만들지 못했습니다");
-    }
-  }
+    return (
+      <div
+        className={`${styles.iconCanvas} ${
+          isRoot ? styles.rootCanvas : styles.windowCanvas
+        } ${dragOverScope === scopeId ? styles.dropActive : ""} ${
+          dropTargetKey === `canvas:${scopeId}` ? styles.moveTargetCanvas : ""
+        }`}
+        data-canvas-scope={scopeId}
+        data-canvas-folder={scopeFolderId(scopeId)}
+        onClick={() => {
+          setSelected(null);
+          setContextMenu(null);
+        }}
+        onContextMenu={(event) => openContextMenu(event, scopeId)}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault();
+          setDragOverScope(scopeId);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDragOverScope(null);
+          }
+        }}
+        onDrop={(event) => {
+          if (data.loading || !event.dataTransfer.files.length) return;
+          event.preventDefault();
+          setDragOverScope(null);
+          void uploadFiles(event.dataTransfer.files, scopeId);
+        }}
+        aria-label={isRoot ? "공유 바탕화면" : "폴더 내용"}
+        aria-busy={data.loading}
+      >
+        <div
+          ref={isRoot ? rootCanvasRef : setCanvasRef}
+          className={styles.iconPlane}
+          tabIndex={-1}
+          style={{ width: dimensions.width, height: dimensions.height }}
+        >
+          {data.entries.map((entry, index) => {
+          const position = placementFor(scopeId, entry, index);
+          const key = `${scopeId}:${entry.layoutKey}`;
+          const moving = movingEntryIdsRef.current.has(entry.id);
+          const active =
+            selected?.scopeId === scopeId &&
+            selected.layoutKey === entry.layoutKey;
+          const style = {
+            left: position.x,
+            top: position.y,
+          } as CSSProperties;
+          return (
+            <div
+              key={entry.layoutKey}
+              className={`${styles.desktopIcon} ${
+                active ? styles.iconSelected : ""
+              } ${
+                savingPositions.has(key) || moving ? styles.iconSaving : ""
+              } ${draggingKey === key ? styles.iconDragging : ""} ${
+                entry.isFolder &&
+                dropTargetKey === `icon:${scopeId}:${entry.id}`
+                  ? styles.dropTargetIcon
+                  : ""
+              }`}
+              style={style}
+              data-drop-folder={entry.isFolder ? entry.id : undefined}
+              data-drop-scope={entry.isFolder ? scopeId : undefined}
+              onClick={(event) => event.stopPropagation()}
+              onContextMenu={(event) => openContextMenu(event, scopeId, entry)}
+            >
+              <button
+                type="button"
+                className={styles.iconMain}
+                title={`${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.modifiedAt)}`}
+                aria-label={`${entry.isFolder ? "폴더" : "파일"} ${entry.name}`}
+                aria-pressed={active}
+                aria-busy={savingPositions.has(key) || moving}
+                data-entry-id={entry.id}
+                disabled={moving}
+                onPointerDown={(event) =>
+                  startIconDrag(event, scopeId, entry, index)
+                }
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (suppressedClickRef.current.has(key)) return;
+                  if (window.matchMedia("(pointer: coarse)").matches) {
+                    activateEntry(entry, scopeId);
+                  } else {
+                    setSelected({ scopeId, layoutKey: entry.layoutKey });
+                    setContextMenu(null);
+                  }
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                  if (!suppressedClickRef.current.has(key)) {
+                    activateEntry(entry, scopeId);
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    activateEntry(entry, scopeId, event.currentTarget);
+                  }
+                  if (event.key === "F2") {
+                    event.preventDefault();
+                    openDialog(
+                      {
+                        kind: "rename",
+                        scopeId,
+                        entry,
+                        value: entry.name,
+                      },
+                      event.currentTarget,
+                    );
+                  }
+                  if (event.key === "Delete") {
+                    event.preventDefault();
+                    openDialog(
+                      { kind: "delete", scopeId, entry },
+                      event.currentTarget,
+                    );
+                  }
+                  if (
+                    event.key === "ContextMenu" ||
+                    (event.shiftKey && event.key === "F10")
+                  ) {
+                    event.preventDefault();
+                    openKeyboardMenu(event.currentTarget, scopeId, entry);
+                  }
+                }}
+              >
+                <PixelFileIcon entry={entry} size={54} />
+                <span className={styles.iconName}>{entry.name}</span>
+              </button>
+              <button
+                type="button"
+                className={styles.iconMore}
+                aria-label={`${entry.name} 메뉴`}
+                disabled={moving}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => openContextMenu(event, scopeId, entry)}
+              >
+                ···
+              </button>
+            </div>
+          );
+          })}
+        </div>
 
-  async function renameEntry(id: string) {
-    try {
-      await apiPost("/api/drive/rename", { id, name: renameVal });
-      setRenamingId(null);
-      setNotice(null);
-      await load(current.id);
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "이름을 바꾸지 못했습니다");
-    }
-  }
+        {data.loading && data.entries.length === 0 && (
+          <div className={styles.canvasMessage} role="status">
+            <span className={styles.loadingPixels} aria-hidden="true">
+              ▪ ▪ ▫
+            </span>
+            <strong>{isRoot ? "책상 정리 중" : "폴더 여는 중"}</strong>
+            <span>잠시만 기다려 주세요</span>
+          </div>
+        )}
 
-  async function deleteEntry(id: string) {
-    try {
-      await apiPost("/api/drive/delete", { id });
-      setConfirmDeleteId(null);
-      setNotice(null);
-      await load(current.id);
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "삭제하지 못했습니다");
-    }
-  }
+        {!data.loading && data.error && (
+          <div className={styles.canvasMessage} role="alert">
+            <span className={styles.brokenPaper} aria-hidden="true" />
+            <strong>불러오지 못했어요</strong>
+            <span>{data.error}</span>
+            <button type="button" onClick={() => void refreshScope(scopeId)}>
+              다시 시도
+            </button>
+          </div>
+        )}
 
-  async function uploadOne(file: File): Promise<void> {
-    const mimeType = file.type || "application/octet-stream";
-    const session = await apiPost<UploadSession>("/api/drive/upload-session", {
-      parentId: current.id,
-      name: file.name,
-      mimeType,
-      size: file.size,
-    });
-    if (session.mode === "direct") {
-      const put = await fetch(session.url, { method: "PUT", body: file });
-      if (!put.ok) throw new Error("드라이브 업로드에 실패했습니다");
-      return;
-    }
-    const res = await fetch(
-      `/api/drive/upload?parentId=${encodeURIComponent(current.id)}&name=${encodeURIComponent(file.name)}`,
-      { method: "POST", headers: { "Content-Type": mimeType }, body: file },
+        {!data.loading && !data.error && data.entries.length === 0 && (
+          <div className={styles.canvasMessage}>
+            <span className={styles.emptyDrawer} aria-hidden="true" />
+            <strong>아직 아무도 파일을 놓지 않았어요</strong>
+            <span>파일을 이곳에 끌어 놓아도 됩니다</span>
+            <div className={styles.emptyActions}>
+              <button type="button" onClick={() => requestUpload(scopeId)}>
+                파일 올리기
+              </button>
+              <button
+                type="button"
+                onClick={(event) =>
+                  openDialog(
+                    { kind: "create", scopeId, value: "" },
+                    event.currentTarget,
+                  )
+                }
+              >
+                새 폴더
+              </button>
+            </div>
+          </div>
+        )}
+
+        {data.layoutError && (
+          <div className={styles.layoutWarning} role="status">
+            공유 배치를 불러오지 못해 자동으로 정렬했습니다
+          </div>
+        )}
+
+        {dragOverScope === scopeId && (
+          <div className={styles.dropOverlay}>
+            <strong>여기에 놓아 주세요</strong>
+            <span>{isRoot ? "공유 바탕화면" : "이 폴더"}에 업로드합니다</span>
+          </div>
+        )}
+      </div>
     );
-    if (res.status === 401) {
-      router.replace("/");
-      throw new Error("세션이 만료되었습니다");
-    }
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      throw new Error(body?.error ?? "업로드에 실패했습니다");
-    }
   }
 
-  async function uploadFiles(files: FileList | File[]) {
-    const list = Array.from(files);
-    if (list.length === 0) return;
-    const failed: string[] = [];
-    for (let i = 0; i < list.length; i++) {
-      setNotice(`업로드 중 (${i + 1}/${list.length}) — ${list[i].name}`);
-      try {
-        await uploadOne(list[i]);
-      } catch (e) {
-        failed.push(
-          `${list[i].name}: ${e instanceof Error ? e.message : "실패"}`,
-        );
-      }
-    }
-    setNotice(failed.length ? `실패 — ${failed.join(", ")}` : null);
-    await load(current.id);
-  }
-
-  const actionBtn =
-    "whitespace-nowrap rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100";
+  const activeSelection = selected
+    ? scopeData(selected.scopeId)?.entries.find(
+        (entry) => entry.layoutKey === selected.layoutKey,
+      )
+    : undefined;
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-black/10 px-6 py-3 dark:border-white/15">
-        <h1 className="text-lg font-semibold tracking-tight">ShareDesk</h1>
-        <div className="flex items-center gap-4 text-sm">
-          <span className="text-zinc-500 dark:text-zinc-400">
-            {userName}
-            {isGuest && " (손님)"}
+    <main className={styles.desktop} onContextMenu={(event) => event.preventDefault()}>
+      <div
+        className={styles.wallpaper}
+        style={{
+          backgroundImage: `url(${
+            WALLPAPERS.find((w) => w.id === wallpaperId)?.src ??
+            WALLPAPERS[0].src
+          })`,
+        }}
+        aria-hidden="true"
+      />
+
+      <header className={styles.topBar}>
+        <div className={styles.brand}>
+          <span className={styles.brandMark} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
           </span>
-          {isAdmin && (
-            <a
-              href="/admin"
-              className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-            >
-              관리
-            </a>
-          )}
-          <button
-            onClick={() => void logout()}
-            className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-          >
-            로그아웃
-          </button>
+          <strong>ShareDesk</strong>
+          <span className={styles.desktopLabel}>공유 바탕화면</span>
+        </div>
+        <div className={styles.connection}>
+          <span className={styles.liveDot} aria-hidden="true" />
+          <span>함께 쓰는 중</span>
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-6">
-        <div className="flex items-center justify-between gap-4">
-          <nav className="flex flex-wrap items-center gap-1 text-sm">
-            {path.map((crumb, i) => (
-              <span key={crumb.id} className="flex items-center gap-1">
-                {i > 0 && <span className="text-zinc-400">/</span>}
+      {renderCanvas(ROOT_SCOPE)}
+
+      {deskWindows.map((item) => {
+        if (item.minimized) return null;
+        const currentFolder = item.path.at(-1);
+        const active = item.z === Math.max(...deskWindows.map((value) => value.z));
+        const selectedEntry =
+          selected?.scopeId === item.id
+            ? item.data.entries.find(
+                (entry) => entry.layoutKey === selected.layoutKey,
+              )
+            : undefined;
+        return (
+          <section
+            key={item.id}
+            className={`${styles.folderWindow} ${
+              active ? styles.activeWindow : ""
+            } ${item.maximized ? styles.maximizedWindow : ""}`}
+            style={{
+              left: item.x,
+              top: item.y,
+              width: item.width,
+              height: item.height,
+              zIndex: item.z,
+            }}
+            aria-label={`${currentFolder?.name ?? "폴더"} 창`}
+            onPointerDown={() => focusWindow(item.id)}
+          >
+            <div
+              className={styles.windowTitlebar}
+              onPointerDown={(event) => moveWindow(event, item)}
+              onDoubleClick={(event) => {
+                if (!(event.target as HTMLElement).closest("button")) {
+                  toggleMaximize(item);
+                }
+              }}
+            >
+              <span className={styles.miniFolder} aria-hidden="true" />
+              <strong>{currentFolder?.name ?? "폴더"}</strong>
+              {item.data.loading && <span className={styles.titleLoading}>여는 중</span>}
+              <div className={styles.windowControls}>
                 <button
-                  onClick={() => setPath(path.slice(0, i + 1))}
-                  disabled={i === path.length - 1}
-                  className="rounded px-1.5 py-0.5 hover:bg-black/5 disabled:font-medium disabled:hover:bg-transparent dark:hover:bg-white/10"
+                  type="button"
+                  aria-label="최소화"
+                  onClick={() =>
+                    setDeskWindows((current) =>
+                      current.map((value) =>
+                        value.id === item.id
+                          ? { ...value, minimized: true }
+                          : value,
+                      ),
+                    )
+                  }
                 >
-                  {crumb.name}
+                  <span className={styles.minimizeGlyph} />
                 </button>
-              </span>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setCreating(true);
-                setNewName("");
-              }}
-              className="rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium dark:border-white/20"
-            >
-              새 폴더
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files) void uploadFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            <button
-              onClick={() => fileInput.current?.click()}
-              className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background"
-            >
-              업로드
-            </button>
-          </div>
-        </div>
+                <button
+                  type="button"
+                  aria-label={item.maximized ? "복원" : "최대화"}
+                  onClick={() => toggleMaximize(item)}
+                >
+                  <span className={styles.maximizeGlyph} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="닫기"
+                  className={styles.closeButton}
+                  onClick={() => closeWindow(item.id)}
+                >
+                  <span className={styles.closeGlyph} />
+                </button>
+              </div>
+            </div>
 
-        {notice && (
-          <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-            {notice}
-          </p>
-        )}
-
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragOver(false);
-            if (e.dataTransfer.files.length) {
-              void uploadFiles(e.dataTransfer.files);
-            }
-          }}
-          className={`mt-4 overflow-x-auto rounded-xl border ${
-            dragOver
-              ? "border-blue-400 bg-blue-50/50 dark:bg-blue-950/20"
-              : "border-black/10 dark:border-white/15"
-          }`}
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-black/10 text-left text-zinc-500 dark:border-white/15 dark:text-zinc-400">
-                <th className="px-4 py-2.5 font-medium">이름</th>
-                <th className="w-24 px-4 py-2.5 font-medium">크기</th>
-                <th className="w-36 px-4 py-2.5 font-medium">수정일</th>
-                <th className="w-28 px-4 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {creating && (
-                <tr className="border-b border-black/5 dark:border-white/5">
-                  <td colSpan={4} className="px-4 py-2">
-                    <form
-                      className="flex items-center gap-2"
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void createFolder();
-                      }}
+            <div className={styles.windowToolbar}>
+              <button
+                type="button"
+                className={styles.pixelButton}
+                disabled={item.path.length <= 1}
+                aria-label="뒤로"
+                onClick={() => navigateWindow(item.id, item.path.length - 2)}
+              >
+                ←
+              </button>
+              <nav className={styles.breadcrumb} aria-label="폴더 경로">
+                {item.path.map((crumb, index) => (
+                  <span key={`${crumb.id}-${index}`}>
+                    {index > 0 && <i aria-hidden="true">›</i>}
+                    <button
+                      type="button"
+                      disabled={index === item.path.length - 1}
+                      onClick={() => navigateWindow(item.id, index)}
                     >
-                      <span aria-hidden>📁</span>
-                      <input
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        placeholder="새 폴더 이름"
-                        autoFocus
-                        className="flex-1 rounded border border-black/15 bg-transparent px-2 py-1 outline-none dark:border-white/20"
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") setCreating(false);
-                        }}
-                      />
-                      <button type="submit" className={actionBtn}>
-                        만들기
+                      {crumb.name}
+                    </button>
+                  </span>
+                ))}
+              </nav>
+              <button
+                type="button"
+                className={styles.toolbarAction}
+                disabled={item.data.loading}
+                onClick={(event) =>
+                  openDialog(
+                    { kind: "create", scopeId: item.id, value: "" },
+                    event.currentTarget,
+                  )
+                }
+              >
+                + 폴더
+              </button>
+              <button
+                type="button"
+                className={styles.toolbarAction}
+                disabled={item.data.loading}
+                onClick={() => requestUpload(item.id)}
+              >
+                ↑ 올리기
+              </button>
+            </div>
+
+            <div className={styles.windowBody}>{renderCanvas(item.id)}</div>
+
+            <footer className={styles.windowStatus}>
+              <span>{item.data.entries.length}개 항목</span>
+              {selectedEntry ? (
+                <span className={styles.selectedMeta}>
+                  {selectedEntry.name} · {formatSize(selectedEntry.size)} · {formatDate(selectedEntry.modifiedAt)}
+                </span>
+              ) : (
+                <span>아이콘을 끌어 위치를 바꾸고, 폴더 위에 놓으면 그 안으로 옮겨져요</span>
+              )}
+            </footer>
+            <button
+              type="button"
+              className={styles.resizeHandle}
+              aria-label="창 크기 변경"
+              onPointerDown={(event) => resizeWindow(event, item)}
+            />
+          </section>
+        );
+      })}
+
+      {trashWindow && (
+        <section
+          className={`${styles.folderWindow} ${styles.trashWindow}`}
+          style={{
+            left: trashWindow.x,
+            top: trashWindow.y,
+            zIndex: trashWindow.z,
+          }}
+          aria-label="휴지통 창"
+          onPointerDown={() => {
+            const z = ++zRef.current;
+            setTrashWindow((current) =>
+              current ? { ...current, z } : current,
+            );
+          }}
+        >
+          <div
+            className={styles.windowTitlebar}
+            onPointerDown={moveTrashWindow}
+          >
+            <span className={styles.trashGlyph} aria-hidden="true" />
+            <strong>휴지통</strong>
+            {trashWindow.loading && (
+              <span className={styles.titleLoading}>여는 중</span>
+            )}
+            <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label="닫기"
+                className={styles.closeButton}
+                onClick={() => setTrashWindow(null)}
+              >
+                <span className={styles.closeGlyph} />
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.trashBody}>
+            {trashWindow.error && (
+              <p className={styles.trashMessage} role="alert">
+                {trashWindow.error}
+              </p>
+            )}
+            {!trashWindow.error &&
+              !trashWindow.loading &&
+              trashWindow.entries.length === 0 && (
+                <p className={styles.trashMessage}>
+                  휴지통이 비어 있어요.
+                  <small>삭제한 항목은 여기에 30일 동안 보관됩니다.</small>
+                </p>
+              )}
+            <ul className={styles.trashList}>
+              {trashWindow.entries.map((entry) => (
+                <li key={entry.id} className={styles.trashRow}>
+                  <PixelFileIcon entry={entry} size={30} />
+                  <div className={styles.trashInfo}>
+                    <span className={styles.trashName} title={entry.name}>
+                      {entry.name}
+                    </span>
+                    <span className={styles.trashMeta}>
+                      {formatSize(entry.size)} ·{" "}
+                      {entry.trashedAt
+                        ? `${formatDate(entry.trashedAt)} 삭제`
+                        : "휴지통 보관 중"}
+                    </span>
+                  </div>
+                  {trashWindow.confirmId === entry.id ? (
+                    <span className={styles.trashActions}>
+                      <button
+                        type="button"
+                        className={styles.trashDanger}
+                        disabled={trashWindow.busyId !== null}
+                        onClick={() =>
+                          void trashAction("purge", entry.id, entry.version)
+                        }
+                      >
+                        삭제 확인
                       </button>
                       <button
                         type="button"
-                        onClick={() => setCreating(false)}
-                        className={actionBtn}
+                        disabled={trashWindow.busyId !== null}
+                        onClick={() =>
+                          setTrashWindow((current) =>
+                            current ? { ...current, confirmId: null } : current,
+                          )
+                        }
                       >
                         취소
                       </button>
-                    </form>
-                  </td>
-                </tr>
-              )}
-              {loading ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-zinc-400">
-                    불러오는 중...
-                  </td>
-                </tr>
-              ) : error ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-4 py-8 text-center text-red-600 dark:text-red-400"
+                    </span>
+                  ) : (
+                    <span className={styles.trashActions}>
+                      <button
+                        type="button"
+                        disabled={trashWindow.busyId !== null}
+                        onClick={() => void trashAction("restore", entry.id)}
+                      >
+                        {trashWindow.busyId === entry.id ? "…" : "복원"}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.trashDanger}
+                        disabled={trashWindow.busyId !== null}
+                        onClick={() =>
+                          setTrashWindow((current) =>
+                            current
+                              ? { ...current, confirmId: entry.id }
+                              : current,
+                          )
+                        }
+                      >
+                        완전 삭제
+                      </button>
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <footer className={styles.windowStatus}>
+            <span>{trashWindow.entries.length}개 항목 · 30일 후 자동 삭제</span>
+            {trashWindow.entries.length > 0 &&
+              (trashWindow.confirmId === "__empty__" ? (
+                <span className={styles.trashActions}>
+                  <button
+                    type="button"
+                    className={styles.trashDanger}
+                    disabled={trashWindow.busyId !== null}
+                    onClick={() => void trashAction("empty")}
                   >
-                    {error}
-                  </td>
-                </tr>
-              ) : entries.length === 0 && !creating ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-zinc-400">
-                    비어 있습니다 — 파일을 끌어다 놓으면 업로드됩니다
-                  </td>
-                </tr>
+                    모두 삭제 확인
+                  </button>
+                  <button
+                    type="button"
+                    disabled={trashWindow.busyId !== null}
+                    onClick={() =>
+                      setTrashWindow((current) =>
+                        current ? { ...current, confirmId: null } : current,
+                      )
+                    }
+                  >
+                    취소
+                  </button>
+                </span>
               ) : (
-                entries.map((entry) => (
-                  <tr
-                    key={entry.id}
-                    className="group border-b border-black/5 last:border-b-0 dark:border-white/5"
-                  >
-                    <td className="px-4 py-2">
-                      {renamingId === entry.id ? (
-                        <form
-                          className="flex items-center gap-2"
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            void renameEntry(entry.id);
-                          }}
-                        >
-                          <span aria-hidden>
-                            {entry.isFolder ? "📁" : "📄"}
-                          </span>
-                          <input
-                            value={renameVal}
-                            onChange={(e) => setRenameVal(e.target.value)}
-                            autoFocus
-                            className="flex-1 rounded border border-black/15 bg-transparent px-2 py-1 outline-none dark:border-white/20"
-                            onKeyDown={(e) => {
-                              if (e.key === "Escape") setRenamingId(null);
-                            }}
-                          />
-                          <button type="submit" className={actionBtn}>
-                            저장
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setRenamingId(null)}
-                            className={actionBtn}
-                          >
-                            취소
-                          </button>
-                        </form>
-                      ) : entry.isFolder ? (
-                        <button
-                          onClick={() =>
-                            setPath([
-                              ...path,
-                              { id: entry.id, name: entry.name },
-                            ])
-                          }
-                          className="flex items-center gap-2 hover:underline"
-                        >
-                          <span aria-hidden>📁</span>
-                          {entry.name}
-                        </button>
-                      ) : (
-                        <a
-                          href={`/api/drive/download?id=${encodeURIComponent(entry.id)}`}
-                          className="flex items-center gap-2 hover:underline"
-                        >
-                          <span aria-hidden>📄</span>
-                          {entry.name}
-                        </a>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-zinc-500 dark:text-zinc-400">
-                      {formatSize(entry.size)}
-                    </td>
-                    <td className="px-4 py-2 text-zinc-500 dark:text-zinc-400">
-                      {formatDate(entry.modifiedAt)}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {confirmDeleteId === entry.id ? (
-                        <span className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => void deleteEntry(entry.id)}
-                            className="whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                          >
-                            삭제 확인
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteId(null)}
-                            className={actionBtn}
-                          >
-                            취소
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => {
-                              setRenamingId(entry.id);
-                              setRenameVal(entry.name);
-                              setConfirmDeleteId(null);
-                            }}
-                            className={actionBtn}
-                          >
-                            이름변경
-                          </button>
-                          <button
-                            onClick={() => {
-                              setConfirmDeleteId(entry.id);
-                              setRenamingId(null);
-                            }}
-                            className={actionBtn}
-                          >
-                            삭제
-                          </button>
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                <button
+                  type="button"
+                  className={styles.trashDanger}
+                  disabled={trashWindow.busyId !== null}
+                  onClick={() =>
+                    setTrashWindow((current) =>
+                      current
+                        ? { ...current, confirmId: "__empty__" }
+                        : current,
+                    )
+                  }
+                >
+                  비우기…
+                </button>
+              ))}
+          </footer>
+        </section>
+      )}
+
+      {previewWindow && (
+        <section
+          ref={previewRef}
+          className={`${styles.folderWindow} ${styles.previewWindow}`}
+          style={{
+            left: previewWindow.x,
+            top: previewWindow.y,
+            zIndex: previewWindow.z,
+          }}
+          role="dialog"
+          aria-label={`${previewWindow.entry.name} 미리보기`}
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            closePreview();
+          }}
+          onPointerDown={() => {
+            const z = ++zRef.current;
+            setPreviewWindow((current) =>
+              current ? { ...current, z } : current,
+            );
+          }}
+        >
+          <div
+            className={styles.windowTitlebar}
+            onPointerDown={movePreviewWindow}
+          >
+            <PixelFileIcon entry={previewWindow.entry} size={16} />
+            <strong className={styles.previewTitle}>
+              {previewWindow.entry.name}
+            </strong>
+            <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label="닫기"
+                data-preview-initial-focus
+                className={styles.closeButton}
+                onClick={closePreview}
+              >
+                <span className={styles.closeGlyph} />
+              </button>
+            </div>
+          </div>
+
+          <div
+            className={`${styles.previewBody} ${
+              previewWindow.kind === "text" ? styles.previewBodyText : ""
+            }`}
+          >
+            {previewWindow.kind === "image" && (
+              // 미리보기 원본 크기를 알 수 없어 img를 그대로 쓴다 (next/image 부적합).
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl(previewWindow.entry)}
+                alt={previewWindow.entry.name}
+                className={styles.previewImage}
+              />
+            )}
+            {previewWindow.kind === "video" && (
+              <video
+                src={previewUrl(previewWindow.entry)}
+                controls
+                className={styles.previewMedia}
+              />
+            )}
+            {previewWindow.kind === "audio" && (
+              <audio
+                src={previewUrl(previewWindow.entry)}
+                controls
+                className={styles.previewAudio}
+              />
+            )}
+            {previewWindow.kind === "pdf" && (
+              <iframe
+                src={previewUrl(previewWindow.entry)}
+                title={previewWindow.entry.name}
+                className={styles.previewFrame}
+              />
+            )}
+            {previewWindow.kind === "text" &&
+              (previewWindow.textLoading ? (
+                <p className={styles.trashMessage} role="status">
+                  여는 중…
+                </p>
+              ) : previewWindow.textError ? (
+                <p className={styles.trashMessage} role="alert">
+                  {previewWindow.textError}
+                </p>
+              ) : (
+                <pre className={styles.previewText}>{previewWindow.text}</pre>
+              ))}
+          </div>
+
+          <footer className={styles.windowStatus}>
+            <span>
+              {formatSize(previewWindow.entry.size)} ·{" "}
+              {formatDate(previewWindow.entry.modifiedAt)}
+            </span>
+            <button
+              type="button"
+              className={styles.previewDownload}
+              onClick={() => downloadEntry(previewWindow.entry)}
+            >
+              ↓ 다운로드
+            </button>
+          </footer>
+        </section>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className={styles.hiddenInput}
+        onChange={(event) => {
+          if (event.target.files) {
+            void uploadFiles(event.target.files, uploadScopeRef.current);
+          }
+          event.target.value = "";
+        }}
+      />
+
+      <footer className={styles.taskBar}>
+        <button
+          ref={deskButtonRef}
+          type="button"
+          className={styles.deskButton}
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setContextMenu({
+              x: rect.left,
+              y: Math.max(8, rect.top - 298),
+              scopeId: ROOT_SCOPE,
+              opener: event.currentTarget,
+            });
+          }}
+        >
+          <span className={styles.deskButtonMark} aria-hidden="true" />
+          책상
+        </button>
+        <button
+          type="button"
+          className={styles.quickAction}
+          onClick={() => requestUpload(ROOT_SCOPE)}
+        >
+          ↑ 파일 올리기
+        </button>
+        <button
+          type="button"
+          className={styles.quickAction}
+          onClick={openTrash}
+        >
+          <span className={styles.trashGlyph} aria-hidden="true" /> 휴지통
+        </button>
+        <div className={styles.windowTasks} aria-label="열린 폴더">
+          {deskWindows.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              className={`${styles.taskButton} ${
+                !item.minimized &&
+                item.z === Math.max(...deskWindows.map((value) => value.z))
+                  ? styles.activeTask
+                  : ""
+              }`}
+              onClick={() => focusWindow(item.id)}
+            >
+              <span className={styles.miniFolder} aria-hidden="true" />
+              <span className={styles.taskTitle}>{item.path.at(-1)?.name}</span>
+            </button>
+          ))}
         </div>
-      </main>
-    </div>
+        {uploadProgress && (
+          <div className={styles.uploadChip} role="status">
+            <span className={styles.uploadArrow} aria-hidden="true">↑</span>
+            <span>
+              {uploadProgress.current}/{uploadProgress.total} · {uploadProgress.name}
+            </span>
+          </div>
+        )}
+        <div className={styles.userTray}>
+          {isAdmin && (
+            <a href="/admin" className={styles.trayLink}>
+              사용자 관리
+            </a>
+          )}
+          <span className={styles.userName} title={userName}>
+            {userName}
+            {isGuest ? " · 손님" : ""}
+          </span>
+          <button type="button" className={styles.trayLink} onClick={() => void logout()}>
+            나가기
+          </button>
+          <time className={styles.clock} dateTime={clock?.toISOString()}>
+            {clock
+              ? clock.toLocaleTimeString("ko-KR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "--:--"}
+          </time>
+        </div>
+      </footer>
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className={styles.contextMenu}
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          role="menu"
+          aria-label={contextMenu.entry ? `${contextMenu.entry.name} 메뉴` : "바탕화면 메뉴"}
+          onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={handleContextMenuKeyDown}
+        >
+          {contextMenu.entry ? (
+            <>
+              <MenuButton
+                onClick={() => {
+                  activateEntry(contextMenu.entry!, contextMenu.scopeId);
+                  setContextMenu(null);
+                }}
+              >
+                {contextMenu.entry.isFolder
+                  ? "열기"
+                  : previewKindOf(contextMenu.entry)
+                    ? "미리보기"
+                    : "다운로드"}
+                <kbd>Enter</kbd>
+              </MenuButton>
+              {!contextMenu.entry.isFolder &&
+                previewKindOf(contextMenu.entry) && (
+                  <MenuButton
+                    onClick={() => {
+                      downloadEntry(contextMenu.entry!);
+                      setContextMenu(null);
+                    }}
+                  >
+                    다운로드
+                  </MenuButton>
+                )}
+              <div className={styles.menuSeparator} />
+              {scopeParentFolderId(contextMenu.scopeId) && (
+                <MenuButton
+                  onClick={() => {
+                    const sourceScopeId = contextMenu.scopeId;
+                    const entry = contextMenu.entry!;
+                    const targetFolderId = scopeParentFolderId(sourceScopeId);
+                    setContextMenu(null);
+                    if (!targetFolderId) {
+                      setNotice("상위 폴더를 찾지 못했습니다 — 새로고침해 주세요");
+                      return;
+                    }
+                    void moveEntry(sourceScopeId, entry, targetFolderId);
+                  }}
+                >
+                  상위 폴더로 이동
+                </MenuButton>
+              )}
+              <MenuButton
+                onClick={() => {
+                  openDialog(
+                    {
+                      kind: "rename",
+                      scopeId: contextMenu.scopeId,
+                      entry: contextMenu.entry!,
+                      value: contextMenu.entry!.name,
+                    },
+                    contextMenu.opener,
+                  );
+                  setContextMenu(null);
+                }}
+              >
+                이름 바꾸기 <kbd>F2</kbd>
+              </MenuButton>
+              {isAdmin && (
+                <MenuButton
+                  onClick={() => openShareDialog(contextMenu.entry!)}
+                >
+                  Google Drive로 공유…
+                </MenuButton>
+              )}
+              <MenuButton
+                danger
+                onClick={() => {
+                  openDialog(
+                    {
+                      kind: "delete",
+                      scopeId: contextMenu.scopeId,
+                      entry: contextMenu.entry!,
+                    },
+                    contextMenu.opener,
+                  );
+                  setContextMenu(null);
+                }}
+              >
+                삭제… <kbd>Del</kbd>
+              </MenuButton>
+            </>
+          ) : (
+            <>
+              <MenuButton
+                onClick={() => {
+                  openDialog(
+                    {
+                      kind: "create",
+                      scopeId: contextMenu.scopeId,
+                      value: "",
+                    },
+                    contextMenu.opener,
+                  );
+                  setContextMenu(null);
+                }}
+              >
+                새 폴더 <kbd>⌘N</kbd>
+              </MenuButton>
+              <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
+                파일 업로드…
+              </MenuButton>
+              <div className={styles.menuSeparator} />
+              <MenuButton
+                onClick={() => {
+                  void refreshScope(contextMenu.scopeId);
+                  setContextMenu(null);
+                }}
+              >
+                새로고침 <kbd>F5</kbd>
+              </MenuButton>
+              {contextMenu.scopeId === ROOT_SCOPE && (
+                <>
+                  <div className={styles.menuSeparator} />
+                  {WALLPAPERS.map((wallpaper) => (
+                    <MenuButton
+                      key={wallpaper.id}
+                      onClick={() => selectWallpaper(wallpaper.id)}
+                    >
+                      배경 — {wallpaper.name}
+                      {wallpaperId === wallpaper.id && <kbd>✓</kbd>}
+                    </MenuButton>
+                  ))}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {isAdmin && shareEntry && (
+        <ShareDialog
+          entry={shareEntry}
+          onClose={closeShareDialog}
+          onNotice={setNotice}
+        />
+      )}
+
+      {dialog && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !dialogBusy) closeDialog();
+          }}
+        >
+          <section
+            ref={dialogRef}
+            className={styles.dialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="desk-dialog-title"
+            onKeyDown={handleDialogKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="desk-dialog-title">
+                {dialog.kind === "create"
+                  ? "새 폴더"
+                  : dialog.kind === "rename"
+                    ? "이름 바꾸기"
+                    : "삭제 확인"}
+              </strong>
+              <button
+                type="button"
+                aria-label="닫기"
+                disabled={dialogBusy}
+                onClick={closeDialog}
+              >
+                ×
+              </button>
+            </header>
+            <form
+              className={styles.dialogBody}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitDialog();
+              }}
+            >
+              {dialog.kind === "delete" ? (
+                <>
+                  <PixelFileIcon entry={dialog.entry} size={52} />
+                  <p>
+                    <strong>‘{dialog.entry.name}’</strong>을 삭제할까요?
+                    <small>
+                      휴지통으로 이동하며, 30일이 지나면 자동으로 완전히
+                      삭제됩니다.
+                    </small>
+                  </p>
+                </>
+              ) : (
+                <label>
+                  <span>{dialog.kind === "create" ? "폴더 이름" : "새 이름"}</span>
+                  <input
+                    data-dialog-initial-focus
+                    value={dialog.value}
+                    maxLength={255}
+                    onChange={(event) =>
+                      setDialog({ ...dialog, value: event.target.value })
+                    }
+                    placeholder={dialog.kind === "create" ? "예: 여름 여행" : undefined}
+                  />
+                </label>
+              )}
+              <div className={styles.dialogActions}>
+                <button
+                  type="button"
+                  data-dialog-initial-focus={
+                    dialog.kind === "delete" ? true : undefined
+                  }
+                  className={styles.secondaryButton}
+                  disabled={dialogBusy}
+                  onClick={closeDialog}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className={dialog.kind === "delete" ? styles.dangerButton : styles.primaryButton}
+                  disabled={
+                    dialogBusy ||
+                    (dialog.kind !== "delete" && !dialog.value.trim())
+                  }
+                >
+                  {dialogBusy
+                    ? "처리 중…"
+                    : dialog.kind === "create"
+                      ? "만들기"
+                      : dialog.kind === "rename"
+                        ? "저장"
+                        : "삭제하기"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {notice && (
+        <button
+          type="button"
+          className={styles.toast}
+          aria-live="polite"
+          onClick={() => setNotice(null)}
+        >
+          <span aria-hidden="true">◆</span>
+          {notice}
+        </button>
+      )}
+
+      {activeSelection && (
+        <div className={styles.selectionHint} aria-live="polite">
+          {activeSelection.name} · {formatSize(activeSelection.size)}
+        </div>
+      )}
+    </main>
   );
 }

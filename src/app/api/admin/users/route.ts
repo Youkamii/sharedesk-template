@@ -1,13 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
+import { revokeDrivePermissionsForTargetUser } from "@/lib/drive-shares";
 import {
   UserStatus,
   isAdminEmail,
   listUsers,
   removeUser,
+  revokeDeviceSession,
   revokeSessions,
   setStatus,
 } from "@/lib/users";
+
+async function revokeManagedShares(id: string): Promise<string | null> {
+  try {
+    const result = await revokeDrivePermissionsForTargetUser(id);
+    if (result.failed === 0) return null;
+    return `앱 접근은 막았지만 Google Drive 공유 ${result.failed}개를 회수하지 못했습니다. 다시 시도해 주세요.`;
+  } catch (error) {
+    console.error("[share] 사용자 권한 일괄 회수 실패", {
+      targetUserId: id,
+      error,
+    });
+    return "앱 접근은 막았지만 Google Drive 공유 권한을 확인하지 못했습니다. 다시 시도해 주세요.";
+  }
+}
 
 export async function GET() {
   const auth = await requireAdmin();
@@ -19,7 +35,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin();
+  const auth = await requireAdmin({ fresh: true });
   if ("response" in auth) return auth.response;
 
   const body = await req.json().catch(() => null);
@@ -41,7 +57,9 @@ export async function POST(req: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }
-      return NextResponse.json({ user });
+      const warning =
+        status === "approved" ? null : await revokeManagedShares(id);
+      return NextResponse.json({ user, warning });
     }
     if (action === "revoke") {
       const user = await revokeSessions(id);
@@ -50,7 +68,38 @@ export async function POST(req: NextRequest) {
       }
       return NextResponse.json({ user });
     }
+    if (action === "revoke-session") {
+      const sessionId =
+        typeof body?.sessionId === "string" ? body.sessionId : "";
+      if (!sessionId) {
+        return NextResponse.json(
+          { error: "끊을 로그인 세션을 확인해 주세요" },
+          { status: 400 },
+        );
+      }
+      const result = await revokeDeviceSession(id, sessionId);
+      if (!result) {
+        return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
+      }
+      if (!result.revoked) {
+        return NextResponse.json(
+          { error: "이미 끊겼거나 없는 로그인입니다" },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({ user: result.user });
+    }
     if (action === "remove") {
+      // 삭제 전에 세션을 먼저 끊는다. Drive 권한 일부가 회수되지 않더라도 앱 접근까지
+      // 열린 채로 남겨두지 않고, 차단 상태로 보존해 관리자가 다시 시도할 수 있게 한다.
+      const blocked = await setStatus(id, "blocked");
+      if (!blocked) {
+        return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
+      }
+      const warning = await revokeManagedShares(id);
+      if (warning) {
+        return NextResponse.json({ user: blocked, removed: false, warning });
+      }
       const ok = await removeUser(id);
       if (!ok) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });

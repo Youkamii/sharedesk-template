@@ -5,10 +5,17 @@ import { randomBytes, createHash } from "node:crypto";
 // state와 PKCE 검증값은 짧은 수명의 httpOnly 쿠키에 담아 콜백에서 대조한다.
 
 export const STATE_COOKIE = "sharedesk_oauth";
+export const LOGIN_OAUTH_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
 
 export function loginRedirectUri(req: NextRequest): string {
-  const configured = process.env.PUBLIC_BASE_URL;
-  const origin = configured?.replace(/\/$/, "") ?? req.nextUrl.origin;
+  const configured = process.env.PUBLIC_BASE_URL?.trim();
+  const origin = configured
+    ? configured.replace(/\/$/, "")
+    : req.nextUrl.origin;
   return `${origin}/api/auth/google/callback`;
 }
 
@@ -30,7 +37,7 @@ export async function GET(req: NextRequest) {
       client_id: clientId,
       redirect_uri: loginRedirectUri(req),
       response_type: "code",
-      scope: "openid email profile",
+      scope: LOGIN_OAUTH_SCOPES.join(" "),
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
