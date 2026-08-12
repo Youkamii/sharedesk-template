@@ -443,8 +443,9 @@ test("setup 안내는 현재 Google Auth Platform 단계와 실제 OAuth 값을 
     /Authorized JavaScript origins는 비워 두고/,
   );
   assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /In production/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /이미 In production이면 상태와 기존 refresh token을 그대로 둡니다/);
   assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /refresh token은 7일 뒤 만료/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup보다 먼저/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /운영 setup보다 먼저/);
   assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup -- --prepare-env/);
 });
 

@@ -12,7 +12,7 @@ Google Drive 폴더 하나를 여러 사람이 함께 쓰는 도트 스타일 �
 
 처음 설치한다면 아래 절차를 처음부터 직접 읽을 필요는 없습니다. 이 저장소를 열고 터미널 명령을 실행할 수 있는 코딩 에이전트에게 맡기세요. AI는 저장소와 현재 환경을 확인한 뒤, 직접 처리할 수 있는 명령과 파일 작업을 진행합니다. Google 로그인이나 Cloud Console 선택처럼 본인이 해야 하는 단계에서는 멈춰서 현재 화면에서 눌러야 할 곳을 설명해 달라고 하면 됩니다.
 
-일반 채팅 AI보다는 로컬 저장소와 터미널을 다룰 수 있는 코딩 에이전트가 알맞습니다. 다만 `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, callback URL, `.env.local` 내용은 채팅에 붙이지 마세요. AI가 비밀값을 화면이나 로그에 출력하지 않고 로컬 파일 또는 배포 환경 변수에만 저장하도록 요청해야 합니다.
+일반 채팅 AI보다는 로컬 저장소와 터미널을 다룰 수 있는 코딩 에이전트가 알맞습니다. 다만 `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, 인증 코드가 붙은 callback URL, `.env.local` 내용은 채팅에 붙이지 마세요. AI가 비밀값을 화면이나 로그에 출력하지 않고 로컬 파일 또는 배포 환경 변수에만 저장하도록 요청해야 합니다.
 
 ### 화면만 먼저 확인할 때
 
@@ -43,9 +43,9 @@ Google Drive 폴더 하나를 여러 사람이 함께 쓰는 도트 스타일 �
 - 내 운영체제와 저장소 상태를 먼저 확인하고, 터미널에서 할 수 있는 설치·검사·파일 수정은 직접 진행해.
 - Google Cloud Console, Google 로그인, 계정 선택처럼 내가 직접 해야 하는 단계가 나오면 현재 화면에서 눌러야 할 메뉴와 입력값을 한 단계씩 설명하고 기다려.
 - README에 적힌 Google Auth Platform의 Branding, Audience, Data Access, Clients 순서와 OAuth 범위를 그대로 따라.
-- External 앱이면 setup 전에 In production 상태인지 확인해서 Testing 토큰의 7일 만료를 피하게 해.
+- Audience 상태를 먼저 확인해. Testing이면 운영 전에 In production으로 바꿔야 하는지 설명하고, 이미 In production이면 그대로 둬. 실제 만료나 인증 실패 근거 없이 기존 refresh token을 폐기하거나 다시 발급하지 마.
 - 먼저 `npm run setup -- --prepare-env`를 실행해 비밀 파일을 준비해. OAuth Client ID와 Client secret은 내가 로컬 파일에 직접 입력하도록 안내하고 채팅으로 요구하지 마.
-- `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, callback URL, `.env.local` 내용은 화면·채팅·명령 기록에 출력하지 마.
+- `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, 인증 코드가 붙은 callback URL, `.env.local` 내용은 화면·채팅·명령 기록에 출력하지 마.
 - `npm run setup`과 `npm run dev`를 이어서 실행하고, 호스트 로그인과 기본 파일 작업까지 확인해.
 - 실제 오류와 현재 상태를 확인한 뒤 다음 행동을 정하고, 추측으로 값을 만들지 마.
 - Git push, Vercel 배포, 외부 서비스 변경은 내가 명시적으로 허용하기 전에는 하지 마.
@@ -174,6 +174,8 @@ OAuth 클라이언트와 Drive API는 같은 Google Cloud 프로젝트에 있어
 
 호스트 Drive를 오래 연결해 둘 운영 환경이라면 **Publish app**을 눌러 상태를 **In production**으로 바꾼 뒤 setup을 진행하세요.
 
+이미 **In production**이라면 이 단계는 끝난 것입니다. 새 배포 주소를 추가하더라도 Audience 상태나 기존 refresh token을 다시 건드릴 필요는 없습니다.
+
 Testing 상태에서도 설치할 수는 있지만, ShareDesk 호스트 설정은 `drive.file`과 오프라인 접근을 함께 요청하므로 그 상태에서 발급된 refresh token은 보통 7일 뒤 만료됩니다. 이미 Testing 상태에서 setup했다면 In production으로 전환한 뒤 [호스트 Drive 연결](#2-호스트-drive-연결)을 다시 진행하세요.
 
 > `In production`은 앱을 앱스토어처럼 공개한다는 뜻이 아닙니다. External 앱의 토큰을 테스트용 만료 정책에서 벗어나게 하는 게시 상태입니다. `drive.file`은 Google이 권장하는 비민감 Drive 범위이므로, 이 범위만 쓰는 기본 ShareDesk 설정에는 민감·제한 범위 심사가 보통 필요하지 않습니다.
@@ -214,6 +216,8 @@ https://sharedesk.example.com/api/auth/google/callback
 ```
 
 `sharedesk.example.com`은 실제 운영 도메인으로 바꾸세요. Vercel의 커밋별 Preview URL은 주소가 바뀌므로 등록하지 않습니다.
+
+기존 클라이언트와 운영 주소가 있다면 새 클라이언트를 만들지 마세요. 현재 주소가 목록에 있는지 확인하고, 빠진 운영 callback만 추가하면 됩니다.
 
 리디렉션 주소는 스킴(`http`/`https`), 호스트, 포트, 경로, 끝 슬래시까지 일치해야 합니다. 로컬 주소의 HTTP 사용은 localhost 예외로 허용됩니다. 자세한 규칙은 Google의 [OAuth 웹 서버 안내](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)를 참고하세요.
 
@@ -316,6 +320,8 @@ https://실제-운영-도메인/api/auth/google/callback
 
 저장한 뒤 적용까지 몇 분 걸릴 수 있습니다.
 
+이 작업은 기존 OAuth 설정을 다시 만드는 절차가 아닙니다. 기존 Client ID, Audience 상태, refresh token은 유지하고 새 운영 주소만 목록에 더합니다.
+
 ### 4-3. Production 환경 변수 입력
 
 Vercel 프로젝트의 `Settings` → `Environment Variables`에서 아래 값을 **Production** 환경에 입력하세요.
@@ -390,7 +396,7 @@ ShareDesk는 새 Google 로그인마다 간단한 브라우저·운영체제 이
 | 동의 뒤 `127.0.0.1` 연결 실패 | setup에서는 정상입니다. 주소창 전체를 복사하고 `npm run setup -- --finish`를 실행한 뒤, 질문이 나오면 붙여넣으세요. |
 | 콜백 주소에 `code`가 없음 | 동의를 취소했거나 오류가 난 주소입니다. `npm run setup`부터 다시 시작하고 주소 전체를 복사하세요. |
 | `refresh_token을 받지 못했습니다` | [Google 계정의 연결된 앱](https://myaccount.google.com/permissions)에서 이 앱 권한을 제거한 뒤 setup을 다시 실행하세요. |
-| 약 7일 뒤 Drive 연결이 끊김 | Testing 상태에서 받은 호스트 토큰일 가능성이 큽니다. Audience를 In production으로 바꾸고 권한을 제거한 뒤 setup을 다시 실행하세요. |
+| 약 7일 뒤 Drive 연결이 끊김 | 먼저 Audience가 실제로 Testing인지 확인하세요. Testing에서 발급한 호스트 토큰이라면 In production 전환 뒤 setup을 다시 진행할 수 있습니다. 이미 In production이면 이 원인에 해당하지 않으므로 기존 토큰을 먼저 폐기하지 말고 실제 인증 오류를 확인하세요. |
 | Drive API가 403을 반환 | OAuth 클라이언트를 만든 것과 같은 Cloud 프로젝트에서 Google Drive API가 켜져 있는지 확인하세요. Workspace 관리 정책이 외부 앱을 막는지도 확인합니다. |
 | Vercel에서만 로그인이 실패 | Production 환경 변수, `PUBLIC_BASE_URL`, 운영 redirect URI를 확인하고 환경 변수 변경 뒤 Redeploy했는지 확인하세요. |
 | 초대 링크가 localhost나 다른 도메인으로 생성 | `PUBLIC_BASE_URL`을 실제 운영 origin으로 바꾸고 다시 배포하세요. |
