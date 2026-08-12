@@ -3183,6 +3183,19 @@ export default function FilesView({
         }}
       />
 
+      <button
+        type="button"
+        className={styles.trashLauncher}
+        aria-label="휴지통 열기"
+        onClick={openTrash}
+      >
+        <span
+          className={`${styles.trashGlyph} ${styles.trashLauncherGlyph}`}
+          aria-hidden="true"
+        />
+        <span>휴지통</span>
+      </button>
+
       <footer className={styles.taskBar}>
         <button
           ref={deskButtonRef}
@@ -3207,13 +3220,6 @@ export default function FilesView({
           onClick={() => requestUpload(ROOT_SCOPE)}
         >
           ↑ 파일 올리기
-        </button>
-        <button
-          type="button"
-          className={styles.quickAction}
-          onClick={openTrash}
-        >
-          <span className={styles.trashGlyph} aria-hidden="true" /> 휴지통
         </button>
         <div className={styles.windowTasks} aria-label="열린 폴더">
           {deskWindows.map((item) => (

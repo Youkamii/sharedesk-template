@@ -157,3 +157,35 @@ test("레이아웃 저장은 폴더 식별값을 보내고 닫힌 창의 이전 
     /if \(!isActiveSave\(key, node\) \|\| isAbortError\(error\)\) return;/,
   );
 });
+
+test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이콘으로 연다", async () => {
+  const [source, css, readme] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+    readFile(new URL("../README.md", import.meta.url), "utf8"),
+  ]);
+
+  const launcherIndex = source.indexOf("className={styles.trashLauncher}");
+  const taskbarStart = source.indexOf('<footer className={styles.taskBar}>');
+  const taskbarEnd = source.indexOf("</footer>", taskbarStart);
+  const launcherStyleStart = css.indexOf(".trashLauncher {");
+  const launcherStyleEnd = css.indexOf("}", launcherStyleStart);
+  const launcherStyle = css.slice(launcherStyleStart, launcherStyleEnd + 1);
+
+  assert.ok(launcherIndex >= 0 && launcherIndex < taskbarStart);
+  assert.doesNotMatch(source.slice(taskbarStart, taskbarEnd), /onClick=\{openTrash\}/);
+  assert.match(source, /aria-label="휴지통 열기"/);
+  assert.match(launcherStyle, /position: fixed;/);
+  assert.match(launcherStyle, /right: max\(18px, env\(safe-area-inset-right\)\);/);
+  assert.match(launcherStyle, /bottom: 76px;/);
+  assert.match(launcherStyle, /z-index: 10;/);
+  assert.match(
+    css,
+    /\.trashLauncher \{ right: max\(8px, env\(safe-area-inset-right\)\);/,
+  );
+  assert.match(
+    css,
+    /right: calc\(max\(8px, env\(safe-area-inset-right\)\) \+ 72px\);/,
+  );
+  assert.match(readme, /화면 우측 하단의 고정 휴지통 아이콘/);
+});
