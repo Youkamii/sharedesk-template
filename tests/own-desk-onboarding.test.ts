@@ -20,7 +20,7 @@ test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들�
   assert.match(source, /내[\s\S]*?별도 배포와 Google Drive를 쓰는 독립된 데스크/);
   assert.match(
     source,
-    /https:\/\/github\.com\/Youkamii\/sharedesk-template#내-sharedesk-만들기/,
+    /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/INSTALL\.md/,
   );
 });
 

@@ -6,7 +6,7 @@ import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
 
 const CREATE_DESK_URL =
-  "https://github.com/Youkamii/sharedesk-template#내-sharedesk-만들기";
+  "https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.md";
 
 const GOOGLE_LOGIN_ENV = [
   "ADMIN_EMAILS",
