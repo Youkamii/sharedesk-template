@@ -59,7 +59,8 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   assert.match(oauthSection, /Authorized JavaScript origins`: 비워 둠/);
 
   const prepareIndex = install.indexOf("npm run setup -- --prepare-env");
-  const setupIndex = install.indexOf("npm run setup\n", prepareIndex);
+  const setupOffset = install.slice(prepareIndex).search(/^npm run setup\r?$/m);
+  const setupIndex = setupOffset < 0 ? -1 : prepareIndex + setupOffset;
   const finishIndex = install.indexOf("npm run setup -- --finish", setupIndex);
   assert.ok(
     prepareIndex >= 0 && prepareIndex < setupIndex && setupIndex < finishIndex,

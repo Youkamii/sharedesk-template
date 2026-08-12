@@ -847,6 +847,59 @@
   box-shadow: 0 -4px 0 rgb(5 9 20 / 46%);
 }
 
+.trashLauncher {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: 76px;
+  z-index: 10;
+  display: flex;
+  width: 72px;
+  min-height: 76px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 4px;
+  color: #fff8e7;
+  background: transparent;
+  border: 2px solid transparent;
+  cursor: pointer;
+  line-height: 1;
+  text-shadow: 2px 2px 0 #0a1020;
+}
+
+.trashLauncher:hover,
+.trashLauncher:focus-visible {
+  background: rgb(47 70 112 / 78%);
+  border-color: var(--amber);
+  box-shadow: inset 2px 2px 0 rgb(255 244 210 / 24%), 3px 3px 0 rgb(5 9 20 / 62%);
+}
+
+.trashLauncher:active {
+  transform: translate(2px, 2px);
+  box-shadow: inset 2px 2px 0 rgb(5 9 20 / 62%);
+}
+
+.trashLauncherGlyph {
+  width: 30px;
+  height: 34px;
+  color: var(--cream);
+  filter: drop-shadow(2px 2px 0 #0a1020);
+}
+
+.trashLauncherGlyph::before {
+  left: 2px;
+  right: 2px;
+  height: 4px;
+}
+
+.trashLauncherGlyph::after {
+  top: 6px;
+  left: 4px;
+  right: 4px;
+  border-width: 3px;
+}
+
 .deskButton,
 .quickAction,
 .taskButton,
@@ -1124,7 +1177,7 @@
 
 .selectionHint {
   position: fixed;
-  right: 10px;
+  right: 100px;
   bottom: 66px;
   z-index: 900;
   max-width: 300px;
@@ -1161,7 +1214,14 @@
   .trayLink { height: 46px; padding-inline: 6px; font-size: 11px; }
   .taskButton { min-width: 52px; width: 52px; height: 46px; padding: 0; justify-content: center; }
   .taskTitle { display: none; }
-  .uploadChip { position: fixed; right: 8px; bottom: 74px; max-width: calc(100% - 16px); }
+  .trashLauncher { right: max(8px, env(safe-area-inset-right)); bottom: 76px; width: 64px; min-height: 68px; }
+  .trashLauncherGlyph { width: 26px; height: 30px; }
+  .uploadChip {
+    position: fixed;
+    right: calc(max(8px, env(safe-area-inset-right)) + 72px);
+    bottom: 74px;
+    max-width: calc(100% - max(88px, env(safe-area-inset-right) + 80px));
+  }
   .iconMore { display: flex; width: 30px; height: 30px; }
   .iconMain { touch-action: manipulation; }
   .folderWindow,
