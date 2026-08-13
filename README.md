@@ -4,6 +4,14 @@ ShareDesk는 **한 사람의 Google Drive 저장 공간을 여러 사람이 각�
 
 ![ShareDesk 공유 바탕화면](./docs/sharedesk-desktop.png)
 
+## 네 가지 바탕화면
+
+| 해 질 녘 | 깊은 밤 |
+| --- | --- |
+| ![해 질 녘 바탕화면](./docs/sharedesk-wallpaper-dusk.png) | ![깊은 밤 바탕화면](./docs/sharedesk-wallpaper-night.png) |
+| 새벽 | 밤바다 |
+| ![새벽 바탕화면](./docs/sharedesk-wallpaper-dawn.png) | ![밤바다 바탕화면](./docs/sharedesk-wallpaper-tide.png) |
+
 ## 할 수 있는 일
 
 - 파일과 폴더를 바탕화면 아이콘처럼 놓고, 폴더를 창으로 열어 함께 정리합니다.

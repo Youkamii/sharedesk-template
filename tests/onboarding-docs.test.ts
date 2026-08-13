@@ -34,10 +34,19 @@ test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 
 });
 
 test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
-  const [readme, design, screenshot] = await Promise.all([
+  const screenshotNames = [
+    "sharedesk-desktop.png",
+    "sharedesk-wallpaper-dusk.png",
+    "sharedesk-wallpaper-night.png",
+    "sharedesk-wallpaper-dawn.png",
+    "sharedesk-wallpaper-tide.png",
+  ];
+  const [readme, design, ...screenshots] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("DESIGN.md", root), "utf8"),
-    readFile(new URL("docs/sharedesk-desktop.png", root)),
+    ...screenshotNames.map((name) =>
+      readFile(new URL(`docs/${name}`, root)),
+    ),
   ]);
 
   assert.match(
@@ -46,10 +55,22 @@ test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지�
   );
   assert.match(design, /화면 오른쪽 아래에 고정하고 작업표시줄에는 넣지 않는다/);
   assert.match(design, /작업표시줄에는 휴지통 버튼을 두지 않는다/);
+  for (const [index, wallpaper] of ["dusk", "night", "dawn", "tide"].entries()) {
+    assert.match(
+      readme,
+      new RegExp(`!\\[[^\\]]+\\]\\(\\.\\/docs\\/sharedesk-wallpaper-${wallpaper}\\.png\\)`),
+    );
+    assert.ok(screenshots[index + 1], `${wallpaper} 화면 이미지가 있어야 합니다.`);
+  }
 
-  assert.deepEqual([...screenshot.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  assert.equal(screenshot.readUInt32BE(16), 1_280);
-  assert.equal(screenshot.readUInt32BE(20), 720);
+  for (const screenshot of screenshots) {
+    assert.deepEqual(
+      [...screenshot.subarray(0, 8)],
+      [137, 80, 78, 71, 13, 10, 26, 10],
+    );
+    assert.equal(screenshot.readUInt32BE(16), 1_280);
+    assert.equal(screenshot.readUInt32BE(20), 720);
+  }
 });
 
 test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한곳에 둔다", async () => {
