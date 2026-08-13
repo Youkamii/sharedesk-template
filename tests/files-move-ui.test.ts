@@ -11,6 +11,12 @@ import {
   shouldRetryFolderReconciliation,
   windowsContainingFolder,
 } from "../src/lib/client/file-move";
+import {
+  batchMutationNotice,
+  removeSelectedLayoutKeys,
+  selectLayoutKey,
+  selectLayoutsInRectangle,
+} from "../src/lib/client/batch-selection";
 import { fileActivationAction } from "../src/lib/client/file-activation";
 import {
   fitLogicalRect,
@@ -330,6 +336,98 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.match(launcherStyle, /bottom: 76px;/);
   assert.match(launcherStyle, /z-index: 10;/);
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
+});
+
+test("Ctrl/Command 선택은 같은 폴더에서 항목을 더하고 다시 누르면 뺀다", () => {
+  const first = selectLayoutKey(null, "desktop", "a", false);
+  const second = selectLayoutKey(first, "desktop", "b", true);
+
+  assert.deepEqual(second, {
+    scopeId: "desktop",
+    layoutKeys: ["a", "b"],
+  });
+  assert.deepEqual(selectLayoutKey(second, "desktop", "a", true), {
+    scopeId: "desktop",
+    layoutKeys: ["b"],
+  });
+  assert.deepEqual(selectLayoutKey(second, "other", "c", true), {
+    scopeId: "other",
+    layoutKeys: ["c"],
+  });
+  assert.equal(
+    removeSelectedLayoutKeys(second, "desktop", ["a", "b"]),
+    null,
+  );
+});
+
+test("빈 영역 선택 상자는 닿은 아이콘만 고르고 Ctrl 선택은 기존 항목을 유지한다", () => {
+  const candidates = [
+    { layoutKey: "a", x: 10, y: 10, width: 88, height: 94 },
+    { layoutKey: "b", x: 130, y: 20, width: 88, height: 94 },
+    { layoutKey: "c", x: 300, y: 300, width: 88, height: 94 },
+  ];
+
+  assert.deepEqual(
+    selectLayoutsInRectangle(
+      null,
+      "desktop",
+      candidates,
+      { x: 90, y: 0, width: 70, height: 80 },
+      false,
+    ),
+    { scopeId: "desktop", layoutKeys: ["a", "b"] },
+  );
+  assert.deepEqual(
+    selectLayoutsInRectangle(
+      { scopeId: "desktop", layoutKeys: ["c"] },
+      "desktop",
+      candidates,
+      { x: 0, y: 0, width: 20, height: 20 },
+      true,
+    ),
+    { scopeId: "desktop", layoutKeys: ["c", "a"] },
+  );
+});
+
+test("묶음 작업 알림은 일부 실패와 최종 목록 조회 실패를 구분한다", () => {
+  assert.equal(
+    batchMutationNotice("move", 3, 2, true),
+    "2개 옮김, 1개 실패했습니다",
+  );
+  assert.equal(
+    batchMutationNotice("trash", 2, 2, false),
+    "2개 항목을 휴지통에 넣었습니다 — 새로고침해 주세요",
+  );
+});
+
+test("파일 화면은 선택 묶음을 한 고스트로 끌고 작업 뒤 서버 목록을 다시 맞춘다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(source, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(source, /event\.pointerType !== "mouse"/);
+  assert.match(source, /selectLayoutsInRectangle\(/);
+  assert.match(source, /data-testid=\{`selection-rectangle-\$\{scopeId\}`\}/);
+  assert.match(css, /\.selectionRectangle \{/);
+
+  assert.match(source, /count: dragEntries\.length/);
+  assert.match(source, /dragGhost\.count > 1/);
+  assert.match(source, /trashDraggedEntries\(scopeId, dragEntries\)/);
+  assert.match(source, /moveDraggedEntries\(scopeId, dragEntries, moveTarget\.folderId\)/);
+  assert.match(css, /\.dragGhostMultiple::before/);
+
+  assert.match(source, /async function pumpBatchSave/);
+  assert.match(source, /updates: chunk\.map/);
+  assert.match(
+    source,
+    /async function moveDraggedEntries[\s\S]*?await waitForFoldersIdle\(folderIds\);[\s\S]*?await refreshFolders\(folderIds\)/,
+  );
+  assert.match(
+    source,
+    /async function trashDraggedEntries[\s\S]*?await waitForFoldersIdle\(\[sourceFolderId\]\);[\s\S]*?await refreshFolders\(\[sourceFolderId\]\)/,
+  );
 });
 
 test("작업표시줄 업로드 버튼은 없고 아이콘을 휴지통에 놓으면 실제 삭제 요청을 보낸다", async () => {

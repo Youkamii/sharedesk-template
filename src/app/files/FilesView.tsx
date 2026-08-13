@@ -19,6 +19,14 @@ import {
   shouldRetryFolderReconciliation,
   windowsContainingFolder,
 } from "@/lib/client/file-move";
+import {
+  batchMutationNotice,
+  removeSelectedLayoutKeys,
+  selectLayoutKey,
+  selectLayoutsInRectangle,
+  type BatchSelection,
+  type SelectionRect,
+} from "@/lib/client/batch-selection";
 import { fileActivationAction } from "@/lib/client/file-activation";
 import {
   streamDownloadToDisk,
@@ -112,8 +120,13 @@ type FolderNoteWindowState = {
 
 type DragGhostState = {
   entry: Entry;
+  count: number;
   clientX: number;
   clientY: number;
+};
+
+type SelectionRectangleState = SelectionRect & {
+  scopeId: string;
 };
 
 type InternalDropTarget =
@@ -222,6 +235,7 @@ const ICON_INSET_Y = 10;
 const PLANE_MIN_WIDTH = 600;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
+const MAX_LAYOUT_BATCH_UPDATES = 256;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -508,17 +522,15 @@ export default function FilesView({
   const applySnapshotRef = useRef<
     (scopeId: string, folderId: string, snapshot: LayoutSnapshot) => void
   >(() => undefined);
-  const draggingKeyRef = useRef<string | null>(null);
+  const draggingKeysRef = useRef(new Set<string>());
   const zRef = useRef(20);
   const windowIdRef = useRef(0);
   const suppressedClickRef = useRef(new Set<string>());
+  const suppressedCanvasClickRef = useRef(new Set<string>());
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
-  const [selected, setSelected] = useState<{
-    scopeId: string;
-    layoutKey: string;
-  } | null>(null);
+  const [selected, setSelected] = useState<BatchSelection>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
@@ -534,7 +546,9 @@ export default function FilesView({
   );
   const [clock, setClock] = useState<Date | null>(null);
   // 아이콘 드래그로 이동할 때: 끌리는 아이콘(히트테스트 제외용)과 드롭 대상 하이라이트.
-  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [draggingKeys, setDraggingKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [trashWindow, setTrashWindow] = useState<TrashWindowState | null>(null);
   const [previewWindow, setPreviewWindow] =
@@ -542,6 +556,8 @@ export default function FilesView({
   const [folderNoteWindow, setFolderNoteWindow] =
     useState<FolderNoteWindowState | null>(null);
   const [dragGhost, setDragGhost] = useState<DragGhostState | null>(null);
+  const [selectionRectangle, setSelectionRectangle] =
+    useState<SelectionRectangleState | null>(null);
   const [addressStates, setAddressStates] = useState<
     Record<string, AddressState>
   >({});
@@ -2786,6 +2802,144 @@ export default function FilesView({
     void pumpSave(key);
   }
 
+  function queuePlacementBatch(
+    scopeId: string,
+    folderId: string,
+    folderIdentity: string | null,
+    generation: number,
+    placements: Array<{ entry: Entry; placement: Placement }>,
+  ) {
+    if (placements.length === 1) {
+      const only = placements[0];
+      queuePlacement(
+        scopeId,
+        folderId,
+        folderIdentity,
+        generation,
+        only.entry,
+        only.placement,
+      );
+      return;
+    }
+    const keys = placements.map(
+      ({ entry }) => `${scopeId}:${entry.layoutKey}`,
+    );
+    if (
+      !folderIdentity ||
+      generation !== layoutSaveGeneration(scopeId) ||
+      scopeFolderId(scopeId) !== folderId ||
+      scopeData(scopeId)?.folderIdentity !== folderIdentity ||
+      keys.some((key) => saveQueueRef.current.has(key))
+    ) {
+      setTransientPositions((current) => {
+        const next = { ...current };
+        keys.forEach((key) => delete next[key]);
+        return next;
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    const nodes = placements.map(({ entry, placement }, index) => {
+      const node: LayoutSaveNode = {
+        scopeId,
+        folderId,
+        folderIdentity,
+        generation,
+        entry,
+        controller,
+        next: null,
+        inFlight: true,
+        baseVersion: placement.version,
+      };
+      const key = keys[index];
+      saveQueueRef.current.set(key, node);
+      savingPositionKeysRef.current.add(key);
+      return { key, node, placement };
+    });
+    setSavingPositions((current) => {
+      const next = new Set(current);
+      keys.forEach((key) => next.add(key));
+      return next;
+    });
+    setTransientPositions((current) => {
+      const next = { ...current };
+      nodes.forEach(({ key, placement }) => {
+        next[key] = placement;
+      });
+      return next;
+    });
+    void pumpBatchSave(nodes);
+  }
+
+  async function pumpBatchSave(
+    nodes: Array<{
+      key: string;
+      node: LayoutSaveNode;
+      placement: Placement;
+    }>,
+  ) {
+    const first = nodes[0];
+    if (!first) return;
+    try {
+      for (
+        let offset = 0;
+        offset < nodes.length;
+        offset += MAX_LAYOUT_BATCH_UPDATES
+      ) {
+        const chunk = nodes.slice(offset, offset + MAX_LAYOUT_BATCH_UPDATES);
+        const snapshot = await apiJson<LayoutSnapshot>("/api/desktop/layout", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          signal: first.node.controller?.signal,
+          body: JSON.stringify({
+            folderId: first.node.folderId,
+            folderIdentity: first.node.folderIdentity,
+            updates: chunk.map(({ node, placement }) => ({
+              entryId: node.entry.id,
+              expectedVersion: node.baseVersion,
+              x: placement.x,
+              y: placement.y,
+            })),
+          }),
+        });
+        if (!chunk.every(({ key, node }) => isActiveSave(key, node))) return;
+        if (
+          snapshot.folderIdentity !== first.node.folderIdentity ||
+          scopeFolderId(first.node.scopeId) !== first.node.folderId ||
+          scopeData(first.node.scopeId)?.folderIdentity !==
+            first.node.folderIdentity
+        ) {
+          cancelLayoutSaves(first.node.scopeId);
+          return;
+        }
+        applySnapshot(first.node.scopeId, first.node.folderId, snapshot);
+        chunk.forEach(({ key, node }) => finishSave(key, node));
+      }
+    } catch (error) {
+      const activeNodes = nodes.filter(({ key, node }) =>
+        isActiveSave(key, node),
+      );
+      if (activeNodes.length === 0 || isAbortError(error)) return;
+      activeNodes.forEach(({ key, node }) => finishSave(key, node));
+      if ((error as Error & { status?: number }).status === 409) {
+        setNotice("다른 사람이 먼저 옮긴 위치를 반영했습니다");
+        if (scopeFolderId(first.node.scopeId) === first.node.folderId) {
+          if (first.node.scopeId === ROOT_SCOPE) await loadRoot(true);
+          else {
+            await loadDeskWindow(
+              first.node.scopeId,
+              first.node.folderId,
+              true,
+            );
+          }
+        }
+      } else {
+        setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+      }
+    }
+  }
+
   function isActiveSave(key: string, node: LayoutSaveNode) {
     return (
       saveQueueRef.current.get(key) === node &&
@@ -2802,7 +2956,7 @@ export default function FilesView({
       next.delete(key);
       return next;
     });
-    if (draggingKeyRef.current !== key) {
+    if (!draggingKeysRef.current.has(key)) {
       setTransientPositions((current) => {
         const next = { ...current };
         delete next[key];
@@ -2881,7 +3035,7 @@ export default function FilesView({
     clientY: number,
     sourceScopeId: string,
     sourceFolderId: string,
-    entry: Entry,
+    entries: Entry[],
   ): InternalDropTarget | null {
     const element = document.elementFromPoint(clientX, clientY);
     if (!element) return null;
@@ -2891,10 +3045,10 @@ export default function FilesView({
     const icon = element.closest<HTMLElement>("[data-drop-folder]");
     if (icon?.dataset.dropFolder && icon.dataset.dropScope) {
       const folderId = icon.dataset.dropFolder;
-        if (folderId !== entry.id) {
-          return {
-            kind: "folder",
-            folderId,
+      if (!entries.some((entry) => entry.id === folderId)) {
+        return {
+          kind: "folder",
+          folderId,
           highlightKey: `icon:${icon.dataset.dropScope}:${folderId}`,
         };
       }
@@ -2908,13 +3062,13 @@ export default function FilesView({
       canvasFolder &&
       canvasScope !== sourceScopeId &&
       canvasFolder !== sourceFolderId &&
-      canvasFolder !== entry.id
+      !entries.some((entry) => entry.id === canvasFolder)
     ) {
-        return {
-          kind: "folder",
-          folderId: canvasFolder,
-          highlightKey: `canvas:${canvasScope}`,
-        };
+      return {
+        kind: "folder",
+        folderId: canvasFolder,
+        highlightKey: `canvas:${canvasScope}`,
+      };
     }
     return null;
   }
@@ -2923,6 +3077,7 @@ export default function FilesView({
     sourceScopeId: string,
     entry: Entry,
     targetFolderId: string,
+    announce = true,
   ) {
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
     if (!entry.version) {
@@ -2931,11 +3086,13 @@ export default function FilesView({
         delete next[transientKey];
         return next;
       });
-      setNotice("항목 정보가 오래되어 옮기지 못했습니다 — 잠시 후 다시 시도해 주세요");
+      if (announce) {
+        setNotice("항목 정보가 오래되어 옮기지 못했습니다 — 잠시 후 다시 시도해 주세요");
+      }
       await refreshScope(sourceScopeId, true);
-      return;
+      return false;
     }
-    if (movingEntryIdsRef.current.has(entry.id)) return;
+    if (movingEntryIdsRef.current.has(entry.id)) return false;
     const sourceFolderId = scopeFolderId(sourceScopeId);
     const affectedFolderIds = [...new Set([sourceFolderId, targetFolderId])];
     affectedFolderIds.forEach((folderId) => {
@@ -2967,9 +3124,7 @@ export default function FilesView({
     cancelFolderListRequests(targetFolderId);
     movingEntryIdsRef.current.add(entry.id);
     setSelected((current) =>
-      current?.scopeId === sourceScopeId && current.layoutKey === entry.layoutKey
-        ? null
-        : current,
+      removeSelectedLayoutKeys(current, sourceScopeId, [entry.layoutKey]),
     );
     setContextMenu(null);
     setTransientPositions((current) => {
@@ -3005,10 +3160,11 @@ export default function FilesView({
         sortedEntries(confirmedMoveEntries(entries, entry.id, body.entry)),
       );
       const foldersToRefresh = finishFolderMutations();
-      setNotice(`‘${entry.name}’ 항목을 옮겼습니다`);
+      if (announce) setNotice(`‘${entry.name}’ 항목을 옮겼습니다`);
       if (foldersToRefresh.length > 0) {
         void refreshFolders(foldersToRefresh);
       }
+      return true;
     } catch (error) {
       const failureKind = classifyMoveFailure(error);
       if (failureKind === "definitive") {
@@ -3021,16 +3177,18 @@ export default function FilesView({
         } else {
           discardPreviewForEntry(entry.id);
         }
-        setNotice(`‘${entry.name}’ 항목의 실제 위치를 확인하고 있습니다`);
+        if (announce) {
+          setNotice(`‘${entry.name}’ 항목의 실제 위치를 확인하고 있습니다`);
+        }
       }
       affectedFolderIds.forEach((folderId) =>
         foldersNeedingRefreshRef.current.add(folderId),
       );
       const foldersToRefresh = finishFolderMutations();
       if (failureKind === "definitive") {
-        setNotice(errorMessage(error, "옮기지 못했습니다"));
+        if (announce) setNotice(errorMessage(error, "옮기지 못했습니다"));
         await refreshFolders(foldersToRefresh);
-        return;
+        return false;
       }
 
       let refreshed = false;
@@ -3054,16 +3212,23 @@ export default function FilesView({
       } finally {
         movingEntryIdsRef.current.delete(entry.id);
       }
-      setNotice(
-        refreshed
-          ? `‘${entry.name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다`
-          : `‘${entry.name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요`,
-      );
+      if (announce) {
+        setNotice(
+          refreshed
+            ? `‘${entry.name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다`
+            : `‘${entry.name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요`,
+        );
+      }
+      return false;
     }
   }
 
-  async function trashDraggedEntry(sourceScopeId: string, entry: Entry) {
-    if (movingEntryIdsRef.current.has(entry.id)) return;
+  async function trashDraggedEntry(
+    sourceScopeId: string,
+    entry: Entry,
+    announce = true,
+  ) {
+    if (movingEntryIdsRef.current.has(entry.id)) return false;
     const sourceFolderId = scopeFolderId(sourceScopeId);
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
     markFolderMutation(sourceFolderId);
@@ -3074,9 +3239,7 @@ export default function FilesView({
     cancelFolderListRequests(sourceFolderId);
     movingEntryIdsRef.current.add(entry.id);
     setSelected((current) =>
-      current?.scopeId === sourceScopeId && current.layoutKey === entry.layoutKey
-        ? null
-        : current,
+      removeSelectedLayoutKeys(current, sourceScopeId, [entry.layoutKey]),
     );
     setContextMenu(null);
     setTransientPositions((current) => {
@@ -3086,6 +3249,7 @@ export default function FilesView({
     });
     removeFolderEntry(sourceFolderId, entry.id);
 
+    let succeeded = false;
     try {
       await apiJson("/api/drive/delete", {
         method: "POST",
@@ -3097,8 +3261,9 @@ export default function FilesView({
       } else {
         discardPreviewForEntry(entry.id);
       }
-      setNotice(`‘${entry.name}’을 휴지통에 넣었습니다`);
-      if (trashWindow) {
+      succeeded = true;
+      if (announce) setNotice(`‘${entry.name}’을 휴지통에 넣었습니다`);
+      if (trashWindow && announce) {
         setTrashWindow((current) =>
           current ? { ...current, loading: true } : current,
         );
@@ -3112,7 +3277,7 @@ export default function FilesView({
       } else {
         discardPreviewForEntry(entry.id);
       }
-      setNotice(errorMessage(error, "휴지통에 넣지 못했습니다"));
+      if (announce) setNotice(errorMessage(error, "휴지통에 넣지 못했습니다"));
       foldersNeedingRefreshRef.current.add(sourceFolderId);
     } finally {
       movingEntryIdsRef.current.delete(entry.id);
@@ -3128,6 +3293,60 @@ export default function FilesView({
         foldersNeedingRefreshRef.current.delete(sourceFolderId);
         await refreshScope(sourceScopeId, true);
       }
+    }
+    return succeeded;
+  }
+
+  async function moveDraggedEntries(
+    sourceScopeId: string,
+    entries: Entry[],
+    targetFolderId: string,
+  ) {
+    const sourceFolderId = scopeFolderId(sourceScopeId);
+    const folderIds = [...new Set([sourceFolderId, targetFolderId])];
+    const results = await Promise.all(
+      entries.map((entry) =>
+        moveEntry(sourceScopeId, entry, targetFolderId, false),
+      ),
+    );
+    await waitForFoldersIdle(folderIds);
+    const refreshed = await refreshFolders(folderIds);
+    if (refreshed) {
+      folderIds.forEach((folderId) =>
+        foldersNeedingRefreshRef.current.delete(folderId),
+      );
+    }
+    setNotice(
+      batchMutationNotice(
+        "move",
+        entries.length,
+        results.filter(Boolean).length,
+        refreshed,
+      ),
+    );
+  }
+
+  async function trashDraggedEntries(sourceScopeId: string, entries: Entry[]) {
+    const sourceFolderId = scopeFolderId(sourceScopeId);
+    const results = await Promise.all(
+      entries.map((entry) => trashDraggedEntry(sourceScopeId, entry, false)),
+    );
+    await waitForFoldersIdle([sourceFolderId]);
+    const refreshed = await refreshFolders([sourceFolderId]);
+    if (refreshed) foldersNeedingRefreshRef.current.delete(sourceFolderId);
+    setNotice(
+      batchMutationNotice(
+        "trash",
+        entries.length,
+        results.filter(Boolean).length,
+        refreshed,
+      ),
+    );
+    if (trashWindow) {
+      setTrashWindow((current) =>
+        current ? { ...current, loading: true } : current,
+      );
+      void loadTrash();
     }
   }
 
@@ -3279,6 +3498,95 @@ export default function FilesView({
     window.addEventListener("pointercancel", onEnd, { once: true });
   }
 
+  function startSelectionRectangle(
+    event: ReactPointerEvent<HTMLDivElement>,
+    scopeId: string,
+    entries: Entry[],
+  ) {
+    if (
+      event.button !== 0 ||
+      event.pointerType !== "mouse" ||
+      (event.target as HTMLElement).closest("[data-desktop-entry]")
+    ) {
+      return;
+    }
+    const plane = event.currentTarget;
+    const bounds = plane.getBoundingClientRect();
+    const pointerId = event.pointerId;
+    const startX = (event.clientX - bounds.left) / uiScale;
+    const startY = (event.clientY - bounds.top) / uiScale;
+    const additive = event.ctrlKey || event.metaKey;
+    const initialSelection = selected;
+    const candidates = entries.map((entry, index) => {
+      const placement = placementFor(scopeId, entry, index);
+      return {
+        layoutKey: entry.layoutKey,
+        x: placement.x,
+        y: placement.y,
+        width: ICON_WIDTH,
+        height: ICON_HEIGHT,
+      };
+    });
+    let moved = false;
+
+    event.preventDefault();
+    setContextMenu(null);
+    if (!additive) setSelected(null);
+
+    const onMove = (next: PointerEvent) => {
+      if (!isDragPointer(pointerId, next.pointerId)) return;
+      const currentX = (next.clientX - bounds.left) / uiScale;
+      const currentY = (next.clientY - bounds.top) / uiScale;
+      if (!moved && Math.hypot(currentX - startX, currentY - startY) < 3) {
+        return;
+      }
+      if (!moved) {
+        moved = true;
+        suppressedCanvasClickRef.current.add(scopeId);
+      }
+      const rectangle = {
+        x: Math.min(startX, currentX),
+        y: Math.min(startY, currentY),
+        width: Math.abs(currentX - startX),
+        height: Math.abs(currentY - startY),
+      };
+      setSelectionRectangle({ scopeId, ...rectangle });
+      setSelected(
+        selectLayoutsInRectangle(
+          initialSelection,
+          scopeId,
+          candidates,
+          rectangle,
+          additive,
+        ),
+      );
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onCancel);
+      setSelectionRectangle(null);
+    };
+    const onEnd = (next: PointerEvent) => {
+      if (!isDragPointer(pointerId, next.pointerId)) return;
+      cleanup();
+      if (moved) {
+        window.setTimeout(
+          () => suppressedCanvasClickRef.current.delete(scopeId),
+          0,
+        );
+      }
+    };
+    const onCancel = (next: PointerEvent) => {
+      if (!isDragPointer(pointerId, next.pointerId)) return;
+      cleanup();
+      setSelected(initialSelection);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onCancel);
+  }
+
   function startIconDrag(
     event: ReactPointerEvent<HTMLButtonElement>,
     scopeId: string,
@@ -3286,24 +3594,53 @@ export default function FilesView({
     index: number,
   ) {
     if (event.button !== 0) return;
-    const transientKey = `${scopeId}:${entry.layoutKey}`;
+    const canvas = scopeCanvas(scopeId);
+    if (!canvas) return;
+    const data = scopeData(scopeId);
+    const selectedLayoutKeys =
+      event.pointerType !== "touch" &&
+      selected?.scopeId === scopeId &&
+      selected.layoutKeys.includes(entry.layoutKey)
+        ? new Set(selected.layoutKeys)
+        : new Set([entry.layoutKey]);
+    const dragEntries =
+      data?.entries.filter((candidate) =>
+        selectedLayoutKeys.has(candidate.layoutKey),
+      ) ?? [entry];
+    const dragNodes = dragEntries.map((candidate) => {
+      const candidateIndex =
+        data?.entries.findIndex(
+          (current) => current.layoutKey === candidate.layoutKey,
+        ) ?? -1;
+      return {
+        entry: candidate,
+        transientKey: `${scopeId}:${candidate.layoutKey}`,
+        startPlacement: placementFor(
+          scopeId,
+          candidate,
+          candidateIndex >= 0 ? candidateIndex : index,
+        ),
+      };
+    });
     if (
-      savingPositionKeysRef.current.has(transientKey) ||
-      movingEntryIdsRef.current.has(entry.id)
+      dragNodes.some(
+        (node) =>
+          savingPositionKeysRef.current.has(node.transientKey) ||
+          movingEntryIdsRef.current.has(node.entry.id),
+      )
     ) {
       return;
     }
-    const canvas = scopeCanvas(scopeId);
-    if (!canvas) return;
-    const startPlacement = placementFor(scopeId, entry, index);
+    const transientKey = `${scopeId}:${entry.layoutKey}`;
+    const transientKeys = new Set(
+      dragNodes.map((node) => node.transientKey),
+    );
     const folderId = scopeFolderId(scopeId);
-    const folderIdentity = scopeData(scopeId)?.folderIdentity ?? null;
+    const folderIdentity = data?.folderIdentity ?? null;
     const saveGeneration = layoutSaveGeneration(scopeId);
     const startX = event.clientX;
     const startY = event.clientY;
     const pointerId = event.pointerId;
-    const startLeft = startPlacement.x;
-    const startTop = startPlacement.y;
     const dragThreshold =
       event.pointerType === "touch" ||
       window.matchMedia("(pointer: coarse)").matches
@@ -3323,15 +3660,23 @@ export default function FilesView({
       const dy = next.clientY - startY;
       if (!moved && Math.hypot(dx, dy) < dragThreshold) return;
       moved = true;
-      setDraggingKey(transientKey);
-      draggingKeyRef.current = transientKey;
-      setDragGhost({ entry, clientX: next.clientX, clientY: next.clientY });
+      if (!selectedLayoutKeys.has(entry.layoutKey) || dragEntries.length === 1) {
+        setSelected({ scopeId, layoutKeys: [entry.layoutKey] });
+      }
+      setDraggingKeys(transientKeys);
+      draggingKeysRef.current = transientKeys;
+      setDragGhost({
+        entry,
+        count: dragEntries.length,
+        clientX: next.clientX,
+        clientY: next.clientY,
+      });
       moveTarget = findMoveTarget(
         next.clientX,
         next.clientY,
         scopeId,
         folderId,
-        entry,
+        dragEntries,
       );
       setDropTargetKey(moveTarget?.highlightKey ?? null);
     };
@@ -3339,8 +3684,8 @@ export default function FilesView({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onEnd);
       window.removeEventListener("pointercancel", onCancel);
-      setDraggingKey(null);
-      draggingKeyRef.current = null;
+      setDraggingKeys(new Set());
+      draggingKeysRef.current = new Set();
       setDropTargetKey(null);
       setDragGhost(null);
     };
@@ -3360,27 +3705,44 @@ export default function FilesView({
       );
       if (moveTarget) {
         if (moveTarget.kind === "trash") {
-          void trashDraggedEntry(scopeId, entry);
+          if (dragEntries.length === 1) {
+            void trashDraggedEntry(scopeId, entry);
+          } else {
+            void trashDraggedEntries(scopeId, dragEntries);
+          }
         } else {
-          void moveEntry(scopeId, entry, moveTarget.folderId);
+          if (dragEntries.length === 1) {
+            void moveEntry(scopeId, entry, moveTarget.folderId);
+          } else {
+            void moveDraggedEntries(scopeId, dragEntries, moveTarget.folderId);
+          }
         }
         return;
       }
-      const x = clamp(
-        startLeft + logicalPointerDelta(lastClientX - startX, uiScale),
-        0,
-        MAX_LOGICAL_COORDINATE,
+      const deltaX = logicalPointerDelta(lastClientX - startX, uiScale);
+      const deltaY = logicalPointerDelta(lastClientY - startY, uiScale);
+      queuePlacementBatch(
+        scopeId,
+        folderId,
+        folderIdentity,
+        saveGeneration,
+        dragNodes.map((node) => ({
+          entry: node.entry,
+          placement: {
+            ...node.startPlacement,
+            x: clamp(
+              node.startPlacement.x + deltaX,
+              0,
+              MAX_LOGICAL_COORDINATE,
+            ),
+            y: clamp(
+              node.startPlacement.y + deltaY,
+              0,
+              MAX_LOGICAL_COORDINATE,
+            ),
+          },
+        })),
       );
-      const y = clamp(
-        startTop + logicalPointerDelta(lastClientY - startY, uiScale),
-        0,
-        MAX_LOGICAL_COORDINATE,
-      );
-      queuePlacement(scopeId, folderId, folderIdentity, saveGeneration, entry, {
-        ...startPlacement,
-        x,
-        y,
-      });
     };
     const onCancel = (next: PointerEvent) => {
       const action = dragTerminalAction(
@@ -3393,7 +3755,7 @@ export default function FilesView({
       if (action !== "discard") return;
       setTransientPositions((current) => {
         const updated = { ...current };
-        delete updated[transientKey];
+        transientKeys.forEach((key) => delete updated[key]);
         return updated;
       });
     };
@@ -3443,7 +3805,15 @@ export default function FilesView({
       opener:
         target.closest<HTMLElement>("button, a, [tabindex]") ?? activeElement,
     });
-    if (entry) setSelected({ scopeId, layoutKey: entry.layoutKey });
+    if (
+      entry &&
+      !(
+        selected?.scopeId === scopeId &&
+        selected.layoutKeys.includes(entry.layoutKey)
+      )
+    ) {
+      setSelected({ scopeId, layoutKeys: [entry.layoutKey] });
+    }
   }
 
   function openKeyboardMenu(
@@ -3469,7 +3839,7 @@ export default function FilesView({
       entry,
       opener: target,
     });
-    setSelected({ scopeId, layoutKey: entry.layoutKey });
+    setSelected({ scopeId, layoutKeys: [entry.layoutKey] });
   }
 
   function openShareDialog(entry: Entry) {
@@ -3840,6 +4210,7 @@ export default function FilesView({
         data-canvas-scope={scopeId}
         data-canvas-folder={scopeFolderId(scopeId)}
         onClick={() => {
+          if (suppressedCanvasClickRef.current.delete(scopeId)) return;
           setSelected(null);
           setContextMenu(null);
         }}
@@ -3868,6 +4239,9 @@ export default function FilesView({
           className={styles.iconPlane}
           tabIndex={-1}
           style={{ width: dimensions.width, height: dimensions.height }}
+          onPointerDown={(event) =>
+            startSelectionRectangle(event, scopeId, data.entries)
+          }
         >
           {data.entries.map((entry, index) => {
           const position = placementFor(scopeId, entry, index);
@@ -3875,7 +4249,7 @@ export default function FilesView({
           const moving = movingEntryIdsRef.current.has(entry.id);
           const active =
             selected?.scopeId === scopeId &&
-            selected.layoutKey === entry.layoutKey;
+            selected.layoutKeys.includes(entry.layoutKey);
           const style = {
             left: position.x,
             top: position.y,
@@ -3887,7 +4261,7 @@ export default function FilesView({
                 active ? styles.iconSelected : ""
               } ${
                 savingPositions.has(key) || moving ? styles.iconSaving : ""
-              } ${draggingKey === key ? styles.iconDragging : ""} ${
+              } ${draggingKeys.has(key) ? styles.iconDragging : ""} ${
                 entry.isFolder &&
                 dropTargetKey === `icon:${scopeId}:${entry.id}`
                   ? styles.dropTargetIcon
@@ -3896,6 +4270,7 @@ export default function FilesView({
               style={style}
               data-drop-folder={entry.isFolder ? entry.id : undefined}
               data-drop-scope={entry.isFolder ? scopeId : undefined}
+              data-desktop-entry="true"
               onClick={(event) => event.stopPropagation()}
               onContextMenu={(event) => openContextMenu(event, scopeId, entry)}
             >
@@ -3917,7 +4292,14 @@ export default function FilesView({
                   if (window.matchMedia("(pointer: coarse)").matches) {
                     activateEntry(entry, scopeId);
                   } else {
-                    setSelected({ scopeId, layoutKey: entry.layoutKey });
+                    setSelected((current) =>
+                      selectLayoutKey(
+                        current,
+                        scopeId,
+                        entry.layoutKey,
+                        event.ctrlKey || event.metaKey,
+                      ),
+                    );
                     setContextMenu(null);
                   }
                 }}
@@ -3976,6 +4358,19 @@ export default function FilesView({
             </div>
           );
           })}
+          {selectionRectangle?.scopeId === scopeId && (
+            <div
+              className={styles.selectionRectangle}
+              data-testid={`selection-rectangle-${scopeId}`}
+              style={{
+                left: selectionRectangle.x,
+                top: selectionRectangle.y,
+                width: selectionRectangle.width,
+                height: selectionRectangle.height,
+              }}
+              aria-hidden="true"
+            />
+          )}
         </div>
 
         {data.loading && data.entries.length === 0 && (
@@ -4015,11 +4410,11 @@ export default function FilesView({
     );
   }
 
-  const activeSelection = selected
-    ? scopeData(selected.scopeId)?.entries.find(
-        (entry) => entry.layoutKey === selected.layoutKey,
-      )
-    : undefined;
+  const activeSelections = selected
+    ? (scopeData(selected.scopeId)?.entries.filter((entry) =>
+        selected.layoutKeys.includes(entry.layoutKey),
+      ) ?? [])
+    : [];
   const previewReadOnlyReason = previewWindow
     ? previewTextReadOnlyReason(previewWindow)
     : null;
@@ -4160,12 +4555,12 @@ export default function FilesView({
         if (item.minimized) return null;
         const currentFolder = item.path.at(-1);
         const active = item.z === Math.max(...deskWindows.map((value) => value.z));
-        const selectedEntry =
+        const selectedEntries =
           selected?.scopeId === item.id
-            ? item.data.entries.find(
-                (entry) => entry.layoutKey === selected.layoutKey,
+            ? item.data.entries.filter((entry) =>
+                selected.layoutKeys.includes(entry.layoutKey),
               )
-            : undefined;
+            : [];
         const addressState = addressStates[item.id] ?? {
           value: folderAddress(item.path),
           busy: false,
@@ -4311,9 +4706,11 @@ export default function FilesView({
 
             <footer className={styles.windowStatus}>
               <span>{item.data.entries.length}개 항목</span>
-              {selectedEntry ? (
+              {selectedEntries.length > 0 ? (
                 <span className={styles.selectedMeta}>
-                  {selectedEntry.name} · {formatSize(selectedEntry.size)} · {formatDate(selectedEntry.modifiedAt)}
+                  {selectedEntries.length === 1
+                    ? `${selectedEntries[0].name} · ${formatSize(selectedEntries[0].size)} · ${formatDate(selectedEntries[0].modifiedAt)}`
+                    : `${selectedEntries.length}개 항목 선택`}
                 </span>
               ) : (
                 <span>아이콘을 끌어 위치를 바꾸고, 폴더 위에 놓으면 그 안으로 옮겨져요</span>
@@ -5128,15 +5525,19 @@ export default function FilesView({
         </button>
       )}
 
-      {activeSelection && (
+      {activeSelections.length > 0 && (
         <div className={styles.selectionHint} aria-live="polite">
-          {activeSelection.name} · {formatSize(activeSelection.size)}
+          {activeSelections.length === 1
+            ? `${activeSelections[0].name} · ${formatSize(activeSelections[0].size)}`
+            : `${activeSelections.length}개 항목 선택`}
         </div>
       )}
       </div>
       {dragGhost && (
         <div
-          className={styles.dragGhost}
+          className={`${styles.dragGhost} ${
+            dragGhost.count > 1 ? styles.dragGhostMultiple : ""
+          }`}
           data-testid="file-drag-ghost"
           style={{
             left: dragGhost.clientX,
@@ -5147,6 +5548,7 @@ export default function FilesView({
         >
           <PixelFileIcon entry={dragGhost.entry} size={54} />
           <span title={dragGhost.entry.name}>{dragGhost.entry.name}</span>
+          {dragGhost.count > 1 && <strong>{dragGhost.count}개</strong>}
         </div>
       )}
     </main>
