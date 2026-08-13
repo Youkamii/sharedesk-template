@@ -197,9 +197,9 @@
     },
     {
       "path": "scripts/sharedesk-verify.mjs",
-      "sha256": "2261f2a987bab43b54576c4af80b5f37067b9aea48f95e95f89cf05c9d82e9b3",
+      "sha256": "f87cd34dc665db190469199a09eb00abd50001df4685a1fa8b8a9f377bc19272",
       "acceptedSha256": [
-        "60be67688fe72eba7b6316138e2fe5681d4bfd14d4d7108c21eeadb20e94a9f0"
+        "74e9ee8742b63b99749a74054563d01b225189e52e63874b60acc23103298fc2"
       ]
     },
     {
@@ -782,9 +782,9 @@
     },
     {
       "path": "tests/update-flow.test.ts",
-      "sha256": "6afa2fd495a48a144747af611fd3aad9011f7f41bc533d535bc987eb32b3a86b",
+      "sha256": "ce8f86793e5cd1cacd28efc37980eccf3aea606a865feeacc8c2250e745e253b",
       "acceptedSha256": [
-        "28c9d2dabcb2662fc555f2255ea37bf9b1de9fea8e51c60932a696be4f040f9c"
+        "d639a9a8f2bb0191915fa381f287eb366b844c772563dd538eb33b0d2a3b3e52"
       ]
     },
     {
