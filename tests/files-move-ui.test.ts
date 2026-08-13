@@ -518,3 +518,52 @@ test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", as
     /updateTransfer\(0, file\.size\);\s*try \{[\s\S]*?await apiJson<UploadSession>\("\/api\/drive\/upload-session"[\s\S]*?finally \{\s*reportTransferProgress\(null, transferId\);/,
   );
 });
+
+test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올리기 버튼은 제거한다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  const taskbarStart = source.indexOf('<footer className={styles.taskBar}>');
+  const taskbarEnd = source.indexOf("</footer>", taskbarStart);
+  const taskbar = source.slice(taskbarStart, taskbarEnd);
+  const searchIndex = taskbar.indexOf("className={styles.desktopSearch}");
+  const deskSettingsIndex = taskbar.indexOf("책상 설정");
+  assert.ok(searchIndex >= 0 && searchIndex < deskSettingsIndex);
+  assert.match(taskbar, /placeholder="전체 파일 검색"/);
+  assert.match(taskbar, /className=\{styles\.deskButton\}/);
+
+  assert.match(source, /className={styles\.folderSearch}/);
+  assert.match(source, /placeholder="이 폴더 검색"/);
+  assert.match(source, /\/api\/drive\/search\?\$\{params\}/);
+  assert.match(source, /signal: controller\.signal/);
+  assert.match(source, /searchInstanceRef\.current !== instanceId/);
+  assert.match(source, /가상 검색결과/);
+  assert.match(source, /result\.path/);
+  assert.match(source, /openSearchResult\(result\)/);
+  assert.match(source, /openOriginalLocation\(result\)/);
+  assert.match(source, /원래 위치 열기/);
+  assert.match(source, /searchWindow\.truncated/);
+
+  const folderToolbarStart = source.indexOf(
+    '<div className={styles.windowToolbar}>',
+  );
+  const folderToolbarEnd = source.indexOf(
+    '<div className={styles.windowBody}>',
+    folderToolbarStart,
+  );
+  const folderToolbar = source.slice(folderToolbarStart, folderToolbarEnd);
+  assert.doesNotMatch(folderToolbar, /↑ 올리기/);
+  assert.doesNotMatch(folderToolbar, /requestUpload\(item\.id\)/);
+  assert.match(source, /void uploadFiles\(event\.dataTransfer\.files, scopeId\)/);
+  assert.match(source, /MenuButton onClick=\{\(\) => requestUpload\(contextMenu\.scopeId\)\}/);
+
+  assert.match(css, /\.desktopSearch \{/);
+  assert.match(css, /\.desktopSearch \{[\s\S]*?flex: 0 1 250px;[\s\S]*?overflow: hidden;/);
+  assert.match(css, /\.windowTasks \{[\s\S]*?min-width: 0;[\s\S]*?overflow: auto hidden;/);
+  assert.match(css, /\.folderSearch \{/);
+  assert.match(css, /\.searchWindow \{/);
+  assert.match(css, /\.searchResults \{/);
+  assert.match(css, /\.searchResultPath \{/);
+});

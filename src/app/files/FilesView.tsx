@@ -165,6 +165,29 @@ type TrashWindowState = {
   confirmId: string | null; // 완전삭제 2단계 확인 대상 ("__empty__"는 비우기)
 };
 
+type SearchResult = {
+  entry: Entry;
+  parentId: string;
+  breadcrumbs: Crumb[];
+  path: string;
+};
+
+type SearchWindowState = {
+  instanceId: number;
+  query: string;
+  scopeFolderId: string;
+  scopePath: Crumb[];
+  x: number;
+  y: number;
+  z: number;
+  minimized: boolean;
+  results: SearchResult[];
+  loading: boolean;
+  error: string | null;
+  truncated: boolean;
+  explored: number;
+};
+
 type DeskWindow = {
   id: string;
   path: Crumb[];
@@ -184,6 +207,7 @@ type ContextMenuState = {
   y: number;
   scopeId: string;
   entry?: Entry;
+  searchResult?: SearchResult;
   opener: HTMLElement | null;
 };
 
@@ -492,6 +516,8 @@ export default function FilesView({
   const folderNoteLoadControllerRef = useRef<AbortController | null>(null);
   const folderNoteSaveControllerRef = useRef<AbortController | null>(null);
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
+  const searchInstanceRef = useRef(0);
+  const searchControllerRef = useRef<AbortController | null>(null);
   const presenceControllerRef = useRef<AbortController | null>(null);
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
@@ -552,6 +578,12 @@ export default function FilesView({
   );
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
   const [trashWindow, setTrashWindow] = useState<TrashWindowState | null>(null);
+  const [searchWindow, setSearchWindow] =
+    useState<SearchWindowState | null>(null);
+  const [rootSearchQuery, setRootSearchQuery] = useState("");
+  const [folderSearchQueries, setFolderSearchQueries] = useState<
+    Record<string, string>
+  >({});
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
   const [folderNoteWindow, setFolderNoteWindow] =
@@ -1088,6 +1120,7 @@ export default function FilesView({
       previewSaveControllerRef.current?.abort();
       folderNoteLoadControllerRef.current?.abort();
       folderNoteSaveControllerRef.current?.abort();
+      searchControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -1311,6 +1344,166 @@ export default function FilesView({
       throw error;
     }
     return body as T;
+  }
+
+  async function runSearch(
+    rawQuery: string,
+    scopeFolderId: string,
+    scopePath: Crumb[],
+  ) {
+    const query = rawQuery.trim();
+    if (!query) {
+      setNotice("검색어를 입력해 주세요");
+      return;
+    }
+
+    searchControllerRef.current?.abort();
+    const controller = new AbortController();
+    const instanceId = searchInstanceRef.current + 1;
+    searchInstanceRef.current = instanceId;
+    searchControllerRef.current = controller;
+    setContextMenu(null);
+    setSearchWindow((current) => {
+      const width = Math.min(
+        760,
+        Math.max(390, logicalViewport.width - 32),
+      );
+      const height = Math.min(
+        470,
+        Math.max(300, logicalViewport.height - TOP_BAR - TASK_BAR - 30),
+      );
+      return {
+        instanceId,
+        query,
+        scopeFolderId,
+        scopePath: [...scopePath],
+        x: current?.x ??
+          clamp(
+            (logicalViewport.width - width) / 2,
+            8,
+            Math.max(8, logicalViewport.width - width - 8),
+          ),
+        y: current?.y ??
+          clamp(
+            TOP_BAR + 38,
+            TOP_BAR + 6,
+            Math.max(TOP_BAR + 6, logicalViewport.height - TASK_BAR - height),
+          ),
+        z: ++zRef.current,
+        minimized: false,
+        results: [],
+        loading: true,
+        error: null,
+        truncated: false,
+        explored: 0,
+      };
+    });
+
+    try {
+      const params = new URLSearchParams({ query, folderId: scopeFolderId });
+      const response = await apiJson<{
+        results: SearchResult[];
+        truncated: boolean;
+        explored: number;
+      }>(`/api/drive/search?${params}`, {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (
+        searchInstanceRef.current !== instanceId ||
+        searchControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setSearchWindow((current) =>
+        current?.instanceId === instanceId
+          ? {
+              ...current,
+              results: Array.isArray(response.results) ? response.results : [],
+              loading: false,
+              error: null,
+              truncated: response.truncated === true,
+              explored: Number.isSafeInteger(response.explored)
+                ? response.explored
+                : 0,
+            }
+          : current,
+      );
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        searchInstanceRef.current !== instanceId ||
+        searchControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setSearchWindow((current) =>
+        current?.instanceId === instanceId
+          ? {
+              ...current,
+              loading: false,
+              error: errorMessage(error, "파일을 검색하지 못했습니다"),
+            }
+          : current,
+      );
+    } finally {
+      if (searchControllerRef.current === controller) {
+        searchControllerRef.current = null;
+      }
+    }
+  }
+
+  function closeSearchWindow() {
+    searchControllerRef.current?.abort();
+    searchControllerRef.current = null;
+    searchInstanceRef.current += 1;
+    setContextMenu((current) =>
+      current?.searchResult ? null : current,
+    );
+    setSearchWindow(null);
+  }
+
+  function focusSearchWindow() {
+    const z = ++zRef.current;
+    setSearchWindow((current) =>
+      current ? { ...current, z, minimized: false } : current,
+    );
+  }
+
+  function moveSearchWindow(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!searchWindow || (event.target as HTMLElement).closest("button")) {
+      return;
+    }
+    event.preventDefault();
+    focusSearchWindow();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = searchWindow.x;
+    const originY = searchWindow.y;
+    const onMove = (next: PointerEvent) => {
+      const x = clamp(
+        originX + logicalPointerDelta(next.clientX - startX, uiScale),
+        4,
+        Math.max(4, logicalViewport.width - 120),
+      );
+      const y = clamp(
+        originY + logicalPointerDelta(next.clientY - startY, uiScale),
+        TOP_BAR + 4,
+        Math.max(TOP_BAR + 4, logicalViewport.height - TASK_BAR - 48),
+      );
+      setSearchWindow((current) =>
+        current ? { ...current, x, y } : current,
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
   }
 
   function scopeWindow(scopeId: string) {
@@ -1800,6 +1993,96 @@ export default function FilesView({
     );
   }
 
+  function openFolderPath(path: Crumb[], highlightEntry?: Entry) {
+    const folder = path.at(-1);
+    if (!folder) return;
+    setContextMenu(null);
+
+    if (folder.id === ROOT_ID) {
+      setDeskWindows((current) =>
+        current.map((item) => ({ ...item, minimized: true })),
+      );
+      setSearchWindow((current) =>
+        current ? { ...current, minimized: true } : current,
+      );
+      if (highlightEntry) {
+        setSelected({
+          scopeId: ROOT_SCOPE,
+          layoutKeys: [highlightEntry.layoutKey],
+        });
+      }
+      void loadRoot(true);
+      return;
+    }
+
+    const existing = windowsRef.current.find(
+      (item) => item.path.at(-1)?.id === folder.id,
+    );
+    if (existing) {
+      focusWindow(existing.id);
+      if (highlightEntry) {
+        setSelected({
+          scopeId: existing.id,
+          layoutKeys: [highlightEntry.layoutKey],
+        });
+      }
+      void loadDeskWindow(existing.id, folder.id, true);
+      return;
+    }
+
+    const id = `folder-${++windowIdRef.current}`;
+    const width = Math.min(
+      720,
+      Math.max(390, logicalViewport.width - 48),
+    );
+    const height = Math.min(
+      500,
+      Math.max(300, logicalViewport.height - 112),
+    );
+    const cascade = (windowIdRef.current % 5) * 24;
+    const x = clamp(
+      (logicalViewport.width - width) / 2 + cascade - 48,
+      8,
+      Math.max(8, logicalViewport.width - width - 8),
+    );
+    const y = clamp(
+      TOP_BAR + 28 + cascade,
+      TOP_BAR + 6,
+      Math.max(
+        TOP_BAR + 6,
+        logicalViewport.height - TASK_BAR - height - 6,
+      ),
+    );
+    const next: DeskWindow = {
+      id,
+      path: [...path],
+      x,
+      y,
+      width,
+      height,
+      z: ++zRef.current,
+      minimized: false,
+      maximized: false,
+      data: blankFolder(),
+    };
+    setDeskWindows((current) => [...current, next]);
+    setAddressStates((current) => ({
+      ...current,
+      [id]: {
+        value: folderAddress(path),
+        busy: false,
+        error: null,
+      },
+    }));
+    if (highlightEntry) {
+      setSelected({
+        scopeId: id,
+        layoutKeys: [highlightEntry.layoutKey],
+      });
+    }
+    void loadDeskWindow(id, folder.id);
+  }
+
   function openFolder(entry: Entry, scopeId: string) {
     setContextMenu(null);
     if (scopeId !== ROOT_SCOPE) {
@@ -1835,54 +2118,10 @@ export default function FilesView({
       return;
     }
 
-    const existing = deskWindows.find(
-      (item) => item.path.at(-1)?.id === entry.id,
-    );
-    if (existing) {
-      focusWindow(existing.id);
-      return;
-    }
-
-    const id = `folder-${++windowIdRef.current}`;
-    const width = Math.min(
-      720,
-      Math.max(390, logicalViewport.width - 48),
-    );
-    const height = Math.min(
-      500,
-      Math.max(300, logicalViewport.height - 112),
-    );
-    const cascade = (windowIdRef.current % 5) * 24;
-    const x = clamp(
-      (logicalViewport.width - width) / 2 + cascade - 48,
-      8,
-      Math.max(8, logicalViewport.width - width - 8),
-    );
-    const y = clamp(
-      TOP_BAR + 28 + cascade,
-      TOP_BAR + 6,
-      Math.max(
-        TOP_BAR + 6,
-        logicalViewport.height - TASK_BAR - height - 6,
-      ),
-    );
-    const next: DeskWindow = {
-      id,
-      path: [
-        { id: ROOT_ID, name: "ShareDesk" },
-        { id: entry.id, name: entry.name },
-      ],
-      x,
-      y,
-      width,
-      height,
-      z: ++zRef.current,
-      minimized: false,
-      maximized: false,
-      data: blankFolder(),
-    };
-    setDeskWindows((current) => [...current, next]);
-    void loadDeskWindow(id, entry.id);
+    openFolderPath([
+      { id: ROOT_ID, name: "ShareDesk" },
+      { id: entry.id, name: entry.name },
+    ]);
   }
 
   function nativeDownload(entry: Entry) {
@@ -2285,6 +2524,24 @@ export default function FilesView({
       );
     }
     else void downloadEntry(entry);
+  }
+
+  function openSearchResult(result: SearchResult) {
+    setContextMenu(null);
+    if (result.entry.isFolder) {
+      openFolderPath([
+        ...result.breadcrumbs,
+        { id: result.entry.id, name: result.entry.name },
+      ]);
+      return;
+    }
+    if (previewKindOf(result.entry)) openPreview(result.entry);
+    else void downloadEntry(result.entry);
+  }
+
+  function openOriginalLocation(result: SearchResult) {
+    setContextMenu(null);
+    openFolderPath(result.breadcrumbs, result.entry);
   }
 
   function navigateWindow(windowId: string, crumbIndex: number) {
@@ -3817,6 +4074,59 @@ export default function FilesView({
     }
   }
 
+  function openSearchContextMenu(
+    event: React.MouseEvent,
+    result: SearchResult,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const width = 210;
+    const height = result.entry.isFolder ? 105 : 148;
+    const target = event.target as HTMLElement;
+    setContextMenu({
+      x: Math.max(
+        8,
+        Math.min(
+          logicalClientCoordinate(event.clientX, uiScale),
+          logicalViewport.width - width - 8,
+        ),
+      ),
+      y: Math.max(
+        8,
+        Math.min(
+          logicalClientCoordinate(event.clientY, uiScale),
+          logicalViewport.height - height - 8,
+        ),
+      ),
+      scopeId: ROOT_SCOPE,
+      entry: result.entry,
+      searchResult: result,
+      opener: target.closest<HTMLElement>("button, [tabindex]"),
+    });
+  }
+
+  function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
+    const rect = target.getBoundingClientRect();
+    const height = result.entry.isFolder ? 105 : 148;
+    setContextMenu({
+      x: Math.min(
+        logicalClientCoordinate(rect.left + 24, uiScale),
+        logicalViewport.width - 218,
+      ),
+      y: Math.max(
+        8,
+        Math.min(
+          logicalClientCoordinate(rect.top + 32, uiScale),
+          logicalViewport.height - height - 8,
+        ),
+      ),
+      scopeId: ROOT_SCOPE,
+      entry: result.entry,
+      searchResult: result,
+      opener: target,
+    });
+  }
+
   function openKeyboardMenu(
     target: HTMLElement,
     scopeId: string,
@@ -4419,6 +4729,13 @@ export default function FilesView({
   const previewReadOnlyReason = previewWindow
     ? previewTextReadOnlyReason(previewWindow)
     : null;
+  const topManagedWindowZ = Math.max(
+    0,
+    ...deskWindows
+      .filter((item) => !item.minimized)
+      .map((item) => item.z),
+    searchWindow && !searchWindow.minimized ? searchWindow.z : 0,
+  );
 
   return (
     <main
@@ -4555,7 +4872,7 @@ export default function FilesView({
       {deskWindows.map((item) => {
         if (item.minimized) return null;
         const currentFolder = item.path.at(-1);
-        const active = item.z === Math.max(...deskWindows.map((value) => value.z));
+        const active = item.z === topManagedWindowZ;
         const selectedEntries =
           selected?.scopeId === item.id
             ? item.data.entries.filter((entry) =>
@@ -4671,6 +4988,36 @@ export default function FilesView({
                   </span>
                 )}
               </form>
+              <form
+                className={styles.folderSearch}
+                role="search"
+                aria-label={`${currentFolder?.name ?? "이 폴더"} 안에서 검색`}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!currentFolder) return;
+                  void runSearch(
+                    folderSearchQueries[item.id] ?? "",
+                    currentFolder.id,
+                    item.path,
+                  );
+                }}
+              >
+                <input
+                  type="search"
+                  data-testid={`folder-search-${item.id}`}
+                  value={folderSearchQueries[item.id] ?? ""}
+                  placeholder="이 폴더 검색"
+                  aria-label="이 폴더와 하위 폴더 검색어"
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setFolderSearchQueries((current) => ({
+                      ...current,
+                      [item.id]: event.target.value,
+                    }))
+                  }
+                />
+                <button type="submit">검색</button>
+              </form>
               <button
                 type="button"
                 className={styles.toolbarAction}
@@ -4683,14 +5030,6 @@ export default function FilesView({
                 }
               >
                 + 폴더
-              </button>
-              <button
-                type="button"
-                className={styles.toolbarAction}
-                disabled={item.data.loading}
-                onClick={() => requestUpload(item.id)}
-              >
-                ↑ 올리기
               </button>
               <button
                 type="button"
@@ -4726,6 +5065,185 @@ export default function FilesView({
           </section>
         );
       })}
+
+      {searchWindow && !searchWindow.minimized && (
+        <section
+          className={`${styles.folderWindow} ${styles.searchWindow} ${
+            searchWindow.z === topManagedWindowZ ? styles.activeWindow : ""
+          }`}
+          style={{
+            left: searchWindow.x,
+            top: searchWindow.y,
+            zIndex: searchWindow.z,
+          }}
+          aria-label={`${searchWindow.query} 검색 결과 창`}
+          onPointerDown={focusSearchWindow}
+        >
+          <div
+            className={styles.windowTitlebar}
+            onPointerDown={moveSearchWindow}
+          >
+            <span className={styles.searchGlyph} aria-hidden="true" />
+            <strong>검색 결과 — {searchWindow.query}</strong>
+            {searchWindow.loading && (
+              <span className={styles.titleLoading}>찾는 중</span>
+            )}
+            <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label="최소화"
+                onClick={() =>
+                  setSearchWindow((current) =>
+                    current ? { ...current, minimized: true } : current,
+                  )
+                }
+              >
+                <span className={styles.minimizeGlyph} />
+              </button>
+              <button
+                type="button"
+                aria-label="검색 결과 닫기"
+                className={styles.closeButton}
+                onClick={closeSearchWindow}
+              >
+                <span className={styles.closeGlyph} />
+              </button>
+            </div>
+          </div>
+
+          <div className={`${styles.windowToolbar} ${styles.searchToolbar}`}>
+            <span className={styles.virtualFolderBadge}>
+              <span className={styles.miniFolder} aria-hidden="true" />
+              가상 검색결과
+            </span>
+            <span
+              className={styles.searchScopePath}
+              title={folderAddress(searchWindow.scopePath)}
+            >
+              범위: {folderAddress(searchWindow.scopePath)} 및 하위 폴더
+            </span>
+          </div>
+
+          <div className={`${styles.windowBody} ${styles.searchWindowBody}`}>
+            {searchWindow.loading ? (
+              <div className={styles.canvasMessage} role="status">
+                <span className={styles.loadingPixels} aria-hidden="true">
+                  ▪ ▪ ▫
+                </span>
+                <strong>파일 이름을 찾고 있어요</strong>
+                <span>폴더와 하위 폴더를 살펴보고 있습니다</span>
+              </div>
+            ) : searchWindow.error ? (
+              <div className={styles.canvasMessage} role="alert">
+                <span className={styles.brokenPaper} aria-hidden="true" />
+                <strong>검색하지 못했어요</strong>
+                <span>{searchWindow.error}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void runSearch(
+                      searchWindow.query,
+                      searchWindow.scopeFolderId,
+                      searchWindow.scopePath,
+                    )
+                  }
+                >
+                  다시 시도
+                </button>
+              </div>
+            ) : searchWindow.results.length === 0 ? (
+              <div className={styles.canvasMessage} role="status">
+                <span className={styles.searchEmptyGlyph} aria-hidden="true">
+                  ?
+                </span>
+                <strong>검색 결과가 없습니다</strong>
+                <span>다른 파일 이름으로 찾아보세요</span>
+              </div>
+            ) : (
+              <ul className={styles.searchResults}>
+                {searchWindow.results.map((result) => (
+                  <li
+                    key={`${result.entry.id}:${result.path}`}
+                    className={styles.searchResult}
+                    onContextMenu={(event) =>
+                      openSearchContextMenu(event, result)
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={styles.searchResultMain}
+                      title={result.path}
+                      onDoubleClick={() => openSearchResult(result)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          openSearchResult(result);
+                        }
+                        if (
+                          event.key === "ContextMenu" ||
+                          (event.shiftKey && event.key === "F10")
+                        ) {
+                          event.preventDefault();
+                          openSearchKeyboardMenu(event.currentTarget, result);
+                        }
+                      }}
+                    >
+                      <PixelFileIcon entry={result.entry} size={40} />
+                      <span className={styles.searchResultText}>
+                        <strong>{result.entry.name}</strong>
+                        <span className={styles.searchResultPath}>
+                          {result.path}
+                        </span>
+                      </span>
+                    </button>
+                    <div className={styles.searchResultActions}>
+                      <button
+                        type="button"
+                        onClick={() => openSearchResult(result)}
+                      >
+                        {result.entry.isFolder ? "폴더 열기" : "열기"}
+                      </button>
+                      {!result.entry.isFolder && (
+                        <button
+                          type="button"
+                          onClick={() => void downloadEntry(result.entry)}
+                        >
+                          다운로드
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openOriginalLocation(result)}
+                      >
+                        원래 위치
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.searchResultMore}
+                        aria-label={`${result.entry.name} 검색 결과 메뉴`}
+                        onClick={(event) =>
+                          openSearchContextMenu(event, result)
+                        }
+                      >
+                        ···
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <footer className={styles.windowStatus}>
+            <span>{searchWindow.results.length}개 검색 결과</span>
+            <span>
+              {searchWindow.truncated
+                ? "일부 결과만 표시했습니다"
+                : `${searchWindow.explored}개 항목 확인`}
+            </span>
+          </footer>
+        </section>
+      )}
 
       {trashWindow && (
         <section
@@ -5171,10 +5689,32 @@ export default function FilesView({
       </button>
 
       <footer className={styles.taskBar}>
+        <form
+          className={styles.desktopSearch}
+          role="search"
+          aria-label="공유 바탕화면 전체 검색"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void runSearch(rootSearchQuery, ROOT_ID, [
+              { id: ROOT_ID, name: "ShareDesk" },
+            ]);
+          }}
+        >
+          <input
+            type="search"
+            value={rootSearchQuery}
+            placeholder="전체 파일 검색"
+            aria-label="전체 파일 검색어"
+            spellCheck={false}
+            onChange={(event) => setRootSearchQuery(event.target.value)}
+          />
+          <button type="submit">검색</button>
+        </form>
         <button
           ref={deskButtonRef}
           type="button"
           className={styles.deskButton}
+          aria-label="책상 설정"
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setContextMenu({
@@ -5189,16 +5729,16 @@ export default function FilesView({
           }}
         >
           <span className={styles.deskButtonMark} aria-hidden="true" />
-          책상
+          책상 설정
         </button>
-        <div className={styles.windowTasks} aria-label="열린 폴더">
+        <div className={styles.windowTasks} aria-label="열린 창">
           {deskWindows.map((item) => (
             <button
               type="button"
               key={item.id}
               className={`${styles.taskButton} ${
                 !item.minimized &&
-                item.z === Math.max(...deskWindows.map((value) => value.z))
+                item.z === topManagedWindowZ
                   ? styles.activeTask
                   : ""
               }`}
@@ -5208,6 +5748,23 @@ export default function FilesView({
               <span className={styles.taskTitle}>{item.path.at(-1)?.name}</span>
             </button>
           ))}
+          {searchWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${
+                !searchWindow.minimized &&
+                searchWindow.z === topManagedWindowZ
+                  ? styles.activeTask
+                  : ""
+              }`}
+              onClick={focusSearchWindow}
+            >
+              <span className={styles.searchGlyph} aria-hidden="true" />
+              <span className={styles.taskTitle}>
+                검색: {searchWindow.query}
+              </span>
+            </button>
+          )}
         </div>
         {activeTransfers.length > 0 && (
           <div className={styles.uploadChip} role="status">
@@ -5262,7 +5819,37 @@ export default function FilesView({
           onContextMenu={(event) => event.preventDefault()}
           onKeyDown={handleContextMenuKeyDown}
         >
-          {contextMenu.entry ? (
+          {contextMenu.searchResult ? (
+            <>
+              <MenuButton
+                onClick={() => openSearchResult(contextMenu.searchResult!)}
+              >
+                {contextMenu.searchResult.entry.isFolder
+                  ? "폴더 열기"
+                  : previewKindOf(contextMenu.searchResult.entry)
+                    ? "브라우저에서 열기"
+                    : "열기"}
+              </MenuButton>
+              {!contextMenu.searchResult.entry.isFolder && (
+                <MenuButton
+                  onClick={() => {
+                    void downloadEntry(contextMenu.searchResult!.entry);
+                    setContextMenu(null);
+                  }}
+                >
+                  다운로드
+                </MenuButton>
+              )}
+              <div className={styles.menuSeparator} />
+              <MenuButton
+                onClick={() =>
+                  openOriginalLocation(contextMenu.searchResult!)
+                }
+              >
+                원래 위치 열기
+              </MenuButton>
+            </>
+          ) : contextMenu.entry ? (
             <>
               <MenuButton
                 onClick={() => {
