@@ -27,7 +27,10 @@ import {
   type BatchSelection,
   type SelectionRect,
 } from "@/lib/client/batch-selection";
-import { fileActivationAction } from "@/lib/client/file-activation";
+import {
+  downloadFileName,
+  fileActivationAction,
+} from "@/lib/client/file-activation";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -2162,7 +2165,7 @@ export default function FilesView({
   function nativeDownload(entry: Entry) {
     const anchor = document.createElement("a");
     anchor.href = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
-    anchor.download = entry.name;
+    anchor.download = downloadFileName(entry);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -2171,10 +2174,11 @@ export default function FilesView({
   async function downloadEntry(entry: Entry) {
     const id = crypto.randomUUID();
     const url = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
+    const suggestedName = downloadFileName(entry);
     try {
       const result = await streamDownloadToDisk(
         url,
-        entry.name,
+        suggestedName,
         (transferred, total) =>
           reportTransferProgress({
             id,

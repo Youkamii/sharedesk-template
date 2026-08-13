@@ -17,7 +17,10 @@ import {
   selectLayoutKey,
   selectLayoutsInRectangle,
 } from "../src/lib/client/batch-selection";
-import { fileActivationAction } from "../src/lib/client/file-activation";
+import {
+  downloadFileName,
+  fileActivationAction,
+} from "../src/lib/client/file-activation";
 import {
   fitLogicalRect,
   folderAddress,
@@ -464,6 +467,24 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
       false,
     ),
     "preview",
+  );
+  assert.equal(
+    downloadFileName({
+      name: "회의 기록",
+      mimeType: "application/vnd.google-apps.document",
+    }),
+    "회의 기록.pdf",
+  );
+  assert.equal(
+    downloadFileName({
+      name: "이미.pdf",
+      mimeType: "application/vnd.google-apps.document",
+    }),
+    "이미.pdf",
+  );
+  assert.equal(
+    downloadFileName({ name: "보고서.pdf", mimeType: "application/pdf" }),
+    "보고서.pdf",
   );
   assert.equal(
     fileActivationAction(
