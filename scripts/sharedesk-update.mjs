@@ -90,7 +90,9 @@ export function isProtectedPath(filePath) {
   const normalized = filePath.toLowerCase();
   return (
     normalized === MANIFEST_FILE ||
-    normalized === UPDATE_WORKFLOW_PATH.toLowerCase() ||
+    BOOTSTRAP_CORE_PATHS.some(
+      (corePath) => normalized === corePath.toLowerCase(),
+    ) ||
     (normalized.startsWith(".env") && normalized !== ".env.example") ||
     normalized === ".git" ||
     normalized.startsWith(".git/") ||
@@ -220,19 +222,10 @@ export async function generateReleaseManifest({ rootDir, legacyRef }) {
   const files = await currentReleaseEntries(absoluteRoot);
   const bootstrapFiles = [];
   for (const corePath of BOOTSTRAP_CORE_PATHS) {
-    const entry = files.find((candidate) => candidate.path === corePath);
-    if (entry) {
-      bootstrapFiles.push(entry);
-      continue;
-    }
-    if (corePath === UPDATE_WORKFLOW_PATH) {
-      const content = await readFile(
-        path.join(absoluteRoot, ...corePath.split("/")),
-      );
-      bootstrapFiles.push(releaseFileEntry(corePath, content, true));
-      continue;
-    }
-    throw new Error(`Missing bootstrap core file: ${corePath}`);
+    const content = await readFile(
+      path.join(absoluteRoot, ...corePath.split("/")),
+    );
+    bootstrapFiles.push(releaseFileEntry(corePath, content, true));
   }
 
   const packageValue = JSON.parse(
@@ -345,6 +338,25 @@ export function validateManifest(value) {
   }
   const version = normalizeVersion(value.version);
   if (!version) throw new Error("Release manifest version must be stable semver.");
+  if (Array.isArray(value.files) && Array.isArray(value.bootstrapFiles)) {
+    const bootstrapPathKeys = new Set(
+      value.bootstrapFiles
+        .map((entry) =>
+          typeof entry?.path === "string" ? entry.path.toLowerCase() : null,
+        )
+        .filter(Boolean),
+    );
+    const duplicateCore = value.files.find(
+      (entry) =>
+        typeof entry?.path === "string" &&
+        bootstrapPathKeys.has(entry.path.toLowerCase()),
+    );
+    if (duplicateCore) {
+      throw new Error(
+        `Bootstrap core path cannot also be managed: ${duplicateCore.path}`,
+      );
+    }
+  }
   const files = validateFileEntries(value.files);
   const bootstrapFiles = validateFileEntries(value.bootstrapFiles ?? [], {
     bootstrap: true,
@@ -359,13 +371,11 @@ export function validateManifest(value) {
   ) {
     throw new Error("Release manifest must include every bootstrap core file.");
   }
+  const managedPathKeys = new Set(files.map((entry) => entry.path.toLowerCase()));
   for (const bootstrapEntry of bootstrapFiles) {
-    const managedEntry = files.find(
-      (entry) => entry.path.toLowerCase() === bootstrapEntry.path.toLowerCase(),
-    );
-    if (managedEntry && managedEntry.sha256 !== bootstrapEntry.sha256) {
+    if (managedPathKeys.has(bootstrapEntry.path.toLowerCase())) {
       throw new Error(
-        `Bootstrap and managed hashes differ for ${bootstrapEntry.path}`,
+        `Bootstrap core path cannot also be managed: ${bootstrapEntry.path}`,
       );
     }
   }

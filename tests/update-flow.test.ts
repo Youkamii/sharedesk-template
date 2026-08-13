@@ -103,8 +103,34 @@ test("release manifest rejects traversal, absolute paths, and protected state", 
   assert.equal(isProtectedPath(".env.local"), true);
   assert.equal(isProtectedPath(".env.production"), true);
   assert.equal(isProtectedPath(".env.example"), false);
-  assert.equal(isProtectedPath("scripts/sharedesk-update.mjs"), false);
+  assert.equal(isProtectedPath("scripts/sharedesk-update.mjs"), true);
+  assert.equal(isProtectedPath("scripts/sharedesk-bootstrap.mjs"), true);
   assert.equal(isProtectedPath("src/app/page.tsx"), false);
+});
+
+test("manifest rejects bootstrap core duplicated in the managed file list", () => {
+  const updater = "export {};\n";
+  const updaterEntry = {
+    path: "scripts/sharedesk-update.mjs",
+    sha256: sha256(Buffer.from(updater)),
+  };
+  assert.throws(
+    () =>
+      validateManifest({
+        schemaVersion: 1,
+        version: "1.0.0",
+        files: [updaterEntry],
+        bootstrapFiles: [
+          { path: "scripts/sharedesk-bootstrap.mjs", sha256: "a".repeat(64) },
+          updaterEntry,
+          {
+            path: ".github/workflows/sharedesk-update.yml",
+            sha256: "b".repeat(64),
+          },
+        ],
+      }),
+    /cannot also be managed/,
+  );
 });
 
 test("manifest accepts known alternate line-ending hashes and rejects malformed alternates", () => {
