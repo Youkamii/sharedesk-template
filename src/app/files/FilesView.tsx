@@ -28,6 +28,7 @@ import {
   type SelectionRect,
 } from "@/lib/client/batch-selection";
 import { fileActivationAction } from "@/lib/client/file-activation";
+import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
   transferProgressText,
@@ -535,7 +536,7 @@ export default function FilesView({
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useAutoDismissNotice();
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
   const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
   const [transientPositions, setTransientPositions] = useState<
