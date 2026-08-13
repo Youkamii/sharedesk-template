@@ -119,6 +119,16 @@ type AddressState = {
   error: string | null;
 };
 
+type PresenceMember = { name: string; isSelf: boolean };
+
+type PresenceState = {
+  count: number;
+  members: PresenceMember[];
+  loading: boolean;
+  error: string | null;
+  open: boolean;
+};
+
 type TrashWindowState = {
   x: number;
   y: number;
@@ -202,6 +212,7 @@ const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
+const PRESENCE_HEARTBEAT_MS = 30_000;
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
 const TEXT_EDIT_LIMIT = 1024 * 1024;
 
@@ -454,6 +465,8 @@ export default function FilesView({
   const folderNoteLoadControllerRef = useRef<AbortController | null>(null);
   const folderNoteSaveControllerRef = useRef<AbortController | null>(null);
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
+  const presenceControllerRef = useRef<AbortController | null>(null);
+  const presenceRequestIdRef = useRef(0);
   const folderMutationVersionsRef = useRef(new Map<string, number>());
   const pendingFolderMutationsRef = useRef(new Map<string, number>());
   const folderIdleWaitersRef = useRef(
@@ -517,6 +530,13 @@ export default function FilesView({
   const [addressStates, setAddressStates] = useState<
     Record<string, AddressState>
   >({});
+  const [presence, setPresence] = useState<PresenceState>({
+    count: 0,
+    members: [],
+    loading: true,
+    error: null,
+    open: false,
+  });
   const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
   // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
@@ -803,6 +823,92 @@ export default function FilesView({
       window.clearInterval(listPoll);
     };
   }, [loadDeskWindow, loadLayout, loadRoot]);
+
+  const refreshPresence = useCallback(async () => {
+    const requestId = presenceRequestIdRef.current + 1;
+    presenceRequestIdRef.current = requestId;
+    presenceControllerRef.current?.abort();
+    const controller = new AbortController();
+    presenceControllerRef.current = controller;
+    setPresence((current) => ({ ...current, loading: true, error: null }));
+    try {
+      const response = await fetch("/api/presence", {
+        method: "POST",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (response.status === 401) {
+        router.replace("/");
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "접속 인원을 불러오지 못했습니다");
+      }
+      if (presenceRequestIdRef.current !== requestId) return;
+      setPresence((current) => ({
+        ...current,
+        count: Number.isSafeInteger(body?.count) ? body.count : 0,
+        members: Array.isArray(body?.members)
+          ? body.members.filter(
+              (member: unknown): member is PresenceMember =>
+                !!member &&
+                typeof member === "object" &&
+                typeof (member as PresenceMember).name === "string" &&
+                typeof (member as PresenceMember).isSelf === "boolean",
+            )
+          : [],
+        loading: false,
+        error: null,
+      }));
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        presenceRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+      setPresence((current) => ({
+        ...current,
+        loading: false,
+        error: errorMessage(error, "접속 인원을 불러오지 못했습니다"),
+      }));
+    } finally {
+      if (presenceControllerRef.current === controller) {
+        presenceControllerRef.current = null;
+      }
+    }
+  }, [router]);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const start = () => {
+      if (document.visibilityState !== "visible") return;
+      void refreshPresence();
+      if (timer === null) {
+        timer = window.setInterval(() => {
+          if (document.visibilityState === "visible") void refreshPresence();
+        }, PRESENCE_HEARTBEAT_MS);
+      }
+    };
+    const stop = () => {
+      if (timer !== null) window.clearInterval(timer);
+      timer = null;
+      presenceControllerRef.current?.abort();
+      presenceControllerRef.current = null;
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      stop();
+      presenceRequestIdRef.current += 1;
+    };
+  }, [refreshPresence]);
 
   useEffect(
     () => () => {
@@ -3486,6 +3592,11 @@ export default function FilesView({
   }
 
   async function logout() {
+    await fetch("/api/presence", {
+      method: "DELETE",
+      cache: "no-store",
+      keepalive: true,
+    }).catch(() => undefined);
     await fetch("/api/auth", { method: "DELETE" });
     router.replace("/");
     router.refresh();
@@ -3732,9 +3843,65 @@ export default function FilesView({
           <strong>ShareDesk</strong>
           <span className={styles.desktopLabel}>공유 바탕화면</span>
         </div>
-        <div className={styles.connection}>
-          <span className={styles.liveDot} aria-hidden="true" />
-          <span>함께 쓰는 중</span>
+        <div className={styles.presenceArea}>
+          <button
+            type="button"
+            className={styles.connection}
+            aria-expanded={presence.open}
+            aria-controls="presence-panel"
+            onClick={() =>
+              setPresence((current) => ({ ...current, open: !current.open }))
+            }
+          >
+            <span
+              className={`${styles.liveDot} ${
+                presence.error ? styles.liveDotError : ""
+              }`}
+              aria-hidden="true"
+            />
+            <span>
+              {presence.error
+                ? "접속 확인 실패"
+                : presence.count > 0
+                  ? `함께 쓰는 중 · ${presence.count}명`
+                  : presence.loading
+                    ? "접속 인원 확인 중"
+                    : "현재 접속자 없음"}
+            </span>
+          </button>
+          {presence.open && (
+            <div
+              id="presence-panel"
+              className={styles.presencePanel}
+              role="status"
+            >
+              <strong>현재 접속 인원</strong>
+              {presence.error ? (
+                <>
+                  <p>{presence.error}</p>
+                  <button type="button" onClick={() => void refreshPresence()}>
+                    다시 확인
+                  </button>
+                </>
+              ) : presence.members.length > 0 ? (
+                <ul>
+                  {presence.members.map((member, index) => (
+                    <li key={`${member.name}:${index}`}>
+                      <span className={styles.memberDot} aria-hidden="true" />
+                      <span title={member.name}>{member.name}</span>
+                      {member.isSelf && <em>나</em>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>
+                  {presence.loading
+                    ? "확인하고 있습니다"
+                    : "접속 중인 사람이 없습니다"}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

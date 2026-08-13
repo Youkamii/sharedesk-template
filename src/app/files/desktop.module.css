@@ -113,7 +113,23 @@
 }
 
 .connection {
+  height: 28px;
+  padding: 0 7px;
   color: #cdd5e8;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.presenceArea {
+  position: relative;
+}
+
+.connection:hover,
+.connection[aria-expanded="true"] {
+  color: #fff8e7;
+  background: #26385d;
+  border-color: #51658d;
 }
 
 .liveDot {
@@ -122,6 +138,83 @@
   background: var(--teal);
   box-shadow: 0 0 0 2px #182446, 2px 2px 0 #0a1020;
   animation: liveBlink 2.8s steps(2, end) infinite;
+}
+
+.liveDotError {
+  background: #e96872;
+  animation: none;
+}
+
+.presencePanel {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  z-index: 1300;
+  width: 250px;
+  padding: 12px;
+  color: #fff8e7;
+  background: #182446;
+  border: 2px solid #ffd27d;
+  box-shadow: 5px 5px 0 rgb(5 9 20 / 72%);
+}
+
+.presencePanel > strong {
+  display: block;
+  margin-bottom: 9px;
+  color: #ffd27d;
+  font-size: 13px;
+}
+
+.presencePanel ul {
+  display: grid;
+  gap: 7px;
+  max-height: 230px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.presencePanel li {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.presencePanel li > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presencePanel em {
+  padding: 2px 5px;
+  color: #10172b;
+  background: #61b3a6;
+  font-style: normal;
+}
+
+.presencePanel p {
+  margin: 0;
+  color: #cdd5e8;
+  line-height: 1.6;
+}
+
+.presencePanel button {
+  margin-top: 9px;
+  padding: 6px 9px;
+  color: #fff8e7;
+  background: #26385d;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #59729e, 2px 2px 0 #070b16;
+}
+
+.memberDot {
+  width: 7px;
+  height: 7px;
+  background: #61b3a6;
+  box-shadow: 1px 1px 0 #0a1020;
 }
 
 @keyframes liveBlink {
