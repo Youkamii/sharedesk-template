@@ -20,6 +20,12 @@ import {
   windowsContainingFolder,
 } from "@/lib/client/file-move";
 import { fileActivationAction } from "@/lib/client/file-activation";
+import {
+  streamDownloadToDisk,
+  transferProgressText,
+  type TransferProgress,
+  uploadWithProgress,
+} from "@/lib/client/transfer";
 import { previewKindOf, type PreviewKind } from "@/lib/preview";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
@@ -120,7 +126,11 @@ type AddressState = {
   error: string | null;
 };
 
-type PresenceMember = { name: string; isSelf: boolean };
+type PresenceMember = {
+  name: string;
+  isSelf: boolean;
+  transfers: Array<TransferProgress & { updatedAt: number }>;
+};
 
 type PresenceState = {
   count: number;
@@ -468,7 +478,14 @@ export default function FilesView({
   const folderNoteSaveControllerRef = useRef<AbortController | null>(null);
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
   const presenceControllerRef = useRef<AbortController | null>(null);
+  const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
+  const presenceReadRequestIdRef = useRef(0);
+  const presenceTabIdRef = useRef("");
+  const activeTransfersRef = useRef(new Map<string, TransferProgress>());
+  const transferStartedAtRef = useRef(new Map<string, number>());
+  const transferRemovalTimersRef = useRef(new Map<string, number>());
+  const presenceReportTimerRef = useRef<number | null>(null);
   const folderMutationVersionsRef = useRef(new Map<string, number>());
   const pendingFolderMutationsRef = useRef(new Map<string, number>());
   const folderIdleWaitersRef = useRef(
@@ -508,11 +525,7 @@ export default function FilesView({
   const [dialogBusy, setDialogBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState<{
-    current: number;
-    total: number;
-    name: string;
-  } | null>(null);
+  const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
   const [transientPositions, setTransientPositions] = useState<
     Record<string, Placement>
   >({});
@@ -827,6 +840,48 @@ export default function FilesView({
     };
   }, [loadDeskWindow, loadLayout, loadRoot]);
 
+  const getPresenceTabId = useCallback(() => {
+    if (presenceTabIdRef.current) return presenceTabIdRef.current;
+    let tabId = "";
+    try {
+      tabId = window.sessionStorage.getItem("sharedesk.presence-tab") ?? "";
+    } catch {
+      // 저장소가 막힌 브라우저에서는 이 탭을 연 동안만 식별값을 유지한다.
+    }
+    presenceTabIdRef.current = tabId || crypto.randomUUID();
+    if (!tabId) {
+      try {
+        window.sessionStorage.setItem(
+          "sharedesk.presence-tab",
+          presenceTabIdRef.current,
+        );
+      } catch {
+        // 메모리에 든 식별값만으로도 현재 탭은 분리된다.
+      }
+    }
+    return presenceTabIdRef.current;
+  }, []);
+
+  const applyPresenceSnapshot = useCallback((body: unknown) => {
+    const snapshot = body as Partial<PresenceState> | null;
+    setPresence((current) => ({
+      ...current,
+      count: Number.isSafeInteger(snapshot?.count) ? snapshot!.count! : 0,
+      members: Array.isArray(snapshot?.members)
+        ? snapshot.members.filter(
+            (member: unknown): member is PresenceMember =>
+              !!member &&
+              typeof member === "object" &&
+              typeof (member as PresenceMember).name === "string" &&
+              typeof (member as PresenceMember).isSelf === "boolean" &&
+              Array.isArray((member as PresenceMember).transfers),
+          )
+        : [],
+      loading: false,
+      error: null,
+    }));
+  }, []);
+
   const refreshPresence = useCallback(async () => {
     const requestId = presenceRequestIdRef.current + 1;
     presenceRequestIdRef.current = requestId;
@@ -838,6 +893,11 @@ export default function FilesView({
       const response = await fetch("/api/presence", {
         method: "POST",
         cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tabId: getPresenceTabId(),
+          transfers: [...activeTransfersRef.current.values()],
+        }),
         signal: controller.signal,
       });
       if (response.status === 401) {
@@ -849,21 +909,7 @@ export default function FilesView({
         throw new Error(body?.error ?? "접속 인원을 불러오지 못했습니다");
       }
       if (presenceRequestIdRef.current !== requestId) return;
-      setPresence((current) => ({
-        ...current,
-        count: Number.isSafeInteger(body?.count) ? body.count : 0,
-        members: Array.isArray(body?.members)
-          ? body.members.filter(
-              (member: unknown): member is PresenceMember =>
-                !!member &&
-                typeof member === "object" &&
-                typeof (member as PresenceMember).name === "string" &&
-                typeof (member as PresenceMember).isSelf === "boolean",
-            )
-          : [],
-        loading: false,
-        error: null,
-      }));
+      applyPresenceSnapshot(body);
     } catch (error) {
       if (
         controller.signal.aborted ||
@@ -881,9 +927,94 @@ export default function FilesView({
         presenceControllerRef.current = null;
       }
     }
-  }, [router]);
+  }, [applyPresenceSnapshot, getPresenceTabId, router]);
+
+  const readPresence = useCallback(async () => {
+    const requestId = presenceReadRequestIdRef.current + 1;
+    presenceReadRequestIdRef.current = requestId;
+    presenceReadControllerRef.current?.abort();
+    const controller = new AbortController();
+    presenceReadControllerRef.current = controller;
+    try {
+      const response = await fetch("/api/presence", {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (response.status === 401) {
+        router.replace("/");
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "접속 인원을 불러오지 못했습니다");
+      }
+      if (presenceReadRequestIdRef.current !== requestId) return;
+      applyPresenceSnapshot(body);
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        presenceReadRequestIdRef.current !== requestId
+      ) {
+        return;
+      }
+      setPresence((current) => ({
+        ...current,
+        loading: false,
+        error: errorMessage(error, "접속 인원을 불러오지 못했습니다"),
+      }));
+    } finally {
+      if (presenceReadControllerRef.current === controller) {
+        presenceReadControllerRef.current = null;
+      }
+    }
+  }, [applyPresenceSnapshot, router]);
+
+  const reportTransferProgress = useCallback(
+    (transfer: TransferProgress | null, removeId?: string) => {
+      if (removeId) {
+        const remove = () => {
+          transferRemovalTimersRef.current.delete(removeId);
+          transferStartedAtRef.current.delete(removeId);
+          activeTransfersRef.current.delete(removeId);
+          setActiveTransfers([...activeTransfersRef.current.values()]);
+          void refreshPresence();
+        };
+        const visibleFor =
+          Date.now() - (transferStartedAtRef.current.get(removeId) ?? 0);
+        const delay = Math.max(0, 1_500 - visibleFor);
+        const previous = transferRemovalTimersRef.current.get(removeId);
+        if (previous !== undefined) window.clearTimeout(previous);
+        if (delay > 0) {
+          transferRemovalTimersRef.current.set(
+            removeId,
+            window.setTimeout(remove, delay),
+          );
+        } else {
+          remove();
+        }
+        return;
+      }
+      if (!transfer) return;
+      const isNew = !activeTransfersRef.current.has(transfer.id);
+      if (isNew) transferStartedAtRef.current.set(transfer.id, Date.now());
+      activeTransfersRef.current.set(transfer.id, transfer);
+      setActiveTransfers([...activeTransfersRef.current.values()]);
+      if (isNew) {
+        void refreshPresence();
+        return;
+      }
+      if (presenceReportTimerRef.current !== null) return;
+      presenceReportTimerRef.current = window.setTimeout(() => {
+        presenceReportTimerRef.current = null;
+        void refreshPresence();
+      }, 1_000);
+    },
+    [refreshPresence],
+  );
 
   useEffect(() => {
+    getPresenceTabId();
+    const removalTimers = transferRemovalTimersRef.current;
     let timer: number | null = null;
     const start = () => {
       if (document.visibilityState !== "visible") return;
@@ -910,8 +1041,26 @@ export default function FilesView({
       document.removeEventListener("visibilitychange", onVisibilityChange);
       stop();
       presenceRequestIdRef.current += 1;
+      presenceReadRequestIdRef.current += 1;
+      presenceReadControllerRef.current?.abort();
+      presenceReadControllerRef.current = null;
+      if (presenceReportTimerRef.current !== null) {
+        window.clearTimeout(presenceReportTimerRef.current);
+        presenceReportTimerRef.current = null;
+      }
+      for (const timer of removalTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      removalTimers.clear();
     };
-  }, [refreshPresence]);
+  }, [getPresenceTabId, refreshPresence]);
+
+  useEffect(() => {
+    if (!presence.open || document.visibilityState !== "visible") return;
+    void readPresence();
+    const timer = window.setInterval(() => void readPresence(), 1_000);
+    return () => window.clearInterval(timer);
+  }, [presence.open, readPresence]);
 
   useEffect(
     () => () => {
@@ -1719,13 +1868,44 @@ export default function FilesView({
     void loadDeskWindow(id, entry.id);
   }
 
-  function downloadEntry(entry: Entry) {
+  function nativeDownload(entry: Entry) {
     const anchor = document.createElement("a");
     anchor.href = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
     anchor.download = entry.name;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+  }
+
+  async function downloadEntry(entry: Entry) {
+    const id = crypto.randomUUID();
+    const url = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
+    try {
+      const result = await streamDownloadToDisk(
+        url,
+        entry.name,
+        (transferred, total) =>
+          reportTransferProgress({
+            id,
+            kind: "download",
+            name: entry.name,
+            transferred,
+            total,
+          }),
+      );
+      if (result === "native") {
+        nativeDownload(entry);
+        setNotice(
+          "브라우저 다운로드로 넘겼습니다. 이 브라우저에서는 진행량을 확인할 수 없습니다.",
+        );
+      }
+    } catch (error) {
+      if (!isAbortError(error)) {
+        setNotice(errorMessage(error, "다운로드에 실패했습니다"));
+      }
+    } finally {
+      reportTransferProgress(null, id);
+    }
   }
 
   async function loadPreviewText(entry: Entry, instanceId: number) {
@@ -1936,7 +2116,7 @@ export default function FilesView({
   ) {
     const kind = previewKindOf(entry);
     if (!kind) {
-      downloadEntry(entry);
+      void downloadEntry(entry);
       return;
     }
     previewOpenerRef.current = keyboardOpener
@@ -2087,7 +2267,7 @@ export default function FilesView({
         keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
       );
     }
-    else downloadEntry(entry);
+    else void downloadEntry(entry);
   }
 
   function navigateWindow(windowId: string, crumbIndex: number) {
@@ -3400,6 +3580,17 @@ export default function FilesView({
 
   async function uploadOne(file: File, folderId: string) {
     const mimeType = file.type || "application/octet-stream";
+    const transferId = crypto.randomUUID();
+    const updateTransfer = (transferred: number, total: number) => {
+      reportTransferProgress({
+        id: transferId,
+        kind: "upload",
+        name: file.name,
+        transferred,
+        total,
+      });
+    };
+    updateTransfer(0, file.size);
     const session = await apiJson<UploadSession>("/api/drive/upload-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3410,34 +3601,45 @@ export default function FilesView({
         size: file.size,
       }),
     });
-    if (session.mode === "direct") {
-      const response = await fetch(session.url, { method: "PUT", body: file });
-      if (!response.ok) throw new Error("드라이브 업로드에 실패했습니다");
-      const body = (await response.json().catch(() => null)) as {
-        id?: string;
+    try {
+      if (session.mode === "direct") {
+        const response = await uploadWithProgress(
+          session.url,
+          "PUT",
+          file,
+          null,
+          updateTransfer,
+        );
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error("드라이브 업로드에 실패했습니다");
+        }
+        const body = JSON.parse(response.responseText || "null") as {
+          id?: string;
+        } | null;
+        return body?.id ?? null;
+      }
+      const response = await uploadWithProgress(
+        `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}`,
+        "POST",
+        file,
+        mimeType,
+        updateTransfer,
+      );
+      if (response.status === 401) {
+        router.replace("/");
+        throw new Error("세션이 만료되었습니다");
+      }
+      const body = JSON.parse(response.responseText || "null") as {
+        error?: string;
+        entry?: Entry;
       } | null;
-      return body?.id ?? null;
+      if (response.status < 200 || response.status >= 300) {
+        throw new Error(body?.error ?? "업로드에 실패했습니다");
+      }
+      return body?.entry?.id ?? null;
+    } finally {
+      reportTransferProgress(null, transferId);
     }
-    const response = await fetch(
-      `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": mimeType },
-        body: file,
-      },
-    );
-    if (response.status === 401) {
-      router.replace("/");
-      throw new Error("세션이 만료되었습니다");
-    }
-    const body = (await response.json().catch(() => null)) as {
-      error?: string;
-      entry?: Entry;
-    } | null;
-    if (!response.ok) {
-      throw new Error(body?.error ?? "업로드에 실패했습니다");
-    }
-    return body?.entry?.id ?? null;
   }
 
   async function uploadFiles(files: FileList | File[], scopeId: string) {
@@ -3447,14 +3649,12 @@ export default function FilesView({
     const failed: string[] = [];
     for (let index = 0; index < list.length; index += 1) {
       const file = list[index];
-      setUploadProgress({ current: index + 1, total: list.length, name: file.name });
       try {
         await uploadOne(file, folderId);
       } catch (error) {
         failed.push(`${file.name}: ${errorMessage(error, "실패")}`);
       }
     }
-    setUploadProgress(null);
     setNotice(
       failed.length
         ? `일부 파일을 올리지 못했습니다 · ${failed.join(" / ")}`
@@ -3470,38 +3670,33 @@ export default function FilesView({
     const file = new File([""], name, { type: "text/plain" });
     const folderId = scopeFolderId(scopeId);
     setContextMenu(null);
-    setUploadProgress({ current: 1, total: 1, name });
+    let uploadedId: string | null;
     try {
-      let uploadedId: string | null;
-      try {
-        uploadedId = await uploadOne(file, folderId);
-      } catch (error) {
-        setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
-        return;
-      }
-      try {
-        const fresh = await fetchFolder(folderId, new AbortController().signal);
-        const entry = fresh.entries.find((value) =>
-          uploadedId ? value.id === uploadedId : value.name === name,
-        );
-        if (!entry) {
-          setNotice(
-            `‘${name}’ 메모장은 만들었지만 바로 열지 못했습니다 — 새로고침해 주세요`,
-          );
-          void refreshScope(scopeId, true);
-          return;
-        }
-        upsertFolderEntry(folderId, entry);
-        openPreview(entry);
-        setNotice(`‘${name}’ 메모장을 만들었습니다`);
-      } catch {
+      uploadedId = await uploadOne(file, folderId);
+    } catch (error) {
+      setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
+      return;
+    }
+    try {
+      const fresh = await fetchFolder(folderId, new AbortController().signal);
+      const entry = fresh.entries.find((value) =>
+        uploadedId ? value.id === uploadedId : value.name === name,
+      );
+      if (!entry) {
         setNotice(
-          `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
+          `‘${name}’ 메모장은 만들었지만 바로 열지 못했습니다 — 새로고침해 주세요`,
         );
         void refreshScope(scopeId, true);
+        return;
       }
-    } finally {
-      setUploadProgress(null);
+      upsertFolderEntry(folderId, entry);
+      openPreview(entry);
+      setNotice(`‘${name}’ 메모장을 만들었습니다`);
+    } catch {
+      setNotice(
+        `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
+      );
+      void refreshScope(scopeId, true);
     }
   }
 
@@ -3872,9 +4067,10 @@ export default function FilesView({
             className={styles.connection}
             aria-expanded={presence.open}
             aria-controls="presence-panel"
-            onClick={() =>
-              setPresence((current) => ({ ...current, open: !current.open }))
-            }
+            onClick={() => {
+              setPresence((current) => ({ ...current, open: !current.open }));
+              if (!presence.open) void readPresence();
+            }}
           >
             <span
               className={`${styles.liveDot} ${
@@ -3909,10 +4105,40 @@ export default function FilesView({
               ) : presence.members.length > 0 ? (
                 <ul>
                   {presence.members.map((member, index) => (
-                    <li key={`${member.name}:${index}`}>
-                      <span className={styles.memberDot} aria-hidden="true" />
-                      <span title={member.name}>{member.name}</span>
-                      {member.isSelf && <em>나</em>}
+                    <li
+                      className={styles.presenceMember}
+                      key={`${member.name}:${index}`}
+                    >
+                      <div className={styles.memberHeading}>
+                        <span className={styles.memberDot} aria-hidden="true" />
+                        <span title={member.name}>{member.name}</span>
+                        {member.isSelf && <em>나</em>}
+                      </div>
+                      {member.transfers.length > 0 && (
+                        <div className={styles.memberTransfers}>
+                          <span>
+                            올리는 중 {member.transfers.filter((item) => item.kind === "upload").length}개
+                            {" · "}
+                            받는 중 {member.transfers.filter((item) => item.kind === "download").length}개
+                          </span>
+                          {member.transfers.map((transfer) => (
+                            <div className={styles.transferRow} key={transfer.id}>
+                              <span aria-hidden="true">
+                                {transfer.kind === "upload" ? "↑" : "↓"}
+                              </span>
+                              <span title={transfer.name}>{transfer.name}</span>
+                              <span>{transferProgressText(transfer)}</span>
+                              {transfer.total !== null && transfer.total > 0 && (
+                                <progress
+                                  value={transfer.transferred}
+                                  max={transfer.total}
+                                  aria-label={`${transfer.name} 진행률`}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -4419,7 +4645,7 @@ export default function FilesView({
               <button
                 type="button"
                 className={styles.previewDownload}
-                onClick={() => downloadEntry(previewWindow.entry)}
+                onClick={() => void downloadEntry(previewWindow.entry)}
               >
                 ↓ 다운로드
               </button>
@@ -4585,11 +4811,13 @@ export default function FilesView({
             </button>
           ))}
         </div>
-        {uploadProgress && (
+        {activeTransfers.length > 0 && (
           <div className={styles.uploadChip} role="status">
-            <span className={styles.uploadArrow} aria-hidden="true">↑</span>
+            <span className={styles.uploadArrow} aria-hidden="true">↕</span>
             <span>
-              {uploadProgress.current}/{uploadProgress.total} · {uploadProgress.name}
+              전송 중 {activeTransfers.length}개 · {activeTransfers[0].name}
+              {" · "}
+              {transferProgressText(activeTransfers[0])}
             </span>
           </div>
         )}
@@ -4647,7 +4875,7 @@ export default function FilesView({
                   } else if (action === "preview") {
                     openPreview(entry);
                   } else {
-                    downloadEntry(entry);
+                    void downloadEntry(entry);
                   }
                   setContextMenu(null);
                 }}
@@ -4663,7 +4891,7 @@ export default function FilesView({
                 previewKindOf(contextMenu.entry) && (
                   <MenuButton
                     onClick={() => {
-                      downloadEntry(contextMenu.entry!);
+                      void downloadEntry(contextMenu.entry!);
                       setContextMenu(null);
                     }}
                   >

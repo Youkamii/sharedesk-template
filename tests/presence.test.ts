@@ -27,17 +27,58 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
   try {
     const { LocalAdapter } = await import("@/lib/storage/local");
     const {
+      leavePresenceGroup,
       leavePresence,
       listPresence,
       PRESENCE_ACTIVE_MS,
+      PRESENCE_TRANSFER_ACTIVE_MS,
+      presenceTabLeaseId,
       touchPresence,
     } = await import("@/lib/presence");
     const adapter = new LocalAdapter();
     const now = 1_800_000_000_000;
 
+    await adapter.writeState("presence.json", {
+      version: 1,
+      leases: [
+        {
+          participantId: "user:legacy",
+          leaseId: "legacy-device",
+          name: "기존 사용자",
+          lastSeenAt: now,
+        },
+      ],
+    });
+    assert.deepEqual(
+      (await listPresence("user:legacy", now, adapter)).members,
+      [{ name: "기존 사용자", isSelf: true, transfers: [] }],
+    );
+    await leavePresence(
+      {
+        participantId: "user:legacy",
+        leaseId: "legacy-device",
+        name: "기존 사용자",
+      },
+      now,
+      adapter,
+    );
+
     await Promise.all([
       touchPresence(
-        { participantId: "user:a", leaseId: "device-a", name: "가람" },
+        {
+          participantId: "user:a",
+          leaseId: "device-a",
+          name: "가람",
+          transfers: [
+            {
+              id: "upload-a",
+              kind: "upload",
+              name: "여행.mp4",
+              transferred: 40,
+              total: 100,
+            },
+          ],
+        },
         now,
         adapter,
       ),
@@ -54,15 +95,49 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
     );
 
     await touchPresence(
-      { participantId: "user:a", leaseId: "device-a-2", name: "가람 새 이름" },
+      {
+        participantId: "user:a",
+        leaseId: "device-a-2",
+        name: "가람 새 이름",
+        transfers: [
+          {
+            id: "download-a",
+            kind: "download",
+            name: "자료.zip",
+            transferred: 10,
+            total: null,
+          },
+        ],
+      },
       now + 3,
       adapter,
     );
     const active = await listPresence("user:a", now + 3, adapter);
     assert.equal(active.count, 2);
     assert.deepEqual(active.members, [
-      { name: "가람 새 이름", isSelf: true },
-      { name: "나래", isSelf: false },
+      {
+        name: "가람 새 이름",
+        isSelf: true,
+        transfers: [
+          {
+            id: "download-a",
+            kind: "download",
+            name: "자료.zip",
+            transferred: 10,
+            total: null,
+            updatedAt: now + 3,
+          },
+          {
+            id: "upload-a",
+            kind: "upload",
+            name: "여행.mp4",
+            transferred: 40,
+            total: 100,
+            updatedAt: now,
+          },
+        ],
+      },
+      { name: "나래", isSelf: false, transfers: [] },
     ]);
     assert.equal(active.activeWindowMs, PRESENCE_ACTIVE_MS);
 
@@ -82,25 +157,176 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
     assert.ok(afterOneDeviceLeaves.members.some((member) => member.isSelf));
 
     await touchPresence(
-      { participantId: "user:a", leaseId: "device-a-2", name: "가람 최신" },
+      {
+        participantId: "user:a",
+        leaseId: "device-a-2",
+        name: "가람 최신",
+        transfers: [
+          {
+            id: "latest-report",
+            kind: "upload",
+            name: "최신.bin",
+            transferred: 90,
+            total: 100,
+          },
+        ],
+      },
       now + 20,
       adapter,
     );
     await touchPresence(
-      { participantId: "user:a", leaseId: "device-a-2", name: "가람 오래된 응답" },
+      {
+        participantId: "user:a",
+        leaseId: "device-a-2",
+        name: "가람 오래된 응답",
+        transfers: [
+          {
+            id: "old-report",
+            kind: "download",
+            name: "오래됨.bin",
+            transferred: 1,
+            total: 100,
+          },
+        ],
+      },
       now + 10,
       adapter,
     );
     const monotonic = await listPresence("user:a", now + 20, adapter);
     assert.equal(monotonic.members[0].name, "가람 최신");
+    assert.deepEqual(monotonic.members[0].transfers, [
+      {
+        id: "latest-report",
+        kind: "upload",
+        name: "최신.bin",
+        transferred: 90,
+        total: 100,
+        updatedAt: now + 20,
+      },
+    ]);
+
+    const afterComplete = await touchPresence(
+      {
+        participantId: "user:a",
+        leaseId: "device-a-2",
+        name: "가람 최신",
+        transfers: [],
+      },
+      now + 21,
+      adapter,
+    );
+    assert.deepEqual(afterComplete.members[0].transfers, []);
 
     const afterLeave = await leavePresence(
       { participantId: "user:a", leaseId: "device-a-2", name: "가람" },
-      now + 21,
+      now + 22,
       adapter,
     );
     assert.equal(afterLeave.count, 1);
     assert.equal(afterLeave.members[0].name, "나래");
+    assert.deepEqual(afterLeave.members[0].transfers, []);
+
+    const tabBaseLease = "shared-session-lease";
+    const tabOneLease = presenceTabLeaseId(tabBaseLease, "tab_alpha_01");
+    const tabTwoLease = presenceTabLeaseId(tabBaseLease, "tab_beta_02");
+    await touchPresence(
+      {
+        participantId: "user:tabs",
+        leaseId: tabOneLease,
+        name: "여러 탭 사용자",
+        transfers: [
+          {
+            id: "tab-one-upload",
+            kind: "upload",
+            name: "첫째.bin",
+            transferred: 20,
+            total: 100,
+          },
+        ],
+      },
+      now + 30,
+      adapter,
+    );
+    await touchPresence(
+      {
+        participantId: "user:tabs",
+        leaseId: tabTwoLease,
+        name: "여러 탭 사용자",
+        transfers: [
+          {
+            id: "tab-two-download",
+            kind: "download",
+            name: "둘째.bin",
+            transferred: 40,
+            total: 100,
+          },
+        ],
+      },
+      now + 31,
+      adapter,
+    );
+    const bothTabs = await listPresence("user:tabs", now + 31, adapter);
+    assert.deepEqual(
+      bothTabs.members.find((member) => member.isSelf)?.transfers.map(
+        (transfer) => transfer.id,
+      ),
+      ["tab-two-download", "tab-one-upload"],
+    );
+
+    const oneTabCompleted = await touchPresence(
+      {
+        participantId: "user:tabs",
+        leaseId: tabOneLease,
+        name: "여러 탭 사용자",
+        transfers: [],
+      },
+      now + 32,
+      adapter,
+    );
+    assert.deepEqual(
+      oneTabCompleted.members
+        .find((member) => member.isSelf)
+        ?.transfers.map((transfer) => transfer.id),
+      ["tab-two-download"],
+    );
+
+    const oneTabLeft = await leavePresence(
+      {
+        participantId: "user:tabs",
+        leaseId: tabOneLease,
+        name: "여러 탭 사용자",
+      },
+      now + 33,
+      adapter,
+    );
+    assert.deepEqual(
+      oneTabLeft.members
+        .find((member) => member.isSelf)
+        ?.transfers.map((transfer) => transfer.id),
+      ["tab-two-download"],
+    );
+
+    const staleTransfer = await listPresence(
+      "user:tabs",
+      now + 31 + PRESENCE_TRANSFER_ACTIVE_MS + 1,
+      adapter,
+    );
+    assert.equal(
+      staleTransfer.members.find((member) => member.isSelf)?.transfers.length,
+      0,
+    );
+    assert.ok(staleTransfer.members.some((member) => member.isSelf));
+
+    const allTabsLeft = await leavePresenceGroup(
+      {
+        participantId: "user:tabs",
+        leaseId: tabBaseLease,
+        name: "여러 탭 사용자",
+      },
+      now + 34,
+      adapter,
+    );
+    assert.ok(!allTabsLeft.members.some((member) => member.isSelf));
 
     const { NextRequest } = await import("next/server");
     const { createKeySession } = await import("@/lib/auth");
@@ -122,16 +348,19 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
     const route = await import("@/app/api/presence/route");
 
     async function call(
-      handler: () => Promise<Response>,
+      handler: (request: Request) => Promise<Response>,
       authenticated = true,
+      body?: unknown,
     ): Promise<Response> {
       const headers = new Headers();
       if (authenticated) {
         headers.set("Cookie", `sharedesk_session=${token}`);
       }
+      if (body !== undefined) headers.set("Content-Type", "application/json");
       const request = new NextRequest("http://localhost/api/presence", {
         method: "POST",
         headers,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       const requestStore = createRequestStoreForAPI(
         request,
@@ -146,24 +375,126 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
         forceStatic: false,
       } as unknown as WorkStore;
       return workAsyncStorage.run(workStore, () =>
-        workUnitAsyncStorage.run(requestStore, handler),
+        workUnitAsyncStorage.run(requestStore, () => handler(request)),
       );
     }
 
     const unauthorized = await call(route.POST, false);
     assert.equal(unauthorized.status, 401);
-    const heartbeat = await call(route.POST);
+    const invalid = await call(route.POST, true, {
+      tabId: "tab_invalid_01",
+      transfers: [
+        {
+          id: "bad",
+          kind: "upload",
+          name: "bad.bin",
+          transferred: -1,
+          total: 10,
+        },
+      ],
+    });
+    assert.equal(invalid.status, 400);
+    const impossibleProgress = await call(route.POST, true, {
+      tabId: "tab_invalid_01",
+      transfers: [
+        {
+          id: "bad-total",
+          kind: "download",
+          name: "bad-total.bin",
+          transferred: 11,
+          total: 10,
+        },
+      ],
+    });
+    assert.equal(impossibleProgress.status, 400);
+    const invalidTab = await call(route.POST, true, {
+      tabId: "bad:tab",
+      transfers: [],
+    });
+    assert.equal(invalidTab.status, 400);
+
+    const bodylessHeartbeat = await call(route.POST);
+    assert.equal(bodylessHeartbeat.status, 200);
+
+    const heartbeat = await call(route.POST, true, {
+      tabId: "tab_route_01",
+      transfers: [
+        {
+          id: "route-upload",
+          kind: "upload",
+          name: "route.bin",
+          transferred: 2,
+          total: 8,
+        },
+      ],
+    });
     assert.equal(heartbeat.status, 200);
     const heartbeatBody = (await heartbeat.json()) as {
       count: number;
-      members: Array<{ name: string; isSelf: boolean }>;
+      members: Array<{
+        name: string;
+        isSelf: boolean;
+        transfers: Array<{ id: string; updatedAt: number }>;
+      }>;
     };
     assert.ok(heartbeatBody.count >= 1);
-    assert.ok(
-      heartbeatBody.members.some(
-        (member) => member.name === "손님" && member.isSelf,
-      ),
+    const self = heartbeatBody.members.find(
+      (member) => member.name === "손님" && member.isSelf,
     );
+    assert.equal(self?.transfers[0]?.id, "route-upload");
+    assert.ok(Number.isSafeInteger(self?.transfers[0]?.updatedAt));
+    assert.equal(heartbeat.headers.get("Cache-Control"), "private, no-store");
+
+    const secondTab = await call(route.POST, true, {
+      tabId: "tab_route_02",
+      transfers: [
+        {
+          id: "route-download",
+          kind: "download",
+          name: "route-two.bin",
+          transferred: 3,
+          total: 9,
+        },
+      ],
+    });
+    assert.equal(secondTab.status, 200);
+    const secondTabBody = (await secondTab.json()) as {
+      members: Array<{
+        isSelf: boolean;
+        transfers: Array<{ id: string }>;
+      }>;
+    };
+    assert.deepEqual(
+      secondTabBody.members
+        .find((member) => member.isSelf)
+        ?.transfers.map((transfer) => transfer.id)
+        .sort(),
+      ["route-download", "route-upload"],
+    );
+
+    const completed = await call(route.POST, true, {
+      tabId: "tab_route_01",
+      transfers: [],
+    });
+    assert.equal(completed.status, 200);
+    const completedBody = (await completed.json()) as {
+      members: Array<{ isSelf: boolean; transfers: unknown[] }>;
+    };
+    assert.deepEqual(
+      completedBody.members
+        .find((member) => member.isSelf)
+        ?.transfers.map((transfer) =>
+          (transfer as { id: string }).id,
+        ),
+      ["route-download"],
+    );
+
+    const loggedOut = await call(route.DELETE);
+    assert.equal(loggedOut.status, 200);
+    const loggedOutBody = (await loggedOut.json()) as {
+      members: Array<{ isSelf: boolean }>;
+    };
+    assert.ok(!loggedOutBody.members.some((member) => member.isSelf));
   } finally {
     if (previous.driver === undefined) delete process.env.STORAGE_DRIVER;
     else process.env.STORAGE_DRIVER = previous.driver;
