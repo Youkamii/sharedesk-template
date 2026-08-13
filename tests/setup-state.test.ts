@@ -17,13 +17,39 @@ import {
   HOST_OAUTH_SCOPES,
   REFRESH_TOKEN_RECOVERY_GUIDANCE,
   SETUP_COMPLETION_NEXT_STEPS,
+  browserOpenCommand,
   ensureCoreStateFiles,
+  openBrowser,
   parseCallbackUrl,
   parseWhoamiUserSid,
   prepareEnvFile,
   protectPrivateDirectory,
   writePrivateFile,
 } from "../scripts/setup.mjs";
+
+function runSetupScript(cwd: string, args: string[] = []) {
+  const setupPath = path.resolve("scripts/setup.mjs");
+  return new Promise<{
+    error: Error | null;
+    stdout: string;
+    stderr: string;
+  }>((resolve) => {
+    execFile(
+      process.execPath,
+      [setupPath, ...args],
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GOOGLE_CLIENT_ID: "",
+          GOOGLE_CLIENT_SECRET: "",
+        },
+      },
+      (error, stdout, stderr) => resolve({ error, stdout, stderr }),
+    );
+  });
+}
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -314,6 +340,45 @@ test("prepare-env는 기존 환경 파일을 덮어쓰지 않고 권한만 보�
   }
 });
 
+test("bare setup은 .env.local이 없으면 prepare-env를 자동 수행한다", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sharedesk-bare-setup-"));
+  const example = [
+    "GOOGLE_CLIENT_ID=",
+    "GOOGLE_CLIENT_SECRET=",
+    "STORAGE_DRIVER=local",
+    "",
+  ].join("\n");
+  try {
+    await writeFile(path.join(root, ".env.example"), example, "utf8");
+    const result = await runSetupScript(root);
+
+    assert.ok(result.error, "OAuth 값이 없으면 안내 후 중단해야 합니다.");
+    assert.match(result.stdout, /.env\.local이 없어[^]*자동 준비/);
+    assert.match(result.stderr, /GOOGLE_CLIENT_ID \/ GOOGLE_CLIENT_SECRET/);
+    assert.equal(await readFile(path.join(root, ".env.local"), "utf8"), example);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("--prepare-env는 환경 파일만 미리 준비하는 호환 옵션으로 남는다", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sharedesk-explicit-prepare-"));
+  try {
+    await writeFile(
+      path.join(root, ".env.example"),
+      "GOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n",
+      "utf8",
+    );
+    const result = await runSetupScript(root, ["--prepare-env"]);
+
+    assert.equal(result.error, null);
+    assert.match(result.stdout, /.env\.local을[^]*준비했습니다/);
+    assert.equal(result.stderr, "");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("setup은 기존 핵심 상태 파일을 보존하고 누락 파일만 multipart로 만든다", async () => {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const messages: string[] = [];
@@ -416,8 +481,9 @@ test("setup은 생성 직후 동명 상태 파일이 늘어나도 중단한다",
 
 test("setup 안내는 상세 절차를 설치 문서에 맡기고 현장에서 필요한 값만 보여준다", () => {
   assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /docs\/INSTALL\.md/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup -- --prepare-env/);
-  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /Client ID와 Client secret을 직접 입력/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /.env\.local이 없으면 npm run setup이[^]*자동 준비/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /Client ID와 Client secret을 직접 입력[^]*npm run setup을 다시 실행/);
+  assert.match(GOOGLE_AUTH_PLATFORM_GUIDANCE, /npm run setup -- --prepare-env도[^]*사용/);
   assert.deepEqual(HOST_OAUTH_SCOPES, [
     "openid",
     "https://www.googleapis.com/auth/userinfo.email",
@@ -437,6 +503,42 @@ test("setup 안내는 상세 절차를 설치 문서에 맡기고 현장에서 �
     GOOGLE_AUTH_PLATFORM_GUIDANCE,
     /Authorized JavaScript origins|Publish app|In production|7일 뒤 만료/,
   );
+});
+
+test("인증 URL은 Windows·macOS·Linux에서 쉘 문자열 없이 기본 브라우저로 전달된다", () => {
+  const url = "https://accounts.google.com/o/oauth2/v2/auth?state=a&code_challenge=b";
+
+  assert.deepEqual(browserOpenCommand(url, "win32", { ...process.env, SystemRoot: "C:\\Windows" }), {
+    executable: "C:\\Windows\\System32\\rundll32.exe",
+    args: ["url.dll,FileProtocolHandler", url],
+  });
+  assert.deepEqual(browserOpenCommand(url, "darwin"), {
+    executable: "open",
+    args: [url],
+  });
+  assert.deepEqual(browserOpenCommand(url, "linux"), {
+    executable: "xdg-open",
+    args: [url],
+  });
+  assert.equal(browserOpenCommand(url, "aix"), null);
+});
+
+test("브라우저 자동 열기 실패는 setup을 중단시키지 않는다", async () => {
+  const opened = await openBrowser(
+    "https://accounts.google.com/",
+    ((_executable: string, _args: string[], _options: unknown, callback: (error: Error | null) => void) => {
+      callback(new Error("browser unavailable"));
+    }) as typeof execFile,
+  );
+  assert.equal(opened, false);
+
+  const threw = await openBrowser(
+    "https://accounts.google.com/",
+    (() => {
+      throw new Error("spawn unavailable");
+    }) as unknown as typeof execFile,
+  );
+  assert.equal(threw, false);
 });
 
 test("setup 시작과 finish에서 재사용하는 callback 경고는 공유 금지 대상을 명시한다", () => {
@@ -479,12 +581,13 @@ test("refresh token 복구 안내는 기존 연결을 무조건 폐기하지 않
 });
 
 test("setup 완료 안내는 설치 문서의 다음 단계와 남은 현장 검증만 가리킨다", () => {
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /독립 ShareDesk 하나/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /호스트의 Google Drive 저장 공간[^]*여러 사람이 함께/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /docs\/INSTALL\.md/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /Vercel Production 환경 변수와 재배포/);
   assert.match(SETUP_COMPLETION_NEXT_STEPS, /비밀값을 Production 환경에 안전하게 옮긴 뒤 재배포/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Firewall과 운영 로그인을 실제로 확인/);
-  assert.match(SETUP_COMPLETION_NEXT_STEPS, /README.*사람 초대하기/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /초대 코드를 만들어 한 사람을 초대/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /두 계정에서 같은 파일이 보이는지/);
+  assert.match(SETUP_COMPLETION_NEXT_STEPS, /Firewall[^]*기능 확인이 끝난 뒤/);
   assert.doesNotMatch(
     SETUP_COMPLETION_NEXT_STEPS,
     /PUBLIC_BASE_URL=|VERCEL_PROJECT_PRODUCTION_URL|Fixed Window|\/api\/invitations\/code|IP당 60초/,

@@ -14,7 +14,7 @@ export type Payload =
   // 구글 로그인 등으로 인증된 사용자 세션
   | { t: "user"; sub: string; sv?: number; sid?: string; iat: number }
   // ACCESS_KEYS를 쓰는 임시 손님 세션 (키가 설정된 경우에만 발급)
-  | { t: "key"; k: string; iat: number };
+  | { t: "key"; k: string; sid?: string; iat: number };
 
 export function isValidSessionId(value: unknown): value is string {
   return (
@@ -127,8 +127,9 @@ export async function openSigned(
       return null;
     }
     if (claims.sid !== undefined && !isValidSessionId(claims.sid)) return null;
-  } else if (typeof claims.k !== "string" || !claims.k) {
-    return null;
+  } else {
+    if (typeof claims.k !== "string" || !claims.k) return null;
+    if (claims.sid !== undefined && !isValidSessionId(claims.sid)) return null;
   }
   const now = Date.now() / 1000;
   if (claims.iat > now + CLOCK_SKEW_SECONDS) return null;

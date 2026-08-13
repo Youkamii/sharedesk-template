@@ -1,18 +1,32 @@
 # ShareDesk 운영 설치 안내
 
-이 문서는 내 Google Drive를 사용하는 독립 ShareDesk를 Vercel 운영 주소에 설치하는 기준 문서입니다. 사람이 직접 따라도 되고 저장소와 터미널을 다룰 수 있는 코딩 에이전트에게 읽혀도 됩니다.
+호스트 한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰도록 ShareDesk를 열어 주는 문서입니다.
 
-설치 하나마다 Git 저장소, Vercel 프로젝트, Google OAuth 클라이언트, Drive 루트가 따로 생깁니다. 이미 만들어 둔 저장소나 Vercel 프로젝트가 있다면 새로 만들지 말고 그대로 이어서 사용하세요.
+Google Cloud나 Vercel 설정이 낯설다면 직접 전부 따라 하지 않아도 됩니다. [AI에게 구축 맡기기](./AI_INSTALL.md)의 요청문을 코딩 AI에게 보내면, AI가 끝난 단계를 먼저 확인하고 사용자가 직접 해야 할 화면에서만 한 단계씩 안내합니다.
 
-## 코딩 에이전트가 지켜야 할 작업 방식
+## 먼저, 내 역할은 무엇인가요?
 
-1. `README.md`, 이 문서, `package.json`, `.env.example`을 먼저 읽습니다.
-2. 현재 Git 원격과 브랜치, 로그인된 GitHub·Vercel 계정, 연결된 Vercel 프로젝트를 확인합니다.
-3. 이미 끝난 단계는 반복하지 않습니다. 기존 OAuth 클라이언트, Audience 상태, refresh token, Drive ID를 추측으로 바꾸거나 폐기하지 않습니다.
-4. 터미널에서 처리할 수 있는 설치, 파일 수정, 검사, 배포는 직접 진행합니다.
-5. Google 로그인, 계정 선택, 동의, Cloud Console 입력처럼 소유자가 직접 해야 하는 화면에서는 멈추고 한 번에 한 단계만 안내합니다.
-6. `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `.env.local` 내용, 인증 코드가 든 callback URL을 채팅·스크린샷·명령 인자·로그에 출력하지 않습니다.
-7. 완료 보고에는 저장소 URL, 운영 URL, 실제 확인 결과, 사람이 직접 확인해야 할 항목만 적습니다.
+### 참여자
+
+누군가가 만든 ShareDesk에 초대받았다면 **이 문서를 따라 설치하지 마세요.** 호스트가 보낸 ShareDesk 주소에서 내 Google 계정으로 로그인하고 초대 코드를 입력하면 됩니다. GitHub 계정, Vercel 프로젝트, Google OAuth 클라이언트는 필요 없습니다.
+
+### 호스트
+
+내 Google Drive 용량을 내어 새 ShareDesk 주소를 만들고 사람들을 초대하려면 아래를 따르세요. 설치는 호스트만 한 번 하고, 참여자들은 그 주소와 저장 공간을 함께 씁니다.
+
+설치 하나마다 호스트의 Git 저장소, Vercel 프로젝트, Google OAuth 클라이언트, Drive 루트가 따로 연결됩니다. 이 분리 구조는 호스트의 설치 소유권에 대한 설명이며, ShareDesk의 첫 사용 가치는 한 Drive 저장 공간을 여러 사람이 함께 쓰는 것입니다. 이미 만들어 둔 설정이 있다면 새로 만들지 말고 그대로 이어서 사용하세요.
+
+## 호스트용 빠른 길
+
+1. **ShareDesk 주소 만들기:** [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk)로 내 GitHub 저장소와 Vercel 프로젝트를 만들고 Production 주소를 기록합니다.
+2. **Google 연결 만들기:** Google Cloud에서 Drive API를 켜고 Web application OAuth 클라이언트를 만듭니다. 정확한 범위와 callback 주소는 [2단계](#2-google-cloud-설정)에서 복사하세요.
+3. **호스트 Drive 연결하기:** 저장소를 받고 `npm ci`, `npm run setup`을 실행합니다. `.env.local`이 없으면 setup이 자동으로 만듭니다. Client ID와 secret을 넣고 다시 실행하면 인증 페이지가 브라우저에 자동으로 열립니다. 동의 뒤 `npm run setup -- --finish`로 마무리합니다.
+4. **운영에 연결하기:** setup이 채운 필수 값을 Vercel Production 환경 변수로 옮기고 재배포합니다.
+5. **한 사람과 함께 확인하기:** 운영 로그인과 파일 저장을 먼저 확인한 뒤 `/admin`에서 초대 코드를 만듭니다. 한 사람을 초대해 두 계정에서 같은 파일이 보이는지 확인하면 핵심 설치가 끝납니다. Vercel Firewall은 그 뒤 운영 보호 단계에서 설정합니다.
+
+설치 뒤 새 버전은 관리자 화면의 `업데이트` 버튼으로 확인합니다. 기존 설치본을 처음 연결하는 방법은 [업데이트 안내](./UPDATE.md)에 있습니다.
+
+아래는 각 단계의 상세 설명입니다. Google Cloud 화면이나 오류가 나온 부분만 찾아보셔도 됩니다.
 
 ## 설치 완료 기준
 
@@ -26,7 +40,8 @@
 - `/files`에서 만든 폴더가 새로고침 뒤에도 남습니다.
 - 화면 오른쪽 아래에 작업표시줄과 따로 놓인 휴지통 아이콘이 보이고, 아이콘을 눌러 삭제한 항목을 복원할 수 있습니다.
 - `/admin`이 열리고 초대 코드의 유효 기간과 사용 방식을 고를 수 있습니다.
-- 초대 코드 요청에만 적용되는 Vercel Firewall 제한이 게시돼 있습니다.
+- 초대 코드로 한 사람이 자기 Google 계정으로 참여했습니다.
+- 호스트와 참여자 두 계정에서 같은 파일을 보고 다운로드할 수 있습니다.
 
 ## 준비물
 
@@ -122,7 +137,7 @@ https://my-sharedesk.vercel.app/api/auth/google/callback
 
 리디렉션 주소는 `http`/`https`, 호스트, 포트, 경로, 끝 슬래시까지 정확히 일치해야 합니다. Google의 [OAuth 웹 서버 안내](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation)에서도 정확한 일치를 요구합니다.
 
-이 단계에서는 Client ID와 Client secret을 `.env.local`에 입력합니다. 운영 배포에는 6단계에서 Vercel Production 환경 변수로 옮깁니다. 공개 저장소, 채팅, 이슈, 스크린샷에는 붙이지 마세요.
+클라이언트를 만들면 Client ID와 Client secret을 안전하게 기록해 두세요. 다음 단계에서 필요합니다. 공개 저장소, 채팅, 이슈, 스크린샷에는 붙이지 마세요.
 
 ## 3. 로컬 환경 파일 준비
 
@@ -135,14 +150,16 @@ git clone https://github.com/<내-GitHub-계정>/my-sharedesk.git
 cd my-sharedesk
 ```
 
-의존성을 설치하고 비밀 파일을 준비합니다.
+의존성을 설치하고 setup을 한 번 실행합니다.
 
 ```powershell
 npm ci
-npm run setup -- --prepare-env
+npm run setup
 ```
 
-`--prepare-env`는 기존 `.env.local`을 덮어쓰지 않습니다. 파일이 없으면 소유자 전용 권한으로 만든 뒤 `.env.example` 내용을 넣고 이미 있으면 내용은 유지한 채 권한을 확인합니다.
+`.env.local`이 없으면 bare `npm run setup`이 소유자 전용 권한으로 파일을 자동 생성하고 `.env.example` 내용을 넣습니다. Client ID와 secret이 비어 있다는 안내가 나오면 정상입니다. 기존 `.env.local`이 있으면 내용을 덮어쓰지 않고 권한만 확인합니다.
+
+환경 파일만 미리 준비하고 setup을 시작하지 않으려면 기존 호환 명령인 `npm run setup -- --prepare-env`를 사용해도 됩니다.
 
 `.env.local`에 다음 두 값을 직접 입력합니다.
 
@@ -163,7 +180,7 @@ GOOGLE_CLIENT_SECRET=발급받은-client-secret
 npm run setup
 ```
 
-1. 터미널에 표시된 Google 인증 URL을 브라우저에서 엽니다.
+1. setup이 Google 인증 페이지를 기본 브라우저에서 엽니다. 자동으로 열리지 않으면 터미널에 그대로 출력된 URL을 직접 여세요.
 2. ShareDesk의 호스트가 될 Google 계정으로 로그인하고 동의합니다.
 3. 브라우저가 `http://127.0.0.1:53682/callback?...`으로 이동합니다.
 4. 브라우저에 연결 실패가 떠도 정상입니다. 주소창의 전체 주소를 복사합니다.
@@ -230,7 +247,27 @@ npm run dev
 
 환경 변수를 입력하거나 바꾼 뒤 Production을 다시 배포합니다. 환경 변수 변경은 기존 배포에 자동으로 반영되지 않습니다. 자세한 동작은 [Vercel 환경 변수 안내](https://vercel.com/docs/environment-variables)를 참고하세요.
 
-## 7. 초대 코드 요청 제한
+## 7. 운영 확인
+
+고정 Production 주소에서 직접 확인합니다.
+
+1. 호스트 Google 계정으로 로그인합니다.
+2. `/files`에서 테스트 폴더를 만들고 새로고침 뒤에도 남는지 확인합니다.
+3. 테스트 폴더를 삭제한 뒤 화면 오른쪽 아래의 휴지통 아이콘을 눌러 휴지통 창을 열고, 폴더를 복원합니다. 아이콘이 작업표시줄 밖에 있으며 열린 창과 겹칠 때 창 뒤로 가려지는지도 확인합니다.
+4. `/admin`이 열리는지 확인합니다.
+5. 초대 코드 생성 화면에서 유효 기간 `1시간`, `24시간`, `7일`, `30일`과 사용 방식 `1회용`, `기간 내 무제한`을 고를 수 있는지 확인합니다.
+6. 로그아웃하고 다시 로그인해 운영 callback이 정상인지 확인합니다.
+7. `/admin`에서 초대 코드를 하나 만들고, 함께 쓸 한 사람에게 운영 주소와 코드를 보냅니다.
+8. 참여자가 자기 Google 계정으로 로그인한 뒤 초대 코드를 입력합니다. 참여자에게는 OAuth 클라이언트나 Vercel 프로젝트가 필요 없습니다.
+9. 호스트가 테스트 파일을 하나 올리고, 호스트와 참여자 두 계정에서 같은 파일을 보고 다운로드할 수 있는지 확인합니다.
+
+Drive 모드에서 휴지통으로 보낸 항목은 직접 완전히 삭제하지 않는 한 [Google Drive의 30일 휴지통 정책](https://support.google.com/drive/answer/14933051?hl=ko)에 따라 30일이 지나면 영구 삭제됩니다. OAuth 없는 `local` 모드에서는 30일이 지난 항목을 다음 휴지통 조회 때 ShareDesk가 영구 삭제합니다.
+
+초대받은 사람은 새 ShareDesk를 설치하는 것이 아니라, 호스트가 이미 만든 공유 파일 공간에 참여하는 것입니다.
+
+## 8. 작동 확인 뒤 운영 보호
+
+위 7단계에서 로그인, 파일 저장, 실제 한 사람 초대까지 확인한 뒤 초대 코드 제출 요청을 보호합니다. Firewall 설정은 ShareDesk를 작동시키는 설치 단계가 아니라 운영 보호 단계입니다.
 
 Vercel 프로젝트의 Firewall에서 아래 Rate Limit 규칙을 만들고 `Publish`합니다.
 
@@ -246,20 +283,32 @@ Vercel 프로젝트의 Firewall에서 아래 Rate Limit 규칙을 만들고 `Pub
 
 세 조건을 모두 넣어야 초대 코드 제출에만 제한이 걸립니다. 규칙을 만들 때 Vercel이 보여 주는 사용량과 요금 안내도 확인하세요. 설정 화면은 [Vercel WAF Rate Limiting 안내](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting)를 참고할 수 있습니다.
 
-## 8. 운영 확인
+## 사람 초대와 관리
 
-고정 Production 주소에서 직접 확인합니다.
+1. 호스트가 운영 주소의 `/admin`을 엽니다.
+2. 초대 코드의 유효 기간을 `1시간`, `24시간`, `7일`, `30일` 중에서 고릅니다.
+3. 사용 방식을 `1회용` 또는 `기간 내 무제한`으로 고릅니다.
+4. 만든 코드와 운영 주소를 참여자에게 전달합니다.
+5. 참여자는 자기 Google 계정으로 로그인한 뒤 코드를 입력합니다.
 
-1. 호스트 Google 계정으로 로그인합니다.
-2. `/files`에서 테스트 폴더를 만들고 새로고침 뒤에도 남는지 확인합니다.
-3. 테스트 폴더를 삭제한 뒤 화면 오른쪽 아래의 휴지통 아이콘을 눌러 휴지통 창을 열고, 폴더를 복원합니다. 아이콘이 작업표시줄 밖에 있으며 열린 창과 겹칠 때 창 뒤로 가려지는지도 확인합니다.
-4. `/admin`이 열리는지 확인합니다.
-5. 초대 코드 생성 화면에서 유효 기간 `1시간`, `24시간`, `7일`, `30일`과 사용 방식 `1회용`, `기간 내 무제한`을 고를 수 있는지 확인합니다.
-6. 로그아웃하고 다시 로그인해 운영 callback이 정상인지 확인합니다.
+초대 코드는 특정 이메일에 미리 묶이지 않습니다. 이름과 이메일은 실제로 코드를 입력한 사람의 Google 로그인에서 가져옵니다.
 
-Drive 모드에서 휴지통으로 보낸 항목은 직접 완전히 삭제하지 않는 한 [Google Drive의 30일 휴지통 정책](https://support.google.com/drive/answer/14933051?hl=ko)에 따라 30일이 지나면 영구 삭제됩니다. OAuth 없는 `local` 모드에서는 30일이 지난 항목을 다음 휴지통 조회 때 ShareDesk가 영구 삭제합니다.
+- **1회용:** 한 사람이 가입에 성공하면 바로 소진됩니다.
+- **기간 내 무제한:** 만료되거나 호스트가 비활성화할 때까지 여러 사람이 함께 쓸 수 있습니다.
 
-초대받은 사람은 자기 Google 계정으로 이 운영 주소에 로그인한 뒤 호스트가 준 코드를 입력합니다. OAuth 클라이언트나 Vercel 프로젝트를 만들 필요가 없습니다. 이 사람은 기존 데스크에 참여할 뿐 새 데스크를 받지 않습니다. 자기 ShareDesk가 필요하면 이 문서를 사용해 별도 배포해야 합니다.
+관리 화면에서는 사용자를 차단하거나 가입 대기로 돌릴 수 있고, 특정 기기의 로그인 또는 그 사용자의 모든 로그인을 끊을 수 있습니다. `ADMIN_EMAILS`를 바꿨다면 Vercel 환경 변수를 고친 뒤 다시 배포해야 합니다.
+
+## 설치 뒤 업데이트
+
+관리자 작업표시줄의 `업데이트`는 최신 안정 버전을 확인하고 설치 저장소의 GitHub Actions 화면을 엽니다. `Run workflow`를 누르면 코드를 적용한 뒤 테스트·검사·빌드를 통과한 경우에만 `main`에 커밋하고, 연결된 Vercel이 다시 배포합니다.
+
+Drive 파일과 공유 상태, `.env.local`, Vercel 환경 변수는 코드 업데이트에 포함되지 않습니다. 업데이트 기능이 들어오기 전에 만든 설치본의 1회 전환과 충돌 해결은 [ShareDesk 업데이트](./UPDATE.md)를 따르세요.
+
+## Google Drive로 직접 공유하기
+
+관리자가 파일이나 폴더를 우클릭해 **Google Drive로 공유**를 누르면 승인된 사용자에게 보기 또는 편집 권한을 줄 수 있습니다. 이 기능은 ShareDesk 안에서 항목을 숨기거나 공개하는 기능이 아니라, 받는 사람의 Google Drive `공유 문서함`에도 나타나는 실제 Drive 권한입니다.
+
+폴더 권한은 Google Drive 규칙에 따라 하위 항목에 이어집니다. 받는 사람의 `공유 문서함` 표시와 보기·편집 권한 차이는 별도 Google 계정으로 직접 확인하세요. 자동 검사 방법은 [로컬 사용 문서의 실제 Drive 검사](./LOCAL.md#실제-drive-검사)를 참고합니다.
 
 ## 문제 해결
 
@@ -271,22 +320,27 @@ Drive 모드에서 휴지통으로 보낸 항목은 직접 완전히 삭제하�
 | 동의 뒤 `127.0.0.1` 연결 실패 | setup에서는 정상입니다. 주소창 전체를 복사해 `npm run setup -- --finish`의 질문에 붙여 넣습니다. |
 | `refresh_token을 받지 못했습니다` | 기존 연결과 Audience 상태를 먼저 확인합니다. 새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만 [Google 계정의 연결된 앱](https://myaccount.google.com/permissions)에서 권한을 제거하고 setup을 다시 진행합니다. |
 | 약 7일 뒤 Drive 연결이 끊김 | Audience가 Testing이었는지 먼저 확인합니다. Testing에서 받은 호스트 토큰이면 In production 전환 뒤 setup을 다시 진행합니다. 이미 In production이면 토큰을 먼저 폐기하지 말고 실제 인증 오류를 확인합니다. |
+| Drive API가 403을 반환 | OAuth 클라이언트를 만든 것과 같은 Cloud 프로젝트에서 Google Drive API가 켜져 있는지 확인합니다. Workspace 관리 정책이 외부 앱을 막는지도 확인합니다. |
 | Vercel에서만 로그인 실패 | Production 환경 변수, 고정 운영 origin, Google의 운영 redirect URI, 환경 변수 변경 뒤 재배포 여부를 확인합니다. |
+| 초대 코드가 거부됨 | `/admin`에서 코드의 만료일·활성 상태·사용 방식을 확인합니다. 1회용은 다른 사람의 첫 가입 성공 뒤 이미 소진됐을 수 있습니다. |
+| 특정 Workspace 계정만 실패 | 조직 관리자의 서드파티 앱 접근 제한이나 Google Advanced Protection 정책을 확인합니다. |
 | 관리자 로그인이 초대를 요구 | 로그인 이메일이 `ADMIN_EMAILS`와 정확히 같은지 확인하고 값을 바꿨다면 재배포합니다. |
+| setup이 같은 이름의 상태 파일이 여러 개라고 중단 | Drive의 `ShareDesk/.sharedesk/`에서 해당 JSON 파일을 확인하고, 내용을 비교해 보존할 하나만 남긴 뒤 다시 실행합니다. |
 
-더 많은 운영 오류는 [README의 문제 해결](../README.md#문제-해결)을 참고하세요.
+### setup을 다시 실행해도 되나요?
 
-## 코딩 에이전트의 완료 보고 형식
+기존 `DRIVE_ROOT_FOLDER_ID`와 상태 폴더 ID가 `.env.local`에 있으면 setup은 그 폴더와 기존 상태 파일을 이어서 사용합니다. 같은 이름의 핵심 상태 파일이 여러 개면 임의로 고르지 않고 중단하므로 Drive에서 내용을 확인한 뒤 하나만 남겨야 합니다.
 
-```text
-저장소 URL:
-운영 URL:
+Client secret을 교체했거나 refresh token을 다시 받아야 한다면 `.env.local`의 Client ID와 secret을 먼저 갱신하고 setup을 다시 시작하세요. 이미 정상 작동하는 연결은 추측으로 폐기하지 마세요.
 
-실제로 확인함:
-- ...
+## 저장 구조와 제한
 
-사람이 직접 확인해야 함:
-- ...
-```
+- ShareDesk가 다루는 범위는 setup으로 정한 Drive 루트 폴더 안쪽입니다. 호스트가 Drive 웹에서 항목을 루트 밖으로 옮기면 ShareDesk에서 접근하지 못합니다.
+- 같은 폴더에 같은 이름의 항목을 만들거나 이름을 바꾸는 작업은 거부됩니다.
+- HTML, SVG처럼 스크립트를 실행할 수 있는 형식은 브라우저에서 바로 보지 않고 다운로드합니다.
+- Google 문서·시트·슬라이드·드로잉은 PDF로 바꿔 미리 봅니다.
+- 무료 Google Drive 용량과 휴지통 보관 기간은 호스트 계정의 Google 정책을 따릅니다.
 
-비밀값이나 `.env.local` 내용은 완료 보고에 적지 않습니다.
+Drive 모드에서는 `ShareDesk/.sharedesk/`에 사용자·초대, 현재 접속 인원, Drive 공유 권한, 폴더 메모와 아이콘 배치를 저장합니다. 일반 파일 목록에서는 이 폴더를 숨깁니다. 동시에 같은 상태를 바꾸면 먼저 저장한 결과를 유지하고 늦은 요청은 충돌로 끝내 최신 상태를 다시 읽게 합니다.
+
+코딩 AI와 함께 설치하려면 [AI 설치 안내](./AI_INSTALL.md)를 사용하세요. 개발·검사 명령과 전체 환경 변수 표는 [로컬 개인 사용](./LOCAL.md#개발자-참고)에 따로 정리했습니다.

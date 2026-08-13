@@ -255,6 +255,24 @@ function wait(ms: number): Promise<void> {
 const LOCK_STALE_MS = 30_000;
 const LOCK_ATTEMPTS = 50;
 
+let localMutationTail: Promise<void> = Promise.resolve();
+
+async function withLocalMutationLock<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = localMutationTail;
+  let release!: () => void;
+  localMutationTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+  }
+}
+
 // 휴지통 — 항목을 .sharedesk/.trash/<uuid>로 옮기고 원위치를 매니페스트에 남긴다.
 // 드라이브 휴지통과 같은 계약: 30일 지나면 완전 삭제(목록 조회 때 지연 청소).
 const TRASH_DIR_NAME = ".trash";
@@ -369,16 +387,18 @@ export class LocalAdapter implements StorageAdapter {
     await this.ensureRoot();
     const clean = assertUserName(name);
     const childRel = joinRel(idToRel(parentId), clean);
-    try {
-      await mkdir(await safeAbs(childRel, true));
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException)?.code;
-      if (code === "EEXIST") throw conflictError();
-      if (code === "ENOENT")
-        throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
-      throw e;
-    }
-    return toEntry(childRel, clean);
+    return withLocalMutationLock(async () => {
+      try {
+        await mkdir(await safeAbs(childRel, true));
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException)?.code;
+        if (code === "EEXIST") throw conflictError();
+        if (code === "ENOENT")
+          throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
+        throw e;
+      }
+      return toEntry(childRel, clean);
+    });
   }
 
   async rename(id: string, name: string): Promise<Entry> {
@@ -388,23 +408,25 @@ export class LocalAdapter implements StorageAdapter {
       throw new StorageError("BAD_ID", "루트 폴더는 이름을 바꿀 수 없습니다");
     const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
     const newRel = joinRel(dir, clean);
-    // fsRename은 목적지를 말없이 덮어쓴다. 이름만 바꾸는 경우(대소문자 변경 등)를
-    // 제외하고 목적지가 이미 있으면 거부한다.
-    if (
-      newRel !== rel &&
-      (await stat(
-        /* turbopackIgnore: true */ await safeAbs(newRel, true),
-      ).catch(() => null))
-    ) {
-      throw conflictError();
-    }
-    try {
-      await fsRename(await safeAbs(rel), await safeAbs(newRel, true));
-    } catch (e) {
-      if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
-      throw e;
-    }
-    return toEntry(newRel, clean);
+    return withLocalMutationLock(async () => {
+      // fsRename은 목적지를 말없이 덮어쓴다. 이름만 바꾸는 경우(대소문자 변경 등)를
+      // 제외하고 목적지가 이미 있으면 거부한다.
+      if (
+        newRel !== rel &&
+        (await stat(
+          /* turbopackIgnore: true */ await safeAbs(newRel, true),
+        ).catch(() => null))
+      ) {
+        throw conflictError();
+      }
+      try {
+        await fsRename(await safeAbs(rel), await safeAbs(newRel, true));
+      } catch (e) {
+        if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
+        throw e;
+      }
+      return toEntry(newRel, clean);
+    });
   }
 
   async move(
@@ -422,89 +444,93 @@ export class LocalAdapter implements StorageAdapter {
         "폴더를 자기 안쪽 폴더로 옮길 수 없습니다",
       );
     }
-    let targetStat: Stats;
-    try {
-      targetStat = await stat(
-        /* turbopackIgnore: true */ await safeAbs(targetRel),
-      );
-    } catch (e) {
-      if (isNoEnt(e))
-        throw new StorageError("NOT_FOUND", "대상 폴더가 없습니다");
-      throw e;
-    }
-    if (!targetStat.isDirectory()) {
-      throw new StorageError("BAD_ID", "폴더가 아닙니다");
-    }
+    return withLocalMutationLock(async () => {
+      let targetStat: Stats;
+      try {
+        targetStat = await stat(
+          /* turbopackIgnore: true */ await safeAbs(targetRel),
+        );
+      } catch (e) {
+        if (isNoEnt(e))
+          throw new StorageError("NOT_FOUND", "대상 폴더가 없습니다");
+        throw e;
+      }
+      if (!targetStat.isDirectory()) {
+        throw new StorageError("BAD_ID", "폴더가 아닙니다");
+      }
 
-    let s: Stats;
-    try {
-      s = await stat(/* turbopackIgnore: true */ await safeAbs(rel));
-    } catch (e) {
-      if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
-      throw e;
-    }
-    // 호출자가 마지막으로 본 버전일 때만 진행 — 드라이브 어댑터의 If-Match와
-    // 같은 계약이다 (경로 기반 id라 대부분의 경쟁은 NOT_FOUND로도 걸리지만,
-    // 같은 자리에서 내용이 바뀐 경우를 여기서 거른다).
-    if (entryVersion(s) !== expectedVersion) {
-      throw new StorageError(
-        "CONFLICT",
-        "다른 사람이 먼저 옮기거나 수정했습니다",
-      );
-    }
+      let s: Stats;
+      try {
+        s = await stat(/* turbopackIgnore: true */ await safeAbs(rel));
+      } catch (e) {
+        if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
+        throw e;
+      }
+      // 호출자가 마지막으로 본 버전일 때만 진행 — 드라이브 어댑터의 If-Match와
+      // 같은 계약이다 (경로 기반 id라 대부분의 경쟁은 NOT_FOUND로도 걸리지만,
+      // 같은 자리에서 내용이 바뀐 경우를 여기서 거른다).
+      if (entryVersion(s) !== expectedVersion) {
+        throw new StorageError(
+          "CONFLICT",
+          "다른 사람이 먼저 옮기거나 수정했습니다",
+        );
+      }
 
-    const name = path.basename(rel);
-    const newRel = joinRel(targetRel, name);
-    if (newRel === rel) return toEntry(rel, name);
-    if (
-      await stat(
-        /* turbopackIgnore: true */ await safeAbs(newRel, true),
-      ).catch(() => null)
-    ) {
-      throw conflictError();
-    }
-    try {
-      await fsRename(await safeAbs(rel), await safeAbs(newRel, true));
-    } catch (e) {
-      if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
-      throw e;
-    }
-    return toEntry(newRel, name);
+      const name = path.basename(rel);
+      const newRel = joinRel(targetRel, name);
+      if (newRel === rel) return toEntry(rel, name);
+      if (
+        await stat(
+          /* turbopackIgnore: true */ await safeAbs(newRel, true),
+        ).catch(() => null)
+      ) {
+        throw conflictError();
+      }
+      try {
+        await fsRename(await safeAbs(rel), await safeAbs(newRel, true));
+      } catch (e) {
+        if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
+        throw e;
+      }
+      return toEntry(newRel, name);
+    });
   }
 
   async remove(id: string): Promise<void> {
     const rel = idToRel(id);
     if (!rel) throw new StorageError("BAD_ID", "루트 폴더는 삭제할 수 없습니다");
     await this.ensureTrashDir();
-    let s: Stats;
-    try {
-      s = await stat(/* turbopackIgnore: true */ await safeAbs(rel));
-    } catch (e) {
-      if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
-      throw e;
-    }
-    const key = randomUUID();
-    const record: TrashRecord = {
-      key,
-      name: path.basename(rel),
-      parentRel: rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "",
-      isFolder: s.isDirectory(),
-      size: s.isDirectory() ? null : s.size,
-      deletedAt: new Date().toISOString(),
-    };
-    await this.withStateLock(TRASH_MANIFEST, async () => {
+    await withLocalMutationLock(async () => {
+      let s: Stats;
       try {
-        await fsRename(await safeAbs(rel), await this.trashItemAbs(key));
+        s = await stat(/* turbopackIgnore: true */ await safeAbs(rel));
       } catch (e) {
         if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
         throw e;
       }
-      const records = await this.readTrashRecords();
-      records.push(record);
-      await this.writeStateAtomic(
-        joinRel(STATE_DIR, TRASH_MANIFEST),
-        records,
-      );
+      const key = randomUUID();
+      const record: TrashRecord = {
+        key,
+        name: path.basename(rel),
+        parentRel: rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "",
+        isFolder: s.isDirectory(),
+        size: s.isDirectory() ? null : s.size,
+        deletedAt: new Date().toISOString(),
+      };
+      await this.withStateLock(TRASH_MANIFEST, async () => {
+        try {
+          await fsRename(await safeAbs(rel), await this.trashItemAbs(key));
+        } catch (e) {
+          if (isNoEnt(e)) throw new StorageError("NOT_FOUND", "대상이 없습니다");
+          throw e;
+        }
+        const records = await this.readTrashRecords();
+        records.push(record);
+        await this.writeStateAtomic(
+          joinRel(STATE_DIR, TRASH_MANIFEST),
+          records,
+        );
+      });
     });
   }
 
@@ -586,34 +612,39 @@ export class LocalAdapter implements StorageAdapter {
   async restore(id: string): Promise<Entry> {
     const key = trashKeyOf(id);
     await this.ensureTrashDir();
-    return this.withStateLock(TRASH_MANIFEST, async () => {
-      const records = await this.readTrashRecords();
-      const record = records.find((r) => r.key === key);
-      if (!record) {
-        throw new StorageError("NOT_FOUND", "휴지통에 없는 항목입니다");
-      }
-      // 원래 폴더가 사라졌으면 루트로 복원한다.
-      const parentOk = await stat(
-        /* turbopackIgnore: true */ await safeAbs(record.parentRel, true),
-      )
-        .then((s) => s.isDirectory())
-        .catch(() => false);
-      const destParent = parentOk ? record.parentRel : "";
-      const destRel = joinRel(destParent, record.name);
-      if (
-        await stat(
-          /* turbopackIgnore: true */ await safeAbs(destRel, true),
-        ).catch(() => null)
-      ) {
-        throw conflictError();
-      }
-      await fsRename(await this.trashItemAbs(key), await safeAbs(destRel, true));
-      await this.writeStateAtomic(
-        joinRel(STATE_DIR, TRASH_MANIFEST),
-        records.filter((r) => r.key !== key),
-      );
-      return toEntry(destRel, record.name);
-    });
+    return withLocalMutationLock(() =>
+      this.withStateLock(TRASH_MANIFEST, async () => {
+        const records = await this.readTrashRecords();
+        const record = records.find((r) => r.key === key);
+        if (!record) {
+          throw new StorageError("NOT_FOUND", "휴지통에 없는 항목입니다");
+        }
+        // 원래 폴더가 사라졌으면 루트로 복원한다.
+        const parentOk = await stat(
+          /* turbopackIgnore: true */ await safeAbs(record.parentRel, true),
+        )
+          .then((s) => s.isDirectory())
+          .catch(() => false);
+        const destParent = parentOk ? record.parentRel : "";
+        const destRel = joinRel(destParent, record.name);
+        if (
+          await stat(
+            /* turbopackIgnore: true */ await safeAbs(destRel, true),
+          ).catch(() => null)
+        ) {
+          throw conflictError();
+        }
+        await fsRename(
+          await this.trashItemAbs(key),
+          await safeAbs(destRel, true),
+        );
+        await this.writeStateAtomic(
+          joinRel(STATE_DIR, TRASH_MANIFEST),
+          records.filter((r) => r.key !== key),
+        );
+        return toEntry(destRel, record.name);
+      }),
+    );
   }
 
   async purge(id: string, expectedVersion: string): Promise<string> {
@@ -751,6 +782,76 @@ export class LocalAdapter implements StorageAdapter {
     };
   }
 
+  async replaceContent(
+    id: string,
+    expectedVersion: string,
+    mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry> {
+    await this.ensureRoot();
+    if (!expectedVersion || expectedVersion.length > 1024) {
+      throw new StorageError("BAD_ID", "잘못된 파일 버전입니다");
+    }
+    if (!mimeType || mimeType.length > 255 || /[\r\n\0]/.test(mimeType)) {
+      throw new StorageError("BAD_ID", "잘못된 파일 형식입니다");
+    }
+    const rel = idToRel(id);
+    if (!rel) {
+      throw new StorageError("BAD_ID", "루트 폴더는 수정할 수 없습니다");
+    }
+    await this.ensureStateDir();
+    return withLocalMutationLock(async () => {
+      const abs = await safeAbs(rel);
+      let before: Stats;
+      try {
+        before = await stat(/* turbopackIgnore: true */ abs);
+      } catch (error) {
+        if (isNoEnt(error)) {
+          throw new StorageError("NOT_FOUND", "파일이 없습니다");
+        }
+        throw error;
+      }
+      if (!before.isFile()) {
+        throw new StorageError("BAD_ID", "파일이 아닙니다");
+      }
+      if (entryVersion(before) !== expectedVersion) {
+        throw new StorageError("CONFLICT", "다른 사람이 먼저 파일을 수정했습니다");
+      }
+
+      const tempRel = joinRel(STATE_DIR, `.content-${randomUUID()}`);
+      const tempAbs = await safeAbs(tempRel, true, true);
+      try {
+        await pipeline(
+          Readable.fromWeb(data as import("node:stream/web").ReadableStream),
+          createWriteStream(tempAbs, { flags: "wx" }),
+        );
+        // ShareDesk 밖에서 파일이 바뀌는 경우도 교체 직전에 다시 거른다.
+        let current: Stats;
+        try {
+          current = await stat(/* turbopackIgnore: true */ abs);
+        } catch (error) {
+          if (isNoEnt(error)) {
+            throw new StorageError(
+              "CONFLICT",
+              "다른 사람이 먼저 파일을 수정했습니다",
+            );
+          }
+          throw error;
+        }
+        if (!current.isFile() || entryVersion(current) !== expectedVersion) {
+          throw new StorageError(
+            "CONFLICT",
+            "다른 사람이 먼저 파일을 수정했습니다",
+          );
+        }
+        await fsRename(tempAbs, abs);
+      } finally {
+        await rm(tempAbs, { force: true }).catch(() => {});
+      }
+      return toEntry(rel, path.basename(rel));
+    });
+  }
+
   async upload(
     parentId: string,
     name: string,
@@ -760,23 +861,25 @@ export class LocalAdapter implements StorageAdapter {
     await this.ensureRoot();
     const clean = assertUserName(name);
     const parentRel = idToRel(parentId);
-    const parentStat = await stat(
-      /* turbopackIgnore: true */ await safeAbs(parentRel),
-    ).catch(() => null);
-    if (!parentStat?.isDirectory())
-      throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
     const childRel = joinRel(parentRel, clean);
-    // 기존 파일을 말없이 덮어쓰지 않는다 (wx: 존재하면 EEXIST).
-    try {
-      await pipeline(
-        Readable.fromWeb(data as import("node:stream/web").ReadableStream),
-        createWriteStream(await safeAbs(childRel, true), { flags: "wx" }),
-      );
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException)?.code === "EEXIST") throw conflictError();
-      throw e;
-    }
-    return toEntry(childRel, clean);
+    return withLocalMutationLock(async () => {
+      const parentStat = await stat(
+        /* turbopackIgnore: true */ await safeAbs(parentRel),
+      ).catch(() => null);
+      if (!parentStat?.isDirectory())
+        throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
+      // 기존 파일을 말없이 덮어쓰지 않는다 (wx: 존재하면 EEXIST).
+      try {
+        await pipeline(
+          Readable.fromWeb(data as import("node:stream/web").ReadableStream),
+          createWriteStream(await safeAbs(childRel, true), { flags: "wx" }),
+        );
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException)?.code === "EEXIST") throw conflictError();
+        throw e;
+      }
+      return toEntry(childRel, clean);
+    });
   }
 
   async createUploadSession(): Promise<UploadSession> {

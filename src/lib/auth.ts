@@ -5,6 +5,7 @@
 // 이미 발급된 세션이 만료까지 살아남는다 — 이 제품에서 실제로 겪은 결함이다(#1).
 // 그래서 만료는 길게 두고(90일), 끊는 책임은 명단 조회가 진다.
 
+import { randomUUID } from "node:crypto";
 import { findUserById, isAdminEmail, type User } from "@/lib/users";
 import {
   Payload,
@@ -23,6 +24,8 @@ export interface SessionInfo {
   name: string;
   isAdmin: boolean;
   isGuest: boolean;
+  presenceParticipantId: string;
+  presenceLeaseId: string;
 }
 
 export interface IdentityInfo {
@@ -73,10 +76,14 @@ function userClaimsAreCurrent(
   return true;
 }
 
-export async function createKeySession(keyHash: string): Promise<string> {
+export async function createKeySession(
+  keyHash: string,
+  sessionId = randomUUID(),
+): Promise<string> {
   const payload: Payload = {
     t: "key",
     k: keyHash.slice(0, 32),
+    sid: sessionId,
     iat: Math.floor(Date.now() / 1000),
   };
   return signPayload(payload);
@@ -103,6 +110,9 @@ export async function resolveSession(
       // 저장소의 users.json이 어떤 이유로든 바뀌어도 권한이 따라 올라가지 않는다.
       isAdmin: isAdminEmail(user.email),
       isGuest: false,
+      presenceParticipantId: `user:${user.id}`,
+      presenceLeaseId:
+        claims.sid ?? `legacy:${(await sha256Hex(token ?? "")).slice(0, 32)}`,
     };
   }
 
@@ -115,6 +125,11 @@ export async function resolveSession(
         name: "손님",
         isAdmin: false,
         isGuest: true,
+        presenceParticipantId: `guest:${
+          claims.sid ?? (await sha256Hex(token ?? "")).slice(0, 32)
+        }`,
+        presenceLeaseId:
+          claims.sid ?? `legacy:${(await sha256Hex(token ?? "")).slice(0, 32)}`,
       };
     }
   }

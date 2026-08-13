@@ -11,13 +11,14 @@ test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들�
   assert.match(source, /href="\/api\/auth\/google"/);
   assert.match(
     source,
-    /Google 계정으로 먼저 로그인[\s\S]*?처음 이용하는 분은[\s\S]*?로그인 후[\s\S]*?초대 코드를 입력합니다/,
+    /호스트의 Google Drive 저장 공간[\s\S]*?여러 사람이 함께[\s\S]*?내 Google 계정으로[\s\S]*?초대 코드를 입력/,
   );
   assert.match(source, /Google로 계속하기/);
   assert.match(source, /resolveIdentity/);
   assert.match(source, /identity\?\.status === "pending"[\s\S]*?redirect\("\/join"\)/);
-  assert.match(source, /내 ShareDesk 만들기/);
-  assert.match(source, /내[\s\S]*?별도 배포와 Google Drive를 쓰는 독립된 데스크/);
+  assert.match(source, /호스트 설치 안내/);
+  assert.match(source, /내 Google Drive 용량[\s\S]*?여러 사람과 함께/);
+  assert.match(source, /참여자라면 GitHub,[\s\S]*?Vercel, OAuth 설정 없이/);
   assert.match(
     source,
     /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/INSTALL\.md/,

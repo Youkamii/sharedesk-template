@@ -1,0 +1,155 @@
+import { errorResponse, requireSession } from "@/lib/api";
+import {
+  leavePresenceGroup,
+  listPresence,
+  presenceTabLeaseId,
+  type PresenceTransferInput,
+  touchPresence,
+} from "@/lib/presence";
+import { StorageError } from "@/lib/storage/types";
+
+const MAX_PRESENCE_BODY_BYTES = 512 * 1024;
+
+class PresenceBodyTooLargeError extends Error {}
+
+function noStoreJson(value: unknown): Response {
+  return Response.json(value, {
+    headers: { "Cache-Control": "private, no-store" },
+  });
+}
+
+export async function GET() {
+  const auth = await requireSession();
+  if ("response" in auth) return auth.response;
+  try {
+    return noStoreJson(
+      await listPresence(auth.session.presenceParticipantId),
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+interface PresenceUpdate {
+  tabId?: string;
+  transfers?: PresenceTransferInput[];
+}
+
+async function readTextWithinLimit(request: Request): Promise<string> {
+  const reader = request.body?.getReader();
+  const cancelReader = async () => {
+    if (!reader) return;
+    await reader.cancel("presence body limit exceeded").catch(() => undefined);
+  };
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength)) {
+      await cancelReader();
+      throw new StorageError("BAD_ID", "잘못된 요청입니다");
+    }
+    const declaredBytes = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declaredBytes) ||
+      declaredBytes > MAX_PRESENCE_BODY_BYTES
+    ) {
+      await cancelReader();
+      throw new PresenceBodyTooLargeError();
+    }
+  }
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytesRead += chunk.value.byteLength;
+      if (bytesRead > MAX_PRESENCE_BODY_BYTES) {
+        await cancelReader();
+        throw new PresenceBodyTooLargeError();
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function readUpdate(
+  request: Request,
+): Promise<PresenceUpdate> {
+  const text = await readTextWithinLimit(request);
+  if (!text) return {};
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new StorageError("BAD_ID", "잘못된 요청입니다");
+  }
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    !("tabId" in body) ||
+    !("transfers" in body)
+  ) {
+    throw new StorageError("BAD_ID", "잘못된 요청입니다");
+  }
+  const update = body as { tabId: unknown; transfers: PresenceTransferInput[] };
+  if (typeof update.tabId !== "string") {
+    throw new StorageError("BAD_ID", "잘못된 요청입니다");
+  }
+  return { tabId: update.tabId, transfers: update.transfers };
+}
+
+export async function POST(request: Request) {
+  const auth = await requireSession();
+  if ("response" in auth) return auth.response;
+  try {
+    const update = await readUpdate(request);
+    const leaseId =
+      update.tabId === undefined
+        ? auth.session.presenceLeaseId
+        : presenceTabLeaseId(auth.session.presenceLeaseId, update.tabId);
+    return noStoreJson(
+      await touchPresence({
+        participantId: auth.session.presenceParticipantId,
+        leaseId,
+        name: auth.session.name,
+        ...(update.transfers === undefined
+          ? {}
+          : { transfers: update.transfers }),
+      }),
+    );
+  } catch (error) {
+    if (error instanceof PresenceBodyTooLargeError) {
+      return Response.json(
+        { error: "요청 본문이 너무 큽니다" },
+        {
+          status: 413,
+          headers: { "Cache-Control": "private, no-store" },
+        },
+      );
+    }
+    return errorResponse(error);
+  }
+}
+
+export async function DELETE() {
+  const auth = await requireSession();
+  if ("response" in auth) return auth.response;
+  try {
+    return noStoreJson(
+      await leavePresenceGroup({
+        participantId: auth.session.presenceParticipantId,
+        leaseId: auth.session.presenceLeaseId,
+        name: auth.session.name,
+      }),
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}

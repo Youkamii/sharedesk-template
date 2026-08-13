@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ShareDesk 최초 설정 — 주인 1회 실행.
 // OAuth 동의 → refresh token 획득 → 드라이브에 루트 폴더 생성 → .env.local 기록.
-// 브라우저를 자동으로 열지 않는다: URL을 출력하면 사용자가 직접 연다.
+// 브라우저 자동 열기는 편의 기능이다. 실패해도 URL 출력과 2단계 finish 흐름을 유지한다.
 
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -46,7 +46,9 @@ export const REFRESH_TOKEN_RECOVERY_GUIDANCE =
   "refresh_token을 받지 못했습니다. 기존 연결과 Audience 상태를 먼저 확인하세요. 새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만 https://myaccount.google.com/permissions 에서 이 앱 권한을 제거한 뒤 다시 실행하세요.";
 export const GOOGLE_AUTH_PLATFORM_GUIDANCE = [
   "Google Cloud 설정과 운영 배포 순서는 docs/INSTALL.md를 따르세요.",
-  "먼저 npm run setup -- --prepare-env를 실행한 뒤 .env.local에 Client ID와 Client secret을 직접 입력합니다.",
+  ".env.local이 없으면 npm run setup이 안전하게 자동 준비합니다.",
+  ".env.local에 Client ID와 Client secret을 직접 입력한 뒤 npm run setup을 다시 실행하세요.",
+  "환경 파일만 미리 준비하려면 기존 npm run setup -- --prepare-env도 그대로 사용할 수 있습니다.",
   "설치 문서에는 Drive API, Branding, Audience, Data Access, Clients와 아래 redirect URI가 정리돼 있습니다:",
   `  ${REDIRECT}`,
   "  http://localhost:3000/api/auth/google/callback",
@@ -54,10 +56,11 @@ export const GOOGLE_AUTH_PLATFORM_GUIDANCE = [
   "비밀값이나 callback URL은 채팅, 이슈, 스크린샷에 공유하지 마세요.",
 ].join("\n");
 export const SETUP_COMPLETION_NEXT_STEPS = [
-  "이 setup은 이 저장소와 배포에 연결되는 독립 ShareDesk 하나를 준비했습니다.",
+  "호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓸 ShareDesk를 준비했습니다.",
   "다음은 docs/INSTALL.md의 'Vercel Production 환경 변수와 재배포' 단계부터 이어서 진행하세요.",
-  "비밀값을 Production 환경에 안전하게 옮긴 뒤 재배포하고, Firewall과 운영 로그인을 실제로 확인해야 설치가 끝납니다.",
-  "사람 초대와 별도 데스크 설치의 차이는 README의 '사람 초대하기'를 참고하세요.",
+  "비밀값을 Production 환경에 안전하게 옮긴 뒤 재배포하고, 운영 로그인과 파일 저장을 실제로 확인하세요.",
+  "작동을 확인하면 /admin에서 초대 코드를 만들어 한 사람을 초대하고, 두 계정에서 같은 파일이 보이는지 확인하세요.",
+  "Vercel Firewall은 기능 확인이 끝난 뒤 초대 코드 요청을 보호하는 운영 단계에서 설정합니다.",
 ].join("\n");
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const STATE_DIR = ".sharedesk";
@@ -107,6 +110,44 @@ function runWindowsCommand(executable, args) {
 function windowsExecutable(name) {
   const windowsRoot = process.env.SystemRoot || process.env.windir || "C:\\Windows";
   return path.join(windowsRoot, "System32", name);
+}
+
+export function browserOpenCommand(
+  url,
+  platform = process.platform,
+  environment = process.env,
+) {
+  if (platform === "win32") {
+    const windowsRoot = environment.SystemRoot || environment.windir || "C:\\Windows";
+    return {
+      executable: path.join(windowsRoot, "System32", "rundll32.exe"),
+      args: ["url.dll,FileProtocolHandler", url],
+    };
+  }
+  if (platform === "darwin") {
+    return { executable: "open", args: [url] };
+  }
+  if (platform === "linux") {
+    return { executable: "xdg-open", args: [url] };
+  }
+  return null;
+}
+
+export function openBrowser(url, execFileImpl = execFile) {
+  const command = browserOpenCommand(url);
+  if (!command) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    try {
+      execFileImpl(
+        command.executable,
+        command.args,
+        { windowsHide: true, timeout: 5_000 },
+        (error) => resolve(!error),
+      );
+    } catch {
+      resolve(false);
+    }
+  });
 }
 
 let windowsUserSidPromise;
@@ -601,11 +642,16 @@ async function main() {
     return;
   }
 
-  let raw = "";
-  if (existsSync(ENV_PATH)) {
-    await protectPrivateFile(ENV_PATH);
-    raw = await readFile(ENV_PATH, "utf8");
+  if (!existsSync(ENV_PATH)) {
+    await prepareEnvFile();
+    console.log(
+      ".env.local이 없어 소유자 전용 권한으로 자동 준비했습니다.",
+    );
   }
+
+  let raw = "";
+  await protectPrivateFile(ENV_PATH);
+  raw = await readFile(ENV_PATH, "utf8");
   const fileEnv = parseEnv(raw);
   const get = (k) => fileEnv[k] || process.env[k] || "";
 
@@ -655,7 +701,13 @@ async function main() {
       JSON.stringify({ state, codeVerifier, createdAt: Date.now() }, null, 2),
     );
 
-    console.log("1) 아래 URL을 브라우저에서 열어 구글 계정으로 로그인하고 동의하세요:\n");
+    const browserOpened = await openBrowser(authUrl);
+    console.log(
+      browserOpened
+        ? "1) Google 인증 페이지를 기본 브라우저에서 열었습니다."
+        : "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.",
+    );
+    console.log("브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:\n");
     console.log(authUrl + "\n");
     console.log(CALLBACK_URL_SECURITY_WARNING + "\n");
     console.log("2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서");
