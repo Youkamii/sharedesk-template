@@ -8,14 +8,14 @@ test("README는 설치 문서로 짧게 안내하고 데스크 생성과 참여�
   const readme = await readFile(new URL("README.md", root), "utf8");
   const opening = readme.slice(0, readme.indexOf("## 주요 기능"));
   const createDeskSection = readme.slice(
-    readme.indexOf("## 내 ShareDesk 만들기"),
+    readme.indexOf("## 새 ShareDesk의 호스트가 되기"),
     readme.indexOf("## 주요 기능"),
   );
 
-  assert.match(opening, /내 ShareDesk 만들기/);
-  assert.match(opening, /다른 사람의 ShareDesk에 참여하기/);
-  assert.match(opening, /Google 계정으로 로그인한 뒤 호스트가 공유한 기간제 초대 코드/);
-  assert.match(opening, /OAuth나 Vercel 설정은 필요 없습니다/);
+  assert.match(opening, /호스트 한 사람의[\s\S]*?Google Drive 저장 공간을 여러 사람이 함께/);
+  assert.match(opening, /이미 만들어진 ShareDesk에 참여하기/);
+  assert.match(opening, /호스트가 보낸 주소에서 내 Google 계정으로 로그인/);
+  assert.match(opening, /GitHub, Vercel, OAuth 설정은 필요 없습니다/);
   assert.match(readme, /\[설치 안내\]\(\.\/docs\/INSTALL\.md\)/);
   assert.match(readme, /https:\/\/github\.com\/Youkamii\/sharedesk-template\/generate/);
   assert.match(readme, /https:\/\/vercel\.com\/new\/clone\?repository-url=/);
@@ -79,18 +79,17 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   ]);
   assert.match(oauthSection, /Authorized JavaScript origins`: 비워 둠/);
 
-  const prepareIndex = install.indexOf("npm run setup -- --prepare-env");
-  const setupOffset = install.slice(prepareIndex).search(/^npm run setup\r?$/m);
-  const setupIndex = setupOffset < 0 ? -1 : prepareIndex + setupOffset;
+  const setupIndex = install.search(/^npm run setup\r?$/m);
+  const prepareIndex = install.indexOf("npm run setup -- --prepare-env", setupIndex);
   const finishIndex = install.indexOf("npm run setup -- --finish", setupIndex);
   assert.ok(
-    prepareIndex >= 0 && prepareIndex < setupIndex && setupIndex < finishIndex,
-    "setup 명령은 prepare-env, setup, finish 순서여야 합니다.",
+    setupIndex >= 0 && setupIndex < prepareIndex && prepareIndex < finishIndex,
+    "bare setup이 먼저 나오고 prepare-env 호환 안내와 finish가 뒤를 따라야 합니다.",
   );
 
   const productionSection = install.slice(
     install.indexOf("## 6. Vercel Production 환경 변수와 재배포"),
-    install.indexOf("## 7. 초대 코드 요청 제한"),
+    install.indexOf("## 7. 운영 확인"),
   );
   const productionTable = productionSection.slice(
     productionSection.indexOf("| 이름 | 값 |"),
@@ -112,12 +111,25 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   ]);
   assert.match(productionSection, /LOCAL_STORAGE_ROOT.*운영 환경에 넣지 않습니다/);
   assert.match(productionSection, /SHAREDESK_SHARE_TEST_EMAIL.*운영 환경에 넣지 않습니다/);
-  assert.match(install, /이 단계에서는 Client ID와 Client secret을 `.env\.local`에 입력합니다/);
-  assert.match(install, /운영 배포에는 6단계에서 Vercel Production 환경 변수로 옮깁니다/);
+  assert.match(oauthSection, /Client ID와 Client secret을 안전하게 기록해 두세요/);
+  assert.doesNotMatch(oauthSection, /`.env\.local`에.*입력/);
+
+  const envInputInstruction = "`.env.local`에 다음 두 값을 직접 입력합니다.";
+  const cloneIndex = install.indexOf("git clone https://github.com/<내-GitHub-계정>/my-sharedesk.git");
+  const envInputIndex = install.indexOf(envInputInstruction);
+  assert.ok(
+    cloneIndex >= 0 && cloneIndex < envInputIndex,
+    ".env.local 입력 안내는 저장소를 clone한 뒤에 나와야 합니다.",
+  );
+  assert.equal(
+    install.split(envInputInstruction).length - 1,
+    1,
+    ".env.local 직접 입력 안내는 한 곳에만 있어야 합니다.",
+  );
 
   const firewallSection = install.slice(
-    install.indexOf("## 7. 초대 코드 요청 제한"),
-    install.indexOf("## 8. 운영 확인"),
+    install.indexOf("## 8. 작동 확인 뒤 운영 보호"),
+    install.indexOf("## 문제 해결"),
   );
   assert.match(firewallSection, /Request Path` equals `\/api\/invitations\/code`/);
   assert.match(firewallSection, /Method` equals `POST`/);
@@ -127,8 +139,8 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   assert.match(firewallSection, /`60초`에 `10회`/);
 
   const verificationSection = install.slice(
-    install.indexOf("## 8. 운영 확인"),
-    install.indexOf("## 문제 해결"),
+    install.indexOf("## 7. 운영 확인"),
+    install.indexOf("## 8. 작동 확인 뒤 운영 보호"),
   );
   assert.match(verificationSection, /호스트 Google 계정으로 로그인/);
   assert.match(verificationSection, /`\/files`에서 테스트 폴더를 만들고 새로고침 뒤에도 남는지/);
@@ -139,6 +151,14 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   assert.match(verificationSection, /열린 창과 겹칠 때 창 뒤로 가려지는지/);
   assert.match(verificationSection, /`\/admin`이 열리는지/);
   assert.match(verificationSection, /1회용[\s\S]*기간 내 무제한/);
+  assert.match(verificationSection, /초대 코드를 하나 만들고[\s\S]*한 사람/);
+  assert.match(verificationSection, /두 계정에서 같은 파일/);
+
+  const roleGate = install.slice(0, install.indexOf("## 설치 완료 기준"));
+  assert.match(roleGate, /## 먼저, 내 역할은 무엇인가요/);
+  assert.match(roleGate, /참여자[\s\S]*?이 문서를 따라 설치하지 마세요/);
+  assert.match(roleGate, /GitHub 계정, Vercel 프로젝트, Google OAuth 클라이언트는 필요 없습니다/);
+  assert.match(roleGate, /## 호스트용 빠른 길/);
 
   assert.match(install, /이미 끝난 단계는 반복하지 않습니다/);
   assert.match(install, /기존 OAuth 클라이언트, Audience 상태, refresh token, Drive ID를 추측으로 바꾸거나 폐기하지 않습니다/);
