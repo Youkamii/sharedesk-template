@@ -31,6 +31,8 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
       leavePresence,
       listPresence,
       PRESENCE_ACTIVE_MS,
+      PRESENCE_MAX_TABS_PER_SESSION,
+      PRESENCE_MAX_TRANSFERS_PER_PARTICIPANT,
       PRESENCE_TRANSFER_ACTIVE_MS,
       presenceTabLeaseId,
       touchPresence,
@@ -328,6 +330,90 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
     );
     assert.ok(!allTabsLeft.members.some((member) => member.isSelf));
 
+    const cappedSessionLease = "capped-session-lease";
+    for (let index = 0; index < PRESENCE_MAX_TABS_PER_SESSION + 3; index += 1) {
+      await touchPresence(
+        {
+          participantId: "user:capped-tabs",
+          leaseId: presenceTabLeaseId(
+            cappedSessionLease,
+            `tab_cap_${String(index).padStart(2, "0")}`,
+          ),
+          name: "탭 제한 사용자",
+          transfers: [
+            {
+              id: `tab-transfer-${index}`,
+              kind: "upload",
+              name: `${index}.bin`,
+              transferred: index,
+              total: 100,
+            },
+          ],
+        },
+        now + 100 + index,
+        adapter,
+      );
+    }
+    const storedAfterTabCap = JSON.parse(
+      await readFile(path.join(root, ".sharedesk", "presence.json"), "utf8"),
+    ) as {
+      leases: Array<{ participantId: string; leaseId: string }>;
+    };
+    const cappedTabLeases = storedAfterTabCap.leases.filter(
+      (lease) => lease.participantId === "user:capped-tabs",
+    );
+    assert.equal(cappedTabLeases.length, PRESENCE_MAX_TABS_PER_SESSION);
+    assert.ok(
+      cappedTabLeases.every((lease) =>
+        lease.leaseId.startsWith(`${cappedSessionLease}:tab:`),
+      ),
+    );
+    assert.ok(
+      !cappedTabLeases.some((lease) => lease.leaseId.endsWith("tab_cap_00")),
+    );
+
+    const transferLeases = Array.from({ length: 3 }, (_, leaseIndex) => ({
+      participantId: "user:transfer-cap",
+      leaseId: `transfer-cap-${leaseIndex}`,
+      name: "전송 제한 사용자",
+      lastSeenAt: now + 200 + leaseIndex,
+      transfers: Array.from({ length: 100 }, (_, transferIndex) => ({
+        id:
+          transferIndex === 0
+            ? "duplicate-transfer"
+            : `transfer-${leaseIndex}-${String(transferIndex).padStart(3, "0")}`,
+        kind: "upload",
+        name: `${leaseIndex}-${transferIndex}.bin`,
+        transferred: leaseIndex * 100 + transferIndex,
+        total: null,
+        updatedAt: now + 200 + leaseIndex,
+      })),
+    }));
+    await adapter.writeState("presence.json", {
+      version: 1,
+      leases: transferLeases,
+    });
+    const cappedTransfers = await listPresence(
+      "user:transfer-cap",
+      now + 202,
+      adapter,
+    );
+    const returnedTransfers = cappedTransfers.members[0].transfers;
+    assert.equal(
+      returnedTransfers.length,
+      PRESENCE_MAX_TRANSFERS_PER_PARTICIPANT,
+    );
+    assert.equal(
+      returnedTransfers.filter((transfer) => transfer.id === "duplicate-transfer")
+        .length,
+      1,
+    );
+    assert.equal(
+      returnedTransfers.find((transfer) => transfer.id === "duplicate-transfer")
+        ?.updatedAt,
+      now + 202,
+    );
+
     const { NextRequest } = await import("next/server");
     const { createKeySession } = await import("@/lib/auth");
     const { createRequestStoreForAPI } = await import(
@@ -351,8 +437,9 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
       handler: (request: Request) => Promise<Response>,
       authenticated = true,
       body?: unknown,
+      extraHeaders?: HeadersInit,
     ): Promise<Response> {
-      const headers = new Headers();
+      const headers = new Headers(extraHeaders);
       if (authenticated) {
         headers.set("Cookie", `sharedesk_session=${token}`);
       }
@@ -415,6 +502,53 @@ test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", as
 
     const bodylessHeartbeat = await call(route.POST);
     assert.equal(bodylessHeartbeat.status, 200);
+
+    const declaredOversize = await call(
+      route.POST,
+      true,
+      { tabId: "tab_limit_01", transfers: [] },
+      { "Content-Length": String(512 * 1024 + 1) },
+    );
+    assert.equal(declaredOversize.status, 413);
+    assert.deepEqual(await declaredOversize.json(), {
+      error: "요청 본문이 너무 큽니다",
+    });
+
+    const streamedOversize = new NextRequest("http://localhost/api/presence", {
+      method: "POST",
+      headers: {
+        Cookie: `sharedesk_session=${token}`,
+        "Content-Type": "application/json",
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(300 * 1024));
+          controller.enqueue(new Uint8Array(300 * 1024));
+          controller.close();
+        },
+      }),
+      duplex: "half",
+    });
+    const streamedRequestStore = createRequestStoreForAPI(
+      streamedOversize,
+      { pathname: "/api/presence", search: "" },
+      { tags: [], expirationsByCacheKind: new Map() },
+      undefined,
+      undefined,
+      undefined,
+    );
+    const streamedWorkStore = {
+      route: "/api/presence",
+      forceStatic: false,
+    } as unknown as WorkStore;
+    const streamedOversizeResponse = await workAsyncStorage.run(
+      streamedWorkStore,
+      () =>
+        workUnitAsyncStorage.run(streamedRequestStore, () =>
+          route.POST(streamedOversize),
+        ),
+    );
+    assert.equal(streamedOversizeResponse.status, 413);
 
     const heartbeat = await call(route.POST, true, {
       tabId: "tab_route_01",

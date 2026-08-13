@@ -8,6 +8,10 @@ import {
 } from "@/lib/presence";
 import { StorageError } from "@/lib/storage/types";
 
+const MAX_PRESENCE_BODY_BYTES = 512 * 1024;
+
+class PresenceBodyTooLargeError extends Error {}
+
 function noStoreJson(value: unknown): Response {
   return Response.json(value, {
     headers: { "Cache-Control": "private, no-store" },
@@ -31,10 +35,53 @@ interface PresenceUpdate {
   transfers?: PresenceTransferInput[];
 }
 
+async function readTextWithinLimit(request: Request): Promise<string> {
+  const reader = request.body?.getReader();
+  const cancelReader = async () => {
+    if (!reader) return;
+    await reader.cancel("presence body limit exceeded").catch(() => undefined);
+  };
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^\d+$/.test(contentLength)) {
+      await cancelReader();
+      throw new StorageError("BAD_ID", "잘못된 요청입니다");
+    }
+    const declaredBytes = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declaredBytes) ||
+      declaredBytes > MAX_PRESENCE_BODY_BYTES
+    ) {
+      await cancelReader();
+      throw new PresenceBodyTooLargeError();
+    }
+  }
+  if (!reader) return "";
+
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytesRead += chunk.value.byteLength;
+      if (bytesRead > MAX_PRESENCE_BODY_BYTES) {
+        await cancelReader();
+        throw new PresenceBodyTooLargeError();
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 async function readUpdate(
   request: Request,
 ): Promise<PresenceUpdate> {
-  const text = await request.text();
+  const text = await readTextWithinLimit(request);
   if (!text) return {};
   let body: unknown;
   try {
@@ -78,6 +125,15 @@ export async function POST(request: Request) {
       }),
     );
   } catch (error) {
+    if (error instanceof PresenceBodyTooLargeError) {
+      return Response.json(
+        { error: "요청 본문이 너무 큽니다" },
+        {
+          status: 413,
+          headers: { "Cache-Control": "private, no-store" },
+        },
+      );
+    }
     return errorResponse(error);
   }
 }

@@ -19,6 +19,8 @@ const CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
 export const PRESENCE_ACTIVE_MS = 90 * 1_000;
 export const PRESENCE_TRANSFER_ACTIVE_MS = 15 * 1_000;
+export const PRESENCE_MAX_TABS_PER_SESSION = 16;
+export const PRESENCE_MAX_TRANSFERS_PER_PARTICIPANT = 100;
 
 const TAB_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -215,15 +217,81 @@ function normalize(raw: unknown): PresenceFile {
   return { version: FILE_VERSION, leases: [...latestByLease.values()] };
 }
 
-function activeLeases(file: PresenceFile, now: number): PresenceLease[] {
+function tabLeaseGroup(leaseId: string): string | null {
+  const marker = leaseId.lastIndexOf(":tab:");
+  if (marker <= 0 || !TAB_ID_PATTERN.test(leaseId.slice(marker + 5))) {
+    return null;
+  }
+  return leaseId.slice(0, marker);
+}
+
+function activeLeases(
+  file: PresenceFile,
+  now: number,
+  preferredLeaseId?: string,
+): PresenceLease[] {
   const cutoff = now - PRESENCE_ACTIVE_MS;
+  const tabLeaseCounts = new Map<string, number>();
   return file.leases
     .filter(
       (entry) =>
         entry.lastSeenAt >= cutoff && entry.lastSeenAt <= now + CLOCK_SKEW_MS,
     )
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+    .sort((a, b) => {
+      const byTime = b.lastSeenAt - a.lastSeenAt;
+      if (byTime !== 0) return byTime;
+      if (a.leaseId === preferredLeaseId) return -1;
+      if (b.leaseId === preferredLeaseId) return 1;
+      return a.leaseId.localeCompare(b.leaseId, "en");
+    })
+    .filter((lease) => {
+      const group = tabLeaseGroup(lease.leaseId);
+      if (!group) return true;
+      const count = tabLeaseCounts.get(group) ?? 0;
+      if (count >= PRESENCE_MAX_TABS_PER_SESSION) return false;
+      tabLeaseCounts.set(group, count + 1);
+      return true;
+    })
     .slice(0, MAX_ACTIVE_LEASES);
+}
+
+function transferIsNewer(
+  candidate: PresenceTransfer,
+  current: PresenceTransfer,
+) {
+  if (candidate.updatedAt !== current.updatedAt) {
+    return candidate.updatedAt > current.updatedAt;
+  }
+  if (candidate.transferred !== current.transferred) {
+    return candidate.transferred > current.transferred;
+  }
+  return candidate.id.localeCompare(current.id, "en") < 0;
+}
+
+function addLatestTransfer(
+  transfers: Map<string, PresenceTransfer>,
+  candidate: PresenceTransfer,
+) {
+  const duplicate = transfers.get(candidate.id);
+  if (duplicate) {
+    if (transferIsNewer(candidate, duplicate)) {
+      transfers.set(candidate.id, candidate);
+    }
+    return;
+  }
+  if (transfers.size < PRESENCE_MAX_TRANSFERS_PER_PARTICIPANT) {
+    transfers.set(candidate.id, candidate);
+    return;
+  }
+
+  let oldest: PresenceTransfer | null = null;
+  for (const current of transfers.values()) {
+    if (!oldest || transferIsNewer(oldest, current)) oldest = current;
+  }
+  if (oldest && transferIsNewer(candidate, oldest)) {
+    transfers.delete(oldest.id);
+    transfers.set(candidate.id, candidate);
+  }
 }
 
 function snapshot(
@@ -233,7 +301,7 @@ function snapshot(
 ): PresenceSnapshot {
   const participants = new Map<
     string,
-    { latest: PresenceLease; transfers: PresenceTransfer[] }
+    { latest: PresenceLease; transfers: Map<string, PresenceTransfer> }
   >();
   const transferCutoff = now - PRESENCE_TRANSFER_ACTIVE_MS;
   for (const lease of activeLeases(file, now)) {
@@ -244,11 +312,17 @@ function snapshot(
     );
     const participant = participants.get(lease.participantId);
     if (participant) {
-      participant.transfers.push(...currentTransfers);
+      currentTransfers.forEach((transfer) =>
+        addLatestTransfer(participant.transfers, transfer),
+      );
     } else {
+      const transfers = new Map<string, PresenceTransfer>();
+      currentTransfers.forEach((transfer) =>
+        addLatestTransfer(transfers, transfer),
+      );
       participants.set(lease.participantId, {
         latest: lease,
-        transfers: currentTransfers,
+        transfers,
       });
     }
   }
@@ -262,8 +336,9 @@ function snapshot(
     members: active.map(([participantId, participant]) => ({
       name: participant.latest.name,
       isSelf: participantId === selfParticipantId,
-      transfers: participant.transfers.sort(
-        (a, b) => b.updatedAt - a.updatedAt,
+      transfers: [...participant.transfers.values()].sort(
+        (a, b) =>
+          b.updatedAt - a.updatedAt || a.id.localeCompare(b.id, "en"),
       ),
     })),
     activeWindowMs: PRESENCE_ACTIVE_MS,
@@ -320,9 +395,11 @@ async function mutatePresence(
     }
     const next: PresenceFile = {
       version: FILE_VERSION,
-      leases: leases
-        .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
-        .slice(0, MAX_ACTIVE_LEASES),
+      leases: activeLeases(
+        { version: FILE_VERSION, leases },
+        now,
+        keepSelf ? clean.leaseId : undefined,
+      ),
     };
     try {
       await adapter.compareAndSwapState(FILE, next, before.version);
