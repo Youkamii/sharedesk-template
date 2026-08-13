@@ -302,10 +302,9 @@ test("레이아웃 저장은 폴더 식별값을 보내고 닫힌 창의 이전 
 });
 
 test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이콘으로 연다", async () => {
-  const [source, css, readme] = await Promise.all([
+  const [source, css] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
-    readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 
   const launcherIndex = source.indexOf('data-drop-trash="true"');
@@ -330,7 +329,6 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.match(launcherStyle, /bottom: 76px;/);
   assert.match(launcherStyle, /z-index: 10;/);
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
-  assert.match(readme, /휴지통 아이콘은 작업표시줄이 아닌 화면 오른쪽 아래에 고정/);
 });
 
 test("작업표시줄 업로드 버튼은 없고 아이콘을 휴지통에 놓으면 실제 삭제 요청을 보낸다", async () => {

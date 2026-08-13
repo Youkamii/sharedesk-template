@@ -4,44 +4,33 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("README는 설치 문서로 짧게 안내하고 데스크 생성과 참여를 구분한다", async () => {
+test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 나눈다", async () => {
   const readme = await readFile(new URL("README.md", root), "utf8");
-  const opening = readme.slice(0, readme.indexOf("## 주요 기능"));
-  const createDeskSection = readme.slice(
-    readme.indexOf("## 새 ShareDesk의 호스트가 되기"),
-    readme.indexOf("## 주요 기능"),
-  );
 
-  assert.match(opening, /호스트 한 사람의[\s\S]*?Google Drive 저장 공간을 여러 사람이 함께/);
-  assert.match(opening, /이미 만들어진 ShareDesk에 참여하기/);
-  assert.match(opening, /호스트가 보낸 주소에서 내 Google 계정으로 로그인/);
-  assert.match(opening, /GitHub, Vercel, OAuth 설정은 필요 없습니다/);
-  assert.match(readme, /\[설치 안내\]\(\.\/docs\/INSTALL\.md\)/);
-  assert.match(readme, /https:\/\/github\.com\/Youkamii\/sharedesk-template\/generate/);
-  assert.match(readme, /https:\/\/vercel\.com\/new\/clone\?repository-url=/);
-  assert.match(readme, /새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만/);
-
-  assert.match(createDeskSection, /docs\/INSTALL\.md를 처음부터 끝까지 읽고/);
-  assert.match(createDeskSection, /현재 상태를 확인해 끝난 단계는 반복하지 말고/);
-  assert.match(createDeskSection, /문서에 표시된 사용자 조작 단계/);
-  assert.ok(
-    createDeskSection.length < 2_000,
-    "README의 설치 진입부는 상세 체크리스트가 아니라 짧은 요청이어야 합니다.",
-  );
-
-  for (const duplicatedDetail of [
-    "Google Auth Platform → Branding",
-    "npm run setup -- --finish",
-    "Request Path equals",
-    "GOOGLE_REFRESH_TOKEN을 Production",
-  ]) {
-    assert.doesNotMatch(createDeskSection, new RegExp(duplicatedDetail));
-  }
-  assert.doesNotMatch(readme, /^# 운영 설치$/m);
-  assert.doesNotMatch(
+  assert.match(
     readme,
-    /Youkamii\/sharedesk-template 원본 저장소|제작자의 Vercel 프로젝트|원본 저장소나 다른 사람의 프로젝트 변경은 허용하지 않는다/,
+    /한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 공유 파일 공간/,
   );
+  assert.match(readme, /호스트만 처음에 한 번 설치/);
+  assert.match(readme, /참여자는 어떤 설치도 하지 않습니다/);
+  assert.match(readme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
+  assert.match(readme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
+  assert.match(readme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
+  assert.ok(
+    readme.length < 4_500,
+    "README는 상세 사용 설명서가 아니라 사람이 빠르게 읽는 제품 소개여야 합니다.",
+  );
+
+  for (const movedDetail of [
+    "npm run",
+    "GOOGLE_CLIENT_ID",
+    "Deploy with Vercel",
+    "Google Auth Platform",
+    "문제 해결",
+    "환경 변수",
+  ]) {
+    assert.doesNotMatch(readme, new RegExp(movedDetail));
+  }
 });
 
 test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
@@ -53,10 +42,8 @@ test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지�
 
   assert.match(
     readme,
-    /!\[오른쪽 아래에 고정된 휴지통과 열린 폴더 창이 보이는 ShareDesk 바탕화면\]\(\.\/docs\/sharedesk-desktop\.png\)/,
+    /!\[ShareDesk 공유 바탕화면\]\(\.\/docs\/sharedesk-desktop\.png\)/,
   );
-  assert.match(readme, /작업표시줄 버튼이 아니라 바탕화면에 따로 고정/);
-  assert.match(readme, /열린 창보다 뒤에 놓여 작업 중인 창을 가리지 않습니다/);
   assert.match(design, /화면 오른쪽 아래에 고정하고 작업표시줄에는 넣지 않는다/);
   assert.match(design, /작업표시줄에는 휴지통 버튼을 두지 않는다/);
 
@@ -66,7 +53,10 @@ test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지�
 });
 
 test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한곳에 둔다", async () => {
-  const install = await readFile(new URL("docs/INSTALL.md", root), "utf8");
+  const [install, aiGuide] = await Promise.all([
+    readFile(new URL("docs/INSTALL.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
+  ]);
 
   const oauthSection = install.slice(
     install.indexOf("### 2-5. Web application OAuth 클라이언트"),
@@ -160,8 +150,11 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   assert.match(roleGate, /GitHub 계정, Vercel 프로젝트, Google OAuth 클라이언트는 필요 없습니다/);
   assert.match(roleGate, /## 호스트용 빠른 길/);
 
-  assert.match(install, /이미 끝난 단계는 반복하지 않습니다/);
-  assert.match(install, /기존 OAuth 클라이언트, Audience 상태, refresh token, Drive ID를 추측으로 바꾸거나 폐기하지 않습니다/);
+  assert.match(aiGuide, /이미 끝난 단계는 반복하지/);
+  assert.match(
+    aiGuide,
+    /기존 OAuth 클라이언트[\s\S]*Audience[\s\S]*refresh token[\s\S]*Drive ID[\s\S]*추측으로[\s\S]*폐기하지/,
+  );
   assert.match(install, /현재 저장소가 이미 로컬에 열려 있다면 다시 clone하지 말고/);
   assert.match(install, /기존 `.env\.local`에 유효한 `GOOGLE_REFRESH_TOKEN`[\s\S]*setup을 다시 실행할 필요가 없습니다/);
   assert.match(install, /새 토큰이 실제로 필요하고 기존 연결 때문에 발급되지 않는 경우에만/);
@@ -171,20 +164,41 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   );
 });
 
-test("README의 초대 안내는 코드 방식과 별도 데스크 설치를 구분한다", async () => {
-  const readme = await readFile(new URL("README.md", root), "utf8");
-  const inviteSection = readme.slice(
-    readme.indexOf("## 사람 초대하기"),
-    readme.indexOf("## Google Drive로 직접 공유하기"),
+test("설치 문서의 초대 안내는 코드 방식과 별도 데스크 설치를 구분한다", async () => {
+  const install = await readFile(new URL("docs/INSTALL.md", root), "utf8");
+  const inviteSection = install.slice(
+    install.indexOf("## 사람 초대와 관리"),
+    install.indexOf("## Google Drive로 직접 공유하기"),
   );
 
   assert.match(inviteSection, /유효 기간[\s\S]*1회용[\s\S]*기간 내 무제한/);
-  assert.match(inviteSection, /이름, 이메일, 비고는 입력하지 않습니다/);
-  assert.match(inviteSection, /특정 사람이나 이메일에 미리 묶이지 않습니다/);
-  assert.match(inviteSection, /1회용:[\s\S]*한 명이 가입에 성공하면 바로 소진/);
-  assert.match(inviteSection, /기간 내 무제한:[\s\S]*여러 명이 같은 코드로 가입/);
-  assert.match(inviteSection, /자기 소유의 별도 데스크[\s\S]*운영 설치 안내/);
-  assert.doesNotMatch(inviteSection, /받을 사람의 이름|실제로 로그인할 Google 이메일|비고를 남기/);
+  assert.match(inviteSection, /특정 이메일에 미리 묶이지 않습니다/);
+  assert.match(inviteSection, /1회용:[\s\S]*한 사람이 가입에 성공하면 바로 소진/);
+  assert.match(inviteSection, /기간 내 무제한:[\s\S]*여러 사람이 함께 쓸 수 있습니다/);
+  assert.doesNotMatch(inviteSection, /받을 사람의 이름|실제로 로그인할 Google 이메일/);
+});
+
+test("AI 구축 문서와 로컬 개인 사용 문서는 서로 다른 독자를 안내한다", async () => {
+  const [readme, install, aiGuide, localGuide] = await Promise.all([
+    readFile(new URL("README.md", root), "utf8"),
+    readFile(new URL("docs/INSTALL.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
+    readFile(new URL("docs/LOCAL.md", root), "utf8"),
+  ]);
+
+  assert.match(install, /\[AI에게 구축 맡기기\]\(\.\/AI_INSTALL\.md\)/);
+  assert.match(aiGuide, /그대로 복사/);
+  assert.match(aiGuide, /docs\/INSTALL\.md/);
+  assert.match(aiGuide, /현재 상태/);
+  assert.match(aiGuide, /한 번에 한 단계/);
+  assert.match(aiGuide, /비밀값|Client secret|refresh token/);
+  assert.match(aiGuide, /두 계정[\s\S]*같은 파일/);
+  assert.match(localGuide, /STORAGE_DRIVER=local/);
+  assert.match(localGuide, /LOCAL_STORAGE_ROOT=\.devstorage/);
+  assert.match(localGuide, /npm run dev/);
+  assert.match(localGuide, /Google 로그인[\s\S]*확인할 수 없습니다/);
+  assert.match(localGuide, /## 개발자 참고/);
+  assert.doesNotMatch(readme, /npm run/);
 });
 
 test("환경 변수 예시는 현재 초대 코드 용어를 사용한다", async () => {
