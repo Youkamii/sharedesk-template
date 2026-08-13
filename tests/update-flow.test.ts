@@ -1312,6 +1312,11 @@ test("updated release controls the Node version and verification commands", asyn
     assert.ok(currentIndex > previousIndex, `${command} must appear in order`);
     previousIndex = currentIndex;
   }
+  assert.match(verifier, /process\.env\.ComSpec \?\? "cmd\.exe"/);
+  assert.match(
+    verifier,
+    /\["\/d", "\/s", "\/c", `\$\{command\}\.cmd`, \.\.\.args\]/,
+  );
 });
 
 test("all release clients follow GitHub pagination to the 101st stable release", async () => {

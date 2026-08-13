@@ -2,13 +2,20 @@
 
 import { spawn } from "node:child_process";
 
-function commandName(name) {
-  return process.platform === "win32" ? `${name}.cmd` : name;
+function commandInvocation(command, args) {
+  if (process.platform === "win32") {
+    return [
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/s", "/c", `${command}.cmd`, ...args],
+    ];
+  }
+  return [command, args];
 }
 
 async function run(command, args) {
   await new Promise((resolve, reject) => {
-    const child = spawn(commandName(command), args, {
+    const [executable, executableArgs] = commandInvocation(command, args);
+    const child = spawn(executable, executableArgs, {
       stdio: "inherit",
       windowsHide: true,
     });
