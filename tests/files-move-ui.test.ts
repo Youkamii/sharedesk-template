@@ -11,6 +11,7 @@ import {
   shouldRetryFolderReconciliation,
   windowsContainingFolder,
 } from "../src/lib/client/file-move";
+import { fileActivationAction } from "../src/lib/client/file-activation";
 import {
   fitLogicalRect,
   folderAddress,
@@ -350,4 +351,56 @@ test("작업표시줄 업로드 버튼은 없고 아이콘을 휴지통에 놓�
     /async function trashDraggedEntry[\s\S]*?"\/api\/drive\/delete"/,
   );
   assert.match(css, /\.trashLauncher\.trashDropTarget/);
+});
+
+test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 브라우저에 저장한다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(source, /DOWNLOAD_FIRST_STORAGE_KEY = "sharedesk\.download-first"/);
+  assert.equal(
+    fileActivationAction(
+      { isFolder: false, name: "사진.png", mimeType: "image/png" },
+      false,
+    ),
+    "preview",
+  );
+  assert.equal(
+    fileActivationAction(
+      { isFolder: false, name: "영상.mp4", mimeType: "video/mp4" },
+      true,
+    ),
+    "download",
+  );
+  assert.equal(
+    fileActivationAction(
+      {
+        isFolder: false,
+        name: "문서",
+        mimeType: "application/vnd.google-apps.document",
+      },
+      false,
+    ),
+    "preview",
+  );
+  assert.equal(
+    fileActivationAction(
+      { isFolder: false, name: "압축.zip", mimeType: "application/zip" },
+      false,
+    ),
+    "download",
+  );
+  assert.match(source, /fileActivationAction\(entry, downloadFirst\)/);
+  assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
+  assert.match(source, />다운로드 우선</);
+  assert.match(source, /checked=\{downloadFirst\}/);
+  assert.match(source, /브라우저에서 열기/);
+  assert.match(
+    source,
+    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(entry\)/,
+  );
+  assert.match(css, /\.downloadPreference\s*\{/);
+  assert.match(css, /input:checked \+ \.preferenceCheck::after/);
 });

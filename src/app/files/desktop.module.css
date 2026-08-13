@@ -1284,6 +1284,60 @@
 .uploadArrow { font-size: 19px; animation: uploadStep 0.8s steps(2, end) infinite; }
 @keyframes uploadStep { 50% { transform: translateY(-3px); } }
 
+.downloadPreference {
+  position: relative;
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  color: #cdd5e8;
+  background: #182446;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #465b83, inset -2px -2px 0 #0d162d;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.downloadPreference input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.preferenceCheck {
+  position: relative;
+  width: 15px;
+  height: 15px;
+  background: #fff4d2;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #c7b994;
+}
+
+.downloadPreference input:checked + .preferenceCheck::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 5px;
+  height: 9px;
+  border-right: 3px solid #2d5c5b;
+  border-bottom: 3px solid #2d5c5b;
+  transform: rotate(45deg);
+}
+
+.downloadPreference:has(input:focus-visible) {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.downloadPreference:has(input:checked) {
+  color: #10172b;
+  background: #61b3a6;
+  box-shadow: inset 2px 2px 0 #b9e1cf, inset -2px -2px 0 #2d5c5b;
+}
+
 .userTray {
   display: flex;
   align-items: center;

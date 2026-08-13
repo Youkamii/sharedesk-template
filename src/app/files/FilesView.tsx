@@ -19,6 +19,7 @@ import {
   shouldRetryFolderReconciliation,
   windowsContainingFolder,
 } from "@/lib/client/file-move";
+import { fileActivationAction } from "@/lib/client/file-activation";
 import { previewKindOf, type PreviewKind } from "@/lib/preview";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
@@ -191,6 +192,7 @@ const ROOT_ID = "root";
 const ROOT_SCOPE = "desktop";
 // 배경은 개인 취향이라 공유 상태가 아닌 localStorage에 저장한다 (왕복 0·충돌 0).
 const WALLPAPER_STORAGE_KEY = "sharedesk.wallpaper";
+const DOWNLOAD_FIRST_STORAGE_KEY = "sharedesk.download-first";
 const WALLPAPERS = [
   { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
   { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
@@ -538,6 +540,7 @@ export default function FilesView({
     open: false,
   });
   const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
+  const [downloadFirst, setDownloadFirst] = useState(false);
   // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
 
@@ -934,9 +937,16 @@ export default function FilesView({
   }, []);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
-    if (saved && WALLPAPERS.some((w) => w.id === saved)) {
-      setWallpaperId(saved as WallpaperId);
+    try {
+      const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
+      if (saved && WALLPAPERS.some((w) => w.id === saved)) {
+        setWallpaperId(saved as WallpaperId);
+      }
+      setDownloadFirst(
+        window.localStorage.getItem(DOWNLOAD_FIRST_STORAGE_KEY) === "true",
+      );
+    } catch {
+      // 저장소 접근이 막힌 브라우저에서는 기본값을 쓴다.
     }
   }, []);
 
@@ -1060,6 +1070,18 @@ export default function FilesView({
       // 시크릿 모드 등에서 저장이 막혀도 이번 세션 동안은 적용된다.
     }
     setContextMenu(null);
+  }
+
+  function selectDownloadFirst(enabled: boolean) {
+    setDownloadFirst(enabled);
+    try {
+      window.localStorage.setItem(
+        DOWNLOAD_FIRST_STORAGE_KEY,
+        String(enabled),
+      );
+    } catch {
+      // 저장이 막혀도 현재 탭에서는 선택을 유지한다.
+    }
   }
 
   useEffect(() => {
@@ -2057,8 +2079,9 @@ export default function FilesView({
     keyboardOpener?: HTMLElement,
   ) {
     if (movingEntryIdsRef.current.has(entry.id)) return;
-    if (entry.isFolder) openFolder(entry, scopeId);
-    else if (previewKindOf(entry)) {
+    const action = fileActivationAction(entry, downloadFirst);
+    if (action === "folder") openFolder(entry, scopeId);
+    else if (action === "preview") {
       openPreview(
         entry,
         keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
@@ -4570,6 +4593,15 @@ export default function FilesView({
             </span>
           </div>
         )}
+        <label className={styles.downloadPreference}>
+          <input
+            type="checkbox"
+            checked={downloadFirst}
+            onChange={(event) => selectDownloadFirst(event.target.checked)}
+          />
+          <span className={styles.preferenceCheck} aria-hidden="true" />
+          <span>다운로드 우선</span>
+        </label>
         <div className={styles.userTray}>
           {isAdmin && (
             <a href="/admin" className={styles.trayLink}>
@@ -4608,14 +4640,22 @@ export default function FilesView({
             <>
               <MenuButton
                 onClick={() => {
-                  activateEntry(contextMenu.entry!, contextMenu.scopeId);
+                  const entry = contextMenu.entry!;
+                  const action = fileActivationAction(entry, false);
+                  if (action === "folder") {
+                    openFolder(entry, contextMenu.scopeId);
+                  } else if (action === "preview") {
+                    openPreview(entry);
+                  } else {
+                    downloadEntry(entry);
+                  }
                   setContextMenu(null);
                 }}
               >
                 {contextMenu.entry.isFolder
                   ? "열기"
                   : previewKindOf(contextMenu.entry)
-                    ? "미리보기"
+                    ? "브라우저에서 열기"
                     : "다운로드"}
                 <kbd>Enter</kbd>
               </MenuButton>
