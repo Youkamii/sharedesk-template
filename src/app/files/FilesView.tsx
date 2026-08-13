@@ -154,6 +154,22 @@ type PresenceState = {
   open: boolean;
 };
 
+type UpdateStatusResponse = {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  repository: string | null;
+  workflowUrl: string | null;
+  configured: boolean;
+  error?: string;
+};
+
+type UpdatePanelState = {
+  loading: boolean;
+  status: UpdateStatusResponse | null;
+  loadError: string | null;
+};
+
 type TrashWindowState = {
   x: number;
   y: number;
@@ -264,6 +280,8 @@ const MAX_LAYOUT_BATCH_UPDATES = 256;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
+const UPDATE_GUIDE_URL =
+  "https://github.com/Youkamii/sharedesk-template/blob/main/docs/UPDATE.md";
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
 const TEXT_EDIT_LIMIT = 1024 * 1024;
 
@@ -518,6 +536,10 @@ export default function FilesView({
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
   const searchInstanceRef = useRef(0);
   const searchControllerRef = useRef<AbortController | null>(null);
+  const updateDialogRef = useRef<HTMLElement>(null);
+  const updateDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const updateControllerRef = useRef<AbortController | null>(null);
+  const updateRequestIdRef = useRef(0);
   const presenceControllerRef = useRef<AbortController | null>(null);
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
@@ -584,6 +606,7 @@ export default function FilesView({
   const [folderSearchQueries, setFolderSearchQueries] = useState<
     Record<string, string>
   >({});
+  const [updatePanel, setUpdatePanel] = useState<UpdatePanelState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
   const [folderNoteWindow, setFolderNoteWindow] =
@@ -611,6 +634,7 @@ export default function FilesView({
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
   const dialogOpen = dialog !== null;
+  const updatePanelOpen = updatePanel !== null;
 
   const fetchFolder = useCallback(
     async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
@@ -1121,6 +1145,7 @@ export default function FilesView({
       folderNoteLoadControllerRef.current?.abort();
       folderNoteSaveControllerRef.current?.abort();
       searchControllerRef.current?.abort();
+      updateControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -1318,6 +1343,16 @@ export default function FilesView({
       });
     };
   }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!updatePanelOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      updateDialogRef.current
+        ?.querySelector<HTMLElement>("[data-update-initial-focus]")
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [updatePanelOpen]);
 
   useEffect(() => {
     if (!previewFocusRequest) return;
@@ -4168,6 +4203,102 @@ export default function FilesView({
     });
   }
 
+  async function loadUpdateStatus() {
+    updateControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = updateRequestIdRef.current + 1;
+    updateControllerRef.current = controller;
+    updateRequestIdRef.current = requestId;
+    setUpdatePanel({ loading: true, status: null, loadError: null });
+    try {
+      const status = await apiJson<UpdateStatusResponse>("/api/admin/update", {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (
+        updateRequestIdRef.current !== requestId ||
+        updateControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdatePanel({ loading: false, status, loadError: null });
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        updateRequestIdRef.current !== requestId ||
+        updateControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdatePanel({
+        loading: false,
+        status: null,
+        loadError: errorMessage(error, "업데이트 상태를 확인하지 못했습니다"),
+      });
+    } finally {
+      if (updateControllerRef.current === controller) {
+        updateControllerRef.current = null;
+      }
+    }
+  }
+
+  function openUpdatePanel(opener: HTMLElement) {
+    if (!isAdmin) return;
+    updateDialogOpenerRef.current = opener;
+    setContextMenu(null);
+    void loadUpdateStatus();
+  }
+
+  function closeUpdatePanel() {
+    updateRequestIdRef.current += 1;
+    updateControllerRef.current?.abort();
+    updateControllerRef.current = null;
+    setUpdatePanel(null);
+    const opener = updateDialogOpenerRef.current;
+    updateDialogOpenerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
+  function handleUpdateDialogKeyDown(
+    event: React.KeyboardEvent<HTMLElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeUpdatePanel();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function openDialog(nextDialog: DialogState, opener?: HTMLElement | null) {
     const activeElement =
       document.activeElement instanceof HTMLElement
@@ -5787,9 +5918,19 @@ export default function FilesView({
         </label>
         <div className={styles.userTray}>
           {isAdmin && (
-            <a href="/admin" className={styles.trayLink}>
-              사용자 관리
-            </a>
+            <>
+              <button
+                type="button"
+                className={`${styles.trayLink} ${styles.updateTrayButton}`}
+                aria-haspopup="dialog"
+                onClick={(event) => openUpdatePanel(event.currentTarget)}
+              >
+                업데이트
+              </button>
+              <a href="/admin" className={styles.trayLink}>
+                사용자 관리
+              </a>
+            </>
           )}
           <span className={styles.userName} title={userName}>
             {userName}
@@ -6000,6 +6141,166 @@ export default function FilesView({
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
+      )}
+
+      {isAdmin && updatePanel && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeUpdatePanel();
+          }}
+        >
+          <section
+            ref={updateDialogRef}
+            className={`${styles.dialog} ${styles.updateDialog}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-dialog-title"
+            aria-describedby="update-dialog-description"
+            aria-busy={updatePanel.loading}
+            onKeyDown={handleUpdateDialogKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="update-dialog-title">ShareDesk 업데이트</strong>
+              <button
+                type="button"
+                data-update-initial-focus
+                aria-label="업데이트 창 닫기"
+                onClick={closeUpdatePanel}
+              >
+                ×
+              </button>
+            </header>
+            <div className={styles.updateDialogBody}>
+              {updatePanel.loading ? (
+                <p id="update-dialog-description" role="status">
+                  현재 버전과 새 버전을 확인하는 중입니다…
+                </p>
+              ) : updatePanel.loadError ? (
+                <>
+                  <p
+                    id="update-dialog-description"
+                    className={styles.updateError}
+                    role="alert"
+                  >
+                    {updatePanel.loadError}
+                  </p>
+                  <div className={styles.dialogActions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => void loadUpdateStatus()}
+                    >
+                      다시 확인
+                    </button>
+                  </div>
+                </>
+              ) : updatePanel.status ? (
+                <>
+                  <p
+                    id="update-dialog-description"
+                    className={styles.updateSummary}
+                    role="status"
+                  >
+                    {!updatePanel.status.configured
+                      ? "업데이트 연결이 필요합니다."
+                      : updatePanel.status.updateAvailable
+                        ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
+                        : updatePanel.status.latestVersion
+                          ? "최신 버전을 사용하고 있습니다."
+                          : "최신 버전을 확인하지 못했습니다."}
+                  </p>
+                  <dl className={styles.updateVersions}>
+                    <div>
+                      <dt>현재 버전</dt>
+                      <dd>{updatePanel.status.currentVersion}</dd>
+                    </div>
+                    <div>
+                      <dt>최신 버전</dt>
+                      <dd>{updatePanel.status.latestVersion ?? "확인 실패"}</dd>
+                    </div>
+                    <div>
+                      <dt>업데이트 상태</dt>
+                      <dd>
+                        {updatePanel.status.updateAvailable
+                          ? "새 버전 있음"
+                          : "새 버전 없음"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>설치 저장소</dt>
+                      <dd>
+                        {updatePanel.status.repository ?? "연결되지 않음"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {!updatePanel.status.configured && (
+                    <div className={styles.updateSetup}>
+                      <strong>기존 설치는 한 번만 전환하면 됩니다.</strong>
+                      <span>
+                        설치 저장소를 업데이트 구조에 연결한 뒤 다시 확인해 주세요.
+                      </span>
+                      <a
+                        href={UPDATE_GUIDE_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        기존 설치 전환 안내 열기
+                      </a>
+                    </div>
+                  )}
+                  {updatePanel.status.configured &&
+                    updatePanel.status.updateAvailable &&
+                    updatePanel.status.workflowUrl && (
+                      <p className={styles.updateInstruction}>
+                        GitHub Actions 화면에서 <strong>Run workflow</strong>를
+                        누르면 업데이트 후 Vercel이 자동으로 다시 배포됩니다.
+                      </p>
+                    )}
+                  {updatePanel.status.configured &&
+                    updatePanel.status.updateAvailable &&
+                    !updatePanel.status.workflowUrl && (
+                      <p className={styles.updateError} role="alert">
+                        업데이트 실행 화면 주소를 확인하지 못했습니다.
+                      </p>
+                    )}
+                  {updatePanel.status.error && (
+                    <p className={styles.updateError} role="alert">
+                      {updatePanel.status.error}
+                    </p>
+                  )}
+                  <div className={styles.dialogActions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => void loadUpdateStatus()}
+                    >
+                      다시 확인
+                    </button>
+                    {updatePanel.status.configured &&
+                      updatePanel.status.updateAvailable &&
+                      updatePanel.status.workflowUrl && (
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={() =>
+                            window.open(
+                              updatePanel.status!.workflowUrl!,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          }
+                        >
+                          업데이트 시작
+                        </button>
+                      )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </section>
+        </div>
       )}
 
       {dialog && (

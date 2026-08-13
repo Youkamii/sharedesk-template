@@ -1664,6 +1664,12 @@
   text-decoration: none;
 }
 
+.updateTrayButton {
+  color: #fff4d2;
+  background: #2d5c5b;
+  box-shadow: inset 2px 2px 0 #61b3a6, inset -2px -2px 0 #173837, 2px 2px 0 #070b16;
+}
+
 .userName {
   max-width: 132px;
   overflow: hidden;
@@ -1817,6 +1823,99 @@
 .primaryButton { color: #fff8e7; background: #2f4670; box-shadow: inset 2px 2px 0 #6c83ae, inset -2px -2px 0 #172342; }
 .dangerButton { color: #fff8e7; background: #a53c46; box-shadow: inset 2px 2px 0 #e27a78, inset -2px -2px 0 #632439; }
 .dialogActions button:disabled { opacity: 0.55; }
+
+.updateDialog {
+  width: min(520px, 100%);
+}
+
+.updateDialogBody {
+  display: flex;
+  max-height: min(570px, calc(100vh - 100px));
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 20px;
+  user-select: text;
+}
+
+.updateDialogBody p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.updateSummary {
+  padding: 10px 12px;
+  color: #173837;
+  font-weight: 700;
+  background: #d7e4cc;
+  border: 2px solid #2d5c5b;
+  box-shadow: inset 2px 2px 0 #f3f0ce;
+}
+
+.updateVersions {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 2px solid #5e5361;
+}
+
+.updateVersions > div {
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr);
+  border-bottom: 1px solid #9c8c78;
+}
+
+.updateVersions > div:last-child {
+  border-bottom: 0;
+}
+
+.updateVersions dt,
+.updateVersions dd {
+  min-width: 0;
+  margin: 0;
+  padding: 7px 9px;
+  overflow-wrap: anywhere;
+}
+
+.updateVersions dt {
+  font-weight: 700;
+  background: #e5d6b7;
+  border-right: 1px solid #9c8c78;
+}
+
+.updateVersions dd {
+  background: #fff8e7;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.updateSetup {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 11px 12px;
+  background: #fff2a8;
+  border: 2px solid #b5754f;
+}
+
+.updateSetup a {
+  align-self: flex-start;
+  color: #243a67;
+  font-weight: 700;
+}
+
+.updateInstruction {
+  padding: 10px 12px;
+  background: #dce8f5;
+  border-left: 4px solid #2f4670;
+}
+
+.updateError {
+  padding: 9px 11px;
+  color: #742638;
+  background: #ffe0c5;
+  border: 2px solid #b8622f;
+  overflow-wrap: anywhere;
+}
 
 .toast {
   position: fixed;
