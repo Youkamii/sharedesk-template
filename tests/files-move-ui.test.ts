@@ -11,6 +11,149 @@ import {
   shouldRetryFolderReconciliation,
   windowsContainingFolder,
 } from "../src/lib/client/file-move";
+import {
+  fitLogicalRect,
+  folderAddress,
+  logicalPointerDelta,
+  logicalViewportFor,
+  nextNotepadName,
+  reconcileSavedDraft,
+  renamedCrumbsFromEntries,
+  uiScaleForViewport,
+} from "../src/app/files/ui-scale";
+
+test("화면 면적에 맞춘 하나의 배율로 데스크톱 전체를 확대·축소한다", () => {
+  assert.equal(uiScaleForViewport(390, 844), 0.6);
+  assert.equal(uiScaleForViewport(1280, 720), 1);
+  assert.equal(uiScaleForViewport(1920, 1200), 1.5);
+
+  assert.deepEqual(logicalViewportFor(1280, 720), {
+    width: 1280,
+    height: 720,
+  });
+  assert.deepEqual(logicalViewportFor(1920, 1200), {
+    width: 1280,
+    height: 800,
+  });
+  assert.equal(logicalPointerDelta(90, 0.6), 150);
+});
+
+test("화면 크기가 바뀌면 일반 창과 최대화 창을 새 작업 영역에 맞춘다", () => {
+  const viewport = { width: 900, height: 600 };
+  const bounds = {
+    left: 6,
+    top: 40,
+    right: 6,
+    bottom: 64,
+    minWidth: 390,
+    minHeight: 300,
+  };
+
+  assert.deepEqual(
+    fitLogicalRect(
+      { x: 800, y: 500, width: 720, height: 500 },
+      viewport,
+      bounds,
+    ),
+    { x: 174, y: 40, width: 720, height: 496 },
+  );
+  assert.deepEqual(
+    fitLogicalRect(
+      { x: 120, y: 90, width: 500, height: 320 },
+      viewport,
+      bounds,
+      true,
+    ),
+    { x: 6, y: 40, width: 888, height: 496 },
+  );
+});
+
+test("저장 중에 이어 쓴 글은 유지하고 전송한 snapshot만 저장 기준으로 삼는다", () => {
+  assert.deepEqual(reconcileSavedDraft("전송 뒤에 이어 쓴 글", "서버에 전송한 글"), {
+    draft: "전송 뒤에 이어 쓴 글",
+    original: "서버에 전송한 글",
+    dirty: true,
+  });
+  assert.deepEqual(reconcileSavedDraft("같은 글", "같은 글"), {
+    draft: "같은 글",
+    original: "같은 글",
+    dirty: false,
+  });
+});
+
+test("상위 목록에서 확인한 폴더 이름을 열린 하위 경로에도 전파한다", () => {
+  const path = [
+    { id: "root", name: "ShareDesk" },
+    { id: "parent", name: "예전 이름" },
+    { id: "child", name: "하위" },
+  ];
+  const renamed = renamedCrumbsFromEntries(path, [
+    { id: "parent", name: "새 이름", isFolder: true },
+    { id: "file", name: "parent", isFolder: false },
+  ]);
+
+  assert.deepEqual(renamed, [
+    { id: "root", name: "ShareDesk" },
+    { id: "parent", name: "새 이름" },
+    { id: "child", name: "하위" },
+  ]);
+  assert.equal(renamedCrumbsFromEntries(renamed, []), renamed);
+});
+
+test("폴더 주소와 겹치지 않는 새 메모장 이름을 ROOT 기준으로 만든다", () => {
+  assert.equal(folderAddress([{ id: "root", name: "ShareDesk" }]), "/");
+  assert.equal(
+    folderAddress([
+      { id: "root", name: "ShareDesk" },
+      { id: "a", name: "자료" },
+      { id: "b", name: "2026" },
+    ]),
+    "/자료/2026",
+  );
+  assert.equal(nextNotepadName([]), "새 메모장.txt");
+  assert.equal(
+    nextNotepadName(["새 메모장.txt", "새 메모장 2.txt"]),
+    "새 메모장 3.txt",
+  );
+});
+
+test("파일 화면은 배율·드래그 고스트·주소창·메모 편집 계약을 함께 지킨다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(source, /data-testid="scaled-desktop-stage"/);
+  assert.match(source, /transform: `scale\(\$\{uiScale\}\)`/);
+  assert.match(source, /logicalPointerDelta\(next\.clientX - startX, uiScale\)/);
+  assert.match(source, /document\.elementFromPoint\(clientX, clientY\)/);
+  assert.match(source, /data-testid="file-drag-ghost"/);
+  assert.match(source, /left: dragGhost\.clientX/);
+  assert.match(css, /\.dragGhost \{[\s\S]*?z-index: 7000;/);
+
+  assert.match(css, /\.closeGlyph \{ top: 50%; left: 50%;/);
+  assert.match(css, /\.iconName \{[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/);
+  assert.match(source, /title=\{entry\.name\}/);
+
+  assert.match(source, /\/api\/drive\/path\?path=/);
+  assert.match(source, /data-testid=\{`folder-address-\$\{item\.id\}`\}/);
+  assert.match(source, /\/api\/folder-note\?folderId=/);
+  assert.match(source, /method: "PATCH"[\s\S]*?folderId: note\.folderId/);
+  assert.doesNotMatch(source, /아직 아무도 파일을 놓지 않았어요/);
+
+  assert.match(source, /new File\(\[""\], name, \{ type: "text\/plain" \}\)/);
+  assert.match(source, /\/api\/drive\/content/);
+  assert.match(source, /expectedVersion: preview\.entry\.version/);
+  assert.match(source, /\.txt 파일만 여기에서 편집할 수 있습니다/);
+  assert.match(source, /다른 사람이 먼저 파일을 바꿨습니다/);
+  assert.match(source, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
+  assert.match(source, /previewInstanceRef\.current !== instanceId/);
+  assert.match(source, /folderNoteInstanceRef\.current !== instanceId/);
+  assert.match(
+    source,
+    /beginScopedRequest\(addressRequestsRef\.current, windowId\)/,
+  );
+});
 
 test("파일 이동의 명확한 4xx 거부만 즉시 원복 대상으로 분류한다", () => {
   const conflict = Object.assign(new Error("다른 사용자가 먼저 옮겼습니다"), {
@@ -186,13 +329,6 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.match(launcherStyle, /right: max\(18px, env\(safe-area-inset-right\)\);/);
   assert.match(launcherStyle, /bottom: 76px;/);
   assert.match(launcherStyle, /z-index: 10;/);
-  assert.match(
-    css,
-    /\.trashLauncher \{ right: max\(8px, env\(safe-area-inset-right\)\);/,
-  );
-  assert.match(
-    css,
-    /right: calc\(max\(8px, env\(safe-area-inset-right\)\) \+ 72px\);/,
-  );
+  assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
   assert.match(readme, /휴지통 아이콘은 작업표시줄이 아닌 화면 오른쪽 아래에 고정/);
 });

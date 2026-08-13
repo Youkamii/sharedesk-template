@@ -1,3 +1,10 @@
+.viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #10172b;
+}
+
 .desktop {
   --night: #10172b;
   --panel: #182446;
@@ -7,8 +14,9 @@
   --cream: #fff4d2;
   --teal: #61b3a6;
   --ink: #111629;
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
   overflow: hidden;
   color: var(--cream);
   background: var(--night);
@@ -16,16 +24,19 @@
   font-size: 12px;
   user-select: none;
   isolation: isolate;
+  transform-origin: top left;
 }
 
 .desktop button,
-.desktop input {
+.desktop input,
+.desktop textarea {
   font: inherit;
 }
 
 .desktop button:focus-visible,
 .desktop a:focus-visible,
-.desktop input:focus-visible {
+.desktop input:focus-visible,
+.desktop textarea:focus-visible {
   outline: 2px solid var(--amber);
   outline-offset: 2px;
 }
@@ -180,22 +191,22 @@
 }
 
 .iconName {
-  display: -webkit-box;
+  display: block;
+  width: 82px;
   max-width: 82px;
   overflow: hidden;
   padding: 2px 3px;
   font-size: 12px;
   line-height: 1.28;
   text-align: center;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-shadow:
     -1px -1px 0 #111629,
     1px -1px 0 #111629,
     -1px 1px 0 #111629,
     1px 1px 0 #111629,
     2px 2px 0 #111629;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
 .windowCanvas .iconName {
@@ -234,8 +245,36 @@
 /* 드래그로 옮기는 중인 아이콘 — 히트테스트에서 빠져야 드롭 대상이 보인다. */
 .iconDragging {
   pointer-events: none;
-  opacity: 0.85;
+  opacity: 0.48;
   z-index: 40;
+}
+
+.dragGhost {
+  position: fixed;
+  z-index: 7000;
+  display: flex;
+  width: 88px;
+  height: 94px;
+  transform: translate(-50%, -50%) scale(var(--drag-scale, 1));
+  transform-origin: center;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #fff8e7;
+  pointer-events: none;
+  filter: drop-shadow(5px 5px 0 rgb(5 9 20 / 58%));
+}
+
+.dragGhost span {
+  display: block;
+  width: 82px;
+  overflow: hidden;
+  padding: 2px 3px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 #111629;
 }
 
 .dropTargetIcon .iconMain {
@@ -256,8 +295,8 @@
 /* 휴지통 창 — folderWindow 골격에서 툴바 줄만 뺀다. */
 .trashWindow {
   grid-template-rows: 32px minmax(0, 1fr) 24px;
-  width: min(480px, calc(100vw - 16px));
-  height: min(400px, calc(100vh - 120px));
+  width: min(480px, calc(100% - 16px));
+  height: min(400px, calc(100% - 120px));
   min-width: 320px;
   min-height: 240px;
 }
@@ -386,8 +425,8 @@
 /* 미리보기 창 */
 .previewWindow {
   grid-template-rows: 32px minmax(0, 1fr) 24px;
-  width: min(760px, calc(100vw - 24px));
-  height: min(560px, calc(100vh - 140px));
+  width: min(760px, calc(100% - 24px));
+  height: min(560px, calc(100% - 140px));
   min-width: 320px;
   min-height: 240px;
 }
@@ -432,25 +471,71 @@
 }
 
 .previewText {
+  display: block;
+  width: 100%;
   height: 100%;
   margin: 0;
   padding: 10px 12px;
+  resize: none;
   overflow: auto;
   color: #1b1b2f;
+  background: #fffdf4;
+  border: 0;
   font-family: var(--font-geist-mono), monospace;
   font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+  user-select: text;
 }
 
-.previewDownload {
+.previewText[readonly] {
+  color: #555a68;
+  background: #efe5cf;
+}
+
+.textEditor {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.editorWarning {
+  margin: 0;
+  padding: 6px 9px;
+  color: #762f38;
+  background: #ffd4ad;
+  border-bottom: 2px solid #b5754f;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  user-select: text;
+}
+
+.previewActions {
+  display: flex;
+  flex: none;
+  gap: 5px;
+}
+
+.previewDownload,
+.editorSave {
   padding: 1px 6px;
   font-size: 10px;
   background: #e5d6b7;
   border: 2px solid #8f806d;
   box-shadow: 1px 1px 0 rgb(16 23 43 / 35%);
 }
+
+.editorSave {
+  color: #fff8e7;
+  background: #2f4670;
+  border-color: #10172b;
+}
+
+.editorSave:disabled { opacity: 0.5; }
 
 .iconMore {
   position: absolute;
@@ -725,8 +810,9 @@
 
 .minimizeGlyph { left: 6px; bottom: 5px; width: 9px; height: 2px; background: #1b1b2f; }
 .maximizeGlyph { left: 5px; top: 4px; width: 10px; height: 9px; border: 2px solid #1b1b2f; }
+.closeGlyph { top: 50%; left: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); }
 .closeGlyph::before,
-.closeGlyph::after { content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 2px; background: #1b1b2f; }
+.closeGlyph::after { content: ""; position: absolute; top: 6px; left: 1px; width: 12px; height: 2px; background: #1b1b2f; transform-origin: center; }
 .closeGlyph::before { transform: rotate(45deg); }
 .closeGlyph::after { transform: rotate(-45deg); }
 
@@ -779,6 +865,132 @@
 .breadcrumb i { padding: 0 4px; color: #8d6b67; font-style: normal; }
 .breadcrumb button { overflow: hidden; padding: 3px 2px; color: #2d3a54; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; }
 .breadcrumb button:disabled { color: #1b1b2f; font-weight: 700; }
+
+.addressBar {
+  position: relative;
+  display: flex;
+  min-width: 70px;
+  height: 30px;
+  flex: 1;
+  align-items: center;
+  background: #fff8e7;
+  border: 2px solid #5e5361;
+  box-shadow: inset 2px 2px 0 #b7a98f;
+}
+
+.addressBar input {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 6px;
+  color: #1b1b2f;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  user-select: text;
+}
+
+.addressBar input[aria-invalid="true"] {
+  color: #8a2635;
+  background: #ffe0c5;
+}
+
+.addressError {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: -2px;
+  z-index: 20;
+  width: min(360px, 100%);
+  padding: 5px 7px;
+  color: #fff8e7;
+  background: #a53c46;
+  border: 2px solid #632439;
+  box-shadow: 3px 3px 0 rgb(5 9 20 / 45%);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.folderNoteButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.folderNoteGlyph {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 16px;
+  flex: 0 0 auto;
+  background: #fff2a8;
+  border: 2px solid #1b1b2f;
+  box-shadow: 2px 2px 0 #a89276;
+}
+
+.folderNoteGlyph::after {
+  content: "";
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 5px;
+  height: 5px;
+  background: #e7a064;
+  border-top: 2px solid #1b1b2f;
+  border-left: 2px solid #1b1b2f;
+}
+
+.noteWindow {
+  grid-template-rows: 32px minmax(0, 1fr) 28px;
+  width: min(560px, calc(100% - 24px));
+  height: min(420px, calc(100% - 140px));
+  min-width: 360px;
+  min-height: 250px;
+}
+
+.noteBody {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: repeating-linear-gradient(
+    to bottom,
+    #fff9c9 0,
+    #fff9c9 23px,
+    #dccb88 24px
+  );
+}
+
+.noteBody textarea {
+  display: block;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  padding: 12px 14px;
+  color: #2d2a34;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  line-height: 24px;
+  user-select: text;
+}
+
+.noteMessage {
+  display: grid;
+  height: 100%;
+  margin: 0;
+  place-items: center;
+  color: #4b5063;
+  user-select: text;
+}
+
+.noteBody .editorWarning {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  border: 2px solid #b5754f;
+}
 
 .windowBody {
   position: relative;
@@ -1181,81 +1393,8 @@
 
 .hiddenInput { display: none; }
 
-@media (max-width: 900px) {
-  .quickAction { display: none; }
-  .userName { max-width: 90px; }
-  .trayLink { padding-inline: 8px; }
-}
-
-@media (max-width: 640px), (pointer: coarse) {
-  .desktop { font-size: 13px; }
-  .topBar { height: 44px; padding: 0 10px; }
-  .rootCanvas { inset: 44px 0 66px; overflow: auto; }
-  .taskBar { height: 66px; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
-  .desktopLabel,
-  .connection span:last-child,
-  .clock,
-  .userName { display: none; }
-  .connection { margin-left: auto; }
-  .deskButton { min-width: 80px; height: 46px; }
-  .windowTasks { justify-content: center; }
-  .userTray { flex: 0 0 auto; gap: 3px; }
-  .trayLink { height: 46px; padding-inline: 6px; font-size: 11px; }
-  .taskButton { min-width: 52px; width: 52px; height: 46px; padding: 0; justify-content: center; }
-  .taskTitle { display: none; }
-  .trashLauncher { right: max(8px, env(safe-area-inset-right)); bottom: 76px; width: 64px; min-height: 68px; }
-  .trashLauncherGlyph { width: 32px; height: 36px; }
-  .uploadChip {
-    position: fixed;
-    right: calc(max(8px, env(safe-area-inset-right)) + 72px);
-    bottom: 74px;
-    max-width: calc(100% - max(88px, env(safe-area-inset-right) + 80px));
-  }
-  .iconMore { display: flex; width: 30px; height: 30px; }
-  .iconMain { touch-action: manipulation; }
-  .folderWindow,
-  .folderWindow.maximizedWindow {
-    position: fixed;
-    inset: 50px 6px 72px !important;
-    width: auto !important;
-    height: auto !important;
-    min-width: 0;
-    min-height: 0;
-    grid-template-rows: 36px 46px minmax(0, 1fr) 26px;
-  }
-  .windowTitlebar { touch-action: manipulation; }
-  .windowControls button:first-child,
-  .windowControls button:nth-child(2),
-  .resizeHandle { display: none; }
-  .windowToolbar { gap: 4px; padding: 5px; }
-  .toolbarAction { width: 38px; overflow: hidden; padding-inline: 7px; font-size: 0; }
-  .toolbarAction::first-letter { font-size: 14px; }
-  .breadcrumb { padding-inline: 5px; }
-  .windowStatus span:last-child { display: none; }
-  .contextMenu {
-    top: auto !important;
-    right: 8px !important;
-    bottom: 74px !important;
-    left: 8px !important;
-    width: auto;
-    padding: 8px;
-  }
-  .menuItem { min-height: 46px; padding: 9px 12px; }
-  .menuItem kbd { display: none; }
-  .toast { bottom: 78px; }
-  .selectionHint { display: none; }
-  .canvasMessage { min-height: 166px; }
-  .wallpaper { background-position: 62% center; }
-}
-
-@media (max-width: 430px) {
-  .brand strong { font-size: 13px; }
-  .folderWindow { inset-inline: 3px !important; }
-  .windowToolbar .breadcrumb span:not(:last-child) { display: none; }
-  .dialogBody { padding: 18px; }
-  .dialogBody > svg { display: none; }
-  .emptyActions { flex-direction: column; width: 100%; }
-  .emptyActions button { width: 100%; }
+@media (pointer: coarse) {
+  .iconMore { display: flex; }
 }
 
 @media (prefers-reduced-motion: reduce) {

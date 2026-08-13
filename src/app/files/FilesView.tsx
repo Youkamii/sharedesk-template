@@ -23,6 +23,17 @@ import { previewKindOf, type PreviewKind } from "@/lib/preview";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
+import {
+  fitLogicalRect,
+  folderAddress,
+  logicalClientCoordinate,
+  logicalPointerDelta,
+  logicalViewportFor,
+  nextNotepadName,
+  reconcileSavedDraft,
+  renamedCrumbsFromEntries,
+  uiScaleForViewport,
+} from "./ui-scale";
 
 type Entry = {
   id: string;
@@ -59,14 +70,49 @@ type Crumb = { id: string; name: string };
 type TrashEntry = Entry & { version: string; trashedAt: string | null };
 
 type PreviewWindowState = {
+  instanceId: number;
   entry: Entry;
   kind: PreviewKind;
   x: number;
   y: number;
   z: number;
   text: string | null;
+  originalText: string | null;
   textLoading: boolean;
   textError: string | null;
+  textSaveError: string | null;
+  textReadOnlyReason: string | null;
+  textSaving: boolean;
+  textConflict: boolean;
+};
+
+type FolderNoteWindowState = {
+  instanceId: number;
+  folderId: string;
+  folderName: string;
+  path: Crumb[];
+  x: number;
+  y: number;
+  z: number;
+  content: string;
+  originalContent: string;
+  version: string | null;
+  loading: boolean;
+  saving: boolean;
+  error: string | null;
+  conflict: boolean;
+};
+
+type DragGhostState = {
+  entry: Entry;
+  clientX: number;
+  clientY: number;
+};
+
+type AddressState = {
+  value: string;
+  busy: boolean;
+  error: string | null;
 };
 
 type TrashWindowState = {
@@ -133,9 +179,9 @@ const ROOT_SCOPE = "desktop";
 const WALLPAPER_STORAGE_KEY = "sharedesk.wallpaper";
 const WALLPAPERS = [
   { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
-  { id: "night", name: "깊은 밤", src: "/art/wall-night.svg" },
-  { id: "dawn", name: "새벽", src: "/art/wall-dawn.svg" },
-  { id: "tide", name: "밤바다", src: "/art/wall-tide.svg" },
+  { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
+  { id: "dawn", name: "새벽", src: "/art/wall-dawn.png" },
+  { id: "tide", name: "밤바다", src: "/art/wall-tide.png" },
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 const TOP_BAR = 34;
@@ -153,6 +199,7 @@ const MAX_LOGICAL_COORDINATE = 1_000_000;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
+const TEXT_EDIT_LIMIT = 1024 * 1024;
 
 function TrashCanIcon() {
   return (
@@ -230,7 +277,7 @@ function useViewport() {
   const snapshot = useSyncExternalStore(
     subscribeViewport,
     viewportSnapshot,
-    () => "1280:800",
+    () => "1280:720",
   );
   const [width, height] = snapshot.split(":").map(Number);
   return { width, height };
@@ -322,6 +369,21 @@ function previewUrl(entry: Entry) {
   return `/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`;
 }
 
+function isEditableTextEntry(entry: Entry) {
+  return entry.name.toLocaleLowerCase("en-US").endsWith(".txt");
+}
+
+function previewTextReadOnlyReason(preview: PreviewWindowState) {
+  if (preview.textReadOnlyReason) return preview.textReadOnlyReason;
+  if (!isEditableTextEntry(preview.entry)) {
+    return ".txt 파일만 여기에서 편집할 수 있습니다.";
+  }
+  if (!preview.entry.version) {
+    return "최신 버전 정보를 확인할 수 없어 읽기 전용입니다. 새로고침 후 다시 열어 주세요.";
+  }
+  return null;
+}
+
 function MenuButton({
   children,
   onClick,
@@ -354,6 +416,12 @@ export default function FilesView({
 }) {
   const router = useRouter();
   const viewport = useViewport();
+  const uiScale = uiScaleForViewport(viewport.width, viewport.height);
+  const logicalViewport = logicalViewportFor(
+    viewport.width,
+    viewport.height,
+    uiScale,
+  );
   const rootCanvasRef = useRef<HTMLDivElement>(null);
   const windowCanvasRefs = useRef(new Map<string, HTMLDivElement>());
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -373,6 +441,15 @@ export default function FilesView({
   const windowsRef = useRef<DeskWindow[]>([]);
   const listRequestsRef = useRef(new Map<string, ScopedRequest>());
   const layoutRequestsRef = useRef(new Map<string, ScopedRequest>());
+  const addressRequestsRef = useRef(new Map<string, ScopedRequest>());
+  const previewInstanceRef = useRef(0);
+  const previewLoadControllerRef = useRef<AbortController | null>(null);
+  const previewSaveControllerRef = useRef<AbortController | null>(null);
+  const previewWindowRef = useRef<PreviewWindowState | null>(null);
+  const folderNoteInstanceRef = useRef(0);
+  const folderNoteLoadControllerRef = useRef<AbortController | null>(null);
+  const folderNoteSaveControllerRef = useRef<AbortController | null>(null);
+  const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
   const folderMutationVersionsRef = useRef(new Map<string, number>());
   const pendingFolderMutationsRef = useRef(new Map<string, number>());
   const folderIdleWaitersRef = useRef(
@@ -430,12 +507,20 @@ export default function FilesView({
   const [trashWindow, setTrashWindow] = useState<TrashWindowState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
+  const [folderNoteWindow, setFolderNoteWindow] =
+    useState<FolderNoteWindowState | null>(null);
+  const [dragGhost, setDragGhost] = useState<DragGhostState | null>(null);
+  const [addressStates, setAddressStates] = useState<
+    Record<string, AddressState>
+  >({});
   const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
   // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
 
   rootDataRef.current = rootData;
   windowsRef.current = deskWindows;
+  previewWindowRef.current = previewWindow;
+  folderNoteWindowRef.current = folderNoteWindow;
   const dialogOpen = dialog !== null;
 
   const fetchFolder = useCallback(
@@ -507,6 +592,7 @@ export default function FilesView({
           rootDataRef.current.folderIdentity,
           data.folderIdentity,
         );
+        propagateFolderNames(data.entries);
         setRootData((current) =>
           (folderMutationVersionsRef.current.get(ROOT_ID) ?? 0) ===
           mutationVersion
@@ -586,6 +672,7 @@ export default function FilesView({
           currentWindow?.data.folderIdentity ?? null,
           data.folderIdentity,
         );
+        propagateFolderNames(data.entries);
         setDeskWindows((current) =>
           (folderMutationVersionsRef.current.get(folderId) ?? 0) ===
           mutationVersion
@@ -717,6 +804,11 @@ export default function FilesView({
     () => () => {
       abortAllRequests(listRequestsRef.current);
       abortAllRequests(layoutRequestsRef.current);
+      abortAllRequests(addressRequestsRef.current);
+      previewLoadControllerRef.current?.abort();
+      previewSaveControllerRef.current?.abort();
+      folderNoteLoadControllerRef.current?.abort();
+      folderNoteSaveControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -737,6 +829,118 @@ export default function FilesView({
       setWallpaperId(saved as WallpaperId);
     }
   }, []);
+
+  useEffect(() => {
+    const resizedViewport = {
+      width: logicalViewport.width,
+      height: logicalViewport.height,
+    };
+    const folderBounds = {
+      left: 6,
+      top: TOP_BAR + 6,
+      right: 6,
+      bottom: TASK_BAR + 6,
+      minWidth: 390,
+      minHeight: 300,
+    };
+    const fitFloatingWindow = (
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+    ) =>
+      fitLogicalRect(
+        { x, y, width, height },
+        resizedViewport,
+        {
+          left: 8,
+          top: TOP_BAR + 6,
+          right: 8,
+          bottom: TASK_BAR + 6,
+          minWidth: width,
+          minHeight: height,
+        },
+      );
+
+    setDeskWindows((current) =>
+      current.map((item) => {
+        const fitted = fitLogicalRect(
+          item,
+          resizedViewport,
+          folderBounds,
+          item.maximized,
+        );
+        return {
+          ...item,
+          ...fitted,
+          restoreRect: item.restoreRect
+            ? fitLogicalRect(
+                item.restoreRect,
+                resizedViewport,
+                folderBounds,
+              )
+            : undefined,
+        };
+      }),
+    );
+    setTrashWindow((current) => {
+      if (!current) return current;
+      const fitted = fitFloatingWindow(
+        current.x,
+        current.y,
+        Math.max(320, Math.min(480, resizedViewport.width - 16)),
+        Math.max(240, Math.min(400, resizedViewport.height - 120)),
+      );
+      return { ...current, x: fitted.x, y: fitted.y };
+    });
+    setPreviewWindow((current) => {
+      if (!current) return current;
+      const fitted = fitFloatingWindow(
+        current.x,
+        current.y,
+        Math.max(320, Math.min(760, resizedViewport.width - 24)),
+        Math.max(240, Math.min(560, resizedViewport.height - 140)),
+      );
+      return { ...current, x: fitted.x, y: fitted.y };
+    });
+    setFolderNoteWindow((current) => {
+      if (!current) return current;
+      const fitted = fitFloatingWindow(
+        current.x,
+        current.y,
+        Math.max(360, Math.min(560, resizedViewport.width - 24)),
+        Math.max(250, Math.min(420, resizedViewport.height - 140)),
+      );
+      return { ...current, x: fitted.x, y: fitted.y };
+    });
+    setContextMenu((current) => {
+      if (!current) return current;
+      const hasParent = Boolean(
+        current.scopeId !== ROOT_SCOPE &&
+          windowsRef.current
+            .find((item) => item.id === current.scopeId)
+            ?.path.at(-2),
+      );
+      const height = current.entry
+        ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
+        : current.scopeId === ROOT_SCOPE
+          ? 330
+          : 194;
+      return {
+        ...current,
+        x: clamp(
+          current.x,
+          8,
+          Math.max(8, resizedViewport.width - 210 - 8),
+        ),
+        y: clamp(
+          current.y,
+          8,
+          Math.max(8, resizedViewport.height - height - 8),
+        ),
+      };
+    });
+  }, [isAdmin, logicalViewport.height, logicalViewport.width]);
 
   function selectWallpaper(id: WallpaperId) {
     setWallpaperId(id);
@@ -1104,6 +1308,45 @@ export default function FilesView({
     cancelScopedRequest(listRequestsRef.current, scopeId);
     cancelScopedRequest(layoutRequestsRef.current, scopeId);
     cancelLayoutSaves(scopeId);
+    cancelScopedRequest(addressRequestsRef.current, scopeId);
+  }
+
+  function beginPreviewInstance() {
+    previewLoadControllerRef.current?.abort();
+    previewSaveControllerRef.current?.abort();
+    previewLoadControllerRef.current = null;
+    previewSaveControllerRef.current = null;
+    const instanceId = previewInstanceRef.current + 1;
+    previewInstanceRef.current = instanceId;
+    return instanceId;
+  }
+
+  function cancelPreviewRequests() {
+    previewLoadControllerRef.current?.abort();
+    previewSaveControllerRef.current?.abort();
+    previewLoadControllerRef.current = null;
+    previewSaveControllerRef.current = null;
+    previewInstanceRef.current += 1;
+  }
+
+  function beginFolderNoteInstance() {
+    folderNoteLoadControllerRef.current?.abort();
+    folderNoteSaveControllerRef.current?.abort();
+    folderNoteLoadControllerRef.current = null;
+    folderNoteSaveControllerRef.current = null;
+    const instanceId = folderNoteInstanceRef.current + 1;
+    folderNoteInstanceRef.current = instanceId;
+    return instanceId;
+  }
+
+  function closeFolderNote() {
+    folderNoteLoadControllerRef.current?.abort();
+    folderNoteSaveControllerRef.current?.abort();
+    folderNoteLoadControllerRef.current = null;
+    folderNoteSaveControllerRef.current = null;
+    folderNoteInstanceRef.current += 1;
+    folderNoteWindowRef.current = null;
+    setFolderNoteWindow(null);
   }
 
   function closeWindow(windowId: string) {
@@ -1114,11 +1357,19 @@ export default function FilesView({
     setSelected((current) =>
       current?.scopeId === windowId ? null : current,
     );
+    setAddressStates((current) => {
+      const next = { ...current };
+      delete next[windowId];
+      return next;
+    });
   }
 
   function closeWindowsContainingFolder(folderId: string) {
     const affected = windowsContainingFolder(windowsRef.current, folderId);
-    if (affected.length === 0) return;
+    const noteAffected = Boolean(
+      folderNoteWindowRef.current?.path.some((crumb) => crumb.id === folderId),
+    );
+    if (affected.length === 0 && !noteAffected) return;
     const affectedWindowIds = new Set(affected.map((item) => item.id));
     const affectedEntryIds = new Set(
       affected.flatMap((item) => item.data.entries.map((entry) => entry.id)),
@@ -1130,16 +1381,113 @@ export default function FilesView({
     setSelected((current) =>
       current && affectedWindowIds.has(current.scopeId) ? null : current,
     );
-    setPreviewWindow((current) => {
-      if (
-        !current ||
-        (!affectedEntryIds.has(current.entry.id) &&
-          !affectedWindowIds.has(previewOpenerRef.current?.scopeId ?? ""))
-      ) {
+    setAddressStates((current) => {
+      const next = { ...current };
+      for (const windowId of affectedWindowIds) delete next[windowId];
+      return next;
+    });
+    const previewAffected = Boolean(
+      previewWindowRef.current &&
+        (affectedEntryIds.has(previewWindowRef.current.entry.id) ||
+          affectedWindowIds.has(previewOpenerRef.current?.scopeId ?? "")),
+    );
+    if (previewAffected) {
+      previewOpenerRef.current = null;
+      cancelPreviewRequests();
+      previewWindowRef.current = null;
+      setPreviewWindow(null);
+    }
+    if (noteAffected) closeFolderNote();
+  }
+
+  function updateRenamedFolder(folderId: string, replacement: Crumb) {
+    const affected = windowsRef.current.filter((item) =>
+      item.path.some((crumb) => crumb.id === folderId),
+    );
+    for (const item of affected) {
+      cancelScopedRequest(addressRequestsRef.current, item.id);
+    }
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.path.some((crumb) => crumb.id === folderId)
+          ? {
+              ...item,
+              path: item.path.map((crumb) =>
+                crumb.id === folderId ? replacement : crumb,
+              ),
+            }
+          : item,
+      ),
+    );
+    setAddressStates((current) => {
+      const next = { ...current };
+      for (const item of affected) {
+        const path = item.path.map((crumb) =>
+          crumb.id === folderId ? replacement : crumb,
+        );
+        next[item.id] = {
+          value: folderAddress(path),
+          busy: false,
+          error: null,
+        };
+      }
+      return next;
+    });
+    setFolderNoteWindow((current) => {
+      if (!current?.path.some((crumb) => crumb.id === folderId)) {
         return current;
       }
-      previewOpenerRef.current = null;
-      return null;
+      const path = current.path.map((crumb) =>
+        crumb.id === folderId ? replacement : crumb,
+      );
+      return {
+        ...current,
+        folderId:
+          current.folderId === folderId ? replacement.id : current.folderId,
+        folderName: path.at(-1)?.name ?? current.folderName,
+        path,
+      };
+    });
+  }
+
+  function propagateFolderNames(entries: Entry[]) {
+    const changedPaths = new Map<string, Crumb[]>();
+    for (const item of windowsRef.current) {
+      const path = renamedCrumbsFromEntries(item.path, entries);
+      if (path !== item.path) changedPaths.set(item.id, path);
+    }
+    if (changedPaths.size > 0) {
+      for (const windowId of changedPaths.keys()) {
+        cancelScopedRequest(addressRequestsRef.current, windowId);
+      }
+      setDeskWindows((current) =>
+        current.map((item) => {
+          const path = changedPaths.get(item.id);
+          return path ? { ...item, path } : item;
+        }),
+      );
+      setAddressStates((current) => {
+        const next = { ...current };
+        for (const [windowId, path] of changedPaths) {
+          next[windowId] = {
+            value: folderAddress(path),
+            busy: false,
+            error: null,
+          };
+        }
+        return next;
+      });
+    }
+    setFolderNoteWindow((current) => {
+      if (!current) return current;
+      const path = renamedCrumbsFromEntries(current.path, entries);
+      return path === current.path
+        ? current
+        : {
+            ...current,
+            folderName: path.at(-1)?.name ?? current.folderName,
+            path,
+          };
     });
   }
 
@@ -1157,6 +1505,11 @@ export default function FilesView({
   function openFolder(entry: Entry, scopeId: string) {
     setContextMenu(null);
     if (scopeId !== ROOT_SCOPE) {
+      const currentWindow = scopeWindow(scopeId);
+      const nextPath = [
+        ...(currentWindow?.path ?? [{ id: ROOT_ID, name: "ShareDesk" }]),
+        { id: entry.id, name: entry.name },
+      ];
       cancelScopeRequests(scopeId);
       setSelected((current) =>
         current?.scopeId === scopeId ? null : current,
@@ -1166,12 +1519,20 @@ export default function FilesView({
           item.id === scopeId
             ? {
                 ...item,
-                path: [...item.path, { id: entry.id, name: entry.name }],
+                path: nextPath,
                 data: blankFolder(),
               }
             : item,
         ),
       );
+      setAddressStates((current) => ({
+        ...current,
+        [scopeId]: {
+          value: folderAddress(nextPath),
+          busy: false,
+          error: null,
+        },
+      }));
       void loadDeskWindow(scopeId, entry.id);
       return;
     }
@@ -1185,23 +1546,32 @@ export default function FilesView({
     }
 
     const id = `folder-${++windowIdRef.current}`;
-    const width = Math.min(720, Math.max(390, viewport.width - 48));
-    const height = Math.min(500, Math.max(300, viewport.height - 112));
+    const width = Math.min(
+      720,
+      Math.max(390, logicalViewport.width - 48),
+    );
+    const height = Math.min(
+      500,
+      Math.max(300, logicalViewport.height - 112),
+    );
     const cascade = (windowIdRef.current % 5) * 24;
     const x = clamp(
-      (viewport.width - width) / 2 + cascade - 48,
+      (logicalViewport.width - width) / 2 + cascade - 48,
       8,
-      Math.max(8, viewport.width - width - 8),
+      Math.max(8, logicalViewport.width - width - 8),
     );
     const y = clamp(
       TOP_BAR + 28 + cascade,
       TOP_BAR + 6,
-      Math.max(TOP_BAR + 6, viewport.height - TASK_BAR - height - 6),
+      Math.max(
+        TOP_BAR + 6,
+        logicalViewport.height - TASK_BAR - height - 6,
+      ),
     );
     const next: DeskWindow = {
       id,
       path: [
-        { id: ROOT_ID, name: "바탕화면" },
+        { id: ROOT_ID, name: "ShareDesk" },
         { id: entry.id, name: entry.name },
       ],
       x,
@@ -1226,32 +1596,60 @@ export default function FilesView({
     anchor.remove();
   }
 
-  async function loadPreviewText(entry: Entry) {
+  async function loadPreviewText(entry: Entry, instanceId: number) {
+    const controller = new AbortController();
+    previewLoadControllerRef.current = controller;
     try {
-      // 앞부분만 Range로 받는다 — 수백 MB짜리 로그를 통째로 문자열화하면 탭이 멎는다.
-      const PREVIEW_BYTES = 256 * 1024;
       const response = await fetch(previewUrl(entry), {
         cache: "no-store",
-        headers: { Range: `bytes=0-${PREVIEW_BYTES - 1}` },
+        headers: { Range: `bytes=0-${TEXT_EDIT_LIMIT}` },
+        signal: controller.signal,
       });
       if (!response.ok && response.status !== 206) {
         throw new Error("내용을 불러오지 못했습니다");
       }
-      const raw = await response.text();
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const contentRange = response.headers.get("content-range");
+      const rangeTotal = contentRange?.match(/\/(\d+)$/)?.[1];
+      const totalBytes = rangeTotal ? Number(rangeTotal) : entry.size;
       const truncated =
-        response.status === 206 &&
-        (entry.size === null || entry.size > PREVIEW_BYTES);
-      const text = truncated
-        ? `${raw}\n\n… 앞부분만 미리봅니다. 전체는 다운로드로 받아 주세요.`
-        : raw;
+        bytes.byteLength > TEXT_EDIT_LIMIT ||
+        (totalBytes !== null && totalBytes > TEXT_EDIT_LIMIT);
+      const shownBytes = bytes.subarray(0, TEXT_EDIT_LIMIT);
+      let invalidUtf8 = false;
+      let text: string;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(shownBytes);
+      } catch {
+        invalidUtf8 = true;
+        text = new TextDecoder().decode(shownBytes);
+      }
+      const readOnlyReason = invalidUtf8
+        ? "올바른 UTF-8 텍스트가 아니어서 글자가 손상될 수 있습니다. 이 화면에서는 저장할 수 없습니다."
+        : truncated
+          ? "1 MiB를 넘는 파일은 앞부분만 표시하며 읽기 전용입니다."
+          : null;
+      if (previewInstanceRef.current !== instanceId) return;
       setPreviewWindow((current) =>
-        current?.entry.id === entry.id
-          ? { ...current, text, textLoading: false }
+        current?.instanceId === instanceId && current.entry.id === entry.id
+          ? {
+              ...current,
+              text,
+              originalText: text,
+              textLoading: false,
+              textReadOnlyReason: readOnlyReason,
+            }
           : current,
       );
     } catch (error) {
+      if (
+        isAbortError(error) ||
+        previewInstanceRef.current !== instanceId
+      ) {
+        return;
+      }
       setPreviewWindow((current) =>
-        current?.entry.id === entry.id
+        current?.instanceId === instanceId && current.entry.id === entry.id
           ? {
               ...current,
               textLoading: false,
@@ -1259,6 +1657,144 @@ export default function FilesView({
             }
           : current,
       );
+    } finally {
+      if (previewLoadControllerRef.current === controller) {
+        previewLoadControllerRef.current = null;
+      }
+    }
+  }
+
+  function replaceEntryEverywhere(entry: Entry) {
+    setRootData((current) => ({
+      ...current,
+      entries: current.entries.map((value) =>
+        value.id === entry.id ? entry : value,
+      ),
+    }));
+    setDeskWindows((current) =>
+      current.map((item) => ({
+        ...item,
+        data: {
+          ...item.data,
+          entries: item.data.entries.map((value) =>
+            value.id === entry.id ? entry : value,
+          ),
+        },
+      })),
+    );
+  }
+
+  async function savePreviewText() {
+    const preview = previewWindow;
+    const readOnlyReason = preview
+      ? previewTextReadOnlyReason(preview)
+      : null;
+    if (
+      !preview ||
+      preview.kind !== "text" ||
+      preview.text === null ||
+      !isEditableTextEntry(preview.entry) ||
+      readOnlyReason ||
+      preview.textSaving
+    ) {
+      return;
+    }
+    const textSnapshot = preview.text;
+    if (!preview.entry.version) {
+      setPreviewWindow((current) =>
+        current
+          ? {
+              ...current,
+              textSaveError:
+                "최신 버전 정보가 없어 저장하지 않았습니다. 새로고침 후 다시 열어 주세요.",
+            }
+          : current,
+      );
+      return;
+    }
+    if (new TextEncoder().encode(textSnapshot).byteLength > TEXT_EDIT_LIMIT) {
+      setPreviewWindow((current) =>
+        current
+          ? {
+              ...current,
+              textSaveError: "텍스트 파일은 1 MiB까지 저장할 수 있습니다.",
+            }
+          : current,
+      );
+      return;
+    }
+    setPreviewWindow((current) =>
+      current?.instanceId === preview.instanceId
+        ? {
+            ...current,
+            textSaving: true,
+            textSaveError: null,
+            textConflict: false,
+          }
+        : current,
+    );
+    const controller = new AbortController();
+    previewSaveControllerRef.current = controller;
+    try {
+      const result = await apiJson<{ entry: Entry }>("/api/drive/content", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          id: preview.entry.id,
+          expectedVersion: preview.entry.version,
+          mimeType: "text/plain",
+          content: textSnapshot,
+        }),
+      });
+      if (previewInstanceRef.current !== preview.instanceId) return;
+      replaceEntryEverywhere(result.entry);
+      setPreviewWindow((current) =>
+        current?.instanceId === preview.instanceId &&
+        current.entry.id === preview.entry.id
+          ? (() => {
+              const saved = reconcileSavedDraft(
+                current.text ?? "",
+                textSnapshot,
+              );
+              return {
+                ...current,
+                entry: result.entry,
+                text: saved.draft,
+                originalText: saved.original,
+                textSaving: false,
+                textSaveError: null,
+                textConflict: false,
+              };
+            })()
+          : current,
+      );
+      setNotice("텍스트 파일을 저장했습니다");
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        previewInstanceRef.current !== preview.instanceId
+      ) {
+        return;
+      }
+      const conflict = (error as Error & { status?: number }).status === 409;
+      setPreviewWindow((current) =>
+        current?.instanceId === preview.instanceId &&
+        current.entry.id === preview.entry.id
+          ? {
+              ...current,
+              textSaving: false,
+              textConflict: conflict,
+              textSaveError: conflict
+                ? "다른 사람이 먼저 파일을 바꿨습니다. 현재 글은 덮어쓰지 않았습니다."
+                : errorMessage(error, "텍스트 파일을 저장하지 못했습니다"),
+            }
+          : current,
+      );
+    } finally {
+      if (previewSaveControllerRef.current === controller) {
+        previewSaveControllerRef.current = null;
+      }
     }
   }
 
@@ -1278,26 +1814,35 @@ export default function FilesView({
         }
       : null;
     setContextMenu(null);
+    const instanceId = beginPreviewInstance();
     const z = ++zRef.current;
     setPreviewWindow({
+      instanceId,
       entry,
       kind,
-      x: clamp(viewport.width * 0.14, 8, 400),
-      y: clamp(TOP_BAR + 24, TOP_BAR + 6, viewport.height / 3),
+      x: clamp(logicalViewport.width * 0.14, 8, 400),
+      y: clamp(TOP_BAR + 24, TOP_BAR + 6, logicalViewport.height / 3),
       z,
       text: null,
+      originalText: null,
       textLoading: kind === "text",
       textError: null,
+      textSaveError: null,
+      textReadOnlyReason: null,
+      textSaving: false,
+      textConflict: false,
     });
     if (keyboardOpener) {
       setPreviewFocusRequest((current) => current + 1);
     }
-    if (kind === "text") void loadPreviewText(entry);
+    if (kind === "text") void loadPreviewText(entry, instanceId);
   }
 
   function closePreview() {
     const opener = previewOpenerRef.current;
     previewOpenerRef.current = null;
+    cancelPreviewRequests();
+    previewWindowRef.current = null;
     setPreviewWindow(null);
     window.requestAnimationFrame(() => {
       if (opener?.element.isConnected) {
@@ -1308,8 +1853,60 @@ export default function FilesView({
     });
   }
 
+  function discardPreviewForEntry(entryId: string) {
+    if (previewWindowRef.current?.entry.id !== entryId) return;
+    previewOpenerRef.current = null;
+    cancelPreviewRequests();
+    previewWindowRef.current = null;
+    setPreviewWindow(null);
+  }
+
+  function updatePreviewAfterRename(previousId: string, entry: Entry) {
+    const current = previewWindowRef.current;
+    if (!current || current.entry.id !== previousId) return;
+    if (entry.id === previousId) {
+      const next = { ...current, entry };
+      previewWindowRef.current = next;
+      setPreviewWindow((active) =>
+        active?.instanceId === current.instanceId
+          ? { ...active, entry }
+          : active,
+      );
+      return;
+    }
+
+    const shouldReload = current.kind === "text" && current.text === null;
+    const instanceId = beginPreviewInstance();
+    const next = {
+      ...current,
+      instanceId,
+      entry,
+      textLoading: shouldReload,
+      textError: shouldReload ? null : current.textError,
+      textSaving: false,
+      textSaveError: null,
+      textConflict: false,
+    };
+    previewWindowRef.current = next;
+    setPreviewWindow((active) =>
+      active?.instanceId === current.instanceId
+        ? {
+            ...active,
+            instanceId,
+            entry,
+            textLoading: shouldReload,
+            textError: shouldReload ? null : active.textError,
+            textSaving: false,
+            textSaveError: null,
+            textConflict: false,
+          }
+        : active,
+    );
+    if (shouldReload) void loadPreviewText(entry, instanceId);
+  }
+
   function movePreviewWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!previewWindow || viewport.width < 640) return;
+    if (!previewWindow) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     const z = ++zRef.current;
@@ -1321,14 +1918,14 @@ export default function FilesView({
     const onMove = (next: PointerEvent) => {
       // 창 폭을 JS에서 알 수 없어(폭은 CSS가 정함) 최소 120px는 화면 안에 남긴다.
       const x = clamp(
-        originX + next.clientX - startX,
+        originX + logicalPointerDelta(next.clientX - startX, uiScale),
         4,
-        Math.max(4, window.innerWidth - 120),
+        Math.max(4, logicalViewport.width - 120),
       );
       const y = clamp(
-        originY + next.clientY - startY,
+        originY + logicalPointerDelta(next.clientY - startY, uiScale),
         TOP_BAR + 4,
-        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+        Math.max(TOP_BAR + 4, logicalViewport.height - TASK_BAR - 48),
       );
       setPreviewWindow((current) =>
         current ? { ...current, x, y } : current,
@@ -1364,10 +1961,6 @@ export default function FilesView({
     const item = scopeWindow(windowId);
     if (!item || crumbIndex >= item.path.length - 1) return;
     const nextPath = item.path.slice(0, crumbIndex + 1);
-    if (nextPath.length === 1) {
-      closeWindow(windowId);
-      return;
-    }
     const folderId = nextPath.at(-1)!.id;
     cancelScopeRequests(windowId);
     setSelected((current) =>
@@ -1380,14 +1973,272 @@ export default function FilesView({
           : value,
       ),
     );
+    setAddressStates((current) => ({
+      ...current,
+      [windowId]: {
+        value: folderAddress(nextPath),
+        busy: false,
+        error: null,
+      },
+    }));
     void loadDeskWindow(windowId, folderId);
+  }
+
+  async function navigateAddress(windowId: string) {
+    const item = scopeWindow(windowId);
+    if (!item) return;
+    const request = beginScopedRequest(addressRequestsRef.current, windowId);
+    const currentAddress =
+      addressStates[windowId]?.value ?? folderAddress(item.path);
+    const requestedPath = currentAddress.trim() || "/";
+    setAddressStates((current) => ({
+      ...current,
+      [windowId]: { value: currentAddress, busy: true, error: null },
+    }));
+    try {
+      const result = await apiJson<{ folderId: string; crumbs: Crumb[] }>(
+        `/api/drive/path?path=${encodeURIComponent(requestedPath)}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          signal: request.controller.signal,
+        },
+      );
+      if (
+        addressRequestsRef.current.get(windowId) !== request ||
+        !windowsRef.current.some((windowItem) => windowItem.id === windowId)
+      ) {
+        return;
+      }
+      const nextPath = result.crumbs.length
+        ? result.crumbs
+        : [{ id: ROOT_ID, name: "ShareDesk" }];
+      cancelScopedRequest(listRequestsRef.current, windowId);
+      cancelScopedRequest(layoutRequestsRef.current, windowId);
+      cancelLayoutSaves(windowId);
+      setSelected((current) =>
+        current?.scopeId === windowId ? null : current,
+      );
+      setDeskWindows((current) =>
+        current.map((value) =>
+          value.id === windowId
+            ? { ...value, path: nextPath, data: blankFolder() }
+            : value,
+        ),
+      );
+      setAddressStates((current) => ({
+        ...current,
+        [windowId]: {
+          value: folderAddress(nextPath),
+          busy: false,
+          error: null,
+        },
+      }));
+      void loadDeskWindow(windowId, result.folderId);
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        addressRequestsRef.current.get(windowId) !== request
+      ) {
+        return;
+      }
+      setAddressStates((current) => ({
+        ...current,
+        [windowId]: {
+          value: current[windowId]?.value ?? currentAddress,
+          busy: false,
+          error: errorMessage(error, "폴더 주소를 찾지 못했습니다"),
+        },
+      }));
+    } finally {
+      finishScopedRequest(addressRequestsRef.current, windowId, request);
+    }
+  }
+
+  async function openFolderNote(item: DeskWindow) {
+    const folder = item.path.at(-1);
+    if (!folder) return;
+    setContextMenu(null);
+    const instanceId = beginFolderNoteInstance();
+    const controller = new AbortController();
+    folderNoteLoadControllerRef.current = controller;
+    const x = clamp(
+      item.x + 70,
+      8,
+      Math.max(8, logicalViewport.width - 430),
+    );
+    const y = clamp(
+      item.y + 46,
+      TOP_BAR + 6,
+      Math.max(TOP_BAR + 6, logicalViewport.height - TASK_BAR - 320),
+    );
+    setFolderNoteWindow({
+      instanceId,
+      folderId: folder.id,
+      folderName: folder.name,
+      path: item.path,
+      x,
+      y,
+      z: ++zRef.current,
+      content: "",
+      originalContent: "",
+      version: null,
+      loading: true,
+      saving: false,
+      error: null,
+      conflict: false,
+    });
+    try {
+      const result = await apiJson<{ content: string; version: string | null }>(
+        `/api/folder-note?folderId=${encodeURIComponent(folder.id)}`,
+        { method: "GET", cache: "no-store", signal: controller.signal },
+      );
+      if (folderNoteInstanceRef.current !== instanceId) return;
+      setFolderNoteWindow((current) =>
+        current?.instanceId === instanceId && current.folderId === folder.id
+          ? {
+              ...current,
+              content: result.content,
+              originalContent: result.content,
+              version: result.version,
+              loading: false,
+            }
+          : current,
+      );
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        folderNoteInstanceRef.current !== instanceId
+      ) {
+        return;
+      }
+      setFolderNoteWindow((current) =>
+        current?.instanceId === instanceId && current.folderId === folder.id
+          ? {
+              ...current,
+              loading: false,
+              error: errorMessage(error, "폴더 메모를 불러오지 못했습니다"),
+            }
+          : current,
+      );
+    } finally {
+      if (folderNoteLoadControllerRef.current === controller) {
+        folderNoteLoadControllerRef.current = null;
+      }
+    }
+  }
+
+  async function saveFolderNote() {
+    const note = folderNoteWindow;
+    if (!note || note.loading || note.saving) return;
+    setFolderNoteWindow((current) =>
+      current?.instanceId === note.instanceId
+        ? { ...current, saving: true, error: null, conflict: false }
+        : current,
+    );
+    const controller = new AbortController();
+    folderNoteSaveControllerRef.current = controller;
+    try {
+      const result = await apiJson<{ content: string; version: string | null }>(
+        "/api/folder-note",
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            folderId: note.folderId,
+            expectedVersion: note.version,
+            content: note.content,
+          }),
+        },
+      );
+      if (folderNoteInstanceRef.current !== note.instanceId) return;
+      setFolderNoteWindow((current) =>
+        current?.instanceId === note.instanceId &&
+        current.folderId === note.folderId
+          ? (() => {
+              const saved = reconcileSavedDraft(
+                current.content,
+                result.content,
+              );
+              return {
+                ...current,
+                content: saved.draft,
+                originalContent: saved.original,
+                version: result.version,
+                saving: false,
+                conflict: false,
+              };
+            })()
+          : current,
+      );
+      setNotice("폴더 메모를 저장했습니다");
+    } catch (error) {
+      if (
+        isAbortError(error) ||
+        folderNoteInstanceRef.current !== note.instanceId
+      ) {
+        return;
+      }
+      const conflict = (error as Error & { status?: number }).status === 409;
+      setFolderNoteWindow((current) =>
+        current?.instanceId === note.instanceId &&
+        current.folderId === note.folderId
+          ? {
+              ...current,
+              saving: false,
+              conflict,
+              error: conflict
+                ? "다른 사람이 먼저 메모를 바꿨습니다. 현재 글은 덮어쓰지 않았습니다."
+                : errorMessage(error, "폴더 메모를 저장하지 못했습니다"),
+            }
+          : current,
+      );
+    } finally {
+      if (folderNoteSaveControllerRef.current === controller) {
+        folderNoteSaveControllerRef.current = null;
+      }
+    }
+  }
+
+  function moveFolderNoteWindow(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!folderNoteWindow) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = folderNoteWindow.x;
+    const originY = folderNoteWindow.y;
+    const onMove = (next: PointerEvent) => {
+      const x = clamp(
+        originX + logicalPointerDelta(next.clientX - startX, uiScale),
+        4,
+        Math.max(4, logicalViewport.width - 120),
+      );
+      const y = clamp(
+        originY + logicalPointerDelta(next.clientY - startY, uiScale),
+        TOP_BAR + 4,
+        Math.max(TOP_BAR + 4, logicalViewport.height - TASK_BAR - 48),
+      );
+      setFolderNoteWindow((current) =>
+        current ? { ...current, x, y } : current,
+      );
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd, { once: true });
+    window.addEventListener("pointercancel", onEnd, { once: true });
   }
 
   function moveWindow(
     event: ReactPointerEvent<HTMLDivElement>,
     item: DeskWindow,
   ) {
-    if (viewport.width < 640 || item.maximized) return;
+    if (item.maximized) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     focusWindow(item.id);
@@ -1398,14 +2249,14 @@ export default function FilesView({
 
     const onMove = (next: PointerEvent) => {
       const x = clamp(
-        originX + next.clientX - startX,
+        originX + logicalPointerDelta(next.clientX - startX, uiScale),
         4,
-        Math.max(4, window.innerWidth - item.width - 4),
+        Math.max(4, logicalViewport.width - item.width - 4),
       );
       const y = clamp(
-        originY + next.clientY - startY,
+        originY + logicalPointerDelta(next.clientY - startY, uiScale),
         TOP_BAR + 4,
-        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+        Math.max(TOP_BAR + 4, logicalViewport.height - TASK_BAR - 48),
       );
       setDeskWindows((current) =>
         current.map((value) =>
@@ -1427,7 +2278,7 @@ export default function FilesView({
     event: ReactPointerEvent<HTMLButtonElement>,
     item: DeskWindow,
   ) {
-    if (viewport.width < 640 || item.maximized) return;
+    if (item.maximized) return;
     event.preventDefault();
     event.stopPropagation();
     focusWindow(item.id);
@@ -1438,14 +2289,14 @@ export default function FilesView({
 
     const onMove = (next: PointerEvent) => {
       const width = clamp(
-        originWidth + next.clientX - startX,
+        originWidth + logicalPointerDelta(next.clientX - startX, uiScale),
         390,
-        Math.max(390, window.innerWidth - item.x - 6),
+        Math.max(390, logicalViewport.width - item.x - 6),
       );
       const height = clamp(
-        originHeight + next.clientY - startY,
+        originHeight + logicalPointerDelta(next.clientY - startY, uiScale),
         300,
-        Math.max(300, window.innerHeight - TASK_BAR - item.y - 6),
+        Math.max(300, logicalViewport.height - TASK_BAR - item.y - 6),
       );
       setDeskWindows((current) =>
         current.map((value) =>
@@ -1486,8 +2337,11 @@ export default function FilesView({
           },
           x: 6,
           y: TOP_BAR + 6,
-          width: Math.max(390, viewport.width - 12),
-          height: Math.max(300, viewport.height - TOP_BAR - TASK_BAR - 12),
+          width: Math.max(390, logicalViewport.width - 12),
+          height: Math.max(
+            300,
+            logicalViewport.height - TOP_BAR - TASK_BAR - 12,
+          ),
           maximized: true,
         };
       }),
@@ -1721,9 +2575,9 @@ export default function FilesView({
     const icon = element.closest<HTMLElement>("[data-drop-folder]");
     if (icon?.dataset.dropFolder && icon.dataset.dropScope) {
       const folderId = icon.dataset.dropFolder;
-      if (folderId !== entry.id) {
-        return {
-          folderId,
+        if (folderId !== entry.id) {
+          return {
+            folderId,
           highlightKey: `icon:${icon.dataset.dropScope}:${folderId}`,
         };
       }
@@ -1739,7 +2593,7 @@ export default function FilesView({
       canvasFolder !== sourceFolderId &&
       canvasFolder !== entry.id
     ) {
-      return { folderId: canvasFolder, highlightKey: `canvas:${canvasScope}` };
+        return { folderId: canvasFolder, highlightKey: `canvas:${canvasScope}` };
     }
     return null;
   }
@@ -1819,11 +2673,7 @@ export default function FilesView({
       if (entry.isFolder) {
         closeWindowsContainingFolder(entry.id);
       } else if (body.entry.id !== entry.id) {
-        setPreviewWindow((current) =>
-          current?.entry.id === entry.id
-            ? { ...current, entry: body.entry }
-            : current,
-        );
+        updatePreviewAfterRename(entry.id, body.entry);
         if (previewOpenerRef.current?.entryId === entry.id) {
           previewOpenerRef.current = null;
         }
@@ -1848,12 +2698,7 @@ export default function FilesView({
         if (entry.isFolder) {
           closeWindowsContainingFolder(entry.id);
         } else {
-          setPreviewWindow((current) =>
-            current?.entry.id === entry.id ? null : current,
-          );
-          if (previewOpenerRef.current?.entryId === entry.id) {
-            previewOpenerRef.current = null;
-          }
+          discardPreviewForEntry(entry.id);
         }
         setNotice(`‘${entry.name}’ 항목의 실제 위치를 확인하고 있습니다`);
       }
@@ -1925,14 +2770,21 @@ export default function FilesView({
     const z = ++zRef.current;
     setTrashWindow((current) => {
       if (current) return { ...current, z };
-      const width = Math.min(480, Math.max(320, viewport.width - 32));
+      const width = Math.min(
+        480,
+        Math.max(320, logicalViewport.width - 32),
+      );
       return {
         x: clamp(
-          (viewport.width - width) / 2 + 60,
+          (logicalViewport.width - width) / 2 + 60,
           8,
-          Math.max(8, viewport.width - width - 8),
+          Math.max(8, logicalViewport.width - width - 8),
         ),
-        y: clamp(TOP_BAR + 52, TOP_BAR + 6, viewport.height / 2),
+        y: clamp(
+          TOP_BAR + 52,
+          TOP_BAR + 6,
+          logicalViewport.height / 2,
+        ),
         z,
         entries: [],
         loading: true,
@@ -2004,7 +2856,7 @@ export default function FilesView({
   }
 
   function moveTrashWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!trashWindow || viewport.width < 640) return;
+    if (!trashWindow) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     const z = ++zRef.current;
@@ -2016,14 +2868,14 @@ export default function FilesView({
     const onMove = (next: PointerEvent) => {
       // 창 폭을 JS에서 알 수 없어(폭은 CSS가 정함) 최소 120px는 화면 안에 남긴다.
       const x = clamp(
-        originX + next.clientX - startX,
+        originX + logicalPointerDelta(next.clientX - startX, uiScale),
         4,
-        Math.max(4, window.innerWidth - 120),
+        Math.max(4, logicalViewport.width - 120),
       );
       const y = clamp(
-        originY + next.clientY - startY,
+        originY + logicalPointerDelta(next.clientY - startY, uiScale),
         TOP_BAR + 4,
-        Math.max(TOP_BAR + 4, window.innerHeight - TASK_BAR - 48),
+        Math.max(TOP_BAR + 4, logicalViewport.height - TASK_BAR - 48),
       );
       setTrashWindow((current) => (current ? { ...current, x, y } : current));
     };
@@ -2070,7 +2922,7 @@ export default function FilesView({
     let moved = false;
     let lastClientX = startX;
     let lastClientY = startY;
-    let moveTarget: { folderId: string; highlightKey: string } | null = null;
+    let moveTarget: ReturnType<typeof findMoveTarget> = null;
     event.preventDefault();
 
     const onMove = (next: PointerEvent) => {
@@ -2083,12 +2935,7 @@ export default function FilesView({
       moved = true;
       setDraggingKey(transientKey);
       draggingKeyRef.current = transientKey;
-      const x = clamp(startLeft + dx, 0, MAX_LOGICAL_COORDINATE);
-      const y = clamp(startTop + dy, 0, MAX_LOGICAL_COORDINATE);
-      setTransientPositions((current) => ({
-        ...current,
-        [transientKey]: { x, y, version: startPlacement.version },
-      }));
+      setDragGhost({ entry, clientX: next.clientX, clientY: next.clientY });
       moveTarget = findMoveTarget(
         next.clientX,
         next.clientY,
@@ -2105,6 +2952,7 @@ export default function FilesView({
       setDraggingKey(null);
       draggingKeyRef.current = null;
       setDropTargetKey(null);
+      setDragGhost(null);
     };
     const onEnd = (next: PointerEvent) => {
       const action = dragTerminalAction(
@@ -2125,12 +2973,12 @@ export default function FilesView({
         return;
       }
       const x = clamp(
-        startLeft + (lastClientX - startX),
+        startLeft + logicalPointerDelta(lastClientX - startX, uiScale),
         0,
         MAX_LOGICAL_COORDINATE,
       );
       const y = clamp(
-        startTop + (lastClientY - startY),
+        startTop + logicalPointerDelta(lastClientY - startY, uiScale),
         0,
         MAX_LOGICAL_COORDINATE,
       );
@@ -2174,16 +3022,28 @@ export default function FilesView({
     const height = entry
       ? entryContextMenuHeight(scopeId)
       : scopeId === ROOT_SCOPE
-        ? 290
-        : 154;
+        ? 330
+        : 194;
     const target = event.target as HTMLElement;
     const activeElement =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     setContextMenu({
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
+      x: Math.max(
+        8,
+        Math.min(
+          logicalClientCoordinate(event.clientX, uiScale),
+          logicalViewport.width - width - 8,
+        ),
+      ),
+      y: Math.max(
+        8,
+        Math.min(
+          logicalClientCoordinate(event.clientY, uiScale),
+          logicalViewport.height - height - 8,
+        ),
+      ),
       scopeId,
       entry,
       opener:
@@ -2200,10 +3060,16 @@ export default function FilesView({
     const rect = target.getBoundingClientRect();
     const menuHeight = entryContextMenuHeight(scopeId);
     setContextMenu({
-      x: Math.min(rect.left + 24, window.innerWidth - 218),
+      x: Math.min(
+        logicalClientCoordinate(rect.left + 24, uiScale),
+        logicalViewport.width - 218,
+      ),
       y: Math.max(
         8,
-        Math.min(rect.top + 32, window.innerHeight - menuHeight - 8),
+        Math.min(
+          logicalClientCoordinate(rect.top + 32, uiScale),
+          logicalViewport.height - menuHeight - 8,
+        ),
       ),
       scopeId,
       entry,
@@ -2333,7 +3199,10 @@ export default function FilesView({
     if (session.mode === "direct") {
       const response = await fetch(session.url, { method: "PUT", body: file });
       if (!response.ok) throw new Error("드라이브 업로드에 실패했습니다");
-      return;
+      const body = (await response.json().catch(() => null)) as {
+        id?: string;
+      } | null;
+      return body?.id ?? null;
     }
     const response = await fetch(
       `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}`,
@@ -2347,10 +3216,14 @@ export default function FilesView({
       router.replace("/");
       throw new Error("세션이 만료되었습니다");
     }
+    const body = (await response.json().catch(() => null)) as {
+      error?: string;
+      entry?: Entry;
+    } | null;
     if (!response.ok) {
-      const body = await response.json().catch(() => null);
       throw new Error(body?.error ?? "업로드에 실패했습니다");
     }
+    return body?.entry?.id ?? null;
   }
 
   async function uploadFiles(files: FileList | File[], scopeId: string) {
@@ -2374,6 +3247,48 @@ export default function FilesView({
         : `${list.length}개 파일을 올렸습니다`,
     );
     await refreshScope(scopeId);
+  }
+
+  async function createNotepad(scopeId: string) {
+    const data = scopeData(scopeId);
+    if (!data || data.loading) return;
+    const name = nextNotepadName(data.entries.map((entry) => entry.name));
+    const file = new File([""], name, { type: "text/plain" });
+    const folderId = scopeFolderId(scopeId);
+    setContextMenu(null);
+    setUploadProgress({ current: 1, total: 1, name });
+    try {
+      let uploadedId: string | null;
+      try {
+        uploadedId = await uploadOne(file, folderId);
+      } catch (error) {
+        setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
+        return;
+      }
+      try {
+        const fresh = await fetchFolder(folderId, new AbortController().signal);
+        const entry = fresh.entries.find((value) =>
+          uploadedId ? value.id === uploadedId : value.name === name,
+        );
+        if (!entry) {
+          setNotice(
+            `‘${name}’ 메모장은 만들었지만 바로 열지 못했습니다 — 새로고침해 주세요`,
+          );
+          void refreshScope(scopeId, true);
+          return;
+        }
+        upsertFolderEntry(folderId, entry);
+        openPreview(entry);
+        setNotice(`‘${name}’ 메모장을 만들었습니다`);
+      } catch {
+        setNotice(
+          `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
+        );
+        void refreshScope(scopeId, true);
+      }
+    } finally {
+      setUploadProgress(null);
+    }
   }
 
   async function submitDialog() {
@@ -2402,26 +3317,18 @@ export default function FilesView({
           body: JSON.stringify({ id: dialog.entry.id, name: dialog.value }),
         });
         const renamedName = result.entry?.name ?? dialog.value.trim();
-        if (dialog.entry.isFolder && result.entry.id !== dialog.entry.id) {
-          closeWindowsContainingFolder(dialog.entry.id);
-        } else {
-          setDeskWindows((current) =>
-            current.map((item) => ({
-              ...item,
-              path: item.path.map((crumb) =>
-                crumb.id === dialog.entry.id
-                  ? { id: result.entry.id, name: renamedName }
-                  : crumb,
-              ),
-            })),
-          );
+        if (dialog.entry.isFolder) {
+          if (result.entry.id !== dialog.entry.id) {
+            closeWindowsContainingFolder(dialog.entry.id);
+          } else {
+            updateRenamedFolder(dialog.entry.id, {
+              id: result.entry.id,
+              name: renamedName,
+            });
+          }
         }
         if (!dialog.entry.isFolder) {
-          setPreviewWindow((current) =>
-            current?.entry.id === dialog.entry.id
-              ? { ...current, entry: result.entry }
-              : current,
-          );
+          updatePreviewAfterRename(dialog.entry.id, result.entry);
           if (
             result.entry.id !== dialog.entry.id &&
             previewOpenerRef.current?.entryId === dialog.entry.id
@@ -2451,25 +3358,7 @@ export default function FilesView({
           body: JSON.stringify({ id: dialog.entry.id }),
         });
         if (dialog.entry.isFolder) {
-          const affectedWindowIds = windowsRef.current
-            .filter((item) =>
-              item.path.some((crumb) => crumb.id === dialog.entry.id),
-            )
-            .map((item) => item.id);
-          for (const windowId of affectedWindowIds) {
-            cancelScopeRequests(windowId);
-          }
-          setDeskWindows((current) =>
-            current.filter(
-              (item) =>
-                !item.path.some((crumb) => crumb.id === dialog.entry.id),
-            ),
-          );
-          setSelected((current) =>
-            current && affectedWindowIds.includes(current.scopeId)
-              ? null
-              : current,
-          );
+          closeWindowsContainingFolder(dialog.entry.id);
         }
         setNotice(`‘${dialog.entry.name}’을 삭제했습니다`);
         // 삭제 성공 뒤에는 곧 사라질 아이콘으로 포커스를 되돌리지 않는다.
@@ -2501,12 +3390,7 @@ export default function FilesView({
         if (dialog.entry.isFolder) {
           closeWindowsContainingFolder(dialog.entry.id);
         } else {
-          setPreviewWindow((current) =>
-            current?.entry.id === dialog.entry.id ? null : current,
-          );
-          if (previewOpenerRef.current?.entryId === dialog.entry.id) {
-            previewOpenerRef.current = null;
-          }
+          discardPreviewForEntry(dialog.entry.id);
         }
         await refreshScope(dialog.scopeId, true);
       }
@@ -2604,7 +3488,7 @@ export default function FilesView({
               <button
                 type="button"
                 className={styles.iconMain}
-                title={`${entry.name}\n${formatSize(entry.size)} · ${formatDate(entry.modifiedAt)}`}
+                title={entry.name}
                 aria-label={`${entry.isFolder ? "폴더" : "파일"} ${entry.name}`}
                 aria-pressed={active}
                 aria-busy={savingPositions.has(key) || moving}
@@ -2701,30 +3585,6 @@ export default function FilesView({
           </div>
         )}
 
-        {!data.loading && !data.error && data.entries.length === 0 && (
-          <div className={styles.canvasMessage}>
-            <span className={styles.emptyDrawer} aria-hidden="true" />
-            <strong>아직 아무도 파일을 놓지 않았어요</strong>
-            <span>파일을 이곳에 끌어 놓아도 됩니다</span>
-            <div className={styles.emptyActions}>
-              <button type="button" onClick={() => requestUpload(scopeId)}>
-                파일 올리기
-              </button>
-              <button
-                type="button"
-                onClick={(event) =>
-                  openDialog(
-                    { kind: "create", scopeId, value: "" },
-                    event.currentTarget,
-                  )
-                }
-              >
-                새 폴더
-              </button>
-            </div>
-          </div>
-        )}
-
         {data.layoutError && (
           <div className={styles.layoutWarning} role="status">
             공유 배치를 불러오지 못해 자동으로 정렬했습니다
@@ -2746,9 +3606,25 @@ export default function FilesView({
         (entry) => entry.layoutKey === selected.layoutKey,
       )
     : undefined;
+  const previewReadOnlyReason = previewWindow
+    ? previewTextReadOnlyReason(previewWindow)
+    : null;
 
   return (
-    <main className={styles.desktop} onContextMenu={(event) => event.preventDefault()}>
+    <main
+      className={styles.viewport}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <div
+        className={styles.desktop}
+        data-testid="scaled-desktop-stage"
+        data-ui-scale={uiScale.toFixed(4)}
+        style={{
+          width: logicalViewport.width,
+          height: logicalViewport.height,
+          transform: `scale(${uiScale})`,
+        }}
+      >
       <div
         className={styles.wallpaper}
         style={{
@@ -2789,6 +3665,11 @@ export default function FilesView({
                 (entry) => entry.layoutKey === selected.layoutKey,
               )
             : undefined;
+        const addressState = addressStates[item.id] ?? {
+          value: folderAddress(item.path),
+          busy: false,
+          error: null,
+        };
         return (
           <section
             key={item.id}
@@ -2861,20 +3742,38 @@ export default function FilesView({
               >
                 ←
               </button>
-              <nav className={styles.breadcrumb} aria-label="폴더 경로">
-                {item.path.map((crumb, index) => (
-                  <span key={`${crumb.id}-${index}`}>
-                    {index > 0 && <i aria-hidden="true">›</i>}
-                    <button
-                      type="button"
-                      disabled={index === item.path.length - 1}
-                      onClick={() => navigateWindow(item.id, index)}
-                    >
-                      {crumb.name}
-                    </button>
+              <form
+                className={styles.addressBar}
+                aria-label="폴더 주소"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void navigateAddress(item.id);
+                }}
+              >
+                <input
+                  data-testid={`folder-address-${item.id}`}
+                  aria-label="폴더 주소 입력"
+                  aria-invalid={addressState.error ? true : undefined}
+                  value={addressState.value}
+                  disabled={addressState.busy}
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setAddressStates((current) => ({
+                      ...current,
+                      [item.id]: {
+                        value: event.target.value,
+                        busy: false,
+                        error: null,
+                      },
+                    }))
+                  }
+                />
+                {addressState.error && (
+                  <span className={styles.addressError} role="alert">
+                    {addressState.error}
                   </span>
-                ))}
-              </nav>
+                )}
+              </form>
               <button
                 type="button"
                 className={styles.toolbarAction}
@@ -2895,6 +3794,15 @@ export default function FilesView({
                 onClick={() => requestUpload(item.id)}
               >
                 ↑ 올리기
+              </button>
+              <button
+                type="button"
+                className={`${styles.toolbarAction} ${styles.folderNoteButton}`}
+                data-testid={`folder-note-${item.id}`}
+                onClick={() => void openFolderNote(item)}
+              >
+                <span className={styles.folderNoteGlyph} aria-hidden="true" />
+                폴더 메모
               </button>
             </div>
 
@@ -3175,7 +4083,39 @@ export default function FilesView({
                   {previewWindow.textError}
                 </p>
               ) : (
-                <pre className={styles.previewText}>{previewWindow.text}</pre>
+                <div className={styles.textEditor}>
+                  {previewReadOnlyReason && (
+                    <p className={styles.editorWarning} role="status">
+                      {previewReadOnlyReason}
+                    </p>
+                  )}
+                  <textarea
+                    className={styles.previewText}
+                    aria-label={`${previewWindow.entry.name} 내용`}
+                    value={previewWindow.text ?? ""}
+                    readOnly={!!previewReadOnlyReason}
+                    onChange={(event) =>
+                      setPreviewWindow((current) =>
+                        current
+                          ? {
+                              ...current,
+                              text: event.target.value,
+                              textSaveError: null,
+                              textConflict: false,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                  {previewWindow.textSaveError && (
+                    <p
+                      className={styles.editorWarning}
+                      role={previewWindow.textConflict ? "alert" : "status"}
+                    >
+                      {previewWindow.textSaveError}
+                    </p>
+                  )}
+                </div>
               ))}
           </div>
 
@@ -3184,12 +4124,122 @@ export default function FilesView({
               {formatSize(previewWindow.entry.size)} ·{" "}
               {formatDate(previewWindow.entry.modifiedAt)}
             </span>
+            <span className={styles.previewActions}>
+              {previewWindow.kind === "text" && (
+                <button
+                  type="button"
+                  className={styles.editorSave}
+                  disabled={
+                    previewWindow.textLoading ||
+                    previewWindow.textSaving ||
+                    !!previewWindow.textError ||
+                    !!previewReadOnlyReason ||
+                    previewWindow.text === previewWindow.originalText
+                  }
+                  onClick={() => void savePreviewText()}
+                >
+                  {previewWindow.textSaving ? "저장 중…" : "저장"}
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.previewDownload}
+                onClick={() => downloadEntry(previewWindow.entry)}
+              >
+                ↓ 다운로드
+              </button>
+            </span>
+          </footer>
+        </section>
+      )}
+
+      {folderNoteWindow && (
+        <section
+          className={`${styles.folderWindow} ${styles.noteWindow}`}
+          style={{
+            left: folderNoteWindow.x,
+            top: folderNoteWindow.y,
+            zIndex: folderNoteWindow.z,
+          }}
+          role="dialog"
+          aria-label={`${folderNoteWindow.folderName} 폴더 메모`}
+          data-testid="folder-note-window"
+          onPointerDown={() =>
+            setFolderNoteWindow((current) =>
+              current ? { ...current, z: ++zRef.current } : current,
+            )
+          }
+        >
+          <div
+            className={styles.windowTitlebar}
+            onPointerDown={moveFolderNoteWindow}
+          >
+            <span className={styles.folderNoteGlyph} aria-hidden="true" />
+            <strong>{folderNoteWindow.folderName} · 폴더 메모</strong>
+            <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label="닫기"
+                className={styles.closeButton}
+                onClick={closeFolderNote}
+              >
+                <span className={styles.closeGlyph} />
+              </button>
+            </div>
+          </div>
+          <div className={styles.noteBody}>
+            {folderNoteWindow.loading ? (
+              <p className={styles.noteMessage} role="status">
+                메모를 여는 중…
+              </p>
+            ) : folderNoteWindow.error && !folderNoteWindow.conflict ? (
+              <p className={styles.noteMessage} role="alert">
+                {folderNoteWindow.error}
+              </p>
+            ) : (
+              <>
+                <textarea
+                  value={folderNoteWindow.content}
+                  aria-label="폴더 메모 내용"
+                  onChange={(event) =>
+                    setFolderNoteWindow((current) =>
+                      current
+                        ? {
+                            ...current,
+                            content: event.target.value,
+                            error: null,
+                            conflict: false,
+                          }
+                        : current,
+                    )
+                  }
+                />
+                {folderNoteWindow.error && (
+                  <p className={styles.editorWarning} role="alert">
+                    {folderNoteWindow.error}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+          <footer className={styles.windowStatus}>
+            <span>
+              {folderNoteWindow.content === folderNoteWindow.originalContent
+                ? "저장됨"
+                : "저장하지 않은 변경 있음"}
+            </span>
             <button
               type="button"
-              className={styles.previewDownload}
-              onClick={() => downloadEntry(previewWindow.entry)}
+              className={styles.editorSave}
+              disabled={
+                folderNoteWindow.loading ||
+                folderNoteWindow.saving ||
+                !!(folderNoteWindow.error && !folderNoteWindow.conflict) ||
+                folderNoteWindow.content === folderNoteWindow.originalContent
+              }
+              onClick={() => void saveFolderNote()}
             >
-              ↓ 다운로드
+              {folderNoteWindow.saving ? "저장 중…" : "저장"}
             </button>
           </footer>
         </section>
@@ -3226,8 +4276,11 @@ export default function FilesView({
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setContextMenu({
-              x: rect.left,
-              y: Math.max(8, rect.top - 298),
+              x: logicalClientCoordinate(rect.left, uiScale),
+              y: Math.max(
+                8,
+                logicalClientCoordinate(rect.top, uiScale) - 338,
+              ),
               scopeId: ROOT_SCOPE,
               opener: event.currentTarget,
             });
@@ -3404,6 +4457,11 @@ export default function FilesView({
               >
                 새 폴더 <kbd>⌘N</kbd>
               </MenuButton>
+              <MenuButton
+                onClick={() => void createNotepad(contextMenu.scopeId)}
+              >
+                새 메모장
+              </MenuButton>
               <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
                 파일 업로드…
               </MenuButton>
@@ -3557,6 +4615,22 @@ export default function FilesView({
       {activeSelection && (
         <div className={styles.selectionHint} aria-live="polite">
           {activeSelection.name} · {formatSize(activeSelection.size)}
+        </div>
+      )}
+      </div>
+      {dragGhost && (
+        <div
+          className={styles.dragGhost}
+          data-testid="file-drag-ghost"
+          style={{
+            left: dragGhost.clientX,
+            top: dragGhost.clientY,
+            "--drag-scale": uiScale,
+          } as CSSProperties}
+          aria-hidden="true"
+        >
+          <PixelFileIcon entry={dragGhost.entry} size={54} />
+          <span title={dragGhost.entry.name}>{dragGhost.entry.name}</span>
         </div>
       )}
     </main>
