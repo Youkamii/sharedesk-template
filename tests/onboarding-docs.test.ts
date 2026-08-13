@@ -16,6 +16,7 @@ test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 
   assert.match(readme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
   assert.match(readme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
   assert.match(readme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
+  assert.match(readme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
   assert.ok(
     readme.length < 4_500,
     "README는 상세 사용 설명서가 아니라 사람이 빠르게 읽는 제품 소개여야 합니다.",
@@ -226,4 +227,30 @@ test("환경 변수 예시는 현재 초대 코드 용어를 사용한다", asyn
   const example = await readFile(new URL(".env.example", root), "utf8");
   assert.match(example, /\/admin의 초대 코드를 사용하세요/);
   assert.doesNotMatch(example, /\/admin의 초대 링크를 사용하세요/);
+});
+
+test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름을 구분한다", async () => {
+  const [readme, install, aiGuide, localGuide, updateGuide, example] =
+    await Promise.all([
+      readFile(new URL("README.md", root), "utf8"),
+      readFile(new URL("docs/INSTALL.md", root), "utf8"),
+      readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
+      readFile(new URL("docs/LOCAL.md", root), "utf8"),
+      readFile(new URL("docs/UPDATE.md", root), "utf8"),
+      readFile(new URL(".env.example", root), "utf8"),
+    ]);
+
+  assert.match(readme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(install, /관리자 화면의 `업데이트` 버튼/);
+  assert.match(aiGuide, /ShareDesk 업데이트 안내/);
+  assert.match(localGuide, /업데이트 안내/);
+  assert.match(updateGuide, /GitHub Actions[\s\S]*`Run workflow`/);
+  assert.match(updateGuide, /검사나 빌드가 실패하면 `main`에 커밋하지 않으므로/);
+  assert.match(updateGuide, /releases\/latest\/download\/sharedesk-bootstrap\.mjs/);
+  assert.match(updateGuide, /\$env:TEMP/);
+  assert.match(updateGuide, /\.env\.local[\s\S]*\.vercel[\s\S]*\.git/);
+  assert.match(updateGuide, /공식 0\.1\.0과 다르면[\s\S]*충돌 경로/);
+  assert.match(updateGuide, /npm test[\s\S]*npm run lint[\s\S]*tsc[\s\S]*npm run build/);
+  assert.match(updateGuide, /AI에게 기존 설치 업데이트 맡기기/);
+  assert.match(example, /SHAREDESK_GITHUB_REPOSITORY=/);
 });
