@@ -4,57 +4,111 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: sharedesk-update-main
   cancel-in-progress: false
 
 jobs:
-  update:
+  prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
     steps:
-      - name: Check out the installed repository
+      - name: Check out the installed repository without write credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20.9.0
+          node-version-file: .node-version
           cache: npm
 
       - name: Apply the latest stable ShareDesk release
         run: node scripts/sharedesk-update.mjs --apply
 
-      - name: Install the updated dependencies
-        run: npm ci
-
-      - name: Test
-        run: npm test
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type-check
-        run: npx tsc --noEmit
-
-      - name: Build
-        run: npm run build
-
-      - name: Commit and push the verified update
+      - name: Seal the proposed update before running release code
+        id: patch
         shell: bash
         run: |
           if [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
-            echo "ShareDesk is already current."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          version="$(node -p "require('./package.json').version")"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- .github/workflows/sharedesk-update.yml; then
+            echo "The update workflow changed. Run the one-time bootstrap in docs/UPDATE.md."
+            exit 1
+          fi
           git add -A
-          git commit -m "chore: update ShareDesk to ${version}"
-          git push origin HEAD:main
+          git diff --cached --binary --full-index --no-ext-diff > "$RUNNER_TEMP/sharedesk-update.patch"
+          test -s "$RUNNER_TEMP/sharedesk-update.patch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Store the sealed update
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sharedesk-update-patch
+          path: ${{ runner.temp }}/sharedesk-update.patch
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Set up the updated Node.js version
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Verify the updated release without write credentials
+        if: steps.patch.outputs.changed == 'true'
+        run: node scripts/sharedesk-verify.mjs
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the installed repository without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the verified update
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sharedesk-update-patch
+          path: ${{ runner.temp }}/sharedesk-update
+
+      - name: Commit and push the verified update
+        shell: bash
+        env:
+          UPDATE_AUTHOR_NAME: ${{ github.actor }}
+          UPDATE_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          UPDATE_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          patch="$RUNNER_TEMP/sharedesk-update/sharedesk-update.patch"
+          git apply --index --binary --whitespace=nowarn "$patch"
+          if ! git diff --cached --quiet -- .github/workflows; then
+            echo "A verified update cannot change GitHub workflows."
+            exit 1
+          fi
+          git diff --cached --check
+          version="$(git show :package.json | sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)".*$/\1/p' | head -n1)"
+          test -n "$version"
+          git config user.name "$UPDATE_AUTHOR_NAME"
+          git config user.email "$UPDATE_AUTHOR_EMAIL"
+          git -c core.hooksPath=/dev/null commit -m "chore: update ShareDesk to ${version}"
+          auth="$(printf 'x-access-token:%s' "$UPDATE_GITHUB_TOKEN" | base64 -w0)"
+          git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" push origin HEAD:main

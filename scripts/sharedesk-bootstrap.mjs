@@ -18,7 +18,22 @@ const CORE_PATHS = [
   ".github/workflows/sharedesk-update.yml",
 ];
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
-const STABLE_SEMVER_PATTERN = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+const STABLE_SEMVER_PATTERN =
+  /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+/**
+ * @typedef {{
+ *   rootDir: string,
+ *   manifest: unknown,
+ *   fetchFile: (relativePath: string) => Promise<unknown>,
+ *   assertClean?: (rootDir: string) => Promise<void>,
+ *   applyBootstrap?: (options: {
+ *     rootDir: string,
+ *     manifest: any,
+ *     fetchFile: (relativePath: string) => Promise<unknown>,
+ *   }) => Promise<any>,
+ * }} BootstrapOptions
+ */
 
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -37,7 +52,7 @@ function compareStableSemver(left, right) {
   return 0;
 }
 
-function selectStableRelease(releases) {
+export function selectStableRelease(releases) {
   if (!Array.isArray(releases)) return null;
   let latest = null;
   for (const release of releases) {
@@ -159,6 +174,7 @@ async function verifiedUpdaterModule(manifest, fetchFile) {
   }
 }
 
+/** @param {BootstrapOptions} options */
 export async function bootstrapRelease({
   rootDir,
   manifest,
@@ -188,20 +204,42 @@ export async function bootstrapRelease({
   }
 }
 
-async function githubJson(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-  if (!response.ok) throw new Error(`GitHub request failed (${response.status}).`);
-  return response.json();
+function nextPageUrl(linkHeader) {
+  if (!linkHeader) return null;
+  for (const link of linkHeader.split(",")) {
+    const match = /^\s*<([^>]+)>/.exec(link);
+    if (match && /;\s*rel="next"(?:\s*;|\s*$)/.test(link)) return match[1];
+  }
+  return null;
+}
+
+export async function fetchGitHubReleasePages(initialUrl, fetchImpl = fetch) {
+  const releases = [];
+  const visited = new Set();
+  let url = initialUrl;
+  while (url) {
+    if (visited.has(url)) throw new Error("GitHub release pagination loop detected.");
+    visited.add(url);
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub request failed (${response.status}): ${url}`);
+    }
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error("GitHub releases response is invalid.");
+    releases.push(...page);
+    url = nextPageUrl(response.headers.get("link"));
+  }
+  return releases;
 }
 
 async function loadLatestRelease() {
-  const releases = await githubJson(
-    `https://api.github.com/repos/${SOURCE_REPOSITORY}/releases?per_page=30`,
+  const releases = await fetchGitHubReleasePages(
+    `https://api.github.com/repos/${SOURCE_REPOSITORY}/releases?per_page=100`,
   );
   const release = selectStableRelease(releases);
   if (!release) throw new Error("No stable ShareDesk release is available.");

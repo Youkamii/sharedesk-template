@@ -25,6 +25,9 @@ export const BOOTSTRAP_CORE_PATHS = [
   "scripts/sharedesk-update.mjs",
   UPDATE_WORKFLOW_PATH,
 ];
+export const AUTOMATIC_CORE_PATHS = BOOTSTRAP_CORE_PATHS.filter(
+  (corePath) => corePath !== UPDATE_WORKFLOW_PATH,
+);
 
 const SEMVER_PATTERN =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -51,6 +54,14 @@ export function compareSemver(left, right) {
     if (parsedLeft[index] > parsedRight[index]) return 1;
   }
   return 0;
+}
+
+export function assertNotDowngrade(currentVersion, nextVersion) {
+  if (compareSemver(nextVersion, currentVersion) < 0) {
+    throw new Error(
+      `Refusing to downgrade ShareDesk from ${currentVersion} to ${nextVersion}.`,
+    );
+  }
 }
 
 export function sha256(content) {
@@ -88,18 +99,20 @@ function releaseFileEntry(relativePath, content, normalizeWorkingTree = false) {
 
 export function isProtectedPath(filePath) {
   const normalized = filePath.toLowerCase();
+  const parts = normalized.split("/");
   return (
     normalized === MANIFEST_FILE ||
     BOOTSTRAP_CORE_PATHS.some(
       (corePath) => normalized === corePath.toLowerCase(),
     ) ||
-    (normalized.startsWith(".env") && normalized !== ".env.example") ||
-    normalized === ".git" ||
-    normalized.startsWith(".git/") ||
-    normalized === ".vercel" ||
-    normalized.startsWith(".vercel/") ||
-    normalized === ".sharedesk-updater" ||
-    normalized.startsWith(".sharedesk-updater/")
+    parts.some(
+      (part, index) =>
+        (part.startsWith(".env") &&
+          !(part === ".env.example" && index === parts.length - 1)) ||
+        part === ".git" ||
+        part === ".vercel" ||
+        part === ".sharedesk-updater",
+    )
   );
 }
 
@@ -110,6 +123,7 @@ export function validateManagedPath(value) {
     value.includes("\0") ||
     value.includes("\\") ||
     value.includes(":") ||
+    /[<>"|?*\u0001-\u001f]/.test(value) ||
     path.posix.isAbsolute(value) ||
     /^[A-Za-z]:/.test(value)
   ) {
@@ -123,7 +137,10 @@ export function validateManagedPath(value) {
         part === "." ||
         part === ".." ||
         part.endsWith(".") ||
-        part.endsWith(" "),
+        part.endsWith(" ") ||
+        /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(
+          part.split(".", 1)[0].trimEnd(),
+        ),
     )
   ) {
     throw new Error(`Unsafe managed path: ${value}`);
@@ -134,10 +151,7 @@ export function validateManagedPath(value) {
   return value;
 }
 
-const RELEASE_EXCLUDED_PATHS = new Set(["AGENTS.md", "CLAUDE.md", "DESIGN.md"]);
-
 function shouldManageReleasePath(relativePath) {
-  if (RELEASE_EXCLUDED_PATHS.has(relativePath)) return false;
   try {
     validateManagedPath(relativePath);
     return true;
@@ -167,35 +181,37 @@ function nullSeparated(output) {
   return text.split("\0").filter(Boolean);
 }
 
-async function currentReleaseEntries(rootDir) {
-  const output = await gitOutput(rootDir, [
-    "ls-files",
-    "-z",
-    "--cached",
-    "--others",
-    "--exclude-standard",
-  ]);
-  const paths = [...new Set(nullSeparated(output))]
-    .filter(shouldManageReleasePath)
-    .sort();
-  const entries = [];
-  for (const relativePath of paths) {
-    await rejectSymlinkPath(rootDir, relativePath);
-    const filePath = path.join(rootDir, ...relativePath.split("/"));
-    const info = await lstat(filePath);
-    if (!info.isFile()) {
-      throw new Error(`Release path is not a regular file: ${relativePath}`);
+export async function assertReleaseSourcesCommitted(rootDir) {
+  try {
+    await gitOutput(rootDir, [
+      "diff",
+      "--quiet",
+      "HEAD",
+      "--",
+      ".",
+      `:(exclude)${MANIFEST_FILE}`,
+    ]);
+  } catch (error) {
+    if (error?.code === 1) {
+      throw new Error(
+        `Commit every release source except ${MANIFEST_FILE} before generating the manifest.`,
+      );
     }
-    entries.push(
-      releaseFileEntry(relativePath, await readFile(filePath), true),
+    throw error;
+  }
+  const untracked = nullSeparated(
+    await gitOutput(rootDir, ["ls-files", "-z", "--others", "--exclude-standard"]),
+  ).filter((relativePath) => relativePath !== MANIFEST_FILE);
+  if (untracked.length > 0) {
+    throw new Error(
+      `Commit every release source except ${MANIFEST_FILE} before generating the manifest: ${untracked.join(", ")}`,
     );
   }
-  return entries;
 }
 
-async function legacyReleaseEntries(rootDir, legacyRef) {
+async function releaseEntriesAtRef(rootDir, releaseRef, normalizeContent) {
   const commit = String(
-    await gitOutput(rootDir, ["rev-parse", "--verify", `${legacyRef}^{commit}`], {
+    await gitOutput(rootDir, ["rev-parse", "--verify", `${releaseRef}^{commit}`], {
       encoding: "utf8",
     }),
   ).trim();
@@ -208,33 +224,62 @@ async function legacyReleaseEntries(rootDir, legacyRef) {
     const [, mode, type, objectId, relativePath] = match;
     if (!shouldManageReleasePath(relativePath)) continue;
     if (type !== "blob" || (mode !== "100644" && mode !== "100755")) {
-      throw new Error(`Legacy release path is not a regular file: ${relativePath}`);
+      throw new Error(`Release path is not a regular file: ${relativePath}`);
     }
     const content = await gitOutput(rootDir, ["cat-file", "blob", objectId]);
-    entries.push(releaseFileEntry(relativePath, content, false));
+    entries.push(releaseFileEntry(relativePath, content, normalizeContent));
   }
   entries.sort((left, right) => left.path.localeCompare(right.path));
   return entries;
 }
 
-export async function generateReleaseManifest({ rootDir, legacyRef }) {
+async function inheritedLegacyManifests(rootDir) {
+  try {
+    const existing = validateManifest(
+      JSON.parse(await readFile(path.join(rootDir, MANIFEST_FILE), "utf8")),
+    );
+    return existing.legacyManifests.map((legacy) => ({
+      schemaVersion: 1,
+      version: legacy.version,
+      files: legacy.files,
+    }));
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw new Error(
+      `Existing release manifest is invalid: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+export async function generateReleaseManifest({
+  rootDir,
+  legacyRef,
+  sourceRef = "HEAD",
+}) {
   const absoluteRoot = path.resolve(rootDir);
-  const files = await currentReleaseEntries(absoluteRoot);
+  const files = await releaseEntriesAtRef(absoluteRoot, sourceRef, true);
   const bootstrapFiles = [];
   for (const corePath of BOOTSTRAP_CORE_PATHS) {
-    const content = await readFile(
-      path.join(absoluteRoot, ...corePath.split("/")),
-    );
+    const content = await gitOutput(absoluteRoot, [
+      "show",
+      `${sourceRef}:${corePath}`,
+    ]);
     bootstrapFiles.push(releaseFileEntry(corePath, content, true));
   }
 
   const packageValue = JSON.parse(
-    await readFile(path.join(absoluteRoot, "package.json"), "utf8"),
+    String(
+      await gitOutput(absoluteRoot, ["show", `${sourceRef}:package.json`], {
+        encoding: "utf8",
+      }),
+    ),
   );
   const version = normalizeVersion(packageValue.version);
   if (!version) throw new Error("package.json version must be stable semver.");
 
-  const legacyFiles = await legacyReleaseEntries(absoluteRoot, legacyRef);
+  const legacyFiles = await releaseEntriesAtRef(absoluteRoot, legacyRef, false);
   const legacyPackage = legacyFiles.find((entry) => entry.path === "package.json");
   if (!legacyPackage) throw new Error("Legacy release is missing package.json.");
   const legacyPackageBytes = await gitOutput(absoluteRoot, [
@@ -245,15 +290,24 @@ export async function generateReleaseManifest({ rootDir, legacyRef }) {
     JSON.parse(legacyPackageBytes.toString("utf8")).version,
   );
   if (!legacyVersion) throw new Error("Legacy package version must be stable semver.");
+  const inheritedLegacy = await inheritedLegacyManifests(absoluteRoot);
+  const legacyManifests = new Map(
+    inheritedLegacy.map((legacy) => [legacy.version, legacy]),
+  );
+  legacyManifests.set(legacyVersion, {
+    schemaVersion: 1,
+    version: legacyVersion,
+    files: legacyFiles,
+  });
 
   return validateManifest({
     schemaVersion: 1,
     version,
     files,
     bootstrapFiles,
-    legacyManifests: [
-      { schemaVersion: 1, version: legacyVersion, files: legacyFiles },
-    ],
+    legacyManifests: [...legacyManifests.values()].sort((left, right) =>
+      compareSemver(left.version, right.version),
+    ),
   });
 }
 
@@ -449,7 +503,11 @@ async function fileHash(filePath) {
   try {
     const info = await lstat(filePath);
     if (!info.isFile()) return null;
-    return sha256(await readFile(filePath));
+    const content = await readFile(filePath);
+    if (!isUtf8Text(content)) return sha256(content);
+    return sha256(
+      Buffer.from(content.toString("utf8").replace(/\r\n/g, "\n"), "utf8"),
+    );
   } catch (error) {
     if (error?.code === "ENOENT") return null;
     throw error;
@@ -469,10 +527,11 @@ async function resolvePreviousManifest(rootDir, installed, nextManifest) {
     const packageValue = JSON.parse(
       await readFile(path.join(rootDir, "package.json"), "utf8"),
     );
-    if (typeof packageValue?.version !== "string") return null;
+    const packageVersion = normalizeVersion(packageValue?.version);
+    if (!packageVersion) return null;
     return (
       nextManifest.legacyManifests.find(
-        (legacy) => legacy.version === packageValue.version,
+        (legacy) => legacy.version === packageVersion,
       ) ?? null
     );
   } catch (error) {
@@ -481,19 +540,64 @@ async function resolvePreviousManifest(rootDir, installed, nextManifest) {
   }
 }
 
+async function readInstalledVersion(rootDir, installedManifest) {
+  if (installedManifest) return installedManifest.version;
+  try {
+    const packageValue = JSON.parse(
+      await readFile(path.join(rootDir, "package.json"), "utf8"),
+    );
+    return normalizeVersion(packageValue?.version);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+function entriesShareAcceptedHash(left, right) {
+  if (!left || !right) return false;
+  const leftHashes = new Set([left.sha256, ...(left.acceptedSha256 ?? [])]);
+  return [right.sha256, ...(right.acceptedSha256 ?? [])].some((hash) =>
+    leftHashes.has(hash),
+  );
+}
+
+function assertPreservedWorkflowIsCurrent(
+  previousManifest,
+  nextManifest,
+  bootstrapPaths,
+) {
+  if (bootstrapPaths.includes(UPDATE_WORKFLOW_PATH)) return;
+  const previousWorkflow = previousManifest?.bootstrapFiles.find(
+    (entry) => entry.path === UPDATE_WORKFLOW_PATH,
+  );
+  const nextWorkflow = nextManifest.bootstrapFiles.find(
+    (entry) => entry.path === UPDATE_WORKFLOW_PATH,
+  );
+  if (!entriesShareAcceptedHash(previousWorkflow, nextWorkflow)) {
+    throw new Error(
+      "The ShareDesk update workflow changed. Run the one-time bootstrap in docs/UPDATE.md before updating.",
+    );
+  }
+}
+
 async function assertNoManagedConflicts({
   rootDir,
   previousManifest,
   writeEntries,
   removePaths,
-  includeBootstrap,
+  bootstrapPaths,
 }) {
+  const bootstrapPathKeys = new Set(
+    bootstrapPaths.map((filePath) => filePath.toLowerCase()),
+  );
   const previousEntries = [
     ...(previousManifest?.files ?? []),
-    ...(includeBootstrap ? previousManifest?.bootstrapFiles ?? [] : []),
+    ...(previousManifest?.bootstrapFiles.filter((entry) =>
+      bootstrapPathKeys.has(entry.path.toLowerCase()),
+    ) ?? []),
   ];
   const previousByPath = new Map(
-    previousEntries.map((entry) => [entry.path, entry]),
+    previousEntries.map((entry) => [entry.path.toLowerCase(), entry]),
   );
   const conflicts = [];
 
@@ -502,7 +606,7 @@ async function assertNoManagedConflicts({
     const currentHash = await fileHash(
       path.join(rootDir, ...nextEntry.path.split("/")),
     );
-    const previousEntry = previousByPath.get(nextEntry.path);
+    const previousEntry = previousByPath.get(nextEntry.path.toLowerCase());
     if (previousEntry) {
       if (
         !entryAcceptsHash(previousEntry, currentHash) &&
@@ -520,7 +624,7 @@ async function assertNoManagedConflicts({
     const currentHash = await fileHash(
       path.join(rootDir, ...relativePath.split("/")),
     );
-    const previousEntry = previousByPath.get(relativePath);
+    const previousEntry = previousByPath.get(relativePath.toLowerCase());
     if (
       !previousEntry ||
       (currentHash !== null && !entryAcceptsHash(previousEntry, currentHash))
@@ -539,7 +643,23 @@ async function assertNoManagedConflicts({
 export function planRelease(previousManifest, nextManifest) {
   const previous = previousManifest ? validateManifest(previousManifest) : null;
   const next = validateManifest(nextManifest);
-  const nextPaths = new Set(next.files.map((entry) => entry.path));
+  const previousPaths = new Map(
+    previous?.files.map((entry) => [entry.path.toLowerCase(), entry.path]) ?? [],
+  );
+  const caseOnlyRename = next.files.find((entry) => {
+    const previousPath = previousPaths.get(entry.path.toLowerCase());
+    return previousPath !== undefined && previousPath !== entry.path;
+  });
+  if (caseOnlyRename) {
+    throw new Error(
+      `Case-only managed path changes are not supported: ${previousPaths.get(
+        caseOnlyRename.path.toLowerCase(),
+      )} -> ${caseOnlyRename.path}`,
+    );
+  }
+  const nextPaths = new Set(
+    next.files.map((entry) => entry.path.toLowerCase()),
+  );
   return {
     previousVersion: previous?.version ?? null,
     nextVersion: next.version,
@@ -547,7 +667,7 @@ export function planRelease(previousManifest, nextManifest) {
     remove:
       previous?.files
         .map((entry) => entry.path)
-        .filter((filePath) => !nextPaths.has(filePath)) ?? [],
+        .filter((filePath) => !nextPaths.has(filePath.toLowerCase())) ?? [],
   };
 }
 
@@ -628,7 +748,8 @@ async function applyReleaseInternal({
   rootDir,
   manifest,
   fetchFile,
-  includeBootstrap,
+  bootstrapPaths,
+  requireWorkflowCompatibility = false,
 }) {
   const absoluteRoot = path.resolve(rootDir);
   const nextManifest = validateManifest(manifest);
@@ -638,6 +759,20 @@ async function applyReleaseInternal({
     installedManifest,
     nextManifest,
   );
+  if (requireWorkflowCompatibility) {
+    assertPreservedWorkflowIsCurrent(
+      previousManifest,
+      nextManifest,
+      bootstrapPaths,
+    );
+  }
+  const installedVersion = await readInstalledVersion(
+    absoluteRoot,
+    installedManifest,
+  );
+  if (installedVersion) {
+    assertNotDowngrade(installedVersion, nextManifest.version);
+  }
   const plan = planRelease(previousManifest, nextManifest);
   const workDir = await mkdtemp(path.join(tmpdir(), "sharedesk-update-"));
   const stageDir = path.join(workDir, "stage");
@@ -646,24 +781,37 @@ async function applyReleaseInternal({
   await mkdir(backupDir, { recursive: true });
 
   try {
+    const bootstrapPathKeys = new Set(
+      bootstrapPaths.map((filePath) => filePath.toLowerCase()),
+    );
+    const selectedBootstrapFiles = nextManifest.bootstrapFiles.filter((entry) =>
+      bootstrapPathKeys.has(entry.path.toLowerCase()),
+    );
+    if (
+      bootstrapPaths.some(
+        (corePath) =>
+          !selectedBootstrapFiles.some(
+            (entry) => entry.path.toLowerCase() === corePath.toLowerCase(),
+          ),
+      )
+    ) {
+      throw new Error("Release manifest does not contain the required core files.");
+    }
     const writeEntries = [
       ...new Map(
         [
           ...nextManifest.files,
-          ...(includeBootstrap ? nextManifest.bootstrapFiles : []),
+          ...selectedBootstrapFiles,
         ].map((entry) => [entry.path.toLowerCase(), entry]),
       ).values(),
     ];
-    if (includeBootstrap && nextManifest.bootstrapFiles.length === 0) {
-      throw new Error("Release manifest does not contain bootstrap core files.");
-    }
     await stageRelease(stageDir, writeEntries, fetchFile);
     await assertNoManagedConflicts({
       rootDir: absoluteRoot,
       previousManifest,
       writeEntries,
       removePaths: plan.remove,
-      includeBootstrap,
+      bootstrapPaths,
     });
 
     const changedWrites = [];
@@ -690,7 +838,21 @@ async function applyReleaseInternal({
       }
     }
 
-    const serializedManifest = `${JSON.stringify(nextManifest, null, 2)}\n`;
+    const previousBootstrapByPath = new Map(
+      previousManifest?.bootstrapFiles.map((entry) => [
+        entry.path.toLowerCase(),
+        entry,
+      ]) ?? [],
+    );
+    const installedNextManifest = {
+      ...nextManifest,
+      bootstrapFiles: nextManifest.bootstrapFiles.map((entry) =>
+        bootstrapPathKeys.has(entry.path.toLowerCase())
+          ? entry
+          : previousBootstrapByPath.get(entry.path.toLowerCase()) ?? entry,
+      ),
+    };
+    const serializedManifest = `${JSON.stringify(installedNextManifest, null, 2)}\n`;
     const installedManifestPath = path.join(absoluteRoot, MANIFEST_FILE);
     const manifestChanged =
       (await readFile(installedManifestPath, "utf8").catch((error) => {
@@ -745,14 +907,25 @@ async function applyReleaseInternal({
 }
 
 export async function applyRelease(options) {
-  return applyReleaseInternal({ ...options, includeBootstrap: false });
+  return applyReleaseInternal({ ...options, bootstrapPaths: [] });
+}
+
+export async function applyAutomaticRelease(options) {
+  return applyReleaseInternal({
+    ...options,
+    bootstrapPaths: AUTOMATIC_CORE_PATHS,
+    requireWorkflowCompatibility: true,
+  });
 }
 
 export async function applyBootstrapRelease(options) {
-  return applyReleaseInternal({ ...options, includeBootstrap: true });
+  return applyReleaseInternal({
+    ...options,
+    bootstrapPaths: BOOTSTRAP_CORE_PATHS,
+  });
 }
 
-function selectStableRelease(releases) {
+export function selectStableRelease(releases) {
   if (!Array.isArray(releases)) return null;
   let latest = null;
   for (const release of releases) {
@@ -765,20 +938,42 @@ function selectStableRelease(releases) {
   return latest;
 }
 
-async function githubJson(url) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    },
-  });
-  if (!response.ok) throw new Error(`GitHub request failed (${response.status}): ${url}`);
-  return response.json();
+function nextPageUrl(linkHeader) {
+  if (!linkHeader) return null;
+  for (const link of linkHeader.split(",")) {
+    const match = /^\s*<([^>]+)>/.exec(link);
+    if (match && /;\s*rel="next"(?:\s*;|\s*$)/.test(link)) return match[1];
+  }
+  return null;
+}
+
+export async function fetchGitHubReleasePages(initialUrl, fetchImpl = fetch) {
+  const releases = [];
+  const visited = new Set();
+  let url = initialUrl;
+  while (url) {
+    if (visited.has(url)) throw new Error("GitHub release pagination loop detected.");
+    visited.add(url);
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub request failed (${response.status}): ${url}`);
+    }
+    const page = await response.json();
+    if (!Array.isArray(page)) throw new Error("GitHub releases response is invalid.");
+    releases.push(...page);
+    url = nextPageUrl(response.headers.get("link"));
+  }
+  return releases;
 }
 
 async function loadLatestRelease() {
-  const releases = await githubJson(
-    `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=30`,
+  const releases = await fetchGitHubReleasePages(
+    `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=100`,
   );
   const release = selectStableRelease(releases);
   if (!release) throw new Error("No stable ShareDesk release is available.");
@@ -819,6 +1014,7 @@ async function runCli() {
         "Usage: node scripts/sharedesk-update.mjs --generate-manifest <legacy-ref>",
       );
     }
+    await assertReleaseSourcesCommitted(rootDir);
     const manifest = await generateReleaseManifest({
       rootDir,
       legacyRef: args[1],
@@ -829,7 +1025,7 @@ async function runCli() {
       "utf8",
     );
     process.stdout.write(
-      `Generated ${MANIFEST_FILE} for ${manifest.version} from legacy ${manifest.legacyManifests[0].version}.\n`,
+      `Generated ${MANIFEST_FILE} for ${manifest.version} with ${manifest.legacyManifests.length} legacy baseline(s).\n`,
     );
     return;
   }
@@ -855,7 +1051,8 @@ async function runCli() {
     return;
   }
 
-  const result = await applyBootstrapRelease({
+  assertNotDowngrade(currentVersion, manifest.version);
+  const result = await applyAutomaticRelease({
     rootDir,
     manifest,
     fetchFile: async (relativePath) => {

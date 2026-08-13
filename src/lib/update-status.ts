@@ -28,7 +28,7 @@ interface ParsedSemver {
   prerelease: string[];
 }
 
-const OWNER_PATTERN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,36}[A-Za-z0-9])?$/;
+const OWNER_PATTERN = /^(?!.*--)[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
 const SEMVER_PATTERN =
   /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -160,6 +160,47 @@ export function selectLatestStableVersion(releases: unknown): string | null {
   return latest;
 }
 
+function nextPageUrl(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const link of linkHeader.split(",")) {
+    const match = /^\s*<([^>]+)>/.exec(link);
+    if (match && /;\s*rel="next"(?:\s*;|\s*$)/.test(link)) return match[1];
+  }
+  return null;
+}
+
+export async function fetchGitHubReleasePages(
+  initialUrl: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<unknown[]> {
+  const releases: unknown[] = [];
+  const visited = new Set<string>();
+  let url: string | null = initialUrl;
+  while (url) {
+    if (visited.has(url)) {
+      throw new Error("GitHub release pagination loop detected.");
+    }
+    visited.add(url);
+    const response = await fetchImpl(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub 응답 ${response.status}`);
+    }
+    const page: unknown = await response.json();
+    if (!Array.isArray(page)) {
+      throw new Error("GitHub 릴리스 응답 형식이 올바르지 않습니다.");
+    }
+    releases.push(...page);
+    url = nextPageUrl(response.headers.get("link"));
+  }
+  return releases;
+}
+
 export async function getUpdateStatus(options?: {
   env?: Environment;
   fetchImpl?: typeof fetch;
@@ -176,20 +217,11 @@ export async function getUpdateStatus(options?: {
   let latestVersion: string | null = null;
   try {
     const fetchImpl = options?.fetchImpl ?? fetch;
-    const response = await fetchImpl(
-      `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=30`,
-      {
-        cache: "no-store",
-        headers: {
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-      },
+    const releases = await fetchGitHubReleasePages(
+      `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=100`,
+      fetchImpl,
     );
-    if (!response.ok) {
-      throw new Error(`GitHub 응답 ${response.status}`);
-    }
-    latestVersion = selectLatestStableVersion(await response.json());
+    latestVersion = selectLatestStableVersion(releases);
     if (!latestVersion) {
       throw new Error(
         "안정 릴리스를 찾을 수 없습니다.",
