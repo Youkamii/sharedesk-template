@@ -145,6 +145,14 @@ export interface StorageAdapter {
   emptyTrash(targets: TrashDeleteTarget[]): Promise<EmptyTrashResult>;
   // range는 HTTP Range 헤더 원문 (동영상 탐색용). 지원 못 하면 전체를 준다.
   download(id: string, range?: string): Promise<DownloadResult>;
+  // 마지막으로 본 버전일 때만 기존 파일 본문을 통째로 바꾼다.
+  // 폴더와 루트, 저장소 경계 밖 대상은 구현체가 직접 거부한다.
+  replaceContent(
+    id: string,
+    expectedVersion: string,
+    mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry>;
   upload(
     parentId: string,
     name: string,

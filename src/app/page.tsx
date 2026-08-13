@@ -58,9 +58,9 @@ export default async function Home({
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         {googleLoginEnabled ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Google 계정으로 먼저 로그인하세요. 처음 이용하는 분은 로그인 후
-            관리자에게 받은 초대 코드를 입력합니다. 코드의 유효 기간과
-            1회용·기간 내 무제한 여부는 관리자가 정합니다.
+            호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓰는
+            ShareDesk입니다. 초대받았다면 별도 설치 없이 내 Google 계정으로
+            로그인하고, 처음 한 번만 호스트가 준 초대 코드를 입력하세요.
           </p>
         ) : keyLoginEnabled ? (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
@@ -114,11 +114,11 @@ export default async function Home({
         )}
 
         <section className="mt-6 border-t border-black/10 pt-6 dark:border-white/15">
-          <p className="text-sm font-medium">나만의 데스크가 필요한가요?</p>
+          <p className="text-sm font-medium">내 Drive로 새 공유 공간을 열고 싶나요?</p>
           <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            이곳은 이미 만들어진 하나의 ShareDesk입니다. 아래에서 시작하면 내
-            계정의 별도 배포와 Google Drive를 쓰는 독립된 데스크를 만들 수
-            있습니다.
+            내 Google Drive 용량을 여러 사람과 함께 쓸 새 공유 공간을
+            열 때만 설치하세요. 누군가에게 초대받은 참여자라면 GitHub,
+            Vercel, OAuth 설정 없이 위의 Google 로그인만 하면 됩니다.
           </p>
           <a
             href={CREATE_DESK_URL}
@@ -126,7 +126,7 @@ export default async function Home({
             rel="noreferrer"
             className="mt-4 flex items-center justify-center rounded-lg border border-black/15 py-2.5 font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
           >
-            내 ShareDesk 만들기
+            호스트 설치 안내
           </a>
         </section>
       </div>

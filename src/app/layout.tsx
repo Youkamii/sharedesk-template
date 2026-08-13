@@ -13,8 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ShareDesk — 내 Google Drive로 만드는 공유 바탕화면",
-  description: "내 Google Drive와 내 배포로 만드는 독립형 도트 스타일 공유 바탕화면",
+  title: "ShareDesk — 여러 사람이 함께 쓰는 Google Drive 파일 공간",
+  description:
+    "호스트의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 공유 파일 공간",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
