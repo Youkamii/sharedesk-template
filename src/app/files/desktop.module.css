@@ -1087,6 +1087,14 @@
   box-shadow: inset 2px 2px 0 rgb(255 244 210 / 24%), 3px 3px 0 rgb(5 9 20 / 62%);
 }
 
+.trashLauncher.trashDropTarget {
+  color: #ffd27d;
+  background: rgb(116 54 66 / 88%);
+  border-color: #ffd27d;
+  box-shadow: inset 2px 2px 0 rgb(255 244 210 / 24%), 4px 4px 0 rgb(5 9 20 / 62%);
+  transform: scale(1.08);
+}
+
 .trashLauncher:active {
   transform: translate(2px, 2px);
   box-shadow: inset 2px 2px 0 rgb(5 9 20 / 62%);
@@ -1102,7 +1110,6 @@
 }
 
 .deskButton,
-.quickAction,
 .taskButton,
 .trayLink {
   height: 40px;
@@ -1132,10 +1139,7 @@
   box-shadow: inset 3px 3px 0 #61b3a6;
 }
 
-.quickAction { color: #ffd27d; }
-
 .deskButton:active,
-.quickAction:active,
 .taskButton:active,
 .trayLink:active { box-shadow: inset 2px 2px 0 #111b33; }
 

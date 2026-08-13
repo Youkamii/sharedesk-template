@@ -109,6 +109,10 @@ type DragGhostState = {
   clientY: number;
 };
 
+type InternalDropTarget =
+  | { kind: "folder"; folderId: string; highlightKey: string }
+  | { kind: "trash"; highlightKey: "trash" };
+
 type AddressState = {
   value: string;
   busy: boolean;
@@ -2561,7 +2565,7 @@ export default function FilesView({
     }
   }
 
-  // 포인터 아래의 이동 대상(폴더 아이콘 또는 다른 창의 캔버스)을 찾는다.
+  // 포인터 아래의 이동 대상(폴더 아이콘, 다른 창의 캔버스, 휴지통)을 찾는다.
   // 끌리는 아이콘은 pointer-events: none이라 히트테스트에 걸리지 않는다.
   function findMoveTarget(
     clientX: number,
@@ -2569,14 +2573,18 @@ export default function FilesView({
     sourceScopeId: string,
     sourceFolderId: string,
     entry: Entry,
-  ): { folderId: string; highlightKey: string } | null {
+  ): InternalDropTarget | null {
     const element = document.elementFromPoint(clientX, clientY);
     if (!element) return null;
+    if (element.closest("[data-drop-trash]")) {
+      return { kind: "trash", highlightKey: "trash" };
+    }
     const icon = element.closest<HTMLElement>("[data-drop-folder]");
     if (icon?.dataset.dropFolder && icon.dataset.dropScope) {
       const folderId = icon.dataset.dropFolder;
         if (folderId !== entry.id) {
           return {
+            kind: "folder",
             folderId,
           highlightKey: `icon:${icon.dataset.dropScope}:${folderId}`,
         };
@@ -2593,7 +2601,11 @@ export default function FilesView({
       canvasFolder !== sourceFolderId &&
       canvasFolder !== entry.id
     ) {
-        return { folderId: canvasFolder, highlightKey: `canvas:${canvasScope}` };
+        return {
+          kind: "folder",
+          folderId: canvasFolder,
+          highlightKey: `canvas:${canvasScope}`,
+        };
     }
     return null;
   }
@@ -2738,6 +2750,75 @@ export default function FilesView({
           ? `‘${entry.name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다`
           : `‘${entry.name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요`,
       );
+    }
+  }
+
+  async function trashDraggedEntry(sourceScopeId: string, entry: Entry) {
+    if (movingEntryIdsRef.current.has(entry.id)) return;
+    const sourceFolderId = scopeFolderId(sourceScopeId);
+    const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
+    markFolderMutation(sourceFolderId);
+    pendingFolderMutationsRef.current.set(
+      sourceFolderId,
+      (pendingFolderMutationsRef.current.get(sourceFolderId) ?? 0) + 1,
+    );
+    cancelFolderListRequests(sourceFolderId);
+    movingEntryIdsRef.current.add(entry.id);
+    setSelected((current) =>
+      current?.scopeId === sourceScopeId && current.layoutKey === entry.layoutKey
+        ? null
+        : current,
+    );
+    setContextMenu(null);
+    setTransientPositions((current) => {
+      const next = { ...current };
+      delete next[transientKey];
+      return next;
+    });
+    removeFolderEntry(sourceFolderId, entry.id);
+
+    try {
+      await apiJson("/api/drive/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id }),
+      });
+      if (entry.isFolder) {
+        closeWindowsContainingFolder(entry.id);
+      } else {
+        discardPreviewForEntry(entry.id);
+      }
+      setNotice(`‘${entry.name}’을 휴지통에 넣었습니다`);
+      if (trashWindow) {
+        setTrashWindow((current) =>
+          current ? { ...current, loading: true } : current,
+        );
+        void loadTrash();
+      }
+    } catch (error) {
+      if (classifyMoveFailure(error) === "definitive") {
+        upsertFolderEntry(sourceFolderId, entry);
+      } else if (entry.isFolder) {
+        closeWindowsContainingFolder(entry.id);
+      } else {
+        discardPreviewForEntry(entry.id);
+      }
+      setNotice(errorMessage(error, "휴지통에 넣지 못했습니다"));
+      foldersNeedingRefreshRef.current.add(sourceFolderId);
+    } finally {
+      movingEntryIdsRef.current.delete(entry.id);
+      markFolderMutation(sourceFolderId);
+      const remaining =
+        (pendingFolderMutationsRef.current.get(sourceFolderId) ?? 1) - 1;
+      if (remaining > 0) {
+        pendingFolderMutationsRef.current.set(sourceFolderId, remaining);
+        foldersNeedingRefreshRef.current.add(sourceFolderId);
+      } else {
+        pendingFolderMutationsRef.current.delete(sourceFolderId);
+        notifyFolderIdle(sourceFolderId);
+        foldersNeedingRefreshRef.current.delete(sourceFolderId);
+        await refreshScope(sourceScopeId, true);
+      }
     }
   }
 
@@ -2922,7 +3003,7 @@ export default function FilesView({
     let moved = false;
     let lastClientX = startX;
     let lastClientY = startY;
-    let moveTarget: ReturnType<typeof findMoveTarget> = null;
+    let moveTarget: InternalDropTarget | null = null;
     event.preventDefault();
 
     const onMove = (next: PointerEvent) => {
@@ -2969,7 +3050,11 @@ export default function FilesView({
         0,
       );
       if (moveTarget) {
-        void moveEntry(scopeId, entry, moveTarget.folderId);
+        if (moveTarget.kind === "trash") {
+          void trashDraggedEntry(scopeId, entry);
+        } else {
+          void moveEntry(scopeId, entry, moveTarget.folderId);
+        }
         return;
       }
       const x = clamp(
@@ -4260,7 +4345,10 @@ export default function FilesView({
 
       <button
         type="button"
-        className={styles.trashLauncher}
+        className={`${styles.trashLauncher} ${
+          dropTargetKey === "trash" ? styles.trashDropTarget : ""
+        }`}
+        data-drop-trash="true"
         aria-label="휴지통 열기"
         onClick={openTrash}
       >
@@ -4288,13 +4376,6 @@ export default function FilesView({
         >
           <span className={styles.deskButtonMark} aria-hidden="true" />
           책상
-        </button>
-        <button
-          type="button"
-          className={styles.quickAction}
-          onClick={() => requestUpload(ROOT_SCOPE)}
-        >
-          ↑ 파일 올리기
         </button>
         <div className={styles.windowTasks} aria-label="열린 폴더">
           {deskWindows.map((item) => (

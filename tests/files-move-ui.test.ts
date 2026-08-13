@@ -308,7 +308,7 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
     readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 
-  const launcherIndex = source.indexOf("className={styles.trashLauncher}");
+  const launcherIndex = source.indexOf('data-drop-trash="true"');
   const taskbarStart = source.indexOf('<footer className={styles.taskBar}>');
   const taskbarEnd = source.indexOf("</footer>", taskbarStart);
   const launcherStyleStart = css.indexOf(".trashLauncher {");
@@ -331,4 +331,25 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.match(launcherStyle, /z-index: 10;/);
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
   assert.match(readme, /휴지통 아이콘은 작업표시줄이 아닌 화면 오른쪽 아래에 고정/);
+});
+
+test("작업표시줄 업로드 버튼은 없고 아이콘을 휴지통에 놓으면 실제 삭제 요청을 보낸다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(source, /className=\{styles\.quickAction\}/);
+  assert.doesNotMatch(css, /\.quickAction/);
+  assert.match(source, /data-drop-trash="true"/);
+  assert.match(source, /element\.closest\("\[data-drop-trash\]"\)/);
+  assert.match(
+    source,
+    /moveTarget\.kind === "trash"[\s\S]*?trashDraggedEntry\(scopeId, entry\)/,
+  );
+  assert.match(
+    source,
+    /async function trashDraggedEntry[\s\S]*?"\/api\/drive\/delete"/,
+  );
+  assert.match(css, /\.trashLauncher\.trashDropTarget/);
 });
