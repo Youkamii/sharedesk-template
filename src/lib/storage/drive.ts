@@ -1055,6 +1055,64 @@ export class DriveAdapter implements StorageAdapter {
     };
   }
 
+  async replaceContent(
+    id: string,
+    expectedVersion: string,
+    mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry> {
+    if (!expectedVersion || expectedVersion.length > 1024) {
+      throw new StorageError("BAD_ID", "잘못된 파일 버전입니다");
+    }
+    if (!mimeType || mimeType.length > 255 || /[\r\n\0]/.test(mimeType)) {
+      throw new StorageError("BAD_ID", "잘못된 파일 형식입니다");
+    }
+    const real = resolveId(id);
+    if (real === rootFolderId()) {
+      throw new StorageError("BAD_ID", "루트 폴더는 수정할 수 없습니다");
+    }
+    const metaResponse = await driveFetch(
+      `${API}/files/${real}?fields=id,name,mimeType,parents,trashed`,
+    );
+    const meta = (await metaResponse.json()) as DriveFile & {
+      parents?: string[];
+      trashed?: boolean;
+    };
+    await assertInsideRoot(real, meta);
+    if (
+      meta.mimeType === FOLDER_MIME ||
+      meta.mimeType.startsWith("application/vnd.google-apps.")
+    ) {
+      throw new StorageError("BAD_ID", "일반 파일이 아닙니다");
+    }
+
+    // Drive v3 업로드는 If-Match를 무시한다. 상태 파일·이동과 같은 v2 경로로
+    // 조건부 본문 교체를 보내야 오래된 편집이 412(CONFLICT)로 거부된다.
+    try {
+      const response = await driveFetch(
+        `${V2_UPLOAD_API}/files/${real}?uploadType=media&fields=id,title,mimeType,fileSize,modifiedDate,etag`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": mimeType,
+            "If-Match": expectedVersion,
+          },
+          body: data,
+          duplex: "half",
+        } as RequestInit,
+      );
+      return toEntryV2((await response.json()) as DriveFileV2);
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "CONFLICT") {
+        throw new StorageError(
+          "CONFLICT",
+          "다른 사람이 먼저 파일을 수정했습니다",
+        );
+      }
+      throw error;
+    }
+  }
+
   private async initResumable(
     parent: string,
     name: string,
