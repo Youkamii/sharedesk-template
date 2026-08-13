@@ -3591,17 +3591,17 @@ export default function FilesView({
       });
     };
     updateTransfer(0, file.size);
-    const session = await apiJson<UploadSession>("/api/drive/upload-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parentId: folderId,
-        name: file.name,
-        mimeType,
-        size: file.size,
-      }),
-    });
     try {
+      const session = await apiJson<UploadSession>("/api/drive/upload-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parentId: folderId,
+          name: file.name,
+          mimeType,
+          size: file.size,
+        }),
+      });
       if (session.mode === "direct") {
         const response = await uploadWithProgress(
           session.url,

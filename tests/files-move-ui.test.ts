@@ -404,3 +404,19 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(css, /\.downloadPreference\s*\{/);
   assert.match(css, /input:checked \+ \.preferenceCheck::after/);
 });
+
+test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const uploadStart = source.indexOf("async function uploadOne");
+  const uploadEnd = source.indexOf("async function uploadFiles", uploadStart);
+  const uploadOne = source.slice(uploadStart, uploadEnd);
+
+  assert.ok(uploadStart >= 0 && uploadEnd > uploadStart);
+  assert.match(
+    uploadOne,
+    /updateTransfer\(0, file\.size\);\s*try \{[\s\S]*?await apiJson<UploadSession>\("\/api\/drive\/upload-session"[\s\S]*?finally \{\s*reportTransferProgress\(null, transferId\);/,
+  );
+});
