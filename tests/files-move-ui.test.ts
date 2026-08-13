@@ -512,6 +512,10 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
     "download",
   );
   assert.match(source, /fileActivationAction\(entry, downloadFirst\)/);
+  assert.match(
+    source,
+    /function openSearchResult[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(result\.entry\)/,
+  );
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
   assert.match(source, />다운로드 우선</);
   assert.match(source, /checked=\{downloadFirst\}/);

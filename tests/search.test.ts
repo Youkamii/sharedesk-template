@@ -185,6 +185,45 @@ test("검색 helper는 결과 수와 탐색량을 제한하고 취소 신호를 
   );
 });
 
+test("범위 탐색은 검색 예산을 쓰지 않고 큰 목록 뒤의 폴더를 찾는다", async () => {
+  const scopeId = "large-scope";
+  const precedingEntries = Array.from({ length: 5_001 }, (_, index) =>
+    entry(`file-${index}`, `ordinary-${index}.txt`),
+  );
+  const target = entry(scopeId, "Target", true);
+  const match = entry("inside-match", "needle.txt");
+  const listed: string[] = [];
+
+  const response = await searchStorage(
+    "needle",
+    scopeId,
+    {
+      async list(folderId: string) {
+        listed.push(folderId);
+        if (folderId === ROOT_ID) return [...precedingEntries, target];
+        if (folderId === scopeId) return [match];
+        return [];
+      },
+    },
+    { maxTraversal: 2 },
+  );
+
+  assert.deepEqual(listed, [ROOT_ID, scopeId]);
+  assert.equal(response.explored, 2);
+  assert.equal(response.truncated, false);
+  assert.deepEqual(response.results, [
+    {
+      entry: match,
+      parentId: scopeId,
+      breadcrumbs: [
+        { id: ROOT_ID, name: "ShareDesk" },
+        { id: scopeId, name: "Target" },
+      ],
+      path: "/Target/needle.txt",
+    },
+  ]);
+});
+
 test("같은 검색 순회가 DriveAdapter.list 결과에서도 경로를 보존한다", async () => {
   const original = {
     clientId: process.env.GOOGLE_CLIENT_ID,

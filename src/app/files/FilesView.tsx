@@ -2567,14 +2567,15 @@ export default function FilesView({
 
   function openSearchResult(result: SearchResult) {
     setContextMenu(null);
-    if (result.entry.isFolder) {
+    const action = fileActivationAction(result.entry, downloadFirst);
+    if (action === "folder") {
       openFolderPath([
         ...result.breadcrumbs,
         { id: result.entry.id, name: result.entry.name },
       ]);
       return;
     }
-    if (previewKindOf(result.entry)) openPreview(result.entry);
+    if (action === "preview") openPreview(result.entry);
     else void downloadEntry(result.entry);
   }
 

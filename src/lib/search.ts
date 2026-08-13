@@ -10,6 +10,11 @@ import type { FolderCrumb } from "@/lib/folder-path";
 export const SEARCH_RESULT_LIMIT = 200;
 export const SEARCH_TRAVERSAL_LIMIT = 5_000;
 
+// Finding a server-verified scope is separate from searching inside it. Large
+// sibling lists must not spend the caller's search budget, but scope discovery
+// still needs a hard ceiling so malformed trees cannot grow the queue forever.
+const SEARCH_SCOPE_TRAVERSAL_LIMIT = 25_000;
+
 const MAX_QUERY_LENGTH = 200;
 const MAX_FOLDER_ID_LENGTH = 1_024;
 
@@ -193,9 +198,10 @@ export async function searchStorage(
   const query = cleanQuery(rawQuery);
   const scopeFolderId = cleanFolderId(rawScopeFolderId);
   const maxResults = limit(options.maxResults, SEARCH_RESULT_LIMIT);
-  const budget = new TraversalBudget(
+  const searchBudget = new TraversalBudget(
     limit(options.maxTraversal, SEARCH_TRAVERSAL_LIMIT),
   );
+  const scopeBudget = new TraversalBudget(SEARCH_SCOPE_TRAVERSAL_LIMIT);
   const needle = query.toLocaleLowerCase("ko-KR");
   const matches = (name: string) =>
     name.toLocaleLowerCase("ko-KR").includes(needle);
@@ -204,7 +210,7 @@ export async function searchStorage(
   const located = await locateScope(
     adapter,
     scopeFolderId,
-    budget,
+    scopeBudget,
     options.signal,
   );
   if (!located.complete) {
@@ -252,7 +258,7 @@ export async function searchStorage(
       scopeFolderId,
       results,
       truncated,
-      explored: budget.explored,
+      explored: searchBudget.explored,
     };
   }
 
@@ -267,7 +273,7 @@ export async function searchStorage(
     const entries = await listFolder(
       adapter,
       parent.id,
-      budget,
+      searchBudget,
       options.signal,
     );
     if (!entries) {
@@ -277,7 +283,7 @@ export async function searchStorage(
 
     for (const entry of entries) {
       throwIfAborted(options.signal);
-      if (!budget.take()) {
+      if (!searchBudget.take()) {
         truncated = true;
         break search;
       }
@@ -304,6 +310,6 @@ export async function searchStorage(
     scopeFolderId,
     results,
     truncated,
-    explored: budget.explored,
+    explored: searchBudget.explored,
   };
 }
