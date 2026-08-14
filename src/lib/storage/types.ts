@@ -43,6 +43,8 @@ export interface DownloadResult {
   contentRange: string | null;
   contentLength: number | null;
   acceptRanges?: boolean;
+  // 저장소가 직접 만든 안전한 미리보기 문서만 라우트에서 HTML로 내보낸다.
+  generatedPreview?: "office-fallback";
 }
 
 export type UploadSession = { mode: "direct"; url: string } | { mode: "proxy" };

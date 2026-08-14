@@ -196,6 +196,34 @@ test("deleted or invalid selection keys are removed with deterministic fallback"
   );
 });
 
+test("an unfocused desktop starts arrow navigation from its first spatial icon", () => {
+  assert.deepEqual(
+    moveDesktopKeyboardSelection(grid, null, "ArrowDown"),
+    selection(["a"], "a", "a"),
+  );
+});
+
+test("a rectangle-only selection continues from its last selected icon", () => {
+  const rectangleSelection = selection(["a", "e"], null, null);
+
+  assert.deepEqual(
+    moveDesktopKeyboardSelection(grid, rectangleSelection, "ArrowRight"),
+    selection(["f"], "f", "f"),
+  );
+  assert.deepEqual(
+    moveDesktopKeyboardSelection(grid, rectangleSelection, "ArrowRight", {
+      extend: true,
+    }),
+    selection(["e", "f"], "e", "f"),
+  );
+  assert.deepEqual(
+    moveDesktopKeyboardSelection(grid, rectangleSelection, "ArrowRight", {
+      preserveSelection: true,
+    }),
+    selection(["a", "e"], "e", "f"),
+  );
+});
+
 test("text editing controls keep their arrow keys", () => {
   const target = (values: Record<string, unknown>) =>
     values as unknown as EventTarget;

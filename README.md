@@ -9,8 +9,8 @@ ShareDesk는 **한 사람의 Google Drive 저장 공간을 여러 사람이 각�
 | 해 질 녘 | 깊은 밤 |
 | --- | --- |
 | ![해 질 녘 바탕화면](./docs/sharedesk-wallpaper-dusk.png) | ![깊은 밤 바탕화면](./docs/sharedesk-wallpaper-night.png) |
-| 새벽 | 밤바다 |
-| ![새벽 바탕화면](./docs/sharedesk-wallpaper-dawn.png) | ![밤바다 바탕화면](./docs/sharedesk-wallpaper-tide.png) |
+| 여명 | 밤바다 |
+| ![여명 바탕화면](./docs/sharedesk-wallpaper-dawn.png) | ![밤바다 바탕화면](./docs/sharedesk-wallpaper-tide.png) |
 
 ## 할 수 있는 일
 
