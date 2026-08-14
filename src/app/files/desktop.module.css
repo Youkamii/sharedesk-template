@@ -673,7 +673,7 @@
 }
 
 /* 미리보기 창 */
-.previewWindow {
+.folderWindow.previewWindow {
   grid-template-rows: 30px minmax(0, 1fr) 22px;
   width: min(760px, calc(100% - 24px));
   height: min(560px, calc(100% - 116px));

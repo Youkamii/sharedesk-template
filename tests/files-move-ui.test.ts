@@ -853,7 +853,7 @@ test("이미지와 GIF 미리보기는 창의 본문을 채우고 최초 창은 
   );
   assert.match(
     css,
-    /\.previewWindow \{[\s\S]*?grid-template-rows: 30px minmax\(0, 1fr\) 22px;/,
+    /\.folderWindow\.previewWindow \{[\s\S]*?grid-template-rows: 30px minmax\(0, 1fr\) 22px;/,
   );
   assert.match(
     source,
