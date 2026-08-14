@@ -185,15 +185,11 @@ export function normalizeRootDesktopLayout(
   const storedOutside: Array<{
     entry: RootDesktopEntry;
     stored: RootDesktopPlacement;
+    index: number;
   }> = [];
   const missing: Array<{ entry: RootDesktopEntry; index: number }> = [];
 
-  const useDenseGrid =
-    entries.length >= 78 &&
-    entries.every((entry) => {
-      const stored = storedPositions[entry.layoutKey];
-      return !stored || isSystemDefaultPlacement(stored);
-    });
+  const useDenseGrid = entries.length >= 78;
 
   entries.forEach((entry, index) => {
     const stored = storedPositions[entry.layoutKey];
@@ -201,13 +197,13 @@ export function normalizeRootDesktopLayout(
       stored &&
       isInsideRootDesktop(stored) &&
       !rootPlacementOverlapsTrash(stored) &&
-      !useDenseGrid
+      (!useDenseGrid || !isSystemDefaultPlacement(stored))
     ) {
       positions[entry.layoutKey] = stored;
       occupied.push(stored);
       return;
     }
-    if (stored) storedOutside.push({ entry, stored });
+    if (stored) storedOutside.push({ entry, stored, index });
     else missing.push({ entry, index });
   });
 
@@ -257,12 +253,14 @@ export function normalizeRootDesktopLayout(
   };
 
   if (useDenseGrid) {
-    entries
-      .map((entry, index) => ({
+    [
+      ...storedOutside,
+      ...missing.map(({ entry, index }) => ({
         entry,
         index,
-        stored: storedPositions[entry.layoutKey],
-      }))
+        stored: undefined,
+      })),
+    ]
       .sort((left, right) =>
         left.entry.layoutKey < right.entry.layoutKey
           ? -1

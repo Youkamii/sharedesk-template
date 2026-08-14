@@ -164,7 +164,7 @@ test("83개의 서버 기본 좌표를 겹침과 휴지통 없이 빽빽하게 �
   assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
-test("78번째 항목이 생겨도 커스텀 좌표와 기존의 유효 좌표는 보존한다", () => {
+test("78번째 항목은 커스텀 좌표를 보존하며 남은 기본 아이콘을 촘촘히 채운다", () => {
   const input = entries(78);
   const stored = Object.fromEntries(
     input.slice(0, 77).map((entry, index) => [
@@ -175,21 +175,23 @@ test("78번째 항목이 생겨도 커스텀 좌표와 기존의 유효 좌표�
   stored[input[0].layoutKey] = { x: 13, y: 10, version: 1 };
 
   const normalized = normalizeRootDesktopLayout(input, stored);
-  const validEntries = input.slice(0, 36);
-  validEntries.forEach((entry) => {
-    assert.deepEqual(normalized.positions[entry.layoutKey], stored[entry.layoutKey]);
-    assert.equal(
-      normalized.corrections.some(
-        ({ layoutKey }) => layoutKey === entry.layoutKey,
-      ),
-      false,
-    );
-  });
-  assert.deepEqual(normalized.unresolvedLayoutKeys, [input[77].layoutKey]);
-  Object.values(normalized.positions).forEach((placement) => {
+  const custom = normalized.positions[input[0].layoutKey];
+  assert.deepEqual(custom, stored[input[0].layoutKey]);
+  assert.equal(
+    normalized.corrections.some(
+      ({ layoutKey }) => layoutKey === input[0].layoutKey,
+    ),
+    false,
+  );
+  const placements = input.map((entry) => normalized.positions[entry.layoutKey]);
+  placements.forEach((placement, index) => {
     assertInside(placement);
     assert.equal(rootPlacementOverlapsTrash(placement), false);
+    placements.slice(index + 1).forEach((other) => {
+      assert.equal(overlaps(placement, other), false);
+    });
   });
+  assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
 test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구 저장하지 않는다", () => {
@@ -237,10 +239,10 @@ test("커스텀 좌표가 슬롯을 넘쳐도 표시 위치는 휴지통 아래�
     assertInside(placement);
     assert.equal(rootPlacementOverlapsTrash(placement), false);
   });
-  assert.equal(normalized.corrections.length, 77);
+  assert.equal(normalized.corrections.length, 83);
   assert.deepEqual(
     normalized.unresolvedLayoutKeys,
-    input.slice(77).map((entry) => entry.layoutKey),
+    [input[83].layoutKey],
   );
   normalized.unresolvedLayoutKeys.forEach((layoutKey) => {
     assert.equal(
