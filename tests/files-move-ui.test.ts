@@ -21,6 +21,12 @@ import {
   downloadFileName,
   fileActivationAction,
 } from "../src/lib/client/file-activation";
+import {
+  groupLayoutMigrationTargets,
+  migrateEntryLayoutKey,
+  migrateLayoutKey,
+  migrateLayoutKeys,
+} from "../src/lib/client/layout-key-migration";
 import { previewDiscardReason } from "../src/lib/client/preview-draft";
 import {
   fitLogicalRect,
@@ -149,6 +155,118 @@ test("편집 가능한 TXT의 미저장 내용과 저장 중 상태만 버리기
       saving: true,
     }),
     "saving",
+  );
+});
+
+test("로컬 TXT의 새 layoutKey로 좌표와 선택 키를 옮긴다", () => {
+  const previous = { id: "note", layoutKey: "old-key", version: "v1" };
+  const replacement = { id: "note", layoutKey: "new-key", version: "v2" };
+  const original: {
+    entries: Array<{ id: string; layoutKey: string; version: string }>;
+    positions: Record<string, { x: number; y: number; version: number }>;
+  } = {
+    entries: [previous, { id: "other", layoutKey: "other-key", version: "v1" }],
+    positions: {
+      "old-key": { x: 120, y: 80, version: 4 },
+      "other-key": { x: 20, y: 10, version: 2 },
+    },
+  };
+
+  const migrated = migrateEntryLayoutKey(
+    original,
+    previous,
+    replacement,
+    { x: 140, y: 90, version: 4 },
+  );
+  assert.equal(migrated.entries[0], replacement);
+  assert.deepEqual(migrated.positions["new-key"], {
+    x: 140,
+    y: 90,
+    version: 0,
+  });
+  assert.equal(migrated.positions["old-key"], undefined);
+  assert.deepEqual(original.positions["old-key"], {
+    x: 120,
+    y: 80,
+    version: 4,
+  });
+  assert.deepEqual(
+    migrateLayoutKeys(["old-key", "other-key", "new-key"], "old-key", "new-key"),
+    ["new-key", "other-key"],
+  );
+  assert.equal(migrateLayoutKey("old-key", "old-key", "new-key"), "new-key");
+
+  const driveReplacement = { ...replacement, layoutKey: previous.layoutKey };
+  const drive = migrateEntryLayoutKey(original, previous, driveReplacement);
+  assert.equal(drive.positions, original.positions);
+  assert.equal(drive.entries[0], driveReplacement);
+});
+
+test("같은 폴더를 연 창들은 새 layoutKey 좌표를 서버에 한 번만 저장한다", () => {
+  assert.deepEqual(
+    groupLayoutMigrationTargets(
+      [
+        {
+          scopeId: "folder-1",
+          folderId: "docs",
+          folderIdentity: "stale-docs-key",
+          position: { x: 10, y: 20 },
+        },
+        {
+          scopeId: "folder-2",
+          folderId: "docs",
+          folderIdentity: "docs-key",
+          position: { x: 30, y: 40 },
+        },
+        {
+          scopeId: "folder-3",
+          folderId: "other",
+          folderIdentity: "other-key",
+          position: { x: 50, y: 60 },
+        },
+      ],
+      "folder-2",
+    ),
+    [
+      {
+        folderId: "docs",
+        folderIdentity: "docs-key",
+        position: { x: 30, y: 40 },
+        scopeIds: ["folder-1", "folder-2"],
+      },
+      {
+        folderId: "other",
+        folderIdentity: "other-key",
+        position: { x: 50, y: 60 },
+        scopeIds: ["folder-3"],
+      },
+    ],
+  );
+});
+
+test("TXT 저장 성공은 새 layoutKey 상태 이관 뒤 대표 좌표를 버전 0으로 저장한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const replaceStart = source.indexOf("function replaceEntryEverywhere");
+  const persistStart = source.indexOf("async function persistMigratedEntryPositions");
+  const saveStart = source.indexOf("async function savePreviewText");
+  const saveEnd = source.indexOf("function confirmPreviewDiscard", saveStart);
+  const replacement = source.slice(replaceStart, persistStart);
+  const persistence = source.slice(persistStart, saveStart);
+  const save = source.slice(saveStart, saveEnd);
+
+  assert.match(replacement, /migrateEntryLayoutKey\(/);
+  assert.match(replacement, /setSelected\(/);
+  assert.match(replacement, /keyboardSelectionRef\.current/);
+  assert.match(replacement, /setSearchWindow\(/);
+  assert.match(persistence, /previousEntry\.layoutKey === entry\.layoutKey/);
+  assert.match(persistence, /groupLayoutMigrationTargets\(/);
+  assert.match(persistence, /expectedVersion: 0/);
+  assert.match(
+    save,
+    /entryLayoutTargets\(preview\.entry\)[\s\S]*?replaceEntryEverywhere\(preview\.entry, result\.entry, layoutTargets\)[\s\S]*?persistMigratedEntryPositions\(/,
   );
 });
 

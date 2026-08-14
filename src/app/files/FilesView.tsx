@@ -47,6 +47,13 @@ import {
   adjacentFolderImagePreviewKey,
   folderImagePreviewEntries,
 } from "@/lib/client/folder-side-preview";
+import {
+  groupLayoutMigrationTargets,
+  migrateEntryLayoutKey,
+  migrateLayoutKey,
+  migrateLayoutKeys,
+  type LayoutMigrationTarget,
+} from "@/lib/client/layout-key-migration";
 import { previewDiscardReason } from "@/lib/client/preview-draft";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
@@ -600,6 +607,7 @@ export default function FilesView({
     scopeId: string;
     state: DesktopKeyboardSelectionState;
   } | null>(null);
+  const transientPositionsRef = useRef<Record<string, Placement>>({});
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
@@ -657,6 +665,7 @@ export default function FilesView({
   windowsRef.current = deskWindows;
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
+  transientPositionsRef.current = transientPositions;
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
 
@@ -2294,23 +2303,213 @@ export default function FilesView({
     }
   }
 
-  function replaceEntryEverywhere(entry: Entry) {
-    setRootData((current) => ({
-      ...current,
-      entries: current.entries.map((value) =>
-        value.id === entry.id ? entry : value,
+  function entryLayoutTargets(entry: Entry): LayoutMigrationTarget[] {
+    const targets: LayoutMigrationTarget[] = [];
+    const addTarget = (
+      scopeId: string,
+      folderId: string,
+      data: FolderData,
+    ) => {
+      const index = data.entries.findIndex((current) => current.id === entry.id);
+      if (index < 0) return;
+      const currentEntry = data.entries[index];
+      const placement =
+        transientPositionsRef.current[`${scopeId}:${currentEntry.layoutKey}`] ??
+        transientPositionsRef.current[`${scopeId}:${entry.layoutKey}`] ??
+        data.positions[currentEntry.layoutKey] ??
+        data.positions[entry.layoutKey] ??
+        defaultPlacement(index);
+      targets.push({
+        scopeId,
+        folderId,
+        folderIdentity: data.folderIdentity,
+        position: { x: placement.x, y: placement.y },
+      });
+    };
+
+    addTarget(ROOT_SCOPE, ROOT_ID, rootDataRef.current);
+    for (const item of windowsRef.current) {
+      const folderId = item.path.at(-1)?.id;
+      if (folderId) addTarget(item.id, folderId, item.data);
+    }
+    return targets;
+  }
+
+  function replaceEntryEverywhere(
+    previousEntry: Entry,
+    entry: Entry,
+    layoutTargets: LayoutMigrationTarget[],
+  ) {
+    const targetByScope = new Map(
+      layoutTargets.map((target) => [target.scopeId, target] as const),
+    );
+    const displayedPlacement = (scopeId: string) => {
+      const target = targetByScope.get(scopeId);
+      return target
+        ? { ...target.position, version: 0 }
+        : undefined;
+    };
+
+    setRootData((current) =>
+      migrateEntryLayoutKey(
+        current,
+        previousEntry,
+        entry,
+        displayedPlacement(ROOT_SCOPE),
       ),
-    }));
+    );
     setDeskWindows((current) =>
-      current.map((item) => ({
-        ...item,
-        data: {
-          ...item.data,
-          entries: item.data.entries.map((value) =>
-            value.id === entry.id ? entry : value,
-          ),
-        },
-      })),
+      current.map((item) => {
+        const data = migrateEntryLayoutKey(
+          item.data,
+          previousEntry,
+          entry,
+          displayedPlacement(item.id),
+        );
+        return data === item.data ? item : { ...item, data };
+      }),
+    );
+    setSelected((current) => {
+      if (!current) return current;
+      const layoutKeys = migrateLayoutKeys(
+        current.layoutKeys,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      return layoutKeys === current.layoutKeys
+        ? current
+        : { ...current, layoutKeys: [...layoutKeys] };
+    });
+
+    const keyboardSelection = keyboardSelectionRef.current;
+    if (keyboardSelection) {
+      const selectedLayoutKeys = migrateLayoutKeys(
+        keyboardSelection.state.selectedLayoutKeys,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      const anchorLayoutKey = migrateLayoutKey(
+        keyboardSelection.state.anchorLayoutKey,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      const focusLayoutKey = migrateLayoutKey(
+        keyboardSelection.state.focusLayoutKey,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      if (
+        selectedLayoutKeys !== keyboardSelection.state.selectedLayoutKeys ||
+        anchorLayoutKey !== keyboardSelection.state.anchorLayoutKey ||
+        focusLayoutKey !== keyboardSelection.state.focusLayoutKey
+      ) {
+        keyboardSelectionRef.current = {
+          ...keyboardSelection,
+          state: { selectedLayoutKeys, anchorLayoutKey, focusLayoutKey },
+        };
+      }
+    }
+
+    setSearchWindow((current) =>
+      current
+        ? {
+            ...current,
+            results: current.results.map((result) =>
+              result.entry.id === entry.id ? { ...result, entry } : result,
+            ),
+          }
+        : current,
+    );
+    setContextMenu((current) =>
+      current
+        ? {
+            ...current,
+            entry: current.entry?.id === entry.id ? entry : current.entry,
+            searchResult:
+              current.searchResult?.entry.id === entry.id
+                ? { ...current.searchResult, entry }
+                : current.searchResult,
+          }
+        : current,
+    );
+
+    if (previousEntry.layoutKey !== entry.layoutKey) {
+      setTransientPositions((current) => {
+        let next = current;
+        for (const target of layoutTargets) {
+          const key = `${target.scopeId}:${previousEntry.layoutKey}`;
+          if (!(key in next)) continue;
+          if (next === current) next = { ...current };
+          delete next[key];
+        }
+        return next;
+      });
+    }
+  }
+
+  async function persistMigratedEntryPositions(
+    previousEntry: Entry,
+    entry: Entry,
+    layoutTargets: LayoutMigrationTarget[],
+    preferredScopeId: string | null,
+    signal: AbortSignal,
+  ) {
+    if (
+      previousEntry.layoutKey === entry.layoutKey ||
+      layoutTargets.length === 0
+    ) {
+      return true;
+    }
+    const groups = groupLayoutMigrationTargets(
+      layoutTargets,
+      preferredScopeId,
+    );
+    const coveredScopes = new Set(groups.flatMap((group) => group.scopeIds));
+    const outcomes = await Promise.all(
+      groups.map(async (group) => {
+        try {
+          const snapshot = await apiJson<LayoutSnapshot>(
+            "/api/desktop/layout",
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              signal,
+              body: JSON.stringify({
+                folderId: group.folderId,
+                folderIdentity: group.folderIdentity,
+                updates: [
+                  {
+                    entryId: entry.id,
+                    expectedVersion: 0,
+                    x: group.position.x,
+                    y: group.position.y,
+                  },
+                ],
+              }),
+            },
+          );
+          if (
+            snapshot.folderIdentity !== group.folderIdentity ||
+            !snapshot.positions[entry.layoutKey]
+          ) {
+            return false;
+          }
+          const positions = { ...snapshot.positions };
+          delete positions[previousEntry.layoutKey];
+          const migratedSnapshot = { ...snapshot, positions };
+          for (const scopeId of group.scopeIds) {
+            applySnapshot(scopeId, group.folderId, migratedSnapshot);
+          }
+          return true;
+        } catch (error) {
+          if (isAbortError(error)) throw error;
+          return false;
+        }
+      }),
+    );
+    return (
+      layoutTargets.every((target) => coveredScopes.has(target.scopeId)) &&
+      outcomes.every(Boolean)
     );
   }
 
@@ -2378,7 +2577,13 @@ export default function FilesView({
         }),
       });
       if (previewInstanceRef.current !== preview.instanceId) return;
-      replaceEntryEverywhere(result.entry);
+      const layoutTargets = entryLayoutTargets(preview.entry);
+      const preferredScopeId =
+        previewOpenerRef.current?.scopeId ??
+        (selected?.layoutKeys.includes(preview.entry.layoutKey)
+          ? selected.scopeId
+          : null);
+      replaceEntryEverywhere(preview.entry, result.entry, layoutTargets);
       setPreviewWindow((current) =>
         current?.instanceId === preview.instanceId &&
         current.entry.id === preview.entry.id
@@ -2392,14 +2597,31 @@ export default function FilesView({
                 entry: result.entry,
                 text: saved.draft,
                 originalText: saved.original,
-                textSaving: false,
+                textSaving: true,
                 textSaveError: null,
                 textConflict: false,
               };
             })()
           : current,
       );
-      setNotice("텍스트 파일을 저장했습니다");
+      const positionSaved = await persistMigratedEntryPositions(
+        preview.entry,
+        result.entry,
+        layoutTargets,
+        preferredScopeId,
+        controller.signal,
+      );
+      if (previewInstanceRef.current !== preview.instanceId) return;
+      setPreviewWindow((current) =>
+        current?.instanceId === preview.instanceId
+          ? { ...current, textSaving: false }
+          : current,
+      );
+      setNotice(
+        positionSaved
+          ? "텍스트 파일을 저장했습니다"
+          : "텍스트는 저장했지만 아이콘 위치를 저장하지 못했습니다",
+      );
     } catch (error) {
       if (
         isAbortError(error) ||
