@@ -105,12 +105,48 @@ const ROOT_GRID_POSITIONS = rootGridPositions(
   ROOT_GRID_STEP_X,
   ROOT_GRID_STEP_Y,
 ).filter((position) => !rootPlacementOverlapsTrash(position));
-const ROOT_DENSE_GRID_POSITIONS = rootGridPositions(
-  0,
-  0,
-  ROOT_ICON_WIDTH,
-  ROOT_ICON_HEIGHT,
-).filter((position) => !rootPlacementOverlapsTrash(position));
+
+function denseGridPositionsAround(
+  occupied: readonly Pick<RootDesktopPlacement, "x" | "y">[],
+) {
+  const xOffsets = Array.from(
+    new Set([
+      0,
+      (ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH) % ROOT_ICON_WIDTH,
+      ...occupied.map((position) => position.x % ROOT_ICON_WIDTH),
+    ]),
+  ).sort((left, right) => left - right);
+  const yOffsets = Array.from(
+    new Set([
+      0,
+      (ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT) % ROOT_ICON_HEIGHT,
+      ...occupied.map((position) => position.y % ROOT_ICON_HEIGHT),
+    ]),
+  ).sort((left, right) => left - right);
+  let bestPositions: Array<{ x: number; y: number }> = [];
+  let bestAvailableCount = -1;
+
+  xOffsets.forEach((xOffset) => {
+    yOffsets.forEach((yOffset) => {
+      const positions = rootGridPositions(
+        xOffset,
+        yOffset,
+        ROOT_ICON_WIDTH,
+        ROOT_ICON_HEIGHT,
+      ).filter((position) => !rootPlacementOverlapsTrash(position));
+      const availableCount = positions.filter(
+        (position) =>
+          !occupied.some((current) => rectanglesOverlap(position, current)),
+      ).length;
+      if (availableCount > bestAvailableCount) {
+        bestPositions = positions;
+        bestAvailableCount = availableCount;
+      }
+    });
+  });
+
+  return bestPositions;
+}
 
 function defaultPosition(index: number) {
   return {
@@ -206,6 +242,10 @@ export function normalizeRootDesktopLayout(
     if (stored) storedOutside.push({ entry, stored, index });
     else missing.push({ entry, index });
   });
+  const denseGridPositions =
+    useDenseGrid && (storedOutside.length > 0 || missing.length > 0)
+      ? denseGridPositionsAround(occupied)
+      : ROOT_GRID_POSITIONS;
 
   const placePosition = (
     entry: RootDesktopEntry,
@@ -220,7 +260,7 @@ export function normalizeRootDesktopLayout(
       rootPlacementOverlapsTrash(nearest) ||
       occupied.some((current) => rectanglesOverlap(nearest, current));
     const candidates = forceGrid
-      ? ROOT_DENSE_GRID_POSITIONS
+      ? denseGridPositions
       : ROOT_GRID_POSITIONS;
     const emptyPosition = requiresEmptySlot
       ? nearestEmptyGridPosition(

@@ -194,6 +194,34 @@ test("78번째 항목은 커스텀 좌표를 보존하며 남은 기본 아이�
   assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
+test("두 커스텀 좌표에 맞춘 격자로 78개 아이콘을 겹침 없이 채운다", () => {
+  const input = entries(78);
+  const stored = {
+    [input[0].layoutKey]: { x: 13, y: 10, version: 7 },
+    [input[1].layoutKey]: { x: 189, y: 10, version: 8 },
+  };
+
+  const normalized = normalizeRootDesktopLayout(input, stored);
+  input.slice(0, 2).forEach((entry) => {
+    assert.deepEqual(normalized.positions[entry.layoutKey], stored[entry.layoutKey]);
+    assert.equal(
+      normalized.corrections.some(
+        ({ layoutKey }) => layoutKey === entry.layoutKey,
+      ),
+      false,
+    );
+  });
+  const placements = input.map((entry) => normalized.positions[entry.layoutKey]);
+  placements.forEach((placement, index) => {
+    assertInside(placement);
+    assert.equal(rootPlacementOverlapsTrash(placement), false);
+    placements.slice(index + 1).forEach((other) => {
+      assert.equal(overlaps(placement, other), false);
+    });
+  });
+  assert.deepEqual(normalized.unresolvedLayoutKeys, []);
+});
+
 test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구 저장하지 않는다", () => {
   const input = entries(84);
   const stored = Object.fromEntries(
