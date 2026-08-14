@@ -3183,9 +3183,16 @@ export default function FilesView({
     else void downloadEntry(entry);
   }
 
-  function openSearchResult(result: SearchResult, opener?: HTMLElement) {
+  function openSearchResult(
+    result: SearchResult,
+    opener?: HTMLElement,
+    respectDownloadPreference = true,
+  ) {
     setContextMenu(null);
-    const action = fileActivationAction(result.entry, downloadFirst);
+    const action = fileActivationAction(
+      result.entry,
+      respectDownloadPreference && downloadFirst,
+    );
     if (action === "folder") {
       openFolderPath([
         ...result.breadcrumbs,
@@ -7052,6 +7059,7 @@ export default function FilesView({
                   openSearchResult(
                     contextMenu.searchResult!,
                     contextMenu.opener ?? undefined,
+                    false,
                   )
                 }
               >
