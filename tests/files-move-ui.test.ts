@@ -672,6 +672,10 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
   assert.match(source, /adjacentFolderImagePreviewKey\(/);
   assert.match(source, /aria-label="폴더 미리보기 닫기"/);
   assert.match(
+    source,
+    /const sidePreviewOpened = syncFolderSidePreview\([\s\S]*?if \(sidePreviewOpened\) focusFolderSidePreview\(scopeId\);[\s\S]*?else event\.currentTarget\.focus\(\);/,
+  );
+  assert.match(
     scopedPreview,
     /if \(showFolderSidePreview\([\s\S]*?\)\) return;[\s\S]*?openPreview\(/,
   );

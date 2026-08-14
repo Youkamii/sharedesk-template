@@ -2646,18 +2646,19 @@ export default function FilesView({
   }
 
   function syncFolderSidePreview(windowId: string, entry: Entry) {
-    if (windowId === ROOT_SCOPE || !scopeWindow(windowId)) return;
+    if (windowId === ROOT_SCOPE || !scopeWindow(windowId)) return false;
+    const isImage = previewKindOf(entry) === "image";
     setDeskWindows((current) =>
       current.map((item) =>
         item.id === windowId
           ? {
               ...item,
-              sidePreviewLayoutKey:
-                previewKindOf(entry) === "image" ? entry.layoutKey : null,
+              sidePreviewLayoutKey: isImage ? entry.layoutKey : null,
             }
           : item,
       ),
     );
+    return isImage;
   }
 
   function closeFolderSidePreview(windowId: string, entry?: Entry) {
@@ -5034,8 +5035,12 @@ export default function FilesView({
                       entry.layoutKey,
                       event.ctrlKey || event.metaKey,
                     );
-                    syncFolderSidePreview(scopeId, entry);
-                    event.currentTarget.focus();
+                    const sidePreviewOpened = syncFolderSidePreview(
+                      scopeId,
+                      entry,
+                    );
+                    if (sidePreviewOpened) focusFolderSidePreview(scopeId);
+                    else event.currentTarget.focus();
                     setContextMenu(null);
                   }
                 }}
