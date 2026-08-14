@@ -629,6 +629,17 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
   );
 });
 
+test("폴더 우측 미리보기가 아이콘 평면에 고정 최소폭을 남기지 않는다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(source, /PLANE_MIN_WIDTH/);
+  assert.match(source, /function planeDimensions[\s\S]*?let width = 0;/);
+  assert.match(css, /\.iconPlane \{[\s\S]*?min-width: 100%;/);
+});
+
 test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),

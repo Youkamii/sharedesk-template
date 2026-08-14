@@ -293,7 +293,6 @@ const ICON_ROW_HEIGHT = 104;
 const ICON_COLUMNS = 6;
 const ICON_INSET_X = 12;
 const ICON_INSET_Y = 10;
-const PLANE_MIN_WIDTH = 600;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
 const MAX_LAYOUT_BATCH_UPDATES = 256;
@@ -3250,7 +3249,7 @@ export default function FilesView({
   }
 
   function planeDimensions(scopeId: string, entries: Entry[]) {
-    let width = PLANE_MIN_WIDTH;
+    let width = 0;
     let height = PLANE_MIN_HEIGHT;
     entries.forEach((entry, index) => {
       const placement = placementFor(scopeId, entry, index);
