@@ -628,6 +628,10 @@ test("휴지통 목록은 행 구성을 고정하고 목록만 스크롤하며 �
 
   assert.match(
     css,
+    /\.folderWindow\.trashWindow \{[\s\S]*?grid-template-rows: 32px minmax\(0, 1fr\) 26px;/,
+  );
+  assert.match(
+    css,
     /\.trashBody \{[\s\S]*?overflow: hidden;/,
   );
   assert.match(

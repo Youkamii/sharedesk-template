@@ -502,7 +502,7 @@
 }
 
 /* 휴지통 창 — folderWindow 골격에서 툴바 줄만 뺀다. */
-.trashWindow {
+.folderWindow.trashWindow {
   grid-template-rows: 32px minmax(0, 1fr) 26px;
   width: min(480px, calc(100% - 16px));
   height: min(400px, calc(100% - 120px));
