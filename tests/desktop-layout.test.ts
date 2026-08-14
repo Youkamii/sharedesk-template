@@ -774,6 +774,95 @@ test("데스크톱 레이아웃 소속 검증과 동시성", async (t) => {
       }
     });
 
+    await t.test("자동 보정은 계산 리비전 뒤의 다른 변경을 덮지 않고 일반 드래그는 병합한다", async () => {
+      const { folder, entries } = await makeFolder("revision-cas", [
+        "a.txt",
+        "b.txt",
+      ]);
+      const [a, b] = entries;
+      const initial = await getLayoutSnapshotForEntries(folder.id, entries);
+      const originalCompareAndSwap = adapter.compareAndSwapState.bind(adapter);
+      let injected = false;
+      adapter.compareAndSwapState = async (name, value, expectedVersion) => {
+        if (!injected) {
+          injected = true;
+          const rival = JSON.parse(JSON.stringify(value)) as StoredLayoutState;
+          rival.items[a.layoutKey] = {
+            ...rival.items[a.layoutKey],
+            ...initial.positions[a.layoutKey],
+            updatedAt: new Date().toISOString(),
+            updatedBy: "member-rival",
+          };
+          rival.items[b.layoutKey] = {
+            ...rival.items[b.layoutKey],
+            x: 730,
+            y: 740,
+            version: initial.positions[b.layoutKey].version + 1,
+            updatedAt: new Date().toISOString(),
+            updatedBy: "member-rival",
+          };
+          await originalCompareAndSwap(name, rival, expectedVersion);
+          throw new StorageError("CONFLICT", "forced inter-instance conflict");
+        }
+        return originalCompareAndSwap(name, value, expectedVersion);
+      };
+
+      try {
+        await rejectsWithCode(
+          updateLayout(
+            folder.id,
+            [
+              {
+                entryId: a.id,
+                expectedVersion: initial.positions[a.layoutKey].version,
+                x: 630,
+                y: 640,
+              },
+            ],
+            "root-correction",
+            initial.folderIdentity,
+            initial.revision,
+          ),
+          "CONFLICT",
+        );
+      } finally {
+        adapter.compareAndSwapState = originalCompareAndSwap;
+      }
+
+      const afterConflict = await getLayoutSnapshot(folder.id);
+      assert.deepEqual(afterConflict.positions[a.layoutKey], initial.positions[a.layoutKey]);
+      assert.deepEqual(afterConflict.positions[b.layoutKey], {
+        x: 730,
+        y: 740,
+        version: 2,
+      });
+
+      const ordinaryDrag = await updateLayout(
+        folder.id,
+        [
+          {
+            entryId: a.id,
+            expectedVersion: initial.positions[a.layoutKey].version,
+            x: 830,
+            y: 840,
+          },
+        ],
+        "member-a",
+        initial.folderIdentity,
+      );
+      assert.equal(ordinaryDrag.revision, afterConflict.revision + 1);
+      assert.deepEqual(ordinaryDrag.positions[a.layoutKey], {
+        x: 830,
+        y: 840,
+        version: 2,
+      });
+      assert.deepEqual(ordinaryDrag.positions[b.layoutKey], {
+        x: 730,
+        y: 740,
+        version: 2,
+      });
+    });
+
     await t.test("낡은 항목이 섞인 배치는 일부도 저장하지 않는다", async () => {
       const { folder, entries } = await makeFolder("batch-atomic", ["a.txt", "b.txt"]);
       const [a, b] = entries;

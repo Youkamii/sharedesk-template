@@ -276,6 +276,8 @@ type LayoutSaveNode = {
   next: { x: number; y: number } | null;
   inFlight: boolean;
   baseVersion: number;
+  expectedRevision?: number;
+  rootCorrectionToken?: string;
 };
 
 type DialogState =
@@ -616,7 +618,11 @@ export default function FilesView({
   const transientPositionsRef = useRef<Record<string, Placement>>({});
   const rootDesktopCorrectionAttemptRef = useRef("");
   const queueRootDesktopCorrectionsRef = useRef<
-    (corrections: RootDesktopCorrection[]) => boolean
+    (
+      corrections: RootDesktopCorrection[],
+      expectedRevision: number,
+      correctionToken: string,
+    ) => boolean
   >(() => false);
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
@@ -1270,7 +1276,13 @@ export default function FilesView({
       ),
     ].join("|");
     if (rootDesktopCorrectionAttemptRef.current === correctionToken) return;
-    if (queueRootDesktopCorrectionsRef.current(applicableCorrections)) {
+    if (
+      queueRootDesktopCorrectionsRef.current(
+        applicableCorrections,
+        rootData.revision,
+        correctionToken,
+      )
+    ) {
       rootDesktopCorrectionAttemptRef.current = correctionToken;
     }
   }, [
@@ -1916,6 +1928,7 @@ export default function FilesView({
       if (node.scopeId !== scopeId) continue;
       node.next = null;
       node.controller?.abort();
+      releaseRootDesktopCorrectionAttempt(node);
       saveQueueRef.current.delete(key);
       savingPositionKeysRef.current.delete(key);
       cancelledKeys.push(key);
@@ -3785,6 +3798,11 @@ export default function FilesView({
     generation: number,
     entry: Entry,
     placement: Placement,
+    options: {
+      expectedRevision?: number;
+      rootCorrectionToken?: string;
+      blockDrag?: boolean;
+    } = {},
   ) {
     const key = `${scopeId}:${entry.layoutKey}`;
     if (
@@ -3798,14 +3816,14 @@ export default function FilesView({
         delete next[key];
         return next;
       });
-      return;
+      return false;
     }
     const existing = saveQueueRef.current.get(key);
     if (existing) {
       // 이미 저장이 진행 중이다 — 최신 좌표로 덮고, 끝나면 이어서 보낸다.
       existing.next = { x: placement.x, y: placement.y };
       if (!existing.inFlight) void pumpSave(key);
-      return;
+      return true;
     }
     saveQueueRef.current.set(key, {
       scopeId,
@@ -3817,9 +3835,13 @@ export default function FilesView({
       next: { x: placement.x, y: placement.y },
       inFlight: false,
       baseVersion: placement.version,
+      expectedRevision: options.expectedRevision,
+      rootCorrectionToken: options.rootCorrectionToken,
     });
+    if (options.blockDrag) savingPositionKeysRef.current.add(key);
     setSavingPositions((current) => new Set(current).add(key));
     void pumpSave(key);
+    return true;
   }
 
   function queuePlacementBatch(
@@ -3828,18 +3850,23 @@ export default function FilesView({
     folderIdentity: string | null,
     generation: number,
     placements: Array<{ entry: Entry; placement: Placement }>,
+    options: {
+      expectedRevision?: number;
+      rootCorrectionToken?: string;
+      blockDrag?: boolean;
+    } = {},
   ) {
     if (placements.length === 1) {
       const only = placements[0];
-      queuePlacement(
+      return queuePlacement(
         scopeId,
         folderId,
         folderIdentity,
         generation,
         only.entry,
         only.placement,
+        options,
       );
-      return;
     }
     const keys = placements.map(
       ({ entry }) => `${scopeId}:${entry.layoutKey}`,
@@ -3856,7 +3883,7 @@ export default function FilesView({
         keys.forEach((key) => delete next[key]);
         return next;
       });
-      return;
+      return false;
     }
 
     const controller = new AbortController();
@@ -3871,6 +3898,8 @@ export default function FilesView({
         next: null,
         inFlight: true,
         baseVersion: placement.version,
+        expectedRevision: options.expectedRevision,
+        rootCorrectionToken: options.rootCorrectionToken,
       };
       const key = keys[index];
       saveQueueRef.current.set(key, node);
@@ -3890,9 +3919,14 @@ export default function FilesView({
       return next;
     });
     void pumpBatchSave(nodes);
+    return true;
   }
 
-  queueRootDesktopCorrectionsRef.current = (corrections) => {
+  queueRootDesktopCorrectionsRef.current = (
+    corrections,
+    expectedRevision,
+    correctionToken,
+  ) => {
     const entriesByLayoutKey = new Map(
       rootData.entries.map((entry) => [entry.layoutKey, entry]),
     );
@@ -3909,14 +3943,18 @@ export default function FilesView({
       return [{ entry, placement: correction.placement }];
     });
     if (placements.length === 0) return false;
-    queuePlacementBatch(
+    return queuePlacementBatch(
       ROOT_SCOPE,
       ROOT_ID,
       rootData.folderIdentity,
       layoutSaveGeneration(ROOT_SCOPE),
       placements,
+      {
+        expectedRevision,
+        rootCorrectionToken: correctionToken,
+        blockDrag: true,
+      },
     );
-    return true;
   };
 
   async function pumpBatchSave(
@@ -3942,6 +3980,7 @@ export default function FilesView({
           body: JSON.stringify({
             folderId: first.node.folderId,
             folderIdentity: first.node.folderIdentity,
+            expectedRevision: first.node.expectedRevision,
             updates: chunk.map(({ node, placement }) => ({
               entryId: node.entry.id,
               expectedVersion: node.baseVersion,
@@ -3964,6 +4003,7 @@ export default function FilesView({
         chunk.forEach(({ key, node }) => finishSave(key, node));
       }
     } catch (error) {
+      releaseRootDesktopCorrectionAttempt(first.node);
       const activeNodes = nodes.filter(({ key, node }) =>
         isActiveSave(key, node),
       );
@@ -3992,6 +4032,15 @@ export default function FilesView({
       saveQueueRef.current.get(key) === node &&
       layoutSaveGeneration(node.scopeId) === node.generation
     );
+  }
+
+  function releaseRootDesktopCorrectionAttempt(node: LayoutSaveNode) {
+    if (
+      node.rootCorrectionToken &&
+      rootDesktopCorrectionAttemptRef.current === node.rootCorrectionToken
+    ) {
+      rootDesktopCorrectionAttemptRef.current = "";
+    }
   }
 
   function finishSave(key: string, node: LayoutSaveNode) {
@@ -4028,6 +4077,7 @@ export default function FilesView({
         body: JSON.stringify({
           folderId: node.folderId,
           folderIdentity: node.folderIdentity,
+          expectedRevision: node.expectedRevision,
           updates: [
             {
               entryId: node.entry.id,
@@ -4059,6 +4109,7 @@ export default function FilesView({
       }
       finishSave(key, node);
     } catch (error) {
+      releaseRootDesktopCorrectionAttempt(node);
       if (!isActiveSave(key, node) || isAbortError(error)) return;
       node.inFlight = false;
       node.controller = null;
@@ -5266,8 +5317,51 @@ export default function FilesView({
       setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
       return;
     }
+    const request = beginScopedRequest(listRequestsRef.current, scopeId);
+    const mutationVersion = folderMutationVersionsRef.current.get(folderId) ?? 0;
     try {
-      const fresh = await fetchFolder(folderId, new AbortController().signal);
+      const fresh = await fetchFolder(folderId, request.controller.signal);
+      const currentWindow =
+        scopeId === ROOT_SCOPE
+          ? null
+          : windowsRef.current.find((item) => item.id === scopeId);
+      const currentFolderId =
+        scopeId === ROOT_SCOPE
+          ? ROOT_ID
+          : currentWindow?.path.at(-1)?.id ?? null;
+      const currentData =
+        scopeId === ROOT_SCOPE ? rootDataRef.current : currentWindow?.data;
+      const staleResult =
+        listRequestsRef.current.get(scopeId) !== request ||
+        (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+        (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+          mutationVersion ||
+        currentFolderId !== folderId ||
+        !currentData ||
+        Boolean(
+          currentData.folderIdentity &&
+          fresh.folderIdentity &&
+          currentData.folderIdentity !== fresh.folderIdentity,
+        );
+      if (staleResult) {
+        foldersNeedingRefreshRef.current.add(folderId);
+        setNotice(
+          `‘${name}’ 메모장은 만들었습니다 — 최신 목록을 다시 불러옵니다`,
+        );
+        if (
+          currentFolderId === folderId &&
+          (pendingFolderMutationsRef.current.get(folderId) ?? 0) === 0
+        ) {
+          const refresh =
+            scopeId === ROOT_SCOPE
+              ? loadRoot(true)
+              : loadDeskWindow(scopeId, folderId, true);
+          void refresh.then((refreshed) => {
+            if (refreshed) foldersNeedingRefreshRef.current.delete(folderId);
+          });
+        }
+        return;
+      }
       const entry = fresh.entries.find((value) =>
         uploadedId ? value.id === uploadedId : value.name === name,
       );
@@ -5286,6 +5380,8 @@ export default function FilesView({
         `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
       );
       void refreshScope(scopeId, true);
+    } finally {
+      finishScopedRequest(listRequestsRef.current, scopeId, request);
     }
   }
 

@@ -8,6 +8,10 @@ const ROOT_GRID_Y = 10;
 const ROOT_GRID_STEP_X = 96;
 const ROOT_GRID_STEP_Y = 104;
 const ROOT_DEFAULT_COLUMNS = 6;
+const ROOT_TRASH_LEFT = 1190;
+const ROOT_TRASH_TOP = 534;
+const ROOT_TRASH_RIGHT = 1262;
+const ROOT_TRASH_BOTTOM = 610;
 
 export type RootDesktopPlacement = {
   x: number;
@@ -27,6 +31,7 @@ export type RootDesktopCorrection = {
 type RootDesktopLayout = {
   positions: Record<string, RootDesktopPlacement>;
   corrections: RootDesktopCorrection[];
+  unresolvedLayoutKeys: string[];
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -60,17 +65,33 @@ function rectanglesOverlap(
   );
 }
 
-function rootGridPositions() {
+export function rootPlacementOverlapsTrash(
+  position: Pick<RootDesktopPlacement, "x" | "y">,
+) {
+  return (
+    position.x < ROOT_TRASH_RIGHT &&
+    position.x + ROOT_ICON_WIDTH > ROOT_TRASH_LEFT &&
+    position.y < ROOT_TRASH_BOTTOM &&
+    position.y + ROOT_ICON_HEIGHT > ROOT_TRASH_TOP
+  );
+}
+
+function rootGridPositions(
+  startX: number,
+  startY: number,
+  stepX: number,
+  stepY: number,
+) {
   const positions: Array<{ x: number; y: number }> = [];
   for (
-    let y = ROOT_GRID_Y;
+    let y = startY;
     y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT;
-    y += ROOT_GRID_STEP_Y
+    y += stepY
   ) {
     for (
-      let x = ROOT_GRID_X;
+      let x = startX;
       x <= ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH;
-      x += ROOT_GRID_STEP_X
+      x += stepX
     ) {
       positions.push({ x, y });
     }
@@ -78,7 +99,18 @@ function rootGridPositions() {
   return positions;
 }
 
-const ROOT_GRID_POSITIONS = rootGridPositions();
+const ROOT_GRID_POSITIONS = rootGridPositions(
+  ROOT_GRID_X,
+  ROOT_GRID_Y,
+  ROOT_GRID_STEP_X,
+  ROOT_GRID_STEP_Y,
+).filter((position) => !rootPlacementOverlapsTrash(position));
+const ROOT_DENSE_GRID_POSITIONS = rootGridPositions(
+  0,
+  0,
+  ROOT_ICON_WIDTH,
+  ROOT_ICON_HEIGHT,
+).filter((position) => !rootPlacementOverlapsTrash(position));
 
 function defaultPosition(index: number) {
   return {
@@ -101,8 +133,9 @@ function clampedPosition(position: Pick<RootDesktopPlacement, "x" | "y">) {
 function nearestEmptyGridPosition(
   target: Pick<RootDesktopPlacement, "x" | "y">,
   occupied: Array<Pick<RootDesktopPlacement, "x" | "y">>,
+  candidates: readonly Pick<RootDesktopPlacement, "x" | "y">[],
 ) {
-  return ROOT_GRID_POSITIONS.filter(
+  return candidates.filter(
     (candidate) =>
       !occupied.some((position) => rectanglesOverlap(candidate, position)),
   ).sort((left, right) => {
@@ -120,6 +153,7 @@ export function normalizeRootDesktopLayout(
 ): RootDesktopLayout {
   const positions: Record<string, RootDesktopPlacement> = Object.create(null);
   const corrections: RootDesktopCorrection[] = [];
+  const unresolvedLayoutKeys: string[] = [];
   const occupied: Array<Pick<RootDesktopPlacement, "x" | "y">> = [];
   const storedOutside: Array<{
     entry: RootDesktopEntry;
@@ -127,9 +161,16 @@ export function normalizeRootDesktopLayout(
   }> = [];
   const missing: Array<{ entry: RootDesktopEntry; index: number }> = [];
 
+  const useDenseGrid = entries.length >= 78;
+
   entries.forEach((entry, index) => {
     const stored = storedPositions[entry.layoutKey];
-    if (stored && isInsideRootDesktop(stored)) {
+    if (
+      stored &&
+      isInsideRootDesktop(stored) &&
+      !rootPlacementOverlapsTrash(stored) &&
+      !useDenseGrid
+    ) {
       positions[entry.layoutKey] = stored;
       occupied.push(stored);
       return;
@@ -143,23 +184,64 @@ export function normalizeRootDesktopLayout(
     candidate: Pick<RootDesktopPlacement, "x" | "y">,
     version: number,
     needsCorrection: boolean,
+    forceGrid = false,
   ) => {
     const nearest = clampedPosition(candidate);
-    const position = occupied.some((current) =>
-      rectanglesOverlap(nearest, current),
-    )
-      ? (nearestEmptyGridPosition(nearest, occupied) ?? nearest)
+    const requiresEmptySlot =
+      forceGrid ||
+      rootPlacementOverlapsTrash(nearest) ||
+      occupied.some((current) => rectanglesOverlap(nearest, current));
+    const emptyPosition = requiresEmptySlot
+      ? nearestEmptyGridPosition(
+          nearest,
+          occupied,
+          forceGrid ? ROOT_DENSE_GRID_POSITIONS : ROOT_GRID_POSITIONS,
+        )
       : nearest;
+    const position = emptyPosition ?? nearest;
     const placement = {
       ...position,
       version,
     };
     positions[entry.layoutKey] = placement;
     occupied.push(placement);
-    if (needsCorrection) {
+    if (!emptyPosition) {
+      unresolvedLayoutKeys.push(entry.layoutKey);
+      return;
+    }
+    if (
+      needsCorrection &&
+      (position.x !== candidate.x || position.y !== candidate.y)
+    ) {
       corrections.push({ layoutKey: entry.layoutKey, placement });
     }
   };
+
+  if (useDenseGrid) {
+    entries
+      .map((entry, index) => ({
+        entry,
+        index,
+        stored: storedPositions[entry.layoutKey],
+      }))
+      .sort((left, right) =>
+        left.entry.layoutKey < right.entry.layoutKey
+          ? -1
+          : left.entry.layoutKey > right.entry.layoutKey
+            ? 1
+            : 0,
+      )
+      .forEach(({ entry, index, stored }) => {
+        placePosition(
+          entry,
+          stored ?? defaultPosition(index),
+          stored?.version ?? 0,
+          Boolean(stored),
+          true,
+        );
+      });
+    return { positions, corrections, unresolvedLayoutKeys };
+  }
 
   storedOutside
     .sort((left, right) =>
@@ -177,7 +259,7 @@ export function normalizeRootDesktopLayout(
     placePosition(entry, defaultPosition(index), 0, false);
   });
 
-  return { positions, corrections };
+  return { positions, corrections, unresolvedLayoutKeys };
 }
 
 export function moveRootDesktopGroup<
@@ -199,9 +281,67 @@ export function moveRootDesktopGroup<
     ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY,
   );
 
-  return placements.map((placement) => ({
-    ...placement,
-    x: placement.x + safeDeltaX,
-    y: placement.y + safeDeltaY,
-  }));
+  const movedWith = (x: number, y: number) =>
+    placements.map((placement) => ({
+      ...placement,
+      x: placement.x + x,
+      y: placement.y + y,
+    }));
+  const bounded = movedWith(safeDeltaX, safeDeltaY);
+  if (!bounded.some(rootPlacementOverlapsTrash)) return bounded;
+
+  const minDeltaX = -minX;
+  const maxDeltaX = ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH - maxX;
+  const minDeltaY = -minY;
+  const maxDeltaY = ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY;
+  const xCandidates = new Set([safeDeltaX, 0, minDeltaX, maxDeltaX]);
+  const yCandidates = new Set([safeDeltaY, 0, minDeltaY, maxDeltaY]);
+  placements.forEach((placement) => {
+    xCandidates.add(
+      clamp(
+        ROOT_TRASH_LEFT - ROOT_ICON_WIDTH - placement.x,
+        minDeltaX,
+        maxDeltaX,
+      ),
+    );
+    xCandidates.add(
+      clamp(ROOT_TRASH_RIGHT - placement.x, minDeltaX, maxDeltaX),
+    );
+    yCandidates.add(
+      clamp(
+        ROOT_TRASH_TOP - ROOT_ICON_HEIGHT - placement.y,
+        minDeltaY,
+        maxDeltaY,
+      ),
+    );
+    yCandidates.add(
+      clamp(ROOT_TRASH_BOTTOM - placement.y, minDeltaY, maxDeltaY),
+    );
+  });
+  const candidateDeltas = [
+    ...Array.from(xCandidates, (x) => ({ x, y: safeDeltaY })),
+    ...Array.from(yCandidates, (y) => ({ x: safeDeltaX, y })),
+    { x: 0, y: 0 },
+  ].filter(
+    (delta, index, all) =>
+      all.findIndex(
+        (candidate) => candidate.x === delta.x && candidate.y === delta.y,
+      ) === index,
+  );
+  const candidates = candidateDeltas
+    .map((delta) => ({ delta, placements: movedWith(delta.x, delta.y) }))
+    .filter(({ placements: candidate }) =>
+      candidate.every((placement) => !rootPlacementOverlapsTrash(placement)),
+    )
+    .sort((left, right) => {
+      const leftDistance =
+        (left.delta.x - safeDeltaX) ** 2 +
+        (left.delta.y - safeDeltaY) ** 2;
+      const rightDistance =
+        (right.delta.x - safeDeltaX) ** 2 +
+        (right.delta.y - safeDeltaY) ** 2;
+      return leftDistance - rightDistance;
+    });
+
+  return candidates[0]?.placements ?? bounded;
 }

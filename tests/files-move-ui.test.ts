@@ -942,7 +942,27 @@ test("새 메모장은 서버가 배정한 항목과 좌표를 같은 폴더 화
   );
   assert.match(
     createNotepad,
-    /const fresh = await fetchFolder\([\s\S]*?mergeFreshFolderData\(folderId, fresh\)/,
+    /const request = beginScopedRequest\(listRequestsRef\.current, scopeId\)[\s\S]*?const mutationVersion = folderMutationVersionsRef\.current\.get\(folderId\)[\s\S]*?const fresh = await fetchFolder\(folderId, request\.controller\.signal\)/,
+  );
+  assert.match(
+    createNotepad,
+    /const staleResult =[\s\S]*?listRequestsRef\.current\.get\(scopeId\) !== request[\s\S]*?pendingFolderMutationsRef\.current\.get\(folderId\)[\s\S]*?folderMutationVersionsRef\.current\.get\(folderId\)[\s\S]*?currentFolderId !== folderId/,
+  );
+  const staleGuard = createNotepad.indexOf("if (staleResult)");
+  const mergeFreshCall = createNotepad.indexOf(
+    "mergeFreshFolderData(folderId, fresh)",
+  );
+  const openFresh = createNotepad.indexOf("openPreview(entry)");
+  assert.ok(staleGuard >= 0);
+  assert.ok(mergeFreshCall > staleGuard);
+  assert.ok(openFresh > mergeFreshCall);
+  assert.match(
+    createNotepad.slice(staleGuard, mergeFreshCall),
+    /foldersNeedingRefreshRef\.current\.add\(folderId\)[\s\S]*?return;/,
+  );
+  assert.match(
+    createNotepad,
+    /finally \{[\s\S]*?finishScopedRequest\(listRequestsRef\.current, scopeId, request\)/,
   );
   assert.doesNotMatch(createNotepad, /upsertFolderEntry\(/);
 });
