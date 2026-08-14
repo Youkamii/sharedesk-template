@@ -206,6 +206,15 @@ function assertUpdates(updates: LayoutUpdate[]): void {
   }
 }
 
+function assertExpectedRevision(expectedRevision: number | undefined): void {
+  if (
+    expectedRevision !== undefined &&
+    (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+  ) {
+    throw new StorageError("BAD_ID", "잘못된 레이아웃 리비전입니다");
+  }
+}
+
 async function getFolder(
   adapter: StorageAdapter,
   folderId: string,
@@ -539,10 +548,12 @@ export async function updateLayout(
   updates: LayoutUpdate[],
   actorId: string,
   expectedFolderIdentity: string,
+  expectedRevision?: number,
 ): Promise<LayoutSnapshot> {
   assertId(folderId);
   assertUpdates(updates);
   assertFolderIdentity(expectedFolderIdentity);
+  assertExpectedRevision(expectedRevision);
   const adapter = getAdapter();
   const folder = await getFolder(adapter, folderId);
   if (folder.layoutKey !== expectedFolderIdentity) {
@@ -576,6 +587,17 @@ export async function updateLayout(
           fileName,
           folder.layoutKey,
         ));
+      }
+
+      if (expectedRevision !== undefined && before.rev !== expectedRevision) {
+        if (fromCache) {
+          fileCache.delete(fileName);
+          continue;
+        }
+        throw new StorageError(
+          "CONFLICT",
+          "레이아웃 전체가 다른 사용자에 의해 변경되었습니다",
+        );
       }
 
       // 요청자가 보낸 id를 바로 레이아웃 키로 바꾸면 존재하지 않거나 다른 폴더에

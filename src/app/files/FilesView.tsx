@@ -8,6 +8,7 @@ import type {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -55,6 +56,11 @@ import {
   type LayoutMigrationTarget,
 } from "@/lib/client/layout-key-migration";
 import { previewDiscardReason } from "@/lib/client/preview-draft";
+import {
+  moveRootDesktopGroup,
+  normalizeRootDesktopLayout,
+  type RootDesktopCorrection,
+} from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -270,6 +276,8 @@ type LayoutSaveNode = {
   next: { x: number; y: number } | null;
   inFlight: boolean;
   baseVersion: number;
+  expectedRevision?: number;
+  rootCorrectionToken?: string;
 };
 
 type DialogState =
@@ -288,7 +296,7 @@ const DOWNLOAD_FIRST_STORAGE_KEY = "sharedesk.download-first";
 const WALLPAPERS = [
   { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
   { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
-  { id: "dawn", name: "새벽", src: "/art/wall-dawn.png" },
+  { id: "dawn", name: "여명", src: "/art/wall-dawn.png" },
   { id: "tide", name: "밤바다", src: "/art/wall-tide.png" },
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
@@ -304,6 +312,7 @@ const ICON_INSET_Y = 10;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
 const MAX_LAYOUT_BATCH_UPDATES = 256;
+const ROOT_DESKTOP_CORRECTION_RETRY_MS = 1_500;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -608,6 +617,19 @@ export default function FilesView({
     state: DesktopKeyboardSelectionState;
   } | null>(null);
   const transientPositionsRef = useRef<Record<string, Placement>>({});
+  const rootDesktopCorrectionAttemptRef = useRef("");
+  const rootDesktopCorrectionRetryRef = useRef<{
+    token: string;
+    timer: number | null;
+    retried: boolean;
+  }>({ token: "", timer: null, retried: false });
+  const queueRootDesktopCorrectionsRef = useRef<
+    (
+      corrections: RootDesktopCorrection[],
+      expectedRevision: number,
+      correctionToken: string,
+    ) => boolean
+  >(() => false);
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
@@ -658,6 +680,24 @@ export default function FilesView({
   });
   const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
   const [downloadFirst, setDownloadFirst] = useState(false);
+  const [rootDesktopCorrectionRetryTick, setRootDesktopCorrectionRetryTick] =
+    useState(0);
+  const resetRootDesktopCorrectionRetry = useCallback((token = "") => {
+    const current = rootDesktopCorrectionRetryRef.current;
+    if (current.timer !== null) window.clearTimeout(current.timer);
+    rootDesktopCorrectionRetryRef.current = {
+      token,
+      timer: null,
+      retried: false,
+    };
+  }, []);
+  const trackRootDesktopCorrectionToken = useCallback(
+    (token: string) => {
+      if (rootDesktopCorrectionRetryRef.current.token === token) return;
+      resetRootDesktopCorrectionRetry(token);
+    },
+    [resetRootDesktopCorrectionRetry],
+  );
   // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
 
@@ -666,6 +706,10 @@ export default function FilesView({
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
   transientPositionsRef.current = transientPositions;
+  const rootDesktopLayout = useMemo(
+    () => normalizeRootDesktopLayout(rootData.entries, rootData.positions),
+    [rootData.entries, rootData.positions],
+  );
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
 
@@ -946,6 +990,12 @@ export default function FilesView({
     };
   }, [loadDeskWindow, loadLayout, loadRoot]);
 
+  useEffect(() => {
+    if (document.activeElement === document.body) {
+      rootCanvasRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
+
   const getPresenceTabId = useCallback(() => {
     if (presenceTabIdRef.current) return presenceTabIdRef.current;
     let tabId = "";
@@ -1216,6 +1266,69 @@ export default function FilesView({
       // 저장소 접근이 막힌 브라우저에서는 기본값을 쓴다.
     }
   }, []);
+
+  useEffect(() => {
+    return () => {
+      const timer = rootDesktopCorrectionRetryRef.current.timer;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      rootData.loading ||
+      !rootData.folderIdentity ||
+      rootDesktopLayout.corrections.length === 0
+    ) {
+      if (rootDesktopLayout.corrections.length === 0) {
+        rootDesktopCorrectionAttemptRef.current = "";
+        resetRootDesktopCorrectionRetry();
+      }
+      return;
+    }
+    const applicableCorrections = rootDesktopLayout.corrections.filter(
+      ({ layoutKey }) => {
+        const entry = rootData.entries.find(
+          (candidate) => candidate.layoutKey === layoutKey,
+        );
+        return (
+          entry &&
+          !savingPositions.has(`${ROOT_SCOPE}:${layoutKey}`) &&
+          !movingEntryIdsRef.current.has(entry.id)
+        );
+      },
+    );
+    if (applicableCorrections.length === 0) return;
+    const correctionToken = [
+      rootData.folderIdentity,
+      rootData.revision,
+      ...applicableCorrections.map(
+        ({ layoutKey, placement }) =>
+          `${layoutKey}:${placement.version}:${placement.x}:${placement.y}`,
+      ),
+    ].join("|");
+    if (rootDesktopCorrectionAttemptRef.current === correctionToken) return;
+    if (
+      queueRootDesktopCorrectionsRef.current(
+        applicableCorrections,
+        rootData.revision,
+        correctionToken,
+      )
+    ) {
+      trackRootDesktopCorrectionToken(correctionToken);
+      rootDesktopCorrectionAttemptRef.current = correctionToken;
+    }
+  }, [
+    rootData.folderIdentity,
+    rootData.entries,
+    rootData.loading,
+    rootData.revision,
+    rootDesktopCorrectionRetryTick,
+    rootDesktopLayout.corrections,
+    resetRootDesktopCorrectionRetry,
+    savingPositions,
+    trackRootDesktopCorrectionToken,
+  ]);
 
   useEffect(() => {
     const resizedViewport = {
@@ -1755,6 +1868,19 @@ export default function FilesView({
         ...entries.filter((current) => current.id !== entry.id),
         entry,
       ]),
+    );
+  }
+
+  function mergeFreshFolderData(folderId: string, fresh: FolderData) {
+    if (folderId === ROOT_ID) {
+      setRootData((current) => mergeFolderData(current, fresh));
+    }
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.path.at(-1)?.id === folderId
+          ? { ...item, data: mergeFolderData(item.data, fresh) }
+          : item,
+      ),
     );
   }
 
@@ -3057,9 +3183,16 @@ export default function FilesView({
     else void downloadEntry(entry);
   }
 
-  function openSearchResult(result: SearchResult, opener?: HTMLElement) {
+  function openSearchResult(
+    result: SearchResult,
+    opener?: HTMLElement,
+    respectDownloadPreference = true,
+  ) {
     setContextMenu(null);
-    const action = fileActivationAction(result.entry, downloadFirst);
+    const action = fileActivationAction(
+      result.entry,
+      respectDownloadPreference && downloadFirst,
+    );
     if (action === "folder") {
       openFolderPath([
         ...result.breadcrumbs,
@@ -3073,6 +3206,12 @@ export default function FilesView({
         opener ? { element: opener, scopeId: ROOT_SCOPE } : undefined,
       );
     } else void downloadEntry(result.entry);
+  }
+
+  function openPreviewInNewTab(entry: Entry, opener?: HTMLElement) {
+    window.open(previewUrl(entry), "_blank", "noopener,noreferrer");
+    setContextMenu(null);
+    opener?.focus();
   }
 
   function openOriginalLocation(result: SearchResult) {
@@ -3484,6 +3623,11 @@ export default function FilesView({
   function placementFor(scopeId: string, entry: Entry, index: number) {
     const transient = transientPositions[`${scopeId}:${entry.layoutKey}`];
     if (transient) return transient;
+    if (scopeId === ROOT_SCOPE) {
+      return (
+        rootDesktopLayout.positions[entry.layoutKey] ?? defaultPlacement(index)
+      );
+    }
     const stored = scopeData(scopeId)?.positions[entry.layoutKey];
     if (stored) return stored;
     return defaultPlacement(index);
@@ -3558,11 +3702,11 @@ export default function FilesView({
     applyKeyboardSelection(scopeId, next);
   }
 
-  function moveIconSelectionWithKeyboard(
-    event: ReactKeyboardEvent<HTMLButtonElement>,
+  function moveSelectionWithKeyboard<T extends HTMLElement>(
+    event: ReactKeyboardEvent<T>,
     scopeId: string,
     entries: Entry[],
-    entry: Entry,
+    focusLayoutKey?: string,
   ) {
     if (
       !isDesktopArrowKey(event.key) ||
@@ -3578,7 +3722,7 @@ export default function FilesView({
     const toggleModifier = event.ctrlKey || event.metaKey;
     const next = moveDesktopKeyboardSelection(
       icons,
-      currentKeyboardSelection(scopeId, icons, entry.layoutKey),
+      currentKeyboardSelection(scopeId, icons, focusLayoutKey),
       event.key,
       {
         extend: event.shiftKey,
@@ -3598,6 +3742,28 @@ export default function FilesView({
       });
     }
     return true;
+  }
+
+  function moveIconSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    scopeId: string,
+    entries: Entry[],
+    entry: Entry,
+  ) {
+    return moveSelectionWithKeyboard(
+      event,
+      scopeId,
+      entries,
+      entry.layoutKey,
+    );
+  }
+
+  function moveRootPlaneSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    entries: Entry[],
+  ) {
+    if (event.target !== event.currentTarget) return false;
+    return moveSelectionWithKeyboard(event, ROOT_SCOPE, entries);
   }
 
   function planeDimensions(scopeId: string, entries: Entry[]) {
@@ -3680,6 +3846,11 @@ export default function FilesView({
     generation: number,
     entry: Entry,
     placement: Placement,
+    options: {
+      expectedRevision?: number;
+      rootCorrectionToken?: string;
+      blockDrag?: boolean;
+    } = {},
   ) {
     const key = `${scopeId}:${entry.layoutKey}`;
     if (
@@ -3693,14 +3864,14 @@ export default function FilesView({
         delete next[key];
         return next;
       });
-      return;
+      return false;
     }
     const existing = saveQueueRef.current.get(key);
     if (existing) {
       // 이미 저장이 진행 중이다 — 최신 좌표로 덮고, 끝나면 이어서 보낸다.
       existing.next = { x: placement.x, y: placement.y };
       if (!existing.inFlight) void pumpSave(key);
-      return;
+      return true;
     }
     saveQueueRef.current.set(key, {
       scopeId,
@@ -3712,9 +3883,13 @@ export default function FilesView({
       next: { x: placement.x, y: placement.y },
       inFlight: false,
       baseVersion: placement.version,
+      expectedRevision: options.expectedRevision,
+      rootCorrectionToken: options.rootCorrectionToken,
     });
+    if (options.blockDrag) savingPositionKeysRef.current.add(key);
     setSavingPositions((current) => new Set(current).add(key));
     void pumpSave(key);
+    return true;
   }
 
   function queuePlacementBatch(
@@ -3723,18 +3898,23 @@ export default function FilesView({
     folderIdentity: string | null,
     generation: number,
     placements: Array<{ entry: Entry; placement: Placement }>,
+    options: {
+      expectedRevision?: number;
+      rootCorrectionToken?: string;
+      blockDrag?: boolean;
+    } = {},
   ) {
     if (placements.length === 1) {
       const only = placements[0];
-      queuePlacement(
+      return queuePlacement(
         scopeId,
         folderId,
         folderIdentity,
         generation,
         only.entry,
         only.placement,
+        options,
       );
-      return;
     }
     const keys = placements.map(
       ({ entry }) => `${scopeId}:${entry.layoutKey}`,
@@ -3751,7 +3931,7 @@ export default function FilesView({
         keys.forEach((key) => delete next[key]);
         return next;
       });
-      return;
+      return false;
     }
 
     const controller = new AbortController();
@@ -3766,6 +3946,8 @@ export default function FilesView({
         next: null,
         inFlight: true,
         baseVersion: placement.version,
+        expectedRevision: options.expectedRevision,
+        rootCorrectionToken: options.rootCorrectionToken,
       };
       const key = keys[index];
       saveQueueRef.current.set(key, node);
@@ -3785,7 +3967,43 @@ export default function FilesView({
       return next;
     });
     void pumpBatchSave(nodes);
+    return true;
   }
+
+  queueRootDesktopCorrectionsRef.current = (
+    corrections,
+    expectedRevision,
+    correctionToken,
+  ) => {
+    const entriesByLayoutKey = new Map(
+      rootData.entries.map((entry) => [entry.layoutKey, entry]),
+    );
+    const placements = corrections.flatMap((correction) => {
+      const entry = entriesByLayoutKey.get(correction.layoutKey);
+      const key = `${ROOT_SCOPE}:${correction.layoutKey}`;
+      if (
+        !entry ||
+        saveQueueRef.current.has(key) ||
+        movingEntryIdsRef.current.has(entry.id)
+      ) {
+        return [];
+      }
+      return [{ entry, placement: correction.placement }];
+    });
+    if (placements.length === 0) return false;
+    return queuePlacementBatch(
+      ROOT_SCOPE,
+      ROOT_ID,
+      rootData.folderIdentity,
+      layoutSaveGeneration(ROOT_SCOPE),
+      placements,
+      {
+        expectedRevision,
+        rootCorrectionToken: correctionToken,
+        blockDrag: true,
+      },
+    );
+  };
 
   async function pumpBatchSave(
     nodes: Array<{
@@ -3810,6 +4028,7 @@ export default function FilesView({
           body: JSON.stringify({
             folderId: first.node.folderId,
             folderIdentity: first.node.folderIdentity,
+            expectedRevision: first.node.expectedRevision,
             updates: chunk.map(({ node, placement }) => ({
               entryId: node.entry.id,
               expectedVersion: node.baseVersion,
@@ -3849,8 +4068,10 @@ export default function FilesView({
             );
           }
         }
+        deferRootDesktopCorrectionRetry(first.node);
       } else {
         setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        deferRootDesktopCorrectionRetry(first.node);
       }
     }
   }
@@ -3860,6 +4081,25 @@ export default function FilesView({
       saveQueueRef.current.get(key) === node &&
       layoutSaveGeneration(node.scopeId) === node.generation
     );
+  }
+
+  function deferRootDesktopCorrectionRetry(node: LayoutSaveNode) {
+    const token = node.rootCorrectionToken;
+    if (!token || rootDesktopCorrectionAttemptRef.current !== token) return;
+    if (rootDesktopCorrectionRetryRef.current.token !== token) {
+      resetRootDesktopCorrectionRetry(token);
+    }
+    const retry = rootDesktopCorrectionRetryRef.current;
+    if (retry.retried || retry.timer !== null) return;
+    retry.timer = window.setTimeout(() => {
+      const current = rootDesktopCorrectionRetryRef.current;
+      if (current.token !== token) return;
+      current.timer = null;
+      current.retried = true;
+      if (rootDesktopCorrectionAttemptRef.current !== token) return;
+      rootDesktopCorrectionAttemptRef.current = "";
+      setRootDesktopCorrectionRetryTick((value) => value + 1);
+    }, ROOT_DESKTOP_CORRECTION_RETRY_MS);
   }
 
   function finishSave(key: string, node: LayoutSaveNode) {
@@ -3896,6 +4136,7 @@ export default function FilesView({
         body: JSON.stringify({
           folderId: node.folderId,
           folderIdentity: node.folderIdentity,
+          expectedRevision: node.expectedRevision,
           updates: [
             {
               entryId: node.entry.id,
@@ -3937,8 +4178,10 @@ export default function FilesView({
           if (node.scopeId === ROOT_SCOPE) await loadRoot(true);
           else await loadDeskWindow(node.scopeId, node.folderId, true);
         }
+        deferRootDesktopCorrectionRetry(node);
       } else {
         setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        deferRootDesktopCorrectionRetry(node);
       }
     }
   }
@@ -4437,6 +4680,7 @@ export default function FilesView({
       return;
     }
     const plane = event.currentTarget;
+    if (scopeId === ROOT_SCOPE) plane.focus({ preventScroll: true });
     const bounds = plane.getBoundingClientRect();
     const pointerId = event.pointerId;
     const startX = (event.clientX - bounds.left) / uiScale;
@@ -4648,26 +4892,36 @@ export default function FilesView({
       }
       const deltaX = logicalPointerDelta(lastClientX - startX, uiScale);
       const deltaY = logicalPointerDelta(lastClientY - startY, uiScale);
+      const movedRootPlacements =
+        scopeId === ROOT_SCOPE
+          ? moveRootDesktopGroup(
+              dragNodes.map((node) => node.startPlacement),
+              deltaX,
+              deltaY,
+            )
+          : null;
       queuePlacementBatch(
         scopeId,
         folderId,
         folderIdentity,
         saveGeneration,
-        dragNodes.map((node) => ({
+        dragNodes.map((node, nodeIndex) => ({
           entry: node.entry,
-          placement: {
-            ...node.startPlacement,
-            x: clamp(
-              node.startPlacement.x + deltaX,
-              0,
-              MAX_LOGICAL_COORDINATE,
-            ),
-            y: clamp(
-              node.startPlacement.y + deltaY,
-              0,
-              MAX_LOGICAL_COORDINATE,
-            ),
-          },
+          placement:
+            movedRootPlacements?.[nodeIndex] ??
+            {
+              ...node.startPlacement,
+              x: clamp(
+                node.startPlacement.x + deltaX,
+                0,
+                MAX_LOGICAL_COORDINATE,
+              ),
+              y: clamp(
+                node.startPlacement.y + deltaY,
+                0,
+                MAX_LOGICAL_COORDINATE,
+              ),
+            },
         })),
       );
     };
@@ -4750,7 +5004,11 @@ export default function FilesView({
     event.preventDefault();
     event.stopPropagation();
     const width = 210;
-    const height = result.entry.isFolder ? 105 : 148;
+    const height = result.entry.isFolder
+      ? 105
+      : previewKindOf(result.entry)
+        ? 183
+        : 148;
     const target = event.target as HTMLElement;
     setContextMenu({
       x: Math.max(
@@ -4776,7 +5034,11 @@ export default function FilesView({
 
   function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
     const rect = target.getBoundingClientRect();
-    const height = result.entry.isFolder ? 105 : 148;
+    const height = result.entry.isFolder
+      ? 105
+      : previewKindOf(result.entry)
+        ? 183
+        : 148;
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -5123,8 +5385,51 @@ export default function FilesView({
       setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
       return;
     }
+    const request = beginScopedRequest(listRequestsRef.current, scopeId);
+    const mutationVersion = folderMutationVersionsRef.current.get(folderId) ?? 0;
     try {
-      const fresh = await fetchFolder(folderId, new AbortController().signal);
+      const fresh = await fetchFolder(folderId, request.controller.signal);
+      const currentWindow =
+        scopeId === ROOT_SCOPE
+          ? null
+          : windowsRef.current.find((item) => item.id === scopeId);
+      const currentFolderId =
+        scopeId === ROOT_SCOPE
+          ? ROOT_ID
+          : currentWindow?.path.at(-1)?.id ?? null;
+      const currentData =
+        scopeId === ROOT_SCOPE ? rootDataRef.current : currentWindow?.data;
+      const staleResult =
+        listRequestsRef.current.get(scopeId) !== request ||
+        (pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0 ||
+        (folderMutationVersionsRef.current.get(folderId) ?? 0) !==
+          mutationVersion ||
+        currentFolderId !== folderId ||
+        !currentData ||
+        Boolean(
+          currentData.folderIdentity &&
+          fresh.folderIdentity &&
+          currentData.folderIdentity !== fresh.folderIdentity,
+        );
+      if (staleResult) {
+        foldersNeedingRefreshRef.current.add(folderId);
+        setNotice(
+          `‘${name}’ 메모장은 만들었습니다 — 최신 목록을 다시 불러옵니다`,
+        );
+        if (
+          currentFolderId === folderId &&
+          (pendingFolderMutationsRef.current.get(folderId) ?? 0) === 0
+        ) {
+          const refresh =
+            scopeId === ROOT_SCOPE
+              ? loadRoot(true)
+              : loadDeskWindow(scopeId, folderId, true);
+          void refresh.then((refreshed) => {
+            if (refreshed) foldersNeedingRefreshRef.current.delete(folderId);
+          });
+        }
+        return;
+      }
       const entry = fresh.entries.find((value) =>
         uploadedId ? value.id === uploadedId : value.name === name,
       );
@@ -5135,7 +5440,7 @@ export default function FilesView({
         void refreshScope(scopeId, true);
         return;
       }
-      upsertFolderEntry(folderId, entry);
+      mergeFreshFolderData(folderId, fresh);
       openPreview(entry);
       setNotice(`‘${name}’ 메모장을 만들었습니다`);
     } catch {
@@ -5143,6 +5448,8 @@ export default function FilesView({
         `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
       );
       void refreshScope(scopeId, true);
+    } finally {
+      finishScopedRequest(listRequestsRef.current, scopeId, request);
     }
   }
 
@@ -5292,7 +5599,7 @@ export default function FilesView({
       if (element) windowCanvasRefs.current.set(scopeId, element);
       else windowCanvasRefs.current.delete(scopeId);
     };
-    const dimensions = planeDimensions(scopeId, data.entries);
+    const dimensions = isRoot ? null : planeDimensions(scopeId, data.entries);
 
     return (
       <div
@@ -5332,11 +5639,26 @@ export default function FilesView({
         <div
           ref={isRoot ? rootCanvasRef : setCanvasRef}
           className={styles.iconPlane}
-          tabIndex={-1}
-          style={{ width: dimensions.width, height: dimensions.height }}
+          tabIndex={isRoot ? 0 : -1}
+          data-keyboard-canvas={isRoot ? "root" : undefined}
+          role={isRoot ? "group" : undefined}
+          aria-label={isRoot ? "공유 바탕화면 아이콘" : undefined}
+          aria-keyshortcuts={
+            isRoot ? "ArrowLeft ArrowRight ArrowUp ArrowDown" : undefined
+          }
+          style={
+            dimensions
+              ? { width: dimensions.width, height: dimensions.height }
+              : { width: "100%", height: "100%" }
+          }
           onPointerDown={(event) =>
             startSelectionRectangle(event, scopeId, data.entries)
           }
+          onKeyDown={(event) => {
+            if (isRoot) {
+              moveRootPlaneSelectionWithKeyboard(event, data.entries);
+            }
+          }}
         >
           {data.entries.map((entry, index) => {
           const position = placementFor(scopeId, entry, index);
@@ -6738,15 +7060,29 @@ export default function FilesView({
                   openSearchResult(
                     contextMenu.searchResult!,
                     contextMenu.opener ?? undefined,
+                    false,
                   )
                 }
               >
                 {contextMenu.searchResult.entry.isFolder
                   ? "폴더 열기"
                   : previewKindOf(contextMenu.searchResult.entry)
-                    ? "브라우저에서 열기"
+                    ? "ShareDesk에서 열기"
                     : "열기"}
               </MenuButton>
+              {!contextMenu.searchResult.entry.isFolder &&
+                previewKindOf(contextMenu.searchResult.entry) && (
+                  <MenuButton
+                    onClick={() =>
+                      openPreviewInNewTab(
+                        contextMenu.searchResult!.entry,
+                        contextMenu.opener ?? undefined,
+                      )
+                    }
+                  >
+                    새 탭에서 보기
+                  </MenuButton>
+                )}
               {!contextMenu.searchResult.entry.isFolder && (
                 <MenuButton
                   onClick={() => {
@@ -6789,10 +7125,23 @@ export default function FilesView({
                 {contextMenu.entry.isFolder
                   ? "열기"
                   : previewKindOf(contextMenu.entry)
-                    ? "브라우저에서 열기"
+                    ? "ShareDesk에서 열기"
                     : "다운로드"}
                 <kbd>Enter</kbd>
               </MenuButton>
+              {!contextMenu.entry.isFolder &&
+                previewKindOf(contextMenu.entry) && (
+                  <MenuButton
+                    onClick={() =>
+                      openPreviewInNewTab(
+                        contextMenu.entry!,
+                        contextMenu.opener ?? undefined,
+                      )
+                    }
+                  >
+                    새 탭에서 보기
+                  </MenuButton>
+                )}
               {!contextMenu.entry.isFolder &&
                 previewKindOf(contextMenu.entry) && (
                   <MenuButton

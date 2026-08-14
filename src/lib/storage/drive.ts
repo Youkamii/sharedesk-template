@@ -24,6 +24,7 @@ import {
   officePreviewImport,
   type OfficePreviewImport,
 } from "@/lib/preview";
+import { createOfficePreviewFallback } from "@/lib/office-preview-fallback";
 
 // Google Drive v3 REST 어댑터 — googleapis 패키지 없이 fetch만 사용.
 // drive.file scope라 이 앱이 만든 파일·폴더만 보인다. 접근 범위 격리는
@@ -453,25 +454,6 @@ interface DriveFile {
   modifiedTime?: string;
   parents?: string[];
   trashed?: boolean;
-}
-
-function officePreviewFallback(name: string, reason: string): DownloadResult {
-  const message = [
-    `${name} 문서를 미리보기로 변환하지 못했습니다.`,
-    reason,
-    "미리보기 창 아래의 다운로드 버튼으로 원본 파일을 열어 주세요.",
-  ].join("\n\n");
-  const bytes = new TextEncoder().encode(message);
-  return {
-    stream: new Blob([bytes]).stream(),
-    name: `${name}.preview.txt`,
-    size: bytes.byteLength,
-    mimeType: "text/plain; charset=utf-8",
-    status: 200,
-    contentRange: null,
-    contentLength: bytes.byteLength,
-    acceptRanges: false,
-  };
 }
 
 async function readPreviewPdf(response: Response): Promise<Uint8Array> {
@@ -1323,7 +1305,7 @@ export class DriveAdapter implements StorageAdapter {
       const reason = isPreviewLimit
         ? (error as StorageError).message
         : "Google 문서 변환이 완료되지 않았습니다.";
-      return officePreviewFallback(meta.name, reason);
+      return createOfficePreviewFallback({ id, name: meta.name, reason });
     }
   }
 

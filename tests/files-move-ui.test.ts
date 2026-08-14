@@ -831,12 +831,31 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /fileActivationAction\(entry, downloadFirst\)/);
   assert.match(
     source,
-    /function openSearchResult\(result: SearchResult, opener\?: HTMLElement\)[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\([\s\S]*?result\.entry,[\s\S]*?opener \? \{ element: opener, scopeId: ROOT_SCOPE \} : undefined/,
+    /function openSearchResult\([\s\S]*?respectDownloadPreference = true[\s\S]*?fileActivationAction\([\s\S]*?result\.entry,[\s\S]*?respectDownloadPreference && downloadFirst[\s\S]*?action === "preview"[\s\S]*?openPreview\([\s\S]*?result\.entry,[\s\S]*?opener \? \{ element: opener, scopeId: ROOT_SCOPE \} : undefined/,
   );
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
   assert.match(source, />다운로드 우선</);
   assert.match(source, /checked=\{downloadFirst\}/);
-  assert.match(source, /브라우저에서 열기/);
+  assert.match(source, /ShareDesk에서 열기/);
+  assert.match(
+    source,
+    /function openPreviewInNewTab\(entry: Entry, opener\?: HTMLElement\)[\s\S]*?window\.open\(previewUrl\(entry\), "_blank", "noopener,noreferrer"\)[\s\S]*?setContextMenu\(null\)[\s\S]*?opener\?\.focus\(\)/,
+  );
+  assert.equal(source.match(/새 탭에서 보기/g)?.length, 2);
+  assert.match(
+    source,
+    /openPreviewInNewTab\([\s\S]*?contextMenu\.searchResult!\.entry,[\s\S]*?contextMenu\.opener \?\? undefined/,
+  );
+  assert.match(
+    source,
+    /openPreviewInNewTab\([\s\S]*?contextMenu\.entry!,[\s\S]*?contextMenu\.opener \?\? undefined/,
+  );
+  assert.equal(
+    source.match(
+      /const height = result\.entry\.isFolder[\s\S]*?previewKindOf\(result\.entry\)[\s\S]*?\? 183[\s\S]*?: 148;/g,
+    )?.length,
+    2,
+  );
   assert.match(
     source,
     /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\([\s\S]*?entry,[\s\S]*?contextMenu\.scopeId,[\s\S]*?contextMenu\.opener \?\? undefined/,
@@ -915,6 +934,99 @@ test("폴더 우측 미리보기가 아이콘 평면에 고정 최소폭을 남�
   assert.match(css, /\.iconPlane \{[\s\S]*?min-width: 100%;/);
 });
 
+test("새 메모장은 서버가 배정한 항목과 좌표를 같은 폴더 화면에 함께 반영한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const mergeStart = source.indexOf("function mergeFreshFolderData");
+  const mergeEnd = source.indexOf(
+    "async function refreshDetachedFolder",
+    mergeStart,
+  );
+  const createStart = source.indexOf("async function createNotepad");
+  const createEnd = source.indexOf("async function submitDialog", createStart);
+  const mergeFresh = source.slice(mergeStart, mergeEnd);
+  const createNotepad = source.slice(createStart, createEnd);
+
+  assert.ok(mergeStart >= 0 && mergeEnd > mergeStart);
+  assert.ok(createStart >= 0 && createEnd > createStart);
+  assert.match(
+    mergeFresh,
+    /setRootData\([\s\S]*?mergeFolderData\(current, fresh\)/,
+  );
+  assert.match(
+    mergeFresh,
+    /item\.path\.at\(-1\)\?\.id === folderId[\s\S]*?mergeFolderData\(item\.data, fresh\)/,
+  );
+  assert.match(
+    createNotepad,
+    /const request = beginScopedRequest\(listRequestsRef\.current, scopeId\)[\s\S]*?const mutationVersion = folderMutationVersionsRef\.current\.get\(folderId\)[\s\S]*?const fresh = await fetchFolder\(folderId, request\.controller\.signal\)/,
+  );
+  assert.match(
+    createNotepad,
+    /const staleResult =[\s\S]*?listRequestsRef\.current\.get\(scopeId\) !== request[\s\S]*?pendingFolderMutationsRef\.current\.get\(folderId\)[\s\S]*?folderMutationVersionsRef\.current\.get\(folderId\)[\s\S]*?currentFolderId !== folderId/,
+  );
+  const staleGuard = createNotepad.indexOf("if (staleResult)");
+  const mergeFreshCall = createNotepad.indexOf(
+    "mergeFreshFolderData(folderId, fresh)",
+  );
+  const openFresh = createNotepad.indexOf("openPreview(entry)");
+  assert.ok(staleGuard >= 0);
+  assert.ok(mergeFreshCall > staleGuard);
+  assert.ok(openFresh > mergeFreshCall);
+  assert.match(
+    createNotepad.slice(staleGuard, mergeFreshCall),
+    /foldersNeedingRefreshRef\.current\.add\(folderId\)[\s\S]*?return;/,
+  );
+  assert.match(
+    createNotepad,
+    /finally \{[\s\S]*?finishScopedRequest\(listRequestsRef\.current, scopeId, request\)/,
+  );
+  assert.doesNotMatch(createNotepad, /upsertFolderEntry\(/);
+});
+
+test("the root desktop plane owns arrow navigation before an icon has focus", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const canvas = source.slice(
+    source.indexOf("function renderCanvas"),
+    source.indexOf("\n  return (\n    <main"),
+  );
+  const sharedArrowHandler = source.slice(
+    source.indexOf("function moveSelectionWithKeyboard"),
+    source.indexOf("function planeDimensions"),
+  );
+
+  assert.match(
+    source,
+    /document\.activeElement === document\.body[\s\S]*?rootCanvasRef\.current\?\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(canvas, /tabIndex=\{isRoot \? 0 : -1\}/);
+  assert.match(canvas, /data-keyboard-canvas=\{isRoot \? "root" : undefined\}/);
+  assert.match(canvas, /role=\{isRoot \? "group" : undefined\}/);
+  assert.match(canvas, /aria-label=\{isRoot \? "공유 바탕화면 아이콘" : undefined\}/);
+  assert.match(
+    canvas,
+    /onKeyDown=\{\(event\) => \{[\s\S]*?moveRootPlaneSelectionWithKeyboard\(event, data\.entries\)/,
+  );
+  assert.match(
+    source,
+    /if \(scopeId === ROOT_SCOPE\) plane\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    sharedArrowHandler,
+    /event\.target !== event\.currentTarget[\s\S]*?moveSelectionWithKeyboard\(event, ROOT_SCOPE, entries\)/,
+  );
+  assert.match(sharedArrowHandler, /event\.stopPropagation\(\)/);
+  assert.match(
+    sharedArrowHandler,
+    /shouldIgnoreDesktopSelectionKeydown\(event\.target\)/,
+  );
+});
+
 test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),
@@ -967,7 +1079,7 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   );
   assert.match(
     source,
-    /openSearchResult\([\s\S]*?contextMenu\.searchResult!,[\s\S]*?contextMenu\.opener \?\? undefined/,
+    /openSearchResult\([\s\S]*?contextMenu\.searchResult!,[\s\S]*?contextMenu\.opener \?\? undefined,[\s\S]*?false/,
   );
   assert.match(source, /openOriginalLocation\(result\)/);
   assert.match(source, /원래 위치 열기/);

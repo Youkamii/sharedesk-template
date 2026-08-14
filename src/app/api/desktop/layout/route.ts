@@ -38,7 +38,10 @@ export async function PATCH(req: NextRequest) {
   if (
     typeof value.folderId !== "string" ||
     typeof value.folderIdentity !== "string" ||
-    !Array.isArray(value.updates)
+    !Array.isArray(value.updates) ||
+    (value.expectedRevision !== undefined &&
+      (!Number.isSafeInteger(value.expectedRevision) ||
+        (value.expectedRevision as number) < 0))
   ) {
     return badRequest();
   }
@@ -50,6 +53,7 @@ export async function PATCH(req: NextRequest) {
       value.updates as LayoutUpdate[],
       auth.session.userId,
       value.folderIdentity,
+      value.expectedRevision as number | undefined,
     );
     if (process.env.SHAREDESK_TRACE) {
       console.log(`[layout] updateLayout total ${Date.now() - t0}ms`);
