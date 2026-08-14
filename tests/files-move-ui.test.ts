@@ -21,6 +21,7 @@ import {
   downloadFileName,
   fileActivationAction,
 } from "../src/lib/client/file-activation";
+import { previewDiscardReason } from "../src/lib/client/preview-draft";
 import {
   fitLogicalRect,
   folderAddress,
@@ -112,6 +113,45 @@ test("저장 중에 이어 쓴 글은 유지하고 전송한 snapshot만 저장 
   });
 });
 
+test("편집 가능한 TXT의 미저장 내용과 저장 중 상태만 버리기 확인 대상이다", () => {
+  assert.equal(
+    previewDiscardReason({
+      editable: false,
+      text: "바뀐 글",
+      originalText: "원래 글",
+      saving: true,
+    }),
+    null,
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "같은 글",
+      originalText: "같은 글",
+      saving: false,
+    }),
+    null,
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "바뀐 글",
+      originalText: "원래 글",
+      saving: false,
+    }),
+    "unsaved",
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "같은 글",
+      originalText: "같은 글",
+      saving: true,
+    }),
+    "saving",
+  );
+});
+
 test("상위 목록에서 확인한 폴더 이름을 열린 하위 경로에도 전파한다", () => {
   const path = [
     { id: "root", name: "ShareDesk" },
@@ -180,6 +220,14 @@ test("파일 화면은 배율·드래그 고스트·주소창·메모 편집 계
   assert.match(source, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
   assert.match(source, /previewInstanceRef\.current !== instanceId/);
   assert.match(source, /folderNoteInstanceRef\.current !== instanceId/);
+  assert.match(
+    source,
+    /function openPreview\([\s\S]*?if \(!confirmPreviewDiscard\(\)\) return;[\s\S]*?beginPreviewInstance\(\)/,
+  );
+  assert.match(
+    source,
+    /function closePreview\(\) \{[\s\S]*?if \(!confirmPreviewDiscard\(\)\) return;[\s\S]*?cancelPreviewRequests\(\)/,
+  );
   assert.match(
     source,
     /beginScopedRequest\(addressRequestsRef\.current, windowId\)/,
@@ -612,6 +660,10 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
   ]);
+  const scopedPreview = source.slice(
+    source.indexOf("function openPreviewInScope"),
+    source.indexOf("function activateEntry"),
+  );
 
   assert.match(source, /sidePreviewLayoutKey: string \| null/);
   assert.match(source, /folderImagePreviewEntries\(item\.data\.entries\)/);
@@ -619,6 +671,11 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
   assert.match(source, /event\.key === "ArrowLeft" \|\| event\.key === "ArrowRight"/);
   assert.match(source, /adjacentFolderImagePreviewKey\(/);
   assert.match(source, /aria-label="폴더 미리보기 닫기"/);
+  assert.match(
+    scopedPreview,
+    /if \(showFolderSidePreview\([\s\S]*?\)\) return;[\s\S]*?openPreview\(/,
+  );
+  assert.doesNotMatch(scopedPreview, /confirmPreviewDiscard/);
   assert.match(
     css,
     /\.windowBodyWithPreview \.windowCanvas \{[\s\S]*?right: clamp\(180px, 42%, 360px\);/,

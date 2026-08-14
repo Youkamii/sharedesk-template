@@ -47,6 +47,7 @@ import {
   adjacentFolderImagePreviewKey,
   folderImagePreviewEntries,
 } from "@/lib/client/folder-side-preview";
+import { previewDiscardReason } from "@/lib/client/preview-draft";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -2427,6 +2428,25 @@ export default function FilesView({
     }
   }
 
+  function confirmPreviewDiscard() {
+    const current = previewWindowRef.current;
+    if (!current) return true;
+    const reason = previewDiscardReason({
+      editable:
+        current.kind === "text" && previewTextReadOnlyReason(current) === null,
+      text: current.text,
+      originalText: current.originalText,
+      saving:
+        current.textSaving || previewSaveControllerRef.current !== null,
+    });
+    if (!reason) return true;
+    return window.confirm(
+      reason === "saving"
+        ? "텍스트 파일을 저장 중입니다. 저장을 중단하고 변경 내용을 버릴까요?"
+        : "저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?",
+    );
+  }
+
   function openPreview(
     entry: Entry,
     keyboardOpener?: { element: HTMLElement; scopeId: string },
@@ -2436,6 +2456,7 @@ export default function FilesView({
       void downloadEntry(entry);
       return;
     }
+    if (!confirmPreviewDiscard()) return;
     previewOpenerRef.current = keyboardOpener
       ? {
           ...keyboardOpener,
@@ -2491,6 +2512,7 @@ export default function FilesView({
   }
 
   function closePreview() {
+    if (!confirmPreviewDiscard()) return;
     const opener = previewOpenerRef.current;
     previewOpenerRef.current = null;
     cancelPreviewRequests();
