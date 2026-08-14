@@ -540,7 +540,7 @@ async function cleanupOfficePreviewFiles(stateFolder: string): Promise<void> {
   }
 
   const params = new URLSearchParams({
-    q: `'${stateFolder}' in parents and name contains '${OFFICE_PREVIEW_PREFIX}' and trashed=false`,
+    q: `'${stateFolder}' in parents and name contains '${OFFICE_PREVIEW_PREFIX}' and trashed=true`,
     fields: "files(id,name,createdTime)",
     pageSize: "1000",
   });
@@ -597,7 +597,7 @@ async function convertOfficePreview(
     uploadHeaders["X-Upload-Content-Length"] = sourceLength;
   }
   const uploadSession = await driveFetch(
-    `${UPLOAD_API}/files?uploadType=resumable&fields=id,mimeType`,
+    `${UPLOAD_API}/files?uploadType=resumable&fields=id,mimeType,trashed`,
     {
       method: "POST",
       headers: uploadHeaders,
@@ -605,6 +605,7 @@ async function convertOfficePreview(
         name: `${OFFICE_PREVIEW_PREFIX}${randomUUID()}`,
         mimeType: officeImport.targetMimeType,
         parents: [stateFolder],
+        trashed: true,
       }),
     },
   );
@@ -630,10 +631,18 @@ async function convertOfficePreview(
     const converted = (await convertedResponse.json()) as {
       id?: string;
       mimeType?: string;
+      trashed?: boolean;
     };
     temporaryId = converted.id ?? null;
     if (!temporaryId || converted.mimeType !== officeImport.targetMimeType) {
       throw new StorageError("UPSTREAM", "Google 문서 변환이 끝나지 않았습니다.");
+    }
+    if (converted.trashed !== true) {
+      await driveFetch(`${API}/files/${temporaryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ trashed: true }),
+      });
     }
 
     const params = new URLSearchParams({ mimeType: "application/pdf" });

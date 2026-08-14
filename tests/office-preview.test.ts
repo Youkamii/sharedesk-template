@@ -331,9 +331,11 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
       const body = JSON.parse(String(init.body)) as {
         mimeType?: string;
         parents?: string[];
+        trashed?: boolean;
       };
       assert.deepEqual(body.parents, ["state-folder"]);
       assert.match(body.mimeType ?? "", /^application\/vnd\.google-apps\./);
+      assert.equal(body.trashed, true);
       return new Response(null, { headers: { Location: session } });
     }
     if (url.includes("/upload-session/") && method === "PUT") {
@@ -345,6 +347,7 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
           source === "broken-office"
             ? "application/vnd.google-apps.spreadsheet"
             : "application/vnd.google-apps.document",
+        trashed: true,
       });
     }
     if (url.includes("/export?mimeType=application%2Fpdf")) {
