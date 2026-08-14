@@ -2423,12 +2423,35 @@ export default function FilesView({
     setContextMenu(null);
     const instanceId = beginPreviewInstance();
     const z = ++zRef.current;
+    const previewWidth = Math.min(
+      760,
+      Math.max(320, logicalViewport.width - 24),
+    );
+    const previewHeight = Math.min(
+      560,
+      Math.max(
+        240,
+        logicalViewport.height - TOP_BAR - TASK_BAR - 24,
+      ),
+    );
     setPreviewWindow({
       instanceId,
       entry,
       kind,
-      x: clamp(logicalViewport.width * 0.14, 8, 400),
-      y: clamp(TOP_BAR + 24, TOP_BAR + 6, logicalViewport.height / 3),
+      x: clamp(
+        (logicalViewport.width - previewWidth) / 2,
+        8,
+        Math.max(8, logicalViewport.width - previewWidth - 8),
+      ),
+      y: clamp(
+        TOP_BAR +
+          (logicalViewport.height - TOP_BAR - TASK_BAR - previewHeight) / 2,
+        TOP_BAR + 6,
+        Math.max(
+          TOP_BAR + 6,
+          logicalViewport.height - TASK_BAR - previewHeight - 6,
+        ),
+      ),
       z,
       text: null,
       originalText: null,

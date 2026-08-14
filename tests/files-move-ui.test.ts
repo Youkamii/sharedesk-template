@@ -549,6 +549,30 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(css, /input:checked \+ \.preferenceCheck::after/);
 });
 
+test("이미지와 GIF 미리보기는 창의 본문을 채우고 최초 창은 작업 영역 안에 연다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    css,
+    /\.previewImage,\s*\.previewMedia \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: contain;/,
+  );
+  assert.match(
+    css,
+    /\.previewWindow \{[\s\S]*?grid-template-rows: 30px minmax\(0, 1fr\) 22px;/,
+  );
+  assert.match(
+    source,
+    /const previewWidth = Math\.min\([\s\S]*?const previewHeight = Math\.min\(/,
+  );
+  assert.match(
+    source,
+    /x: clamp\([\s\S]*?logicalViewport\.width - previewWidth[\s\S]*?y: clamp\([\s\S]*?logicalViewport\.height - TASK_BAR - previewHeight/,
+  );
+});
+
 test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),
