@@ -294,7 +294,7 @@ const DOWNLOAD_FIRST_STORAGE_KEY = "sharedesk.download-first";
 const WALLPAPERS = [
   { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
   { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
-  { id: "dawn", name: "새벽", src: "/art/wall-dawn.png" },
+  { id: "dawn", name: "여명", src: "/art/wall-dawn.png" },
   { id: "tide", name: "밤바다", src: "/art/wall-tide.png" },
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
