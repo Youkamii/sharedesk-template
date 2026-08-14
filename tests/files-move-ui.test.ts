@@ -839,16 +839,16 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /ShareDesk에서 열기/);
   assert.match(
     source,
-    /function openPreviewInNewTab\(entry: Entry\)[\s\S]*?window\.open\(previewUrl\(entry\), "_blank", "noopener,noreferrer"\)[\s\S]*?setContextMenu\(null\)/,
+    /function openPreviewInNewTab\(entry: Entry, opener\?: HTMLElement\)[\s\S]*?window\.open\(previewUrl\(entry\), "_blank", "noopener,noreferrer"\)[\s\S]*?setContextMenu\(null\)[\s\S]*?opener\?\.focus\(\)/,
   );
   assert.equal(source.match(/새 탭에서 보기/g)?.length, 2);
   assert.match(
     source,
-    /contextMenu\.searchResult\.entry[\s\S]*?openPreviewInNewTab\(contextMenu\.searchResult!\.entry\)/,
+    /openPreviewInNewTab\([\s\S]*?contextMenu\.searchResult!\.entry,[\s\S]*?contextMenu\.opener \?\? undefined/,
   );
   assert.match(
     source,
-    /contextMenu\.entry[\s\S]*?openPreviewInNewTab\(contextMenu\.entry!\)/,
+    /openPreviewInNewTab\([\s\S]*?contextMenu\.entry!,[\s\S]*?contextMenu\.opener \?\? undefined/,
   );
   assert.equal(
     source.match(

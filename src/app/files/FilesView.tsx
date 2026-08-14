@@ -3208,9 +3208,10 @@ export default function FilesView({
     } else void downloadEntry(result.entry);
   }
 
-  function openPreviewInNewTab(entry: Entry) {
+  function openPreviewInNewTab(entry: Entry, opener?: HTMLElement) {
     window.open(previewUrl(entry), "_blank", "noopener,noreferrer");
     setContextMenu(null);
+    opener?.focus();
   }
 
   function openOriginalLocation(result: SearchResult) {
@@ -7073,7 +7074,10 @@ export default function FilesView({
                 previewKindOf(contextMenu.searchResult.entry) && (
                   <MenuButton
                     onClick={() =>
-                      openPreviewInNewTab(contextMenu.searchResult!.entry)
+                      openPreviewInNewTab(
+                        contextMenu.searchResult!.entry,
+                        contextMenu.opener ?? undefined,
+                      )
                     }
                   >
                     새 탭에서 보기
@@ -7128,7 +7132,12 @@ export default function FilesView({
               {!contextMenu.entry.isFolder &&
                 previewKindOf(contextMenu.entry) && (
                   <MenuButton
-                    onClick={() => openPreviewInNewTab(contextMenu.entry!)}
+                    onClick={() =>
+                      openPreviewInNewTab(
+                        contextMenu.entry!,
+                        contextMenu.opener ?? undefined,
+                      )
+                    }
                   >
                     새 탭에서 보기
                   </MenuButton>
