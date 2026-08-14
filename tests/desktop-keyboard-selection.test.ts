@@ -45,30 +45,53 @@ test("arrow navigation picks the nearest candidate in the requested half-plane",
   assert.equal(nextDesktopLayoutKey(grid, "e", "ArrowDown"), null);
 });
 
-test("direction ranking prefers primary axis distance, then secondary distance", () => {
+test("direction ranking prefers visual distance over an extreme diagonal", () => {
   const icons = [
     icon("origin", 0, 0),
-    icon("small-primary", 90, 500),
-    icon("large-primary", 100, 0),
+    icon("extreme-diagonal", 90, 500),
+    icon("near-straight", 100, 0),
     icon("same-primary-far", 190, 100),
     icon("same-primary-near", 190, 10),
   ];
 
   assert.equal(
     nextDesktopLayoutKey(icons, "origin", "ArrowRight"),
-    "small-primary",
+    "near-straight",
   );
   assert.equal(
     nextDesktopLayoutKey(
-      icons.filter((item) => item.layoutKey !== "small-primary"),
+      icons.filter((item) => item.layoutKey !== "near-straight"),
       "origin",
       "ArrowRight",
     ),
-    "large-primary",
+    "same-primary-near",
+  );
+});
+
+test("equal visual distances use primary, secondary, then stable order", () => {
+  const icons = [
+    icon("origin", 0, 0),
+    icon("larger-primary", 80, 60),
+    icon("smaller-primary", 60, 80),
+    { ...icon("stable-second", 200, 0), order: 2 },
+    { ...icon("stable-first", 200, 0), order: 1 },
+  ];
+
+  assert.equal(
+    nextDesktopLayoutKey(icons, "origin", "ArrowRight"),
+    "smaller-primary",
   );
   assert.equal(
-    nextDesktopLayoutKey(icons.slice(0, 1).concat(icons.slice(3)), "origin", "ArrowRight"),
-    "same-primary-near",
+    nextDesktopLayoutKey(
+      icons.filter(
+        (item) =>
+          item.layoutKey !== "larger-primary" &&
+          item.layoutKey !== "smaller-primary",
+      ),
+      "origin",
+      "ArrowRight",
+    ),
+    "stable-first",
   );
 });
 

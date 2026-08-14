@@ -169,9 +169,9 @@ export function nextDesktopLayoutKey(
 
   candidates.sort(
     (left, right) =>
+      left.straightLineDistance - right.straightLineDistance ||
       left.primaryDistance - right.primaryDistance ||
       left.secondaryDistance - right.secondaryDistance ||
-      left.straightLineDistance - right.straightLineDistance ||
       left.spatialIndex - right.spatialIndex ||
       left.layoutKey.localeCompare(right.layoutKey),
   );
