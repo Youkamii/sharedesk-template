@@ -19,7 +19,11 @@ import {
   conflictError,
   stateAccessDenied,
 } from "./types";
-import { isGoogleWorkspacePreviewMime } from "@/lib/preview";
+import {
+  isGoogleWorkspacePreviewMime,
+  officePreviewImport,
+  type OfficePreviewImport,
+} from "@/lib/preview";
 
 // Google Drive v3 REST 어댑터 — googleapis 패키지 없이 fetch만 사용.
 // drive.file scope라 이 앱이 만든 파일·폴더만 보인다. 접근 범위 격리는
@@ -33,6 +37,8 @@ const FOLDER_MIME = "application/vnd.google-apps.folder";
 const FILE_FIELDS = "id,name,mimeType,size,modifiedTime";
 const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const TRASH_CONCURRENCY = 4;
+const MAX_OFFICE_PREVIEW_SOURCE_BYTES = 25 * 1024 * 1024;
+const MAX_OFFICE_PREVIEW_PDF_BYTES = 10 * 1024 * 1024;
 
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
@@ -441,6 +447,168 @@ interface DriveFile {
   mimeType: string;
   size?: string;
   modifiedTime?: string;
+  parents?: string[];
+  trashed?: boolean;
+}
+
+function officePreviewFallback(name: string, reason: string): DownloadResult {
+  const message = [
+    `${name} 문서를 미리보기로 변환하지 못했습니다.`,
+    reason,
+    "미리보기 창 아래의 다운로드 버튼으로 원본 파일을 열어 주세요.",
+  ].join("\n\n");
+  const bytes = new TextEncoder().encode(message);
+  return {
+    stream: new Blob([bytes]).stream(),
+    name: `${name}.preview.txt`,
+    size: bytes.byteLength,
+    mimeType: "text/plain; charset=utf-8",
+    status: 200,
+    contentRange: null,
+    contentLength: bytes.byteLength,
+    acceptRanges: false,
+  };
+}
+
+async function readPreviewPdf(response: Response): Promise<Uint8Array> {
+  const declared = response.headers.get("content-length");
+  if (declared && Number(declared) > MAX_OFFICE_PREVIEW_PDF_BYTES) {
+    throw new StorageError(
+      "UPSTREAM",
+      "변환된 PDF가 10 MiB를 넘어 브라우저 미리보기 한도를 초과했습니다.",
+    );
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new StorageError("UPSTREAM", "변환된 PDF를 읽지 못했습니다.");
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_OFFICE_PREVIEW_PDF_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new StorageError(
+          "UPSTREAM",
+          "변환된 PDF가 10 MiB를 넘어 브라우저 미리보기 한도를 초과했습니다.",
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function convertOfficePreview(
+  real: string,
+  meta: DriveFile,
+  officeImport: OfficePreviewImport,
+): Promise<DownloadResult> {
+  const sourceSize = meta.size === undefined ? null : Number(meta.size);
+  if (
+    sourceSize !== null &&
+    Number.isFinite(sourceSize) &&
+    sourceSize > MAX_OFFICE_PREVIEW_SOURCE_BYTES
+  ) {
+    throw new StorageError(
+      "UPSTREAM",
+      "원본이 25 MiB를 넘어 브라우저 미리보기 변환 한도를 초과했습니다.",
+    );
+  }
+
+  const source = await driveFetch(`${API}/files/${real}?alt=media`);
+  if (!source.body) {
+    throw new StorageError("UPSTREAM", "원본 문서를 읽지 못했습니다.");
+  }
+  const stateFolder = await ensureStateDir();
+  const uploadHeaders: Record<string, string> = {
+    "Content-Type": "application/json; charset=UTF-8",
+    "X-Upload-Content-Type": officeImport.sourceMimeType,
+  };
+  const sourceLength = source.headers.get("content-length") ?? meta.size;
+  if (sourceLength && /^\d+$/.test(sourceLength)) {
+    uploadHeaders["X-Upload-Content-Length"] = sourceLength;
+  }
+  const uploadSession = await driveFetch(
+    `${UPLOAD_API}/files?uploadType=resumable&fields=id,mimeType`,
+    {
+      method: "POST",
+      headers: uploadHeaders,
+      body: JSON.stringify({
+        name: `.sharedesk-preview-${randomUUID()}`,
+        mimeType: officeImport.targetMimeType,
+        parents: [stateFolder],
+      }),
+    },
+  );
+  const uploadUrl = uploadSession.headers.get("location");
+  if (!uploadUrl) {
+    throw new StorageError("UPSTREAM", "문서 변환 세션을 만들지 못했습니다.");
+  }
+
+  let temporaryId: string | null = null;
+  try {
+    const putHeaders: Record<string, string> = {
+      "Content-Type": officeImport.sourceMimeType,
+    };
+    if (sourceLength && /^\d+$/.test(sourceLength)) {
+      putHeaders["Content-Length"] = sourceLength;
+    }
+    const convertedResponse = await driveFetch(uploadUrl, {
+      method: "PUT",
+      headers: putHeaders,
+      body: source.body,
+      duplex: "half",
+    } as RequestInit);
+    const converted = (await convertedResponse.json()) as {
+      id?: string;
+      mimeType?: string;
+    };
+    temporaryId = converted.id ?? null;
+    if (!temporaryId || converted.mimeType !== officeImport.targetMimeType) {
+      throw new StorageError("UPSTREAM", "Google 문서 변환이 끝나지 않았습니다.");
+    }
+
+    const params = new URLSearchParams({ mimeType: "application/pdf" });
+    const exported = await driveFetch(
+      `${API}/files/${temporaryId}/export?${params.toString()}`,
+    );
+    const pdf = await readPreviewPdf(exported);
+    return {
+      stream: new Blob([pdf.buffer as ArrayBuffer]).stream(),
+      name: meta.name.toLowerCase().endsWith(".pdf")
+        ? meta.name
+        : `${meta.name}.pdf`,
+      size: pdf.byteLength,
+      mimeType: "application/pdf",
+      status: 200,
+      contentRange: null,
+      contentLength: pdf.byteLength,
+      acceptRanges: false,
+    };
+  } finally {
+    if (temporaryId) {
+      await driveFetch(`${API}/files/${temporaryId}`, { method: "DELETE" }).catch(
+        (error) => {
+          console.error("[drive] 임시 문서 미리보기 정리 실패", {
+            temporaryId,
+            error,
+          });
+        },
+      );
+    }
+  }
 }
 
 interface DrivePermission {
@@ -993,7 +1161,9 @@ export class DriveAdapter implements StorageAdapter {
     };
   }
 
-  async download(id: string, range?: string): Promise<DownloadResult> {
+  private async downloadable(
+    id: string,
+  ): Promise<{ real: string; meta: DriveFile }> {
     const real = resolveId(id);
     const metaRes = await driveFetch(
       `${API}/files/${real}?fields=${FILE_FIELDS},parents,trashed`,
@@ -1006,6 +1176,14 @@ export class DriveAdapter implements StorageAdapter {
     if (meta.mimeType === FOLDER_MIME) {
       throw new StorageError("BAD_ID", "폴더는 다운로드할 수 없습니다");
     }
+    return { real, meta };
+  }
+
+  private async downloadResolved(
+    real: string,
+    meta: DriveFile,
+    range?: string,
+  ): Promise<DownloadResult> {
     if (isGoogleWorkspacePreviewMime(meta.mimeType)) {
       const params = new URLSearchParams({ mimeType: "application/pdf" });
       const res = await driveFetch(
@@ -1053,6 +1231,35 @@ export class DriveAdapter implements StorageAdapter {
       contentRange: res.headers.get("content-range"),
       contentLength: contentLength ? Number(contentLength) : null,
     };
+  }
+
+  async download(id: string, range?: string): Promise<DownloadResult> {
+    const { real, meta } = await this.downloadable(id);
+    return this.downloadResolved(real, meta, range);
+  }
+
+  async preview(id: string, range?: string): Promise<DownloadResult> {
+    const { real, meta } = await this.downloadable(id);
+    const officeImport = officePreviewImport(meta);
+    if (!officeImport) return this.downloadResolved(real, meta, range);
+
+    try {
+      return await convertOfficePreview(real, meta, officeImport);
+    } catch (error) {
+      const isPreviewLimit =
+        error instanceof StorageError &&
+        error.message.includes("한도를 초과했습니다");
+      if (!isPreviewLimit) {
+        console.error("[drive] Office 문서 미리보기 변환 실패", {
+          fileId: real,
+          error,
+        });
+      }
+      const reason = isPreviewLimit
+        ? (error as StorageError).message
+        : "Google 문서 변환이 완료되지 않았습니다.";
+      return officePreviewFallback(meta.name, reason);
+    }
   }
 
   async replaceContent(

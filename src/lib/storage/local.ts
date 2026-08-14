@@ -15,7 +15,7 @@ import {
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
-import { guessMime } from "@/lib/preview";
+import { guessMime, officePreviewImport } from "@/lib/preview";
 import {
   DownloadResult,
   EmptyTrashResult,
@@ -779,6 +779,28 @@ export class LocalAdapter implements StorageAdapter {
       status: 200,
       contentRange: null,
       contentLength: s.size,
+    };
+  }
+
+  async preview(id: string, range?: string): Promise<DownloadResult> {
+    const entry = await this.getEntry(id);
+    if (!officePreviewImport(entry)) return this.download(id, range);
+
+    const message = [
+      `${entry.name} 문서를 미리보기로 변환할 수 없습니다.`,
+      "로컬 저장소 모드에는 Office 문서를 PDF로 바꾸는 변환기가 없습니다.",
+      "미리보기 창 아래의 다운로드 버튼으로 원본 파일을 열어 주세요.",
+    ].join("\n\n");
+    const bytes = new TextEncoder().encode(message);
+    return {
+      stream: new Blob([bytes]).stream(),
+      name: `${entry.name}.preview.txt`,
+      size: bytes.byteLength,
+      mimeType: "text/plain; charset=utf-8",
+      status: 200,
+      contentRange: null,
+      contentLength: bytes.byteLength,
+      acceptRanges: false,
     };
   }
 

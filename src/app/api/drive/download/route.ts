@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("disposition") === "inline";
   const range = req.headers.get("range") ?? undefined;
   try {
-    const file = await getAdapter().download(id, range);
+    const adapter = getAdapter();
+    const file = wantsInline
+      ? await adapter.preview(id, range)
+      : await adapter.download(id, range);
     // 따옴표·백슬래시는 quoted-string 파싱을 깨뜨리므로 ASCII 폴백에서 제거한다.
     const asciiName = file.name
       .replace(/[^\x20-\x7e]/g, "_")
@@ -24,7 +27,9 @@ export async function GET(req: NextRequest) {
       /['()*!]/g,
       (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
     );
-    const inlineType = wantsInline ? inlineContentType(file.mimeType) : null;
+    const inlineType = wantsInline
+      ? inlineContentType(file.mimeType, file.name)
+      : null;
     const headers = new Headers({
       "Content-Type": inlineType ?? file.mimeType,
       "X-Content-Type-Options": "nosniff",
