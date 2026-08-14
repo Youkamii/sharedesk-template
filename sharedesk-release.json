@@ -572,9 +572,9 @@
     },
     {
       "path": "src/lib/client/root-desktop-layout.ts",
-      "sha256": "3726badc976f0435aa8ae1446d7d74d9a6d1db1700cf9602bbdde02ffb922be0",
+      "sha256": "b038eb0d4df1d56b844aaa2ab138f2bd598ef790177133ad9a29f6d66d4ba13c",
       "acceptedSha256": [
-        "ca14acb5cf43ff88df3c8f51bd7e773c5e39132a5e80c5e2ebc0592b830c308c"
+        "2e74d85293c7e87c03a121d44b5e07bf2a8a11e525e2790664f217e01cfd281d"
       ]
     },
     {
@@ -810,9 +810,9 @@
     },
     {
       "path": "tests/root-desktop-layout.test.ts",
-      "sha256": "c73017bf2136aabaa9cdcad6c99c927d72fb58a2cdb143b9df251f3fda5b4513",
+      "sha256": "1c59bbd5b6063bb1c0c0d47de7ea52136875bf8d4b835a9e5388c2c69c04555f",
       "acceptedSha256": [
-        "459c865417023651c077be8a762fd55856f6a833b29143ee58ea745f48c873f8"
+        "a1c6a28e2386b3c3196b5da3e874944951f61afd92f98efe8f53fb37003c62d3"
       ]
     },
     {
