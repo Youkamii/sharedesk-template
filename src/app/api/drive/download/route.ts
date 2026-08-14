@@ -3,6 +3,20 @@ import { getAdapter } from "@/lib/storage";
 import { errorResponse, requireSession } from "@/lib/api";
 import { inlineContentType } from "@/lib/preview";
 
+const OFFICE_FALLBACK_CSP = [
+  "default-src 'none'",
+  "script-src 'none'",
+  "style-src 'unsafe-inline'",
+  "font-src 'self'",
+  "img-src 'none'",
+  "media-src 'none'",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'self'",
+].join("; ");
+
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id");
   const wantsInline =
@@ -27,14 +41,23 @@ export async function GET(req: NextRequest) {
       /['()*!]/g,
       (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
     );
-    const inlineType = wantsInline
-      ? inlineContentType(file.mimeType, file.name)
-      : null;
+    const generatedOfficeFallback =
+      wantsInline && file.generatedPreview === "office-fallback";
+    const inlineType = generatedOfficeFallback
+      ? "text/html; charset=utf-8"
+      : wantsInline
+        ? inlineContentType(file.mimeType, file.name)
+        : null;
     const headers = new Headers({
       "Content-Type": inlineType ?? file.mimeType,
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": `${inlineType ? "inline" : "attachment"}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
     });
+    if (generatedOfficeFallback) {
+      headers.set("Cache-Control", "private, no-store");
+      headers.set("Content-Security-Policy", OFFICE_FALLBACK_CSP);
+      headers.set("X-Frame-Options", "SAMEORIGIN");
+    }
     if (file.acceptRanges !== false) headers.set("Accept-Ranges", "bytes");
     const length = file.contentLength ?? file.size;
     if (length !== null) headers.set("Content-Length", String(length));

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +13,9 @@ import {
 import { DriveAdapter } from "@/lib/storage/drive";
 import { LocalAdapter } from "@/lib/storage/local";
 import { ROOT_ID } from "@/lib/storage/types";
+import { createOfficePreviewFallback } from "@/lib/office-preview-fallback";
+
+Object.assign(globalThis, { AsyncLocalStorage });
 
 async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {
   return new Response(stream).text();
@@ -117,6 +122,32 @@ test("inline 요청은 preview 경로를 쓰고 TXT 편집 계약은 유지한�
   assert.match(filesView, /method: "PATCH"/);
 });
 
+test("Office 실패 문서는 동적 값을 이스케이프하고 원본 다운로드 주소를 인코딩한다", async () => {
+  const fallback = createOfficePreviewFallback({
+    id: 'folder/id?x="&<',
+    name: '"><img src=x onerror=alert(1)>&\'.docx',
+    reason: '<script>alert("reason")</script>',
+  });
+  const html = await streamText(fallback.stream);
+
+  assert.equal(fallback.mimeType, "text/html; charset=utf-8");
+  assert.equal(fallback.generatedPreview, "office-fallback");
+  assert.equal(fallback.acceptRanges, false);
+  assert.equal(fallback.contentLength, new TextEncoder().encode(html).byteLength);
+  assert.match(html, /font-family: "Galmuri11"/);
+  assert.match(
+    html,
+    /&quot;&gt;&lt;img src=x onerror=alert\(1\)&gt;&amp;&#39;\.docx/,
+  );
+  assert.match(html, /&lt;script&gt;alert\(&quot;reason&quot;\)&lt;\/script&gt;/);
+  assert.match(
+    html,
+    /href="\/api\/drive\/download\?id=folder%2Fid%3Fx%3D%22%26%3C"/,
+  );
+  assert.doesNotMatch(html, /<img src=x/);
+  assert.doesNotMatch(html, /<script>alert/);
+});
+
 test("local 모드는 TXT를 실제로 저장하고 Office 한계를 미리보기 안에 설명한다", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "sharedesk-office-preview-"));
   const originalRoot = process.env.LOCAL_STORAGE_ROOT;
@@ -158,7 +189,17 @@ test("local 모드는 TXT를 실제로 저장하고 Office 한계를 미리보�
     const fallback = await adapter.preview(office.id, "bytes=0-3");
     assert.equal(fallback.status, 200);
     assert.equal(fallback.acceptRanges, false);
-    assert.match(await streamText(fallback.stream), /로컬 저장소 모드/);
+    assert.equal(fallback.mimeType, "text/html; charset=utf-8");
+    assert.equal(fallback.generatedPreview, "office-fallback");
+    const fallbackHtml = await streamText(fallback.stream);
+    assert.match(fallbackHtml, /로컬 저장소 모드/);
+    assert.match(fallbackHtml, /ShareDesk 문서 미리보기/);
+    assert.match(
+      fallbackHtml,
+      new RegExp(
+        `href="/api/drive/download\\?id=${encodeURIComponent(office.id)}"`,
+      ),
+    );
     assert.match(
       await streamText((await adapter.download(office.id)).stream),
       /fake-office/,
@@ -166,6 +207,174 @@ test("local 모드는 TXT를 실제로 저장하고 Office 한계를 미리보�
   } finally {
     if (originalRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
     else process.env.LOCAL_STORAGE_ROOT = originalRoot;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Office 실패 Route Handler만 안전한 HTML로 응답하고 일반 HTML은 실행하지 않는다", async () => {
+  assert.equal(
+    inlineContentType("text/html", "uploaded.html"),
+    "text/plain; charset=utf-8",
+  );
+  const root = await mkdtemp(path.join(os.tmpdir(), "sharedesk-office-route-"));
+  const original = {
+    storageDriver: process.env.STORAGE_DRIVER,
+    localRoot: process.env.LOCAL_STORAGE_ROOT,
+    accessKeys: process.env.ACCESS_KEYS,
+    sessionSecret: process.env.SESSION_SECRET,
+  };
+  const accessKey = "office-preview-route-key";
+  process.env.STORAGE_DRIVER = "local";
+  process.env.LOCAL_STORAGE_ROOT = root;
+  process.env.ACCESS_KEYS = accessKey;
+  process.env.SESSION_SECRET = "office-preview-route-secret-at-least-32-chars";
+
+  try {
+    const adapter = new LocalAdapter();
+    const office = await adapter.upload(
+      ROOT_ID,
+      "proposal.docx",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      new Blob(["fake-office"]).stream(),
+    );
+    const uploadedHtml = await adapter.upload(
+      ROOT_ID,
+      "uploaded.html",
+      "text/html",
+      new Blob(['<script>document.body.textContent="실행됨"</script>']).stream(),
+    );
+    const uploadedMarkup = await adapter.upload(
+      ROOT_ID,
+      "uploaded.txt",
+      "text/plain",
+      new Blob(['<script>document.body.textContent="실행됨"</script>']).stream(),
+    );
+    const pdf = await adapter.upload(
+      ROOT_ID,
+      "preview.pdf",
+      "application/pdf",
+      new Blob(["%PDF-preview"]).stream(),
+    );
+
+    const { NextRequest } = await import("next/server");
+    const { createKeySession } = await import("@/lib/auth");
+    const { COOKIE_NAME } = await import("@/lib/session-token");
+    const { createRequestStoreForAPI } = await import(
+      "next/dist/server/async-storage/request-store.js"
+    );
+    const { workUnitAsyncStorage } = await import(
+      "next/dist/server/app-render/work-unit-async-storage.external.js"
+    );
+    const { workAsyncStorage } = await import(
+      "next/dist/server/app-render/work-async-storage.external.js"
+    );
+    type WorkStore = import(
+      "next/dist/server/app-render/work-async-storage.external.js"
+    ).WorkStore;
+    const route = await import("@/app/api/drive/download/route");
+    const token = await createKeySession(
+      createHash("sha256").update(accessKey).digest("hex"),
+    );
+
+    async function call(
+      id: string,
+      options: { inline?: boolean; range?: string } = {},
+    ): Promise<Response> {
+      const query = new URLSearchParams({ id });
+      if (options.inline) query.set("disposition", "inline");
+      const url = `http://localhost/api/drive/download?${query}`;
+      const headers = new Headers({
+        Cookie: `${COOKIE_NAME}=${token}`,
+      });
+      if (options.range) headers.set("Range", options.range);
+      const request = new NextRequest(url, { headers });
+      const parsed = new URL(url);
+      const requestStore = createRequestStoreForAPI(
+        request,
+        { pathname: parsed.pathname, search: parsed.search },
+        { tags: [], expirationsByCacheKind: new Map() },
+        undefined,
+        undefined,
+        undefined,
+      );
+      const workStore = {
+        route: parsed.pathname,
+        forceStatic: false,
+      } as unknown as WorkStore;
+      return workAsyncStorage.run(workStore, () =>
+        workUnitAsyncStorage.run(requestStore, () => route.GET(request)),
+      );
+    }
+
+    const fallback = await call(office.id, { inline: true, range: "bytes=0-3" });
+    assert.equal(fallback.status, 200);
+    assert.equal(fallback.headers.get("Content-Type"), "text/html; charset=utf-8");
+    assert.match(fallback.headers.get("Content-Disposition") ?? "", /^inline;/);
+    assert.equal(fallback.headers.get("Cache-Control"), "private, no-store");
+    assert.equal(fallback.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(fallback.headers.get("X-Frame-Options"), "SAMEORIGIN");
+    assert.equal(fallback.headers.get("Accept-Ranges"), null);
+    const csp = fallback.headers.get("Content-Security-Policy") ?? "";
+    assert.match(csp, /default-src 'none'/);
+    assert.match(csp, /script-src 'none'/);
+    assert.match(csp, /style-src 'unsafe-inline'/);
+    assert.match(csp, /font-src 'self'/);
+    assert.match(csp, /frame-ancestors 'self'/);
+    const fallbackBody = await fallback.text();
+    assert.equal(
+      fallback.headers.get("Content-Length"),
+      String(new TextEncoder().encode(fallbackBody).byteLength),
+    );
+    assert.match(fallbackBody, /ShareDesk 문서 미리보기/);
+    assert.match(
+      fallbackBody,
+      new RegExp(
+        `href="/api/drive/download\\?id=${encodeURIComponent(office.id)}"`,
+      ),
+    );
+
+    const unsafe = await call(uploadedHtml.id, { inline: true });
+    assert.equal(unsafe.status, 200);
+    assert.equal(unsafe.headers.get("Content-Type"), "application/octet-stream");
+    assert.match(unsafe.headers.get("Content-Disposition") ?? "", /^attachment;/);
+    assert.equal(unsafe.headers.get("Content-Security-Policy"), null);
+    assert.match(await unsafe.text(), /<script>/);
+
+    const markup = await call(uploadedMarkup.id, { inline: true });
+    assert.equal(markup.status, 200);
+    assert.equal(markup.headers.get("Content-Type"), "text/plain; charset=utf-8");
+    assert.match(markup.headers.get("Content-Disposition") ?? "", /^inline;/);
+    assert.equal(markup.headers.get("Content-Security-Policy"), null);
+    assert.match(await markup.text(), /<script>/);
+
+    const pdfPreview = await call(pdf.id, {
+      inline: true,
+      range: "bytes=0-3",
+    });
+    assert.equal(pdfPreview.status, 206);
+    assert.equal(pdfPreview.headers.get("Content-Type"), "application/pdf");
+    assert.equal(pdfPreview.headers.get("Content-Range"), "bytes 0-3/12");
+    assert.match(pdfPreview.headers.get("Content-Disposition") ?? "", /^inline;/);
+    assert.equal(await pdfPreview.text(), "%PDF");
+
+    const originalOffice = await call(office.id, { range: "bytes=0-3" });
+    assert.equal(originalOffice.status, 206);
+    assert.equal(originalOffice.headers.get("Content-Range"), "bytes 0-3/11");
+    assert.match(
+      originalOffice.headers.get("Content-Disposition") ?? "",
+      /^attachment;/,
+    );
+    assert.equal(await originalOffice.text(), "fake");
+  } finally {
+    for (const [name, value] of [
+      ["STORAGE_DRIVER", original.storageDriver],
+      ["LOCAL_STORAGE_ROOT", original.localRoot],
+      ["ACCESS_KEYS", original.accessKeys],
+      ["SESSION_SECRET", original.sessionSecret],
+    ] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -454,8 +663,9 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     console.error = () => {};
     try {
       const failed = await adapter.preview("broken-office");
-      assert.equal(failed.mimeType, "text/plain; charset=utf-8");
-      assert.match(await streamText(failed.stream), /다운로드 버튼/);
+      assert.equal(failed.mimeType, "text/html; charset=utf-8");
+      assert.equal(failed.generatedPreview, "office-fallback");
+      assert.match(await streamText(failed.stream), /원본 다운로드/);
     } finally {
       console.error = originalConsoleError;
     }
