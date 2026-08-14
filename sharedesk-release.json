@@ -288,9 +288,9 @@
     },
     {
       "path": "src/app/api/desktop/layout/route.ts",
-      "sha256": "5876fa21f51e4b10fb8ca7f9d6ac8ca54b254dcf265604d58f9e2c10bb0049c6",
+      "sha256": "97e9179f96364ff23bebd4c88d432453d16af952246238a7113ffb8e42c524ab",
       "acceptedSha256": [
-        "c515017d6b1c41d1c19d26f88b2c84012bb2e0206a5a9da4333434b15171a2ac"
+        "fedb8938eb9a2f1d68637061bc06f64e8bfc34cc316cb6bb117c9077a65e9532"
       ]
     },
     {
@@ -418,9 +418,9 @@
     },
     {
       "path": "src/app/files/FilesView.tsx",
-      "sha256": "91555c736c4a731df0b51afd4d3e3823b423602bbe2b57a0372f032e3eb6f652",
+      "sha256": "8c4c72caec1200eab146b26e842a2b8e9d9ac3a3812eaef4fb2d0ff1a2227265",
       "acceptedSha256": [
-        "153840a8fcf0e98a4e62b86c862b1949f119c304f5cae95cadc4a82a04c2c512"
+        "e0a7b37ab22043e625e3daa0f4333d8fa656e03f20c327d2b591920650e2b777"
       ]
     },
     {
@@ -572,9 +572,9 @@
     },
     {
       "path": "src/lib/client/root-desktop-layout.ts",
-      "sha256": "0a03f4eaee39b2224d5c7806ed029a48d4d6b2ab328c63033d00559150ee9ca8",
+      "sha256": "bf325bab09a0b287d7b1972398fdc7dbbeba4f684a8d2ff3e4d22e0fcab9ae64",
       "acceptedSha256": [
-        "1792cea75cd3620f8d0144cba75b853a621d4f4e6b35762ff8ec5068798c22fe"
+        "e794608fff9fa65981ec7b7e2929a7de4c8cf32a12159a6422b09437d3f5b124"
       ]
     },
     {
@@ -593,9 +593,9 @@
     },
     {
       "path": "src/lib/desktop-layout.ts",
-      "sha256": "cc694e23828114fbf49c8498517a843d5b3a7a1d2d97ac0140eb9c56a4a45717",
+      "sha256": "3df9f622e2e4e8b4a573853672a99092762e743c0034f41da70ddfc27935d06e",
       "acceptedSha256": [
-        "1e0f71867df7588a995b2e50d75525f6c481dfeb86bd84114c025fc5f1243681"
+        "971a3a4aefaf6989eaa54eb493a6d5d979517afa5a0f89c2101b6b849b360c7f"
       ]
     },
     {
@@ -726,9 +726,9 @@
     },
     {
       "path": "tests/desktop-layout.test.ts",
-      "sha256": "b39a466ae610d464eeb5ca19a2686107d42242ff6abca8bcf54bfeeda9b99673",
+      "sha256": "a8dbbe3382bb3a32371b0c8bc1d634d57f370cfae1842423ae135b5e098a272b",
       "acceptedSha256": [
-        "3e8346fc879d6a0cd168b01844f39650e2bbbac5ac5b9e556a1d1667ff447c25"
+        "054730d5ab6ab6de34c6e3aecfce295c203350dab9775aabe3c81d9a874a48f6"
       ]
     },
     {
@@ -747,9 +747,9 @@
     },
     {
       "path": "tests/files-move-ui.test.ts",
-      "sha256": "e8ea4f6c11e5c2796dc66827cb12aceb5571a5c4d32ff69a0b11afc5222f751b",
+      "sha256": "1c26c800ced178853d3aafacb9b88c4549f78f519692dd03cf7ad89b7afc43af",
       "acceptedSha256": [
-        "486ae20f09c195da72494754dc0686fc2bfa5926bf2c07752d54a7c7dfc0c59a"
+        "b9dbbd04cfef4a07fad4cbceaf195524cf6a91a330dd0494a22fd08c5dbd5c2a"
       ]
     },
     {
@@ -810,9 +810,9 @@
     },
     {
       "path": "tests/root-desktop-layout.test.ts",
-      "sha256": "74851adc2803c6471f6be6fb04f8249f0cc85e6c6793a6d00bc74482950dfd3f",
+      "sha256": "d8ee78fe6796bdb195ae81b5806a97fc794c92e568f904f3832ef51e91df3d83",
       "acceptedSha256": [
-        "283c693c7c00a19c3ab74d6f2f43692e469970a8d66b4d23ce7991d82634c499"
+        "cbc791789b5e79c8bf984deb5762768360ed63a6371c6b48a350aa96884b8f00"
       ]
     },
     {
