@@ -1189,19 +1189,7 @@ export default function FilesView({
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      const current = previewWindowRef.current;
-      if (
-        !current ||
-        !previewDiscardReason({
-          editable: current.kind === "text",
-          text: current.text,
-          originalText: current.originalText,
-          saving:
-            current.textSaving || previewSaveControllerRef.current !== null,
-        })
-      ) {
-        return;
-      }
+      if (!activePreviewDiscardReason()) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -1994,6 +1982,15 @@ export default function FilesView({
     );
   }
 
+  function confirmPreviewLifecycleChange(entry: Entry) {
+    if (!previewAffectedByEntryLifecycle(entry)) return true;
+    const reason = activePreviewDiscardReason();
+    if (!reason) return true;
+    if (!confirmPreviewDiscard()) return false;
+    discardActivePreview();
+    return true;
+  }
+
   function updateRenamedFolder(folderId: string, replacement: Crumb) {
     const affected = windowsRef.current.filter((item) =>
       item.path.some((crumb) => crumb.id === folderId),
@@ -2685,16 +2682,20 @@ export default function FilesView({
     }
   }
 
-  function confirmPreviewDiscard() {
+  function activePreviewDiscardReason() {
     const current = previewWindowRef.current;
-    if (!current) return true;
-    const reason = previewDiscardReason({
+    if (!current) return null;
+    return previewDiscardReason({
       editable: current.kind === "text",
       text: current.text,
       originalText: current.originalText,
       saving:
         current.textSaving || previewSaveControllerRef.current !== null,
     });
+  }
+
+  function confirmPreviewDiscard() {
+    const reason = activePreviewDiscardReason();
     if (!reason) return true;
     if (reason === "saving") {
       setNotice("텍스트 파일을 저장하는 중입니다. 저장이 끝난 뒤 다시 시도해 주세요");
@@ -2783,12 +2784,16 @@ export default function FilesView({
     });
   }
 
-  function discardPreviewForEntry(entryId: string) {
-    if (previewWindowRef.current?.entry.id !== entryId) return;
+  function discardActivePreview() {
     previewOpenerRef.current = null;
     cancelPreviewRequests();
     previewWindowRef.current = null;
     setPreviewWindow(null);
+  }
+
+  function discardPreviewForEntry(entryId: string) {
+    if (previewWindowRef.current?.entry.id !== entryId) return;
+    discardActivePreview();
   }
 
   function updatePreviewAfterRename(previousId: string, entry: Entry) {
@@ -3923,8 +3928,7 @@ export default function FilesView({
   ) {
     if (
       entry.isFolder &&
-      previewAffectedByEntryLifecycle(entry) &&
-      !confirmPreviewDiscard()
+      !confirmPreviewLifecycleChange(entry)
     ) {
       return false;
     }
@@ -4078,8 +4082,7 @@ export default function FilesView({
     announce = true,
   ) {
     if (
-      previewAffectedByEntryLifecycle(entry) &&
-      !confirmPreviewDiscard()
+      !confirmPreviewLifecycleChange(entry)
     ) {
       return false;
     }
@@ -5080,8 +5083,7 @@ export default function FilesView({
     if (
       dialog.kind !== "create" &&
       (dialog.kind === "delete" || dialog.entry.isFolder) &&
-      previewAffectedByEntryLifecycle(dialog.entry) &&
-      !confirmPreviewDiscard()
+      !confirmPreviewLifecycleChange(dialog.entry)
     ) {
       return;
     }
@@ -5194,6 +5196,7 @@ export default function FilesView({
 
   async function logout() {
     if (!confirmPreviewDiscard()) return;
+    if (activePreviewDiscardReason()) discardActivePreview();
     await fetch("/api/presence", {
       method: "DELETE",
       cache: "no-store",

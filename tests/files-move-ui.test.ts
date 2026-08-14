@@ -172,15 +172,19 @@ test("TXT 초안은 저장 완료 전 전환과 창 이탈·로그아웃·상위
   );
   assert.match(
     source,
-    /entry\.isFolder &&\s*previewAffectedByEntryLifecycle\(entry\) &&\s*!confirmPreviewDiscard\(\)/,
+    /if \(!confirmPreviewDiscard\(\)\) return false;\s*discardActivePreview\(\)/,
   );
   assert.match(
     source,
-    /dialog\.kind === "delete" \|\| dialog\.entry\.isFolder[\s\S]*?previewAffectedByEntryLifecycle\(dialog\.entry\)[\s\S]*?!confirmPreviewDiscard\(\)/,
+    /entry\.isFolder &&\s*!confirmPreviewLifecycleChange\(entry\)/,
   );
   assert.match(
     source,
-    /async function logout\(\) \{\s*if \(!confirmPreviewDiscard\(\)\) return/,
+    /dialog\.kind === "delete" \|\| dialog\.entry\.isFolder[\s\S]*?!confirmPreviewLifecycleChange\(dialog\.entry\)/,
+  );
+  assert.match(
+    source,
+    /async function logout\(\) \{\s*if \(!confirmPreviewDiscard\(\)\) return;\s*if \(activePreviewDiscardReason\(\)\) discardActivePreview\(\)/,
   );
 });
 
