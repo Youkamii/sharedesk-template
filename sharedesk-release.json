@@ -309,9 +309,9 @@
     },
     {
       "path": "src/app/api/drive/download/route.ts",
-      "sha256": "8f967405dbdd3c7ada22da268a8bcff1515c0f2f3c493971f3d2f5906f6bd46f",
+      "sha256": "e7d5d97cd3061dc02d3b8b909f4c39a83e6956d5b3661938f463c90defa6ede2",
       "acceptedSha256": [
-        "f1a01ddbe0f194d424da7c046c019bc8d935b9f57d7efc68fb537088f02797dd"
+        "445be9c706a4d6037e20293e8a85863f84e703b2ace59d10f0609acee4ef34b0"
       ]
     },
     {
@@ -418,9 +418,9 @@
     },
     {
       "path": "src/app/files/FilesView.tsx",
-      "sha256": "8c4c72caec1200eab146b26e842a2b8e9d9ac3a3812eaef4fb2d0ff1a2227265",
+      "sha256": "b3dc963c74679dcba7ab0d3c6aadf9a027b751bc3c8f58f8ece34f53eace8e33",
       "acceptedSha256": [
-        "e0a7b37ab22043e625e3daa0f4333d8fa656e03f20c327d2b591920650e2b777"
+        "e0e1829802cd58699992fcb1695d2bfc156708a5f94c09f448fd4626005554a3"
       ]
     },
     {
@@ -627,6 +627,13 @@
       ]
     },
     {
+      "path": "src/lib/office-preview-fallback.ts",
+      "sha256": "b7ead6728f7f32fe24d62d5ce21cb57001758b507b86d2da9f790cd7daf6d423",
+      "acceptedSha256": [
+        "ee8f61a0f02c0c477956270886df6865f728f3e24195a04963f38a3721c37b06"
+      ]
+    },
+    {
       "path": "src/lib/presence.ts",
       "sha256": "fdf8f32ff5d8bbcc8b39892a1897835a785cb65674bf1664606f8504e9a2419f",
       "acceptedSha256": [
@@ -663,9 +670,9 @@
     },
     {
       "path": "src/lib/storage/drive.ts",
-      "sha256": "82fb5281f66122211b8c4009af57e0e0b8a86aaf82586dc95593de65c9fce6ec",
+      "sha256": "bcebc4486e356563390a76846a24eff51ceda92c3bab8c27e08aaff9a1f6c02b",
       "acceptedSha256": [
-        "acf9e86e69fd88162b0dbdfc01fd6a3ce41c8743bdc2e4b17d76fc3d581ab210"
+        "ff5fc1553316ac38dec20a3e0ef15498c38ad4483154bf00e52e3f2868ad1fb8"
       ]
     },
     {
@@ -677,16 +684,16 @@
     },
     {
       "path": "src/lib/storage/local.ts",
-      "sha256": "133cc7437d03f7fd3c759790e5845081a333a0b7102f25e7e37a5b31b4ccf04b",
+      "sha256": "54eea2eac4341472ae1610685d11ff2c8e0c4c9059dafdd037f1c1672414608d",
       "acceptedSha256": [
-        "5eb258470237decda51d63e733fd4f48364624192a9a870e2cd9083514bdda99"
+        "88dda1a54196cc14ef27599b5043fc4825e4c85b850a12e16cffa85990d231cb"
       ]
     },
     {
       "path": "src/lib/storage/types.ts",
-      "sha256": "9a3e8bb231afab0bd10a6e343ab48ac305cf7ed1acb00eb3875bb7f10604c1ff",
+      "sha256": "2bc187fb038156bd9908227d84ce22d77ac9c1559bccfe69cf3ae02dcf977aff",
       "acceptedSha256": [
-        "0297a96f7346ed02fd2656077b89ae9ed6d2b448cc4cff9503220f7ae1a7596e"
+        "09966f290fe99208ef099eed4c83d051b392785bfa55b3203eb8dab6157539ae"
       ]
     },
     {
@@ -747,9 +754,9 @@
     },
     {
       "path": "tests/files-move-ui.test.ts",
-      "sha256": "1c26c800ced178853d3aafacb9b88c4549f78f519692dd03cf7ad89b7afc43af",
+      "sha256": "c0c48824d95d666652a36647e75a5b63180556059a83fb92c22f237c74b4437c",
       "acceptedSha256": [
-        "b9dbbd04cfef4a07fad4cbceaf195524cf6a91a330dd0494a22fd08c5dbd5c2a"
+        "1e2078be665ad2d357e3e02bbed8b1dafb989527cd18cc9f10ffa6b25b4bcec4"
       ]
     },
     {
@@ -775,9 +782,9 @@
     },
     {
       "path": "tests/office-preview.test.ts",
-      "sha256": "167c434bc5404937d60cbca85705a9313777b3cf322e3589a47f7cd2776ec0f8",
+      "sha256": "f8dcfa8d94597f65e2ab5709254d3cda05ea6339ab9ca8b10dc087e912ab4732",
       "acceptedSha256": [
-        "7a369236a0aae65e9f498e582c92722ab38c4e9cc089850c034783ce01a88c7d"
+        "7d84a3da0d952f05574dc2204280e713c48b9918f43b9adc66dc7d4ca3a0d898"
       ]
     },
     {
