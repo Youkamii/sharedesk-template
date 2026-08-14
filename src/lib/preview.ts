@@ -164,10 +164,13 @@ export function officePreviewImport(entry: {
 }
 
 function isCsvPreview(mime: string | null, name: string): boolean {
-  if (extensionOf(name) !== "csv") return mime === "application/csv";
+  if (extensionOf(name) !== "csv") {
+    return mime === "application/csv" || mime === "application/x-csv";
+  }
   return (
     mime === "text/csv" ||
     mime === "application/csv" ||
+    mime === "application/x-csv" ||
     mime === "application/vnd.ms-excel" ||
     mime === "application/octet-stream" ||
     mime === null

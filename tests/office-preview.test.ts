@@ -59,6 +59,14 @@ test("Office와 OpenDocument는 PDF 미리보기, CSV는 텍스트 미리보기�
     "text",
   );
   assert.equal(
+    previewKindOf({
+      isFolder: false,
+      name: "records.csv",
+      mimeType: "application/x-csv",
+    }),
+    "text",
+  );
+  assert.equal(
     officePreviewImport({
       name: "records.csv",
       mimeType: "application/vnd.ms-excel",
@@ -71,6 +79,10 @@ test("Office와 OpenDocument는 PDF 미리보기, CSV는 텍스트 미리보기�
   );
   assert.equal(
     inlineContentType("application/csv", "records.csv"),
+    "text/plain; charset=utf-8",
+  );
+  assert.equal(
+    inlineContentType("application/x-csv", "records.csv"),
     "text/plain; charset=utf-8",
   );
 });
