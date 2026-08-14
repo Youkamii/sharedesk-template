@@ -147,6 +147,33 @@ function nearestEmptyGridPosition(
   })[0];
 }
 
+function nearestGridPosition(
+  target: Pick<RootDesktopPlacement, "x" | "y">,
+  candidates: readonly Pick<RootDesktopPlacement, "x" | "y">[],
+) {
+  return candidates.slice().sort((left, right) => {
+    const leftDistance =
+      (left.x - target.x) ** 2 + (left.y - target.y) ** 2;
+    const rightDistance =
+      (right.x - target.x) ** 2 + (right.y - target.y) ** 2;
+    return leftDistance - rightDistance;
+  })[0];
+}
+
+function isSystemDefaultPlacement(position: RootDesktopPlacement) {
+  const column = (position.x - ROOT_GRID_X) / ROOT_GRID_STEP_X;
+  const row = (position.y - ROOT_GRID_Y) / ROOT_GRID_STEP_Y;
+  return (
+    position.version >= 0 &&
+    position.version <= 1 &&
+    Number.isInteger(column) &&
+    column >= 0 &&
+    column < ROOT_DEFAULT_COLUMNS &&
+    Number.isInteger(row) &&
+    row >= 0
+  );
+}
+
 export function normalizeRootDesktopLayout(
   entries: readonly RootDesktopEntry[],
   storedPositions: Readonly<Record<string, RootDesktopPlacement>>,
@@ -161,7 +188,12 @@ export function normalizeRootDesktopLayout(
   }> = [];
   const missing: Array<{ entry: RootDesktopEntry; index: number }> = [];
 
-  const useDenseGrid = entries.length >= 78;
+  const useDenseGrid =
+    entries.length >= 78 &&
+    entries.every((entry) => {
+      const stored = storedPositions[entry.layoutKey];
+      return !stored || isSystemDefaultPlacement(stored);
+    });
 
   entries.forEach((entry, index) => {
     const stored = storedPositions[entry.layoutKey];
@@ -191,14 +223,21 @@ export function normalizeRootDesktopLayout(
       forceGrid ||
       rootPlacementOverlapsTrash(nearest) ||
       occupied.some((current) => rectanglesOverlap(nearest, current));
+    const candidates = forceGrid
+      ? ROOT_DENSE_GRID_POSITIONS
+      : ROOT_GRID_POSITIONS;
     const emptyPosition = requiresEmptySlot
       ? nearestEmptyGridPosition(
           nearest,
           occupied,
-          forceGrid ? ROOT_DENSE_GRID_POSITIONS : ROOT_GRID_POSITIONS,
+          candidates,
         )
       : nearest;
-    const position = emptyPosition ?? nearest;
+    const position =
+      emptyPosition ??
+      (rootPlacementOverlapsTrash(nearest)
+        ? nearestGridPosition(nearest, candidates)
+        : nearest);
     const placement = {
       ...position,
       version,

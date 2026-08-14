@@ -142,12 +142,12 @@ test("저장 좌표가 아직 없는 optimistic 항목은 PATCH 보정 대상으
   assert.deepEqual(normalized.corrections, []);
 });
 
-test("83개의 저장된 화면 밖 좌표를 겹침과 휴지통 없이 빽빽하게 보정한다", () => {
+test("83개의 서버 기본 좌표를 겹침과 휴지통 없이 빽빽하게 보정한다", () => {
   const input = entries(83);
   const stored = Object.fromEntries(
     input.map((entry, index) => [
       entry.layoutKey,
-      { x: 1500 + index, y: 800 + index, version: index + 1 },
+      { ...defaultPlacement(index), version: 1 },
     ]),
   );
 
@@ -164,16 +164,48 @@ test("83개의 저장된 화면 밖 좌표를 겹침과 휴지통 없이 빽빽�
   assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
+test("78번째 항목이 생겨도 커스텀 좌표와 기존의 유효 좌표는 보존한다", () => {
+  const input = entries(78);
+  const stored = Object.fromEntries(
+    input.slice(0, 77).map((entry, index) => [
+      entry.layoutKey,
+      { ...defaultPlacement(index), version: 1 },
+    ]),
+  );
+  stored[input[0].layoutKey] = { x: 13, y: 10, version: 1 };
+
+  const normalized = normalizeRootDesktopLayout(input, stored);
+  const validEntries = input.slice(0, 36);
+  validEntries.forEach((entry) => {
+    assert.deepEqual(normalized.positions[entry.layoutKey], stored[entry.layoutKey]);
+    assert.equal(
+      normalized.corrections.some(
+        ({ layoutKey }) => layoutKey === entry.layoutKey,
+      ),
+      false,
+    );
+  });
+  assert.deepEqual(normalized.unresolvedLayoutKeys, [input[77].layoutKey]);
+  Object.values(normalized.positions).forEach((placement) => {
+    assertInside(placement);
+    assert.equal(rootPlacementOverlapsTrash(placement), false);
+  });
+});
+
 test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구 저장하지 않는다", () => {
   const input = entries(84);
   const stored = Object.fromEntries(
     input.map((entry, index) => [
       entry.layoutKey,
-      { x: 1500 + index, y: 800 + index, version: index + 1 },
+      { ...defaultPlacement(index), version: 1 },
     ]),
   );
 
   const normalized = normalizeRootDesktopLayout(input, stored);
+  Object.values(normalized.positions).forEach((placement) => {
+    assertInside(placement);
+    assert.equal(rootPlacementOverlapsTrash(placement), false);
+  });
   const corrected = normalized.corrections.map(({ placement }) => placement);
   assert.equal(corrected.length, 83);
   corrected.forEach((placement, index) => {
@@ -189,6 +221,35 @@ test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구
     ),
     false,
   );
+});
+
+test("커스텀 좌표가 슬롯을 넘쳐도 표시 위치는 휴지통 아래로 들어가지 않는다", () => {
+  const input = entries(84);
+  const stored = Object.fromEntries(
+    input.map((entry, index) => [
+      entry.layoutKey,
+      { x: 1500 + index, y: 800 + index, version: index + 1 },
+    ]),
+  );
+
+  const normalized = normalizeRootDesktopLayout(input, stored);
+  Object.values(normalized.positions).forEach((placement) => {
+    assertInside(placement);
+    assert.equal(rootPlacementOverlapsTrash(placement), false);
+  });
+  assert.equal(normalized.corrections.length, 77);
+  assert.deepEqual(
+    normalized.unresolvedLayoutKeys,
+    input.slice(77).map((entry) => entry.layoutKey),
+  );
+  normalized.unresolvedLayoutKeys.forEach((layoutKey) => {
+    assert.equal(
+      normalized.corrections.some(
+        (correction) => correction.layoutKey === layoutKey,
+      ),
+      false,
+    );
+  });
 });
 
 test("경계로 당긴 좌표가 겹치면 비어 있는 13x6 격자로 옮긴다", () => {
@@ -279,13 +340,33 @@ test("ROOT만 스크롤을 막고 폴더 평면과 기존 CAS 저장 흐름은 �
     source.indexOf("async function pumpSave"),
     source.indexOf("// 포인터 아래의 이동 대상"),
   );
+  assert.doesNotMatch(
+    batchPump,
+    /catch \(error\) \{[\s\S]*?rootDesktopCorrectionAttemptRef\.current = ""/,
+  );
+  assert.doesNotMatch(
+    singlePump,
+    /catch \(error\) \{[\s\S]*?rootDesktopCorrectionAttemptRef\.current = ""/,
+  );
   assert.match(
     batchPump,
-    /catch \(error\) \{[\s\S]*?releaseRootDesktopCorrectionAttempt\(first\.node\)/,
+    /await loadRoot\(true\)[\s\S]*?deferRootDesktopCorrectionRetry\(first\.node\)/,
   );
   assert.match(
     singlePump,
-    /catch \(error\) \{[\s\S]*?releaseRootDesktopCorrectionAttempt\(node\)/,
+    /await loadRoot\(true\)[\s\S]*?deferRootDesktopCorrectionRetry\(node\)/,
+  );
+  assert.match(
+    source,
+    /if \(retry\.retried \|\| retry\.timer !== null\) return;[\s\S]*?window\.setTimeout\([\s\S]*?current\.retried = true/,
+  );
+  assert.match(
+    source,
+    /const trackRootDesktopCorrectionToken = useCallback\([\s\S]*?\.token === token\) return;[\s\S]*?resetRootDesktopCorrectionRetry\(token\)/,
+  );
+  assert.match(
+    source,
+    /const timer = rootDesktopCorrectionRetryRef\.current\.timer;[\s\S]*?window\.clearTimeout\(timer\)/,
   );
   assert.match(
     route,

@@ -312,6 +312,7 @@ const ICON_INSET_Y = 10;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
 const MAX_LAYOUT_BATCH_UPDATES = 256;
+const ROOT_DESKTOP_CORRECTION_RETRY_MS = 1_500;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -617,6 +618,11 @@ export default function FilesView({
   } | null>(null);
   const transientPositionsRef = useRef<Record<string, Placement>>({});
   const rootDesktopCorrectionAttemptRef = useRef("");
+  const rootDesktopCorrectionRetryRef = useRef<{
+    token: string;
+    timer: number | null;
+    retried: boolean;
+  }>({ token: "", timer: null, retried: false });
   const queueRootDesktopCorrectionsRef = useRef<
     (
       corrections: RootDesktopCorrection[],
@@ -674,6 +680,24 @@ export default function FilesView({
   });
   const [previewFocusRequest, setPreviewFocusRequest] = useState(0);
   const [downloadFirst, setDownloadFirst] = useState(false);
+  const [rootDesktopCorrectionRetryTick, setRootDesktopCorrectionRetryTick] =
+    useState(0);
+  const resetRootDesktopCorrectionRetry = useCallback((token = "") => {
+    const current = rootDesktopCorrectionRetryRef.current;
+    if (current.timer !== null) window.clearTimeout(current.timer);
+    rootDesktopCorrectionRetryRef.current = {
+      token,
+      timer: null,
+      retried: false,
+    };
+  }, []);
+  const trackRootDesktopCorrectionToken = useCallback(
+    (token: string) => {
+      if (rootDesktopCorrectionRetryRef.current.token === token) return;
+      resetRootDesktopCorrectionRetry(token);
+    },
+    [resetRootDesktopCorrectionRetry],
+  );
   // SSR과 첫 하이드레이션은 기본 배경으로 그리고, 저장된 선택은 마운트 후 적용한다.
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
 
@@ -1244,6 +1268,13 @@ export default function FilesView({
   }, []);
 
   useEffect(() => {
+    return () => {
+      const timer = rootDesktopCorrectionRetryRef.current.timer;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (
       rootData.loading ||
       !rootData.folderIdentity ||
@@ -1251,6 +1282,7 @@ export default function FilesView({
     ) {
       if (rootDesktopLayout.corrections.length === 0) {
         rootDesktopCorrectionAttemptRef.current = "";
+        resetRootDesktopCorrectionRetry();
       }
       return;
     }
@@ -1283,6 +1315,7 @@ export default function FilesView({
         correctionToken,
       )
     ) {
+      trackRootDesktopCorrectionToken(correctionToken);
       rootDesktopCorrectionAttemptRef.current = correctionToken;
     }
   }, [
@@ -1290,8 +1323,11 @@ export default function FilesView({
     rootData.entries,
     rootData.loading,
     rootData.revision,
+    rootDesktopCorrectionRetryTick,
     rootDesktopLayout.corrections,
+    resetRootDesktopCorrectionRetry,
     savingPositions,
+    trackRootDesktopCorrectionToken,
   ]);
 
   useEffect(() => {
@@ -1928,7 +1964,6 @@ export default function FilesView({
       if (node.scopeId !== scopeId) continue;
       node.next = null;
       node.controller?.abort();
-      releaseRootDesktopCorrectionAttempt(node);
       saveQueueRef.current.delete(key);
       savingPositionKeysRef.current.delete(key);
       cancelledKeys.push(key);
@@ -4003,7 +4038,6 @@ export default function FilesView({
         chunk.forEach(({ key, node }) => finishSave(key, node));
       }
     } catch (error) {
-      releaseRootDesktopCorrectionAttempt(first.node);
       const activeNodes = nodes.filter(({ key, node }) =>
         isActiveSave(key, node),
       );
@@ -4021,8 +4055,10 @@ export default function FilesView({
             );
           }
         }
+        deferRootDesktopCorrectionRetry(first.node);
       } else {
         setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        deferRootDesktopCorrectionRetry(first.node);
       }
     }
   }
@@ -4034,13 +4070,23 @@ export default function FilesView({
     );
   }
 
-  function releaseRootDesktopCorrectionAttempt(node: LayoutSaveNode) {
-    if (
-      node.rootCorrectionToken &&
-      rootDesktopCorrectionAttemptRef.current === node.rootCorrectionToken
-    ) {
-      rootDesktopCorrectionAttemptRef.current = "";
+  function deferRootDesktopCorrectionRetry(node: LayoutSaveNode) {
+    const token = node.rootCorrectionToken;
+    if (!token || rootDesktopCorrectionAttemptRef.current !== token) return;
+    if (rootDesktopCorrectionRetryRef.current.token !== token) {
+      resetRootDesktopCorrectionRetry(token);
     }
+    const retry = rootDesktopCorrectionRetryRef.current;
+    if (retry.retried || retry.timer !== null) return;
+    retry.timer = window.setTimeout(() => {
+      const current = rootDesktopCorrectionRetryRef.current;
+      if (current.token !== token) return;
+      current.timer = null;
+      current.retried = true;
+      if (rootDesktopCorrectionAttemptRef.current !== token) return;
+      rootDesktopCorrectionAttemptRef.current = "";
+      setRootDesktopCorrectionRetryTick((value) => value + 1);
+    }, ROOT_DESKTOP_CORRECTION_RETRY_MS);
   }
 
   function finishSave(key: string, node: LayoutSaveNode) {
@@ -4109,7 +4155,6 @@ export default function FilesView({
       }
       finishSave(key, node);
     } catch (error) {
-      releaseRootDesktopCorrectionAttempt(node);
       if (!isActiveSave(key, node) || isAbortError(error)) return;
       node.inFlight = false;
       node.controller = null;
@@ -4120,8 +4165,10 @@ export default function FilesView({
           if (node.scopeId === ROOT_SCOPE) await loadRoot(true);
           else await loadDeskWindow(node.scopeId, node.folderId, true);
         }
+        deferRootDesktopCorrectionRetry(node);
       } else {
         setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        deferRootDesktopCorrectionRetry(node);
       }
     }
   }
