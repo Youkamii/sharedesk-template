@@ -92,6 +92,7 @@ test("inline 요청은 preview 경로를 쓰고 TXT 편집 계약은 유지한�
   ]);
 
   assert.match(downloadRoute, /wantsInline\s*\? await adapter\.preview\(id, range\)/);
+  assert.match(downloadRoute, /requireSession\(\{ fresh: wantsInline \}\)/);
   assert.match(
     downloadRoute,
     /inlineContentType\(file\.mimeType, file\.name\)/,
@@ -183,6 +184,9 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
   let currentSourceId = "";
   const sessionSource = new Map<string, string>();
   const deleted: string[] = [];
+  const deleteAttempts = new Map<string, number>();
+  let orphanListReads = 0;
+  let failBrokenCleanup = true;
   const metadata = new Map([
     [
       "office-file",
@@ -246,6 +250,41 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
         trashed: false,
       });
     }
+    if (
+      url.includes("/files?") &&
+      new URL(url).searchParams
+        .get("q")
+        ?.includes("name contains '.sharedesk-preview-'")
+    ) {
+      orphanListReads += 1;
+      return Response.json({
+        files:
+          orphanListReads === 1
+            ? [
+                {
+                  id: "orphan-preview",
+                  name: ".sharedesk-preview-orphan",
+                  createdTime: "2020-01-01T00:00:00.000Z",
+                },
+                {
+                  id: "unrelated-state-file",
+                  name: "users.json",
+                  createdTime: "2020-01-01T00:00:00.000Z",
+                },
+                {
+                  id: "recent-preview",
+                  name: ".sharedesk-preview-recent",
+                  createdTime: new Date().toISOString(),
+                },
+                {
+                  id: "invalid-date-preview",
+                  name: ".sharedesk-preview-unknown",
+                  createdTime: "not-a-date",
+                },
+              ]
+            : [],
+      });
+    }
     const metadataId = [...metadata.keys()].find((id) =>
       url.includes(`/files/${id}?fields=id,name,mimeType,size,modifiedTime,parents,trashed`),
     );
@@ -305,7 +344,20 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
       });
     }
     if (url.includes("/files/temporary-") && method === "DELETE") {
-      deleted.push(url.slice(url.lastIndexOf("/") + 1));
+      const id = url.slice(url.lastIndexOf("/") + 1);
+      const attempt = (deleteAttempts.get(id) ?? 0) + 1;
+      deleteAttempts.set(id, attempt);
+      if (id === "temporary-office-file-1" && attempt < 3) {
+        return new Response("retry cleanup", { status: 503 });
+      }
+      if (id.startsWith("temporary-broken-office-") && failBrokenCleanup) {
+        return new Response("retry later", { status: 503 });
+      }
+      deleted.push(id);
+      return new Response(null, { status: 204 });
+    }
+    if (url.endsWith("/files/orphan-preview") && method === "DELETE") {
+      deleted.push("orphan-preview");
       return new Response(null, { status: 204 });
     }
     throw new Error(`예상하지 못한 요청: ${method} ${url}`);
@@ -329,10 +381,13 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
       false,
       "Office 변환에는 부분 Range를 전달하지 않고 완전한 문서를 사용한다",
     );
-    assert.deepEqual(deleted.slice(0, 2), [
-      "temporary-office-file-1",
-      "temporary-office-file-2",
-    ]);
+    assert.equal(deleteAttempts.get("temporary-office-file-1"), 3);
+    assert.ok(deleted.includes("temporary-office-file-1"));
+    assert.ok(deleted.includes("temporary-office-file-2"));
+    assert.ok(deleted.includes("orphan-preview"));
+    assert.equal(deleted.includes("unrelated-state-file"), false);
+    assert.equal(deleted.includes("recent-preview"), false);
+    assert.equal(deleted.includes("invalid-date-preview"), false);
 
     const original = await adapter.download("office-file", "bytes=0-3");
     assert.equal(original.status, 206);
@@ -363,9 +418,16 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     } finally {
       console.error = originalConsoleError;
     }
+    assert.equal(
+      deleted.some((id) => id.startsWith("temporary-broken-office-")),
+      false,
+      "모든 즉시 삭제 재시도가 실패하면 다음 정리 대상으로 남긴다",
+    );
+    failBrokenCleanup = false;
+    await adapter.preview("office-file");
     assert.ok(
       deleted.some((id) => id.startsWith("temporary-broken-office-")),
-      "PDF export가 실패해도 임시 Google 문서는 지운다",
+      "다음 미리보기에서 이전 임시 Google 문서를 다시 지운다",
     );
     assert.ok(
       calls

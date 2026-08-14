@@ -4,14 +4,14 @@ import { errorResponse, requireSession } from "@/lib/api";
 import { inlineContentType } from "@/lib/preview";
 
 export async function GET(req: NextRequest) {
-  const auth = await requireSession();
-  if ("response" in auth) return auth.response;
   const id = req.nextUrl.searchParams.get("id");
+  const wantsInline =
+    req.nextUrl.searchParams.get("disposition") === "inline";
+  const auth = await requireSession({ fresh: wantsInline });
+  if ("response" in auth) return auth.response;
   if (!id) {
     return NextResponse.json({ error: "id가 필요합니다" }, { status: 400 });
   }
-  const wantsInline =
-    req.nextUrl.searchParams.get("disposition") === "inline";
   const range = req.headers.get("range") ?? undefined;
   try {
     const adapter = getAdapter();

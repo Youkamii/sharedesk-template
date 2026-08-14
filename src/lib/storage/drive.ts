@@ -39,6 +39,10 @@ const ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const TRASH_CONCURRENCY = 4;
 const MAX_OFFICE_PREVIEW_SOURCE_BYTES = 25 * 1024 * 1024;
 const MAX_OFFICE_PREVIEW_PDF_BYTES = 10 * 1024 * 1024;
+const OFFICE_PREVIEW_PREFIX = ".sharedesk-preview-";
+const OFFICE_PREVIEW_CLEANUP_ATTEMPTS = 3;
+const OFFICE_PREVIEW_STALE_MS = 10 * 60 * 1000;
+const pendingOfficePreviewCleanupIds = new Set<string>();
 
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
@@ -510,6 +514,55 @@ async function readPreviewPdf(response: Response): Promise<Uint8Array> {
   return bytes;
 }
 
+async function deleteOfficePreviewFile(id: string): Promise<boolean> {
+  for (let attempt = 0; attempt < OFFICE_PREVIEW_CLEANUP_ATTEMPTS; attempt++) {
+    try {
+      await driveFetch(`${API}/files/${id}`, { method: "DELETE" });
+      pendingOfficePreviewCleanupIds.delete(id);
+      return true;
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        pendingOfficePreviewCleanupIds.delete(id);
+        return true;
+      }
+      if (attempt < OFFICE_PREVIEW_CLEANUP_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+      }
+    }
+  }
+  pendingOfficePreviewCleanupIds.add(id);
+  return false;
+}
+
+async function cleanupOfficePreviewFiles(stateFolder: string): Promise<void> {
+  for (const id of [...pendingOfficePreviewCleanupIds]) {
+    await deleteOfficePreviewFile(id);
+  }
+
+  const params = new URLSearchParams({
+    q: `'${stateFolder}' in parents and name contains '${OFFICE_PREVIEW_PREFIX}' and trashed=false`,
+    fields: "files(id,name,createdTime)",
+    pageSize: "1000",
+  });
+  const response = await driveFetch(`${API}/files?${params}`);
+  const body = (await response.json()) as {
+    files?: Array<{ id?: string; name?: string; createdTime?: string }>;
+  };
+  const staleBefore = Date.now() - OFFICE_PREVIEW_STALE_MS;
+  for (const file of body.files ?? []) {
+    const createdAt = file.createdTime ? Date.parse(file.createdTime) : NaN;
+    if (
+      !file.id ||
+      !file.name?.startsWith(OFFICE_PREVIEW_PREFIX) ||
+      !Number.isFinite(createdAt) ||
+      createdAt > staleBefore
+    ) {
+      continue;
+    }
+    await deleteOfficePreviewFile(file.id);
+  }
+}
+
 async function convertOfficePreview(
   real: string,
   meta: DriveFile,
@@ -532,6 +585,9 @@ async function convertOfficePreview(
     throw new StorageError("UPSTREAM", "원본 문서를 읽지 못했습니다.");
   }
   const stateFolder = await ensureStateDir();
+  await cleanupOfficePreviewFiles(stateFolder).catch((error) => {
+    console.error("[drive] 임시 문서 미리보기 이전 파일 정리 실패", error);
+  });
   const uploadHeaders: Record<string, string> = {
     "Content-Type": "application/json; charset=UTF-8",
     "X-Upload-Content-Type": officeImport.sourceMimeType,
@@ -546,7 +602,7 @@ async function convertOfficePreview(
       method: "POST",
       headers: uploadHeaders,
       body: JSON.stringify({
-        name: `.sharedesk-preview-${randomUUID()}`,
+        name: `${OFFICE_PREVIEW_PREFIX}${randomUUID()}`,
         mimeType: officeImport.targetMimeType,
         parents: [stateFolder],
       }),
@@ -599,14 +655,12 @@ async function convertOfficePreview(
     };
   } finally {
     if (temporaryId) {
-      await driveFetch(`${API}/files/${temporaryId}`, { method: "DELETE" }).catch(
-        (error) => {
-          console.error("[drive] 임시 문서 미리보기 정리 실패", {
-            temporaryId,
-            error,
-          });
-        },
-      );
+      const deleted = await deleteOfficePreviewFile(temporaryId);
+      if (!deleted) {
+        console.error("[drive] 임시 문서 미리보기 정리 실패", {
+          temporaryId,
+        });
+      }
     }
   }
 }
