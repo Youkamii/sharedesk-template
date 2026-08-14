@@ -1188,6 +1188,28 @@ export default function FilesView({
   );
 
   useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      const current = previewWindowRef.current;
+      if (
+        !current ||
+        !previewDiscardReason({
+          editable: current.kind === "text",
+          text: current.text,
+          originalText: current.originalText,
+          saving:
+            current.textSaving || previewSaveControllerRef.current !== null,
+        })
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  useEffect(() => {
     setClock(new Date());
     const timer = window.setInterval(() => setClock(new Date()), 30_000);
     return () => window.clearInterval(timer);
@@ -1959,6 +1981,19 @@ export default function FilesView({
     if (noteAffected) closeFolderNote();
   }
 
+  function previewAffectedByEntryLifecycle(entry: Entry) {
+    const preview = previewWindowRef.current;
+    if (!preview) return false;
+    if (!entry.isFolder) return preview.entry.id === entry.id;
+    const affected = windowsContainingFolder(windowsRef.current, entry.id);
+    const affectedWindowIds = new Set(affected.map((item) => item.id));
+    return (
+      affected.some((item) =>
+        item.data.entries.some((candidate) => candidate.id === preview.entry.id),
+      ) || affectedWindowIds.has(previewOpenerRef.current?.scopeId ?? "")
+    );
+  }
+
   function updateRenamedFolder(folderId: string, replacement: Crumb) {
     const affected = windowsRef.current.filter((item) =>
       item.path.some((crumb) => crumb.id === folderId),
@@ -2654,19 +2689,18 @@ export default function FilesView({
     const current = previewWindowRef.current;
     if (!current) return true;
     const reason = previewDiscardReason({
-      editable:
-        current.kind === "text" && previewTextReadOnlyReason(current) === null,
+      editable: current.kind === "text",
       text: current.text,
       originalText: current.originalText,
       saving:
         current.textSaving || previewSaveControllerRef.current !== null,
     });
     if (!reason) return true;
-    return window.confirm(
-      reason === "saving"
-        ? "텍스트 파일을 저장 중입니다. 저장을 중단하고 변경 내용을 버릴까요?"
-        : "저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?",
-    );
+    if (reason === "saving") {
+      setNotice("텍스트 파일을 저장하는 중입니다. 저장이 끝난 뒤 다시 시도해 주세요");
+      return false;
+    }
+    return window.confirm("저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?");
   }
 
   function openPreview(
@@ -3887,6 +3921,13 @@ export default function FilesView({
     targetFolderId: string,
     announce = true,
   ) {
+    if (
+      entry.isFolder &&
+      previewAffectedByEntryLifecycle(entry) &&
+      !confirmPreviewDiscard()
+    ) {
+      return false;
+    }
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
     if (!entry.version) {
       setTransientPositions((current) => {
@@ -4036,6 +4077,12 @@ export default function FilesView({
     entry: Entry,
     announce = true,
   ) {
+    if (
+      previewAffectedByEntryLifecycle(entry) &&
+      !confirmPreviewDiscard()
+    ) {
+      return false;
+    }
     if (movingEntryIdsRef.current.has(entry.id)) return false;
     const sourceFolderId = scopeFolderId(sourceScopeId);
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
@@ -5030,6 +5077,14 @@ export default function FilesView({
 
   async function submitDialog() {
     if (!dialog || dialogBusy) return;
+    if (
+      dialog.kind !== "create" &&
+      (dialog.kind === "delete" || dialog.entry.isFolder) &&
+      previewAffectedByEntryLifecycle(dialog.entry) &&
+      !confirmPreviewDiscard()
+    ) {
+      return;
+    }
     setDialogBusy(true);
     let deleteFocus:
       | {
@@ -5138,6 +5193,7 @@ export default function FilesView({
   }
 
   async function logout() {
+    if (!confirmPreviewDiscard()) return;
     await fetch("/api/presence", {
       method: "DELETE",
       cache: "no-store",

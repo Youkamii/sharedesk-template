@@ -158,6 +158,32 @@ test("편집 가능한 TXT의 미저장 내용과 저장 중 상태만 버리기
   );
 });
 
+test("TXT 초안은 저장 완료 전 전환과 창 이탈·로그아웃·상위 폴더 작업에서 보호한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /addEventListener\("beforeunload", handleBeforeUnload\)/);
+  assert.match(source, /event\.preventDefault\(\);\s*event\.returnValue = ""/);
+  assert.match(
+    source,
+    /if \(reason === "saving"\) \{\s*setNotice\("텍스트 파일을 저장하는 중입니다\. 저장이 끝난 뒤 다시 시도해 주세요"\);\s*return false/,
+  );
+  assert.match(
+    source,
+    /entry\.isFolder &&\s*previewAffectedByEntryLifecycle\(entry\) &&\s*!confirmPreviewDiscard\(\)/,
+  );
+  assert.match(
+    source,
+    /dialog\.kind === "delete" \|\| dialog\.entry\.isFolder[\s\S]*?previewAffectedByEntryLifecycle\(dialog\.entry\)[\s\S]*?!confirmPreviewDiscard\(\)/,
+  );
+  assert.match(
+    source,
+    /async function logout\(\) \{\s*if \(!confirmPreviewDiscard\(\)\) return/,
+  );
+});
+
 test("로컬 TXT의 새 layoutKey로 좌표와 선택 키를 옮긴다", () => {
   const previous = { id: "note", layoutKey: "old-key", version: "v1" };
   const replacement = { id: "note", layoutKey: "new-key", version: "v2" };
