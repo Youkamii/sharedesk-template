@@ -1,6 +1,5 @@
 export const BASE_DESKTOP_WIDTH = 1280;
 export const BASE_DESKTOP_HEIGHT = 720;
-export const MIN_UI_SCALE = 0.6;
 export const MAX_UI_SCALE = 1.5;
 
 export type ViewportSize = { width: number; height: number };
@@ -28,9 +27,11 @@ function clamp(value: number, min: number, max: number) {
 export function uiScaleForViewport(width: number, height: number) {
   if (!Number.isFinite(width) || !Number.isFinite(height)) return 1;
   if (width <= 0 || height <= 0) return 1;
-  const areaRatio =
-    (width * height) / (BASE_DESKTOP_WIDTH * BASE_DESKTOP_HEIGHT);
-  return clamp(Math.sqrt(areaRatio), MIN_UI_SCALE, MAX_UI_SCALE);
+  return Math.min(
+    width / BASE_DESKTOP_WIDTH,
+    height / BASE_DESKTOP_HEIGHT,
+    MAX_UI_SCALE,
+  );
 }
 
 export function logicalViewportFor(

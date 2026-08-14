@@ -32,8 +32,10 @@ import {
   uiScaleForViewport,
 } from "../src/app/files/ui-scale";
 
-test("화면 면적에 맞춘 하나의 배율로 데스크톱 전체를 확대·축소한다", () => {
-  assert.equal(uiScaleForViewport(390, 844), 0.6);
+test("화면 비율이 달라도 데스크톱 전체를 스크롤 없이 확대·축소한다", () => {
+  assert.equal(uiScaleForViewport(320, 568), 0.25);
+  assert.equal(uiScaleForViewport(390, 844), 390 / 1280);
+  assert.equal(uiScaleForViewport(768, 1024), 0.6);
   assert.equal(uiScaleForViewport(1280, 720), 1);
   assert.equal(uiScaleForViewport(1920, 1200), 1.5);
 
@@ -45,7 +47,26 @@ test("화면 면적에 맞춘 하나의 배율로 데스크톱 전체를 확대�
     width: 1280,
     height: 800,
   });
-  assert.equal(logicalPointerDelta(90, 0.6), 150);
+  assert.deepEqual(logicalViewportFor(320, 568), {
+    width: 1280,
+    height: 2272,
+  });
+  assert.equal(logicalPointerDelta(90, 0.25), 360);
+
+  for (const [width, height] of [
+    [320, 568],
+    [360, 640],
+    [390, 844],
+    [768, 1024],
+    [1280, 720],
+    [1366, 768],
+    [1920, 1080],
+    [2560, 1080],
+  ]) {
+    const logical = logicalViewportFor(width, height);
+    assert.ok(logical.width >= 1280);
+    assert.ok(logical.height >= 720);
+  }
 });
 
 test("화면 크기가 바뀌면 일반 창과 최대화 창을 새 작업 영역에 맞춘다", () => {
