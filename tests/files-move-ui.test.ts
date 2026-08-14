@@ -22,6 +22,13 @@ import {
   fileActivationAction,
 } from "../src/lib/client/file-activation";
 import {
+  groupLayoutMigrationTargets,
+  migrateEntryLayoutKey,
+  migrateLayoutKey,
+  migrateLayoutKeys,
+} from "../src/lib/client/layout-key-migration";
+import { previewDiscardReason } from "../src/lib/client/preview-draft";
+import {
   fitLogicalRect,
   folderAddress,
   logicalPointerDelta,
@@ -32,8 +39,10 @@ import {
   uiScaleForViewport,
 } from "../src/app/files/ui-scale";
 
-test("화면 면적에 맞춘 하나의 배율로 데스크톱 전체를 확대·축소한다", () => {
-  assert.equal(uiScaleForViewport(390, 844), 0.6);
+test("화면 비율이 달라도 데스크톱 전체를 스크롤 없이 확대·축소한다", () => {
+  assert.equal(uiScaleForViewport(320, 568), 0.25);
+  assert.equal(uiScaleForViewport(390, 844), 390 / 1280);
+  assert.equal(uiScaleForViewport(768, 1024), 0.6);
   assert.equal(uiScaleForViewport(1280, 720), 1);
   assert.equal(uiScaleForViewport(1920, 1200), 1.5);
 
@@ -45,7 +54,26 @@ test("화면 면적에 맞춘 하나의 배율로 데스크톱 전체를 확대�
     width: 1280,
     height: 800,
   });
-  assert.equal(logicalPointerDelta(90, 0.6), 150);
+  assert.deepEqual(logicalViewportFor(320, 568), {
+    width: 1280,
+    height: 2272,
+  });
+  assert.equal(logicalPointerDelta(90, 0.25), 360);
+
+  for (const [width, height] of [
+    [320, 568],
+    [360, 640],
+    [390, 844],
+    [768, 1024],
+    [1280, 720],
+    [1366, 768],
+    [1920, 1080],
+    [2560, 1080],
+  ]) {
+    const logical = logicalViewportFor(width, height);
+    assert.ok(logical.width >= 1280);
+    assert.ok(logical.height >= 720);
+  }
 });
 
 test("화면 크기가 바뀌면 일반 창과 최대화 창을 새 작업 영역에 맞춘다", () => {
@@ -89,6 +117,249 @@ test("저장 중에 이어 쓴 글은 유지하고 전송한 snapshot만 저장 
     original: "같은 글",
     dirty: false,
   });
+});
+
+test("편집 가능한 TXT의 미저장 내용과 저장 중 상태만 버리기 확인 대상이다", () => {
+  assert.equal(
+    previewDiscardReason({
+      editable: false,
+      text: "바뀐 글",
+      originalText: "원래 글",
+      saving: true,
+    }),
+    null,
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "같은 글",
+      originalText: "같은 글",
+      saving: false,
+    }),
+    null,
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "바뀐 글",
+      originalText: "원래 글",
+      saving: false,
+    }),
+    "unsaved",
+  );
+  assert.equal(
+    previewDiscardReason({
+      editable: true,
+      text: "같은 글",
+      originalText: "같은 글",
+      saving: true,
+    }),
+    "saving",
+  );
+});
+
+test("TXT 초안은 저장 완료 전 전환과 창 이탈·로그아웃·상위 폴더 작업에서 보호한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /addEventListener\("beforeunload", handleBeforeUnload\)/);
+  assert.match(source, /event\.preventDefault\(\);\s*event\.returnValue = ""/);
+  assert.match(
+    source,
+    /if \(reason === "saving"\) \{\s*setNotice\("텍스트 파일을 저장하는 중입니다\. 저장이 끝난 뒤 다시 시도해 주세요"\);\s*return false/,
+  );
+  assert.match(
+    source,
+    /if \(!confirmPreviewDiscard\(\)\) return false;\s*discardActivePreview\(\)/,
+  );
+  assert.match(
+    source,
+    /entry\.isFolder &&\s*!confirmPreviewLifecycleChange\(entry\)/,
+  );
+  assert.match(
+    source,
+    /dialog\.kind === "delete" \|\| dialog\.entry\.isFolder[\s\S]*?!confirmPreviewLifecycleChange\(dialog\.entry\)/,
+  );
+  assert.match(
+    source,
+    /async function logout\(\) \{\s*if \(!confirmPreviewDiscard\(\)\) return;\s*if \(activePreviewDiscardReason\(\)\) discardActivePreview\(\)/,
+  );
+});
+
+test("로컬 TXT의 새 layoutKey로 좌표와 선택 키를 옮긴다", () => {
+  const previous = { id: "note", layoutKey: "old-key", version: "v1" };
+  const replacement = { id: "note", layoutKey: "new-key", version: "v2" };
+  const original: {
+    entries: Array<{ id: string; layoutKey: string; version: string }>;
+    positions: Record<string, { x: number; y: number; version: number }>;
+  } = {
+    entries: [previous, { id: "other", layoutKey: "other-key", version: "v1" }],
+    positions: {
+      "old-key": { x: 120, y: 80, version: 4 },
+      "other-key": { x: 20, y: 10, version: 2 },
+    },
+  };
+
+  const migrated = migrateEntryLayoutKey(
+    original,
+    previous,
+    replacement,
+    { x: 140, y: 90, version: 4 },
+  );
+  assert.equal(migrated.entries[0], replacement);
+  assert.deepEqual(migrated.positions["new-key"], {
+    x: 140,
+    y: 90,
+    version: 0,
+  });
+  assert.equal(migrated.positions["old-key"], undefined);
+  assert.deepEqual(original.positions["old-key"], {
+    x: 120,
+    y: 80,
+    version: 4,
+  });
+  assert.deepEqual(
+    migrateLayoutKeys(["old-key", "other-key", "new-key"], "old-key", "new-key"),
+    ["new-key", "other-key"],
+  );
+  assert.equal(migrateLayoutKey("old-key", "old-key", "new-key"), "new-key");
+
+  const driveReplacement = { ...replacement, layoutKey: previous.layoutKey };
+  const drive = migrateEntryLayoutKey(original, previous, driveReplacement);
+  assert.equal(drive.positions, original.positions);
+  assert.equal(drive.entries[0], driveReplacement);
+});
+
+test("같은 폴더를 연 창들은 새 layoutKey 좌표를 서버에 한 번만 저장한다", () => {
+  assert.deepEqual(
+    groupLayoutMigrationTargets(
+      [
+        {
+          scopeId: "folder-1",
+          folderId: "docs",
+          folderIdentity: "stale-docs-key",
+          position: { x: 10, y: 20 },
+        },
+        {
+          scopeId: "folder-2",
+          folderId: "docs",
+          folderIdentity: "docs-key",
+          position: { x: 30, y: 40 },
+        },
+        {
+          scopeId: "folder-3",
+          folderId: "other",
+          folderIdentity: "other-key",
+          position: { x: 50, y: 60 },
+        },
+      ],
+      "folder-2",
+    ),
+    [
+      {
+        folderId: "docs",
+        folderIdentity: "docs-key",
+        position: { x: 30, y: 40 },
+        scopeIds: ["folder-1", "folder-2"],
+      },
+      {
+        folderId: "other",
+        folderIdentity: "other-key",
+        position: { x: 50, y: 60 },
+        scopeIds: ["folder-3"],
+      },
+    ],
+  );
+});
+
+test("이름 변경은 미리보기 형식 전환 전에 초안을 확인하고 성공한 응답으로 상태를 다시 만든다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const renameGuard = source.slice(
+    source.indexOf("function confirmPreviewRenameTransition"),
+    source.indexOf("function updatePreviewAfterRename"),
+  );
+  const renameUpdate = source.slice(
+    source.indexOf("function updatePreviewAfterRename"),
+    source.indexOf("function movePreviewWindow"),
+  );
+  const submitDialog = source.slice(
+    source.indexOf("async function submitDialog"),
+    source.indexOf("async function logout"),
+  );
+
+  assert.match(renameGuard, /const nextKind = previewKindOf\(nextEntry\)/);
+  assert.match(
+    renameGuard,
+    /activePreviewDiscardReason\(\) === "saving"[\s\S]*?return confirmPreviewDiscard\(\)/,
+  );
+  assert.match(renameGuard, /isEditableTextEntry\(current\.entry\)/);
+  assert.match(renameGuard, /!isEditableTextEntry\(nextEntry\)/);
+  assert.match(renameGuard, /return confirmPreviewDiscard\(\)/);
+  assert.match(
+    submitDialog,
+    /confirmPreviewRenameTransition\([\s\S]*?setDialogBusy\(true\)[\s\S]*?\/api\/drive\/rename/,
+  );
+
+  assert.match(renameUpdate, /const nextKind = previewKindOf\(entry\)/);
+  assert.match(
+    renameUpdate,
+    /if \(!nextKind\) \{\s*discardActivePreview\(\);[\s\S]*?미리보기를 지원하지 않아 창을 닫았습니다[\s\S]*?return true/,
+  );
+  assert.match(
+    renameUpdate,
+    /nextKind === current\.kind && entry\.id === previousId[\s\S]*?text: losesTextEditing \? current\.originalText : current\.text/,
+  );
+  assert.match(
+    renameUpdate,
+    /const kindChanged = nextKind !== current\.kind[\s\S]*?kind: nextKind[\s\S]*?text: kindChanged\s*\? null/,
+  );
+  assert.match(
+    renameUpdate,
+    /current\.kind === "text" && current\.textLoading/,
+  );
+  assert.match(
+    renameUpdate,
+    /if \(shouldReload\) void loadPreviewText\(entry, instanceId\)/,
+  );
+  assert.doesNotMatch(
+    submitDialog,
+    /classifyMoveFailure\(error\) === "uncertain"[\s\S]*?discardPreviewForEntry/,
+  );
+  assert.match(
+    submitDialog,
+    /if \(!previewClosed\) setNotice\("이름을 바꿨습니다"\)/,
+  );
+});
+
+test("TXT 저장 성공은 새 layoutKey 상태 이관 뒤 대표 좌표를 버전 0으로 저장한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const replaceStart = source.indexOf("function replaceEntryEverywhere");
+  const persistStart = source.indexOf("async function persistMigratedEntryPositions");
+  const saveStart = source.indexOf("async function savePreviewText");
+  const saveEnd = source.indexOf("function confirmPreviewDiscard", saveStart);
+  const replacement = source.slice(replaceStart, persistStart);
+  const persistence = source.slice(persistStart, saveStart);
+  const save = source.slice(saveStart, saveEnd);
+
+  assert.match(replacement, /migrateEntryLayoutKey\(/);
+  assert.match(replacement, /setSelected\(/);
+  assert.match(replacement, /keyboardSelectionRef\.current/);
+  assert.match(replacement, /setSearchWindow\(/);
+  assert.match(persistence, /previousEntry\.layoutKey === entry\.layoutKey/);
+  assert.match(persistence, /groupLayoutMigrationTargets\(/);
+  assert.match(persistence, /expectedVersion: 0/);
+  assert.match(
+    save,
+    /entryLayoutTargets\(preview\.entry\)[\s\S]*?replaceEntryEverywhere\(preview\.entry, result\.entry, layoutTargets\)[\s\S]*?persistMigratedEntryPositions\(/,
+  );
 });
 
 test("상위 목록에서 확인한 폴더 이름을 열린 하위 경로에도 전파한다", () => {
@@ -159,6 +430,14 @@ test("파일 화면은 배율·드래그 고스트·주소창·메모 편집 계
   assert.match(source, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
   assert.match(source, /previewInstanceRef\.current !== instanceId/);
   assert.match(source, /folderNoteInstanceRef\.current !== instanceId/);
+  assert.match(
+    source,
+    /function openPreview\([\s\S]*?if \(!confirmPreviewDiscard\(\)\) return;[\s\S]*?beginPreviewInstance\(\)/,
+  );
+  assert.match(
+    source,
+    /function closePreview\(\) \{[\s\S]*?if \(!confirmPreviewDiscard\(\)\) return;[\s\S]*?cancelPreviewRequests\(\)/,
+  );
   assert.match(
     source,
     /beginScopedRequest\(addressRequestsRef\.current, windowId\)/,
@@ -341,6 +620,44 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
 });
 
+test("휴지통 목록은 행 구성을 고정하고 목록만 스크롤하며 비우기를 우측 하단에 둔다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    css,
+    /\.folderWindow\.trashWindow \{[\s\S]*?grid-template-rows: 32px minmax\(0, 1fr\) 26px;/,
+  );
+  assert.match(
+    css,
+    /\.trashBody \{[\s\S]*?overflow: hidden;/,
+  );
+  assert.match(
+    css,
+    /\.trashList \{[\s\S]*?min-height: 0;[\s\S]*?overflow: hidden auto;/,
+  );
+  assert.match(
+    css,
+    /\.trashRow \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: 32px minmax\(0, 1fr\) auto;/,
+  );
+  assert.match(
+    css,
+    /\.trashMeta \{[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/,
+  );
+  assert.match(
+    source,
+    /className=\{`\$\{styles\.windowStatus\} \$\{styles\.trashFooter\}`\}/,
+  );
+  assert.match(source, /className=\{styles\.trashSummary\}/);
+  assert.match(source, /className=\{styles\.trashDanger\}[\s\S]*?>\s*비우기…/);
+  assert.match(
+    css,
+    /\.trashFooter \{[\s\S]*?justify-content: flex-end;[\s\S]*?\.trashSummary \{[\s\S]*?margin-right: auto;/,
+  );
+});
+
 test("Ctrl/Command 선택은 같은 폴더에서 항목을 더하고 다시 누르면 뺀다", () => {
   const first = selectLayoutKey(null, "desktop", "a", false);
   const second = selectLayoutKey(first, "desktop", "b", true);
@@ -514,7 +831,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /fileActivationAction\(entry, downloadFirst\)/);
   assert.match(
     source,
-    /function openSearchResult[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(result\.entry\)/,
+    /function openSearchResult\(result: SearchResult, opener\?: HTMLElement\)[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\([\s\S]*?result\.entry,[\s\S]*?opener \? \{ element: opener, scopeId: ROOT_SCOPE \} : undefined/,
   );
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
   assert.match(source, />다운로드 우선</);
@@ -522,10 +839,80 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /브라우저에서 열기/);
   assert.match(
     source,
-    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(entry\)/,
+    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\([\s\S]*?entry,[\s\S]*?contextMenu\.scopeId,[\s\S]*?contextMenu\.opener \?\? undefined/,
   );
   assert.match(css, /\.downloadPreference\s*\{/);
   assert.match(css, /input:checked \+ \.preferenceCheck::after/);
+});
+
+test("이미지와 GIF 미리보기는 창의 본문을 채우고 최초 창은 작업 영역 안에 연다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    css,
+    /\.previewImage,\s*\.previewMedia \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: contain;/,
+  );
+  assert.match(
+    css,
+    /\.folderWindow\.previewWindow \{[\s\S]*?grid-template-rows: 30px minmax\(0, 1fr\) 22px;/,
+  );
+  assert.match(
+    source,
+    /const previewWidth = Math\.min\([\s\S]*?const previewHeight = Math\.min\(/,
+  );
+  assert.match(
+    source,
+    /x: clamp\([\s\S]*?logicalViewport\.width - previewWidth[\s\S]*?y: clamp\([\s\S]*?logicalViewport\.height - TASK_BAR - previewHeight/,
+  );
+});
+
+test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘긴다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+  const scopedPreview = source.slice(
+    source.indexOf("function openPreviewInScope"),
+    source.indexOf("function activateEntry"),
+  );
+
+  assert.match(source, /sidePreviewLayoutKey: string \| null/);
+  assert.match(source, /folderImagePreviewEntries\(item\.data\.entries\)/);
+  assert.match(source, /data-folder-side-preview=\{item\.id\}/);
+  assert.match(source, /event\.key === "ArrowLeft" \|\| event\.key === "ArrowRight"/);
+  assert.match(source, /adjacentFolderImagePreviewKey\(/);
+  assert.match(source, /aria-label="폴더 미리보기 닫기"/);
+  assert.match(
+    source,
+    /const sidePreviewOpened = syncFolderSidePreview\([\s\S]*?if \(sidePreviewOpened\) focusFolderSidePreview\(scopeId\);[\s\S]*?else event\.currentTarget\.focus\(\);/,
+  );
+  assert.match(
+    scopedPreview,
+    /if \(showFolderSidePreview\([\s\S]*?\)\) return;[\s\S]*?openPreview\(/,
+  );
+  assert.doesNotMatch(scopedPreview, /confirmPreviewDiscard/);
+  assert.match(
+    css,
+    /\.windowBodyWithPreview \.windowCanvas \{[\s\S]*?right: clamp\(180px, 42%, 360px\);/,
+  );
+  assert.match(
+    css,
+    /\.folderSidePreviewBody img \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: contain;/,
+  );
+});
+
+test("폴더 우측 미리보기가 아이콘 평면에 고정 최소폭을 남기지 않는다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(source, /PLANE_MIN_WIDTH/);
+  assert.match(source, /function planeDimensions[\s\S]*?let width = 0;/);
+  assert.match(css, /\.iconPlane \{[\s\S]*?min-width: 100%;/);
 });
 
 test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
@@ -566,7 +953,22 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   assert.match(source, /searchInstanceRef\.current !== instanceId/);
   assert.match(source, /가상 검색결과/);
   assert.match(source, /result\.path/);
-  assert.match(source, /openSearchResult\(result\)/);
+  assert.match(
+    source,
+    /onDoubleClick=\{\(event\) =>[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /event\.key === "Enter"[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /onClick=\{\(event\) =>[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /openSearchResult\([\s\S]*?contextMenu\.searchResult!,[\s\S]*?contextMenu\.opener \?\? undefined/,
+  );
   assert.match(source, /openOriginalLocation\(result\)/);
   assert.match(source, /원래 위치 열기/);
   assert.match(source, /searchWindow\.truncated/);
@@ -655,4 +1057,20 @@ test("관리자 업데이트 화면은 사용자 관리 앞에서 최신 상태�
   assert.match(css, /\.updateSetup \{/);
   assert.match(css, /\.updateInstruction \{/);
   assert.match(css, /\.updateError \{/);
+});
+
+test("desktop and folder icons keep keyboard focus and range selection wired", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /keyboardSelectableIcons\(/);
+  assert.match(source, /moveDesktopKeyboardSelection\(/);
+  assert.match(source, /extend: event\.shiftKey/);
+  assert.match(source, /preserveSelection: toggleModifier && !event\.shiftKey/);
+  assert.match(source, /toggleDesktopSelectionKey\(/);
+  assert.match(source, /findEntryButton\(scopeId, nextEntry\.id\)\?\.focus\(\)/);
+  assert.match(source, /shouldIgnoreDesktopSelectionKeydown\(event\.target\)/);
+  assert.match(source, /keyboardSelectionRef\.current = null/);
 });

@@ -1,6 +1,10 @@
 "use client";
 
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   useCallback,
   useEffect,
@@ -22,15 +26,35 @@ import {
 import {
   batchMutationNotice,
   removeSelectedLayoutKeys,
-  selectLayoutKey,
   selectLayoutsInRectangle,
   type BatchSelection,
   type SelectionRect,
 } from "@/lib/client/batch-selection";
 import {
+  isDesktopArrowKey,
+  moveDesktopKeyboardSelection,
+  reconcileDesktopKeyboardSelection,
+  shouldIgnoreDesktopSelectionKeydown,
+  toggleDesktopSelectionKey,
+  type DesktopKeyboardSelectionState,
+  type DesktopSelectableIcon,
+} from "@/lib/client/desktop-keyboard-selection";
+import {
   downloadFileName,
   fileActivationAction,
 } from "@/lib/client/file-activation";
+import {
+  adjacentFolderImagePreviewKey,
+  folderImagePreviewEntries,
+} from "@/lib/client/folder-side-preview";
+import {
+  groupLayoutMigrationTargets,
+  migrateEntryLayoutKey,
+  migrateLayoutKey,
+  migrateLayoutKeys,
+  type LayoutMigrationTarget,
+} from "@/lib/client/layout-key-migration";
+import { previewDiscardReason } from "@/lib/client/preview-draft";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -217,6 +241,7 @@ type DeskWindow = {
   z: number;
   minimized: boolean;
   maximized: boolean;
+  sidePreviewLayoutKey: string | null;
   restoreRect?: { x: number; y: number; width: number; height: number };
   data: FolderData;
 };
@@ -276,7 +301,6 @@ const ICON_ROW_HEIGHT = 104;
 const ICON_COLUMNS = 6;
 const ICON_INSET_X = 12;
 const ICON_INSET_Y = 10;
-const PLANE_MIN_WIDTH = 600;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
 const MAX_LAYOUT_BATCH_UPDATES = 256;
@@ -579,6 +603,11 @@ export default function FilesView({
   const windowIdRef = useRef(0);
   const suppressedClickRef = useRef(new Set<string>());
   const suppressedCanvasClickRef = useRef(new Set<string>());
+  const keyboardSelectionRef = useRef<{
+    scopeId: string;
+    state: DesktopKeyboardSelectionState;
+  } | null>(null);
+  const transientPositionsRef = useRef<Record<string, Placement>>({});
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
@@ -636,6 +665,7 @@ export default function FilesView({
   windowsRef.current = deskWindows;
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
+  transientPositionsRef.current = transientPositions;
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
 
@@ -1156,6 +1186,16 @@ export default function FilesView({
     },
     [],
   );
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!activePreviewDiscardReason()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
     setClock(new Date());
@@ -1929,6 +1969,28 @@ export default function FilesView({
     if (noteAffected) closeFolderNote();
   }
 
+  function previewAffectedByEntryLifecycle(entry: Entry) {
+    const preview = previewWindowRef.current;
+    if (!preview) return false;
+    if (!entry.isFolder) return preview.entry.id === entry.id;
+    const affected = windowsContainingFolder(windowsRef.current, entry.id);
+    const affectedWindowIds = new Set(affected.map((item) => item.id));
+    return (
+      affected.some((item) =>
+        item.data.entries.some((candidate) => candidate.id === preview.entry.id),
+      ) || affectedWindowIds.has(previewOpenerRef.current?.scopeId ?? "")
+    );
+  }
+
+  function confirmPreviewLifecycleChange(entry: Entry) {
+    if (!previewAffectedByEntryLifecycle(entry)) return true;
+    const reason = activePreviewDiscardReason();
+    if (!reason) return true;
+    if (!confirmPreviewDiscard()) return false;
+    discardActivePreview();
+    return true;
+  }
+
   function updateRenamedFolder(folderId: string, replacement: Crumb) {
     const affected = windowsRef.current.filter((item) =>
       item.path.some((crumb) => crumb.id === folderId),
@@ -2101,6 +2163,7 @@ export default function FilesView({
       z: ++zRef.current,
       minimized: false,
       maximized: false,
+      sidePreviewLayoutKey: null,
       data: blankFolder(),
     };
     setDeskWindows((current) => [...current, next]);
@@ -2139,6 +2202,7 @@ export default function FilesView({
             ? {
                 ...item,
                 path: nextPath,
+                sidePreviewLayoutKey: null,
                 data: blankFolder(),
               }
             : item,
@@ -2271,23 +2335,213 @@ export default function FilesView({
     }
   }
 
-  function replaceEntryEverywhere(entry: Entry) {
-    setRootData((current) => ({
-      ...current,
-      entries: current.entries.map((value) =>
-        value.id === entry.id ? entry : value,
+  function entryLayoutTargets(entry: Entry): LayoutMigrationTarget[] {
+    const targets: LayoutMigrationTarget[] = [];
+    const addTarget = (
+      scopeId: string,
+      folderId: string,
+      data: FolderData,
+    ) => {
+      const index = data.entries.findIndex((current) => current.id === entry.id);
+      if (index < 0) return;
+      const currentEntry = data.entries[index];
+      const placement =
+        transientPositionsRef.current[`${scopeId}:${currentEntry.layoutKey}`] ??
+        transientPositionsRef.current[`${scopeId}:${entry.layoutKey}`] ??
+        data.positions[currentEntry.layoutKey] ??
+        data.positions[entry.layoutKey] ??
+        defaultPlacement(index);
+      targets.push({
+        scopeId,
+        folderId,
+        folderIdentity: data.folderIdentity,
+        position: { x: placement.x, y: placement.y },
+      });
+    };
+
+    addTarget(ROOT_SCOPE, ROOT_ID, rootDataRef.current);
+    for (const item of windowsRef.current) {
+      const folderId = item.path.at(-1)?.id;
+      if (folderId) addTarget(item.id, folderId, item.data);
+    }
+    return targets;
+  }
+
+  function replaceEntryEverywhere(
+    previousEntry: Entry,
+    entry: Entry,
+    layoutTargets: LayoutMigrationTarget[],
+  ) {
+    const targetByScope = new Map(
+      layoutTargets.map((target) => [target.scopeId, target] as const),
+    );
+    const displayedPlacement = (scopeId: string) => {
+      const target = targetByScope.get(scopeId);
+      return target
+        ? { ...target.position, version: 0 }
+        : undefined;
+    };
+
+    setRootData((current) =>
+      migrateEntryLayoutKey(
+        current,
+        previousEntry,
+        entry,
+        displayedPlacement(ROOT_SCOPE),
       ),
-    }));
+    );
     setDeskWindows((current) =>
-      current.map((item) => ({
-        ...item,
-        data: {
-          ...item.data,
-          entries: item.data.entries.map((value) =>
-            value.id === entry.id ? entry : value,
-          ),
-        },
-      })),
+      current.map((item) => {
+        const data = migrateEntryLayoutKey(
+          item.data,
+          previousEntry,
+          entry,
+          displayedPlacement(item.id),
+        );
+        return data === item.data ? item : { ...item, data };
+      }),
+    );
+    setSelected((current) => {
+      if (!current) return current;
+      const layoutKeys = migrateLayoutKeys(
+        current.layoutKeys,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      return layoutKeys === current.layoutKeys
+        ? current
+        : { ...current, layoutKeys: [...layoutKeys] };
+    });
+
+    const keyboardSelection = keyboardSelectionRef.current;
+    if (keyboardSelection) {
+      const selectedLayoutKeys = migrateLayoutKeys(
+        keyboardSelection.state.selectedLayoutKeys,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      const anchorLayoutKey = migrateLayoutKey(
+        keyboardSelection.state.anchorLayoutKey,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      const focusLayoutKey = migrateLayoutKey(
+        keyboardSelection.state.focusLayoutKey,
+        previousEntry.layoutKey,
+        entry.layoutKey,
+      );
+      if (
+        selectedLayoutKeys !== keyboardSelection.state.selectedLayoutKeys ||
+        anchorLayoutKey !== keyboardSelection.state.anchorLayoutKey ||
+        focusLayoutKey !== keyboardSelection.state.focusLayoutKey
+      ) {
+        keyboardSelectionRef.current = {
+          ...keyboardSelection,
+          state: { selectedLayoutKeys, anchorLayoutKey, focusLayoutKey },
+        };
+      }
+    }
+
+    setSearchWindow((current) =>
+      current
+        ? {
+            ...current,
+            results: current.results.map((result) =>
+              result.entry.id === entry.id ? { ...result, entry } : result,
+            ),
+          }
+        : current,
+    );
+    setContextMenu((current) =>
+      current
+        ? {
+            ...current,
+            entry: current.entry?.id === entry.id ? entry : current.entry,
+            searchResult:
+              current.searchResult?.entry.id === entry.id
+                ? { ...current.searchResult, entry }
+                : current.searchResult,
+          }
+        : current,
+    );
+
+    if (previousEntry.layoutKey !== entry.layoutKey) {
+      setTransientPositions((current) => {
+        let next = current;
+        for (const target of layoutTargets) {
+          const key = `${target.scopeId}:${previousEntry.layoutKey}`;
+          if (!(key in next)) continue;
+          if (next === current) next = { ...current };
+          delete next[key];
+        }
+        return next;
+      });
+    }
+  }
+
+  async function persistMigratedEntryPositions(
+    previousEntry: Entry,
+    entry: Entry,
+    layoutTargets: LayoutMigrationTarget[],
+    preferredScopeId: string | null,
+    signal: AbortSignal,
+  ) {
+    if (
+      previousEntry.layoutKey === entry.layoutKey ||
+      layoutTargets.length === 0
+    ) {
+      return true;
+    }
+    const groups = groupLayoutMigrationTargets(
+      layoutTargets,
+      preferredScopeId,
+    );
+    const coveredScopes = new Set(groups.flatMap((group) => group.scopeIds));
+    const outcomes = await Promise.all(
+      groups.map(async (group) => {
+        try {
+          const snapshot = await apiJson<LayoutSnapshot>(
+            "/api/desktop/layout",
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              signal,
+              body: JSON.stringify({
+                folderId: group.folderId,
+                folderIdentity: group.folderIdentity,
+                updates: [
+                  {
+                    entryId: entry.id,
+                    expectedVersion: 0,
+                    x: group.position.x,
+                    y: group.position.y,
+                  },
+                ],
+              }),
+            },
+          );
+          if (
+            snapshot.folderIdentity !== group.folderIdentity ||
+            !snapshot.positions[entry.layoutKey]
+          ) {
+            return false;
+          }
+          const positions = { ...snapshot.positions };
+          delete positions[previousEntry.layoutKey];
+          const migratedSnapshot = { ...snapshot, positions };
+          for (const scopeId of group.scopeIds) {
+            applySnapshot(scopeId, group.folderId, migratedSnapshot);
+          }
+          return true;
+        } catch (error) {
+          if (isAbortError(error)) throw error;
+          return false;
+        }
+      }),
+    );
+    return (
+      layoutTargets.every((target) => coveredScopes.has(target.scopeId)) &&
+      outcomes.every(Boolean)
     );
   }
 
@@ -2355,7 +2609,13 @@ export default function FilesView({
         }),
       });
       if (previewInstanceRef.current !== preview.instanceId) return;
-      replaceEntryEverywhere(result.entry);
+      const layoutTargets = entryLayoutTargets(preview.entry);
+      const preferredScopeId =
+        previewOpenerRef.current?.scopeId ??
+        (selected?.layoutKeys.includes(preview.entry.layoutKey)
+          ? selected.scopeId
+          : null);
+      replaceEntryEverywhere(preview.entry, result.entry, layoutTargets);
       setPreviewWindow((current) =>
         current?.instanceId === preview.instanceId &&
         current.entry.id === preview.entry.id
@@ -2369,14 +2629,31 @@ export default function FilesView({
                 entry: result.entry,
                 text: saved.draft,
                 originalText: saved.original,
-                textSaving: false,
+                textSaving: true,
                 textSaveError: null,
                 textConflict: false,
               };
             })()
           : current,
       );
-      setNotice("텍스트 파일을 저장했습니다");
+      const positionSaved = await persistMigratedEntryPositions(
+        preview.entry,
+        result.entry,
+        layoutTargets,
+        preferredScopeId,
+        controller.signal,
+      );
+      if (previewInstanceRef.current !== preview.instanceId) return;
+      setPreviewWindow((current) =>
+        current?.instanceId === preview.instanceId
+          ? { ...current, textSaving: false }
+          : current,
+      );
+      setNotice(
+        positionSaved
+          ? "텍스트 파일을 저장했습니다"
+          : "텍스트는 저장했지만 아이콘 위치를 저장하지 못했습니다",
+      );
     } catch (error) {
       if (
         isAbortError(error) ||
@@ -2405,6 +2682,28 @@ export default function FilesView({
     }
   }
 
+  function activePreviewDiscardReason() {
+    const current = previewWindowRef.current;
+    if (!current) return null;
+    return previewDiscardReason({
+      editable: current.kind === "text",
+      text: current.text,
+      originalText: current.originalText,
+      saving:
+        current.textSaving || previewSaveControllerRef.current !== null,
+    });
+  }
+
+  function confirmPreviewDiscard() {
+    const reason = activePreviewDiscardReason();
+    if (!reason) return true;
+    if (reason === "saving") {
+      setNotice("텍스트 파일을 저장하는 중입니다. 저장이 끝난 뒤 다시 시도해 주세요");
+      return false;
+    }
+    return window.confirm("저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?");
+  }
+
   function openPreview(
     entry: Entry,
     keyboardOpener?: { element: HTMLElement; scopeId: string },
@@ -2414,6 +2713,7 @@ export default function FilesView({
       void downloadEntry(entry);
       return;
     }
+    if (!confirmPreviewDiscard()) return;
     previewOpenerRef.current = keyboardOpener
       ? {
           ...keyboardOpener,
@@ -2423,12 +2723,35 @@ export default function FilesView({
     setContextMenu(null);
     const instanceId = beginPreviewInstance();
     const z = ++zRef.current;
+    const previewWidth = Math.min(
+      760,
+      Math.max(320, logicalViewport.width - 24),
+    );
+    const previewHeight = Math.min(
+      560,
+      Math.max(
+        240,
+        logicalViewport.height - TOP_BAR - TASK_BAR - 24,
+      ),
+    );
     setPreviewWindow({
       instanceId,
       entry,
       kind,
-      x: clamp(logicalViewport.width * 0.14, 8, 400),
-      y: clamp(TOP_BAR + 24, TOP_BAR + 6, logicalViewport.height / 3),
+      x: clamp(
+        (logicalViewport.width - previewWidth) / 2,
+        8,
+        Math.max(8, logicalViewport.width - previewWidth - 8),
+      ),
+      y: clamp(
+        TOP_BAR +
+          (logicalViewport.height - TOP_BAR - TASK_BAR - previewHeight) / 2,
+        TOP_BAR + 6,
+        Math.max(
+          TOP_BAR + 6,
+          logicalViewport.height - TASK_BAR - previewHeight - 6,
+        ),
+      ),
       z,
       text: null,
       originalText: null,
@@ -2446,6 +2769,7 @@ export default function FilesView({
   }
 
   function closePreview() {
+    if (!confirmPreviewDiscard()) return;
     const opener = previewOpenerRef.current;
     previewOpenerRef.current = null;
     cancelPreviewRequests();
@@ -2460,36 +2784,93 @@ export default function FilesView({
     });
   }
 
-  function discardPreviewForEntry(entryId: string) {
-    if (previewWindowRef.current?.entry.id !== entryId) return;
+  function discardActivePreview() {
     previewOpenerRef.current = null;
     cancelPreviewRequests();
     previewWindowRef.current = null;
     setPreviewWindow(null);
   }
 
-  function updatePreviewAfterRename(previousId: string, entry: Entry) {
+  function discardPreviewForEntry(entryId: string) {
+    if (previewWindowRef.current?.entry.id !== entryId) return;
+    discardActivePreview();
+  }
+
+  function confirmPreviewRenameTransition(entryId: string, nextName: string) {
     const current = previewWindowRef.current;
-    if (!current || current.entry.id !== previousId) return;
-    if (entry.id === previousId) {
-      const next = { ...current, entry };
+    if (!current || current.entry.id !== entryId) return true;
+    if (activePreviewDiscardReason() === "saving") {
+      return confirmPreviewDiscard();
+    }
+    const nextEntry = { ...current.entry, name: nextName };
+    const nextKind = previewKindOf(nextEntry);
+    const losesTextEditing =
+      current.kind === "text" &&
+      isEditableTextEntry(current.entry) &&
+      !isEditableTextEntry(nextEntry);
+    if (nextKind === current.kind && !losesTextEditing) return true;
+    return confirmPreviewDiscard();
+  }
+
+  function updatePreviewAfterRename(previousId: string, entry: Entry): boolean {
+    const current = previewWindowRef.current;
+    if (!current || current.entry.id !== previousId) return false;
+    const nextKind = previewKindOf(entry);
+    if (!nextKind) {
+      discardActivePreview();
+      setNotice(
+        "새 이름의 파일은 미리보기를 지원하지 않아 창을 닫았습니다",
+      );
+      return true;
+    }
+
+    const losesTextEditing =
+      current.kind === "text" &&
+      nextKind === "text" &&
+      isEditableTextEntry(current.entry) &&
+      !isEditableTextEntry(entry);
+    if (nextKind === current.kind && entry.id === previousId) {
+      const next = {
+        ...current,
+        entry,
+        text: losesTextEditing ? current.originalText : current.text,
+        textSaveError: losesTextEditing ? null : current.textSaveError,
+        textConflict: losesTextEditing ? false : current.textConflict,
+      };
       previewWindowRef.current = next;
       setPreviewWindow((active) =>
         active?.instanceId === current.instanceId
-          ? { ...active, entry }
+          ? {
+              ...active,
+              entry,
+              text: losesTextEditing ? active.originalText : active.text,
+              textSaveError: losesTextEditing ? null : active.textSaveError,
+              textConflict: losesTextEditing ? false : active.textConflict,
+            }
           : active,
       );
-      return;
+      return false;
     }
 
-    const shouldReload = current.kind === "text" && current.text === null;
+    const kindChanged = nextKind !== current.kind;
+    const shouldReload = kindChanged
+      ? nextKind === "text"
+      : current.kind === "text" && current.textLoading;
     const instanceId = beginPreviewInstance();
-    const next = {
+    const next: PreviewWindowState = {
       ...current,
       instanceId,
       entry,
+      kind: nextKind,
+      text: kindChanged
+        ? null
+        : losesTextEditing
+          ? current.originalText
+          : current.text,
+      originalText: kindChanged ? null : current.originalText,
       textLoading: shouldReload,
-      textError: shouldReload ? null : current.textError,
+      textError: kindChanged || shouldReload ? null : current.textError,
+      textReadOnlyReason: kindChanged ? null : current.textReadOnlyReason,
       textSaving: false,
       textSaveError: null,
       textConflict: false,
@@ -2501,8 +2882,18 @@ export default function FilesView({
             ...active,
             instanceId,
             entry,
+            kind: nextKind,
+            text: kindChanged
+              ? null
+              : losesTextEditing
+                ? active.originalText
+                : active.text,
+            originalText: kindChanged ? null : active.originalText,
             textLoading: shouldReload,
-            textError: shouldReload ? null : active.textError,
+            textError: kindChanged || shouldReload ? null : active.textError,
+            textReadOnlyReason: kindChanged
+              ? null
+              : active.textReadOnlyReason,
             textSaving: false,
             textSaveError: null,
             textConflict: false,
@@ -2510,6 +2901,7 @@ export default function FilesView({
         : active,
     );
     if (shouldReload) void loadPreviewText(entry, instanceId);
+    return false;
   }
 
   function movePreviewWindow(event: ReactPointerEvent<HTMLDivElement>) {
@@ -2548,6 +2940,109 @@ export default function FilesView({
     window.addEventListener("pointercancel", onEnd, { once: true });
   }
 
+  function focusFolderSidePreview(windowId: string) {
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-folder-side-preview="${windowId}"]`,
+        )
+        ?.focus();
+    });
+  }
+
+  function showFolderSidePreview(
+    windowId: string,
+    entry: Entry,
+    focusPreview = false,
+  ) {
+    if (previewKindOf(entry) !== "image" || !scopeWindow(windowId)) {
+      return false;
+    }
+    setContextMenu(null);
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? { ...item, sidePreviewLayoutKey: entry.layoutKey }
+          : item,
+      ),
+    );
+    if (focusPreview) focusFolderSidePreview(windowId);
+    return true;
+  }
+
+  function syncFolderSidePreview(windowId: string, entry: Entry) {
+    if (windowId === ROOT_SCOPE || !scopeWindow(windowId)) return false;
+    const isImage = previewKindOf(entry) === "image";
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? {
+              ...item,
+              sidePreviewLayoutKey: isImage ? entry.layoutKey : null,
+            }
+          : item,
+      ),
+    );
+    return isImage;
+  }
+
+  function closeFolderSidePreview(windowId: string, entry?: Entry) {
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? { ...item, sidePreviewLayoutKey: null }
+          : item,
+      ),
+    );
+    if (entry) {
+      window.requestAnimationFrame(() => {
+        findEntryButton(windowId, entry.id)?.focus();
+      });
+    }
+  }
+
+  function moveFolderSidePreview(
+    item: DeskWindow,
+    entry: Entry,
+    direction: -1 | 1,
+  ) {
+    const nextLayoutKey = adjacentFolderImagePreviewKey(
+      item.data.entries,
+      entry.layoutKey,
+      direction,
+    );
+    if (!nextLayoutKey) return;
+    const nextEntry = item.data.entries.find(
+      (candidate) => candidate.layoutKey === nextLayoutKey,
+    );
+    if (!nextEntry) return;
+    setDeskWindows((current) =>
+      current.map((value) =>
+        value.id === item.id
+          ? { ...value, sidePreviewLayoutKey: nextLayoutKey }
+          : value,
+      ),
+    );
+    applyKeyboardSelection(item.id, {
+      selectedLayoutKeys: [nextLayoutKey],
+      anchorLayoutKey: nextLayoutKey,
+      focusLayoutKey: nextLayoutKey,
+    });
+    focusFolderSidePreview(item.id);
+  }
+
+  function openPreviewInScope(
+    entry: Entry,
+    scopeId: string,
+    keyboardOpener?: HTMLElement,
+  ) {
+    if (showFolderSidePreview(scopeId, entry, Boolean(keyboardOpener))) return;
+    openPreview(
+      entry,
+      keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
+    );
+  }
+
   function activateEntry(
     entry: Entry,
     scopeId: string,
@@ -2557,15 +3052,12 @@ export default function FilesView({
     const action = fileActivationAction(entry, downloadFirst);
     if (action === "folder") openFolder(entry, scopeId);
     else if (action === "preview") {
-      openPreview(
-        entry,
-        keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
-      );
+      openPreviewInScope(entry, scopeId, keyboardOpener);
     }
     else void downloadEntry(entry);
   }
 
-  function openSearchResult(result: SearchResult) {
+  function openSearchResult(result: SearchResult, opener?: HTMLElement) {
     setContextMenu(null);
     const action = fileActivationAction(result.entry, downloadFirst);
     if (action === "folder") {
@@ -2575,8 +3067,12 @@ export default function FilesView({
       ]);
       return;
     }
-    if (action === "preview") openPreview(result.entry);
-    else void downloadEntry(result.entry);
+    if (action === "preview") {
+      openPreview(
+        result.entry,
+        opener ? { element: opener, scopeId: ROOT_SCOPE } : undefined,
+      );
+    } else void downloadEntry(result.entry);
   }
 
   function openOriginalLocation(result: SearchResult) {
@@ -2596,7 +3092,12 @@ export default function FilesView({
     setDeskWindows((current) =>
       current.map((value) =>
         value.id === windowId
-          ? { ...value, path: nextPath, data: blankFolder() }
+          ? {
+              ...value,
+              path: nextPath,
+              sidePreviewLayoutKey: null,
+              data: blankFolder(),
+            }
           : value,
       ),
     );
@@ -2649,7 +3150,12 @@ export default function FilesView({
       setDeskWindows((current) =>
         current.map((value) =>
           value.id === windowId
-            ? { ...value, path: nextPath, data: blankFolder() }
+            ? {
+                ...value,
+                path: nextPath,
+                sidePreviewLayoutKey: null,
+                data: blankFolder(),
+              }
             : value,
         ),
       );
@@ -2983,8 +3489,119 @@ export default function FilesView({
     return defaultPlacement(index);
   }
 
+  function keyboardSelectableIcons(
+    scopeId: string,
+    entries: Entry[],
+  ): DesktopSelectableIcon[] {
+    return entries.map((entry, index) => {
+      const placement = placementFor(scopeId, entry, index);
+      return {
+        layoutKey: entry.layoutKey,
+        x: placement.x,
+        y: placement.y,
+        width: ICON_WIDTH,
+        height: ICON_HEIGHT,
+        order: index,
+      };
+    });
+  }
+
+  function currentKeyboardSelection(
+    scopeId: string,
+    icons: DesktopSelectableIcon[],
+    focusLayoutKey?: string,
+  ) {
+    const remembered =
+      keyboardSelectionRef.current?.scopeId === scopeId
+        ? keyboardSelectionRef.current.state
+        : null;
+    return reconcileDesktopKeyboardSelection(icons, {
+      selectedLayoutKeys:
+        selected?.scopeId === scopeId ? selected.layoutKeys : [],
+      anchorLayoutKey:
+        remembered?.anchorLayoutKey ?? focusLayoutKey ?? null,
+      focusLayoutKey:
+        focusLayoutKey ?? remembered?.focusLayoutKey ?? null,
+    });
+  }
+
+  function applyKeyboardSelection(
+    scopeId: string,
+    state: DesktopKeyboardSelectionState,
+  ) {
+    keyboardSelectionRef.current = { scopeId, state };
+    setSelected(
+      state.selectedLayoutKeys.length > 0
+        ? { scopeId, layoutKeys: [...state.selectedLayoutKeys] }
+        : null,
+    );
+  }
+
+  function selectIconFromClick(
+    scopeId: string,
+    entries: Entry[],
+    layoutKey: string,
+    additive: boolean,
+  ) {
+    const icons = keyboardSelectableIcons(scopeId, entries);
+    const next = additive
+      ? toggleDesktopSelectionKey(
+          icons,
+          currentKeyboardSelection(scopeId, icons),
+          layoutKey,
+        )
+      : {
+          selectedLayoutKeys: [layoutKey],
+          anchorLayoutKey: layoutKey,
+          focusLayoutKey: layoutKey,
+        };
+    applyKeyboardSelection(scopeId, next);
+  }
+
+  function moveIconSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    scopeId: string,
+    entries: Entry[],
+    entry: Entry,
+  ) {
+    if (
+      !isDesktopArrowKey(event.key) ||
+      event.altKey ||
+      shouldIgnoreDesktopSelectionKeydown(event.target)
+    ) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const icons = keyboardSelectableIcons(scopeId, entries);
+    const toggleModifier = event.ctrlKey || event.metaKey;
+    const next = moveDesktopKeyboardSelection(
+      icons,
+      currentKeyboardSelection(scopeId, icons, entry.layoutKey),
+      event.key,
+      {
+        extend: event.shiftKey,
+        additive: event.shiftKey && toggleModifier,
+        preserveSelection: toggleModifier && !event.shiftKey,
+      },
+    );
+    applyKeyboardSelection(scopeId, next);
+
+    const nextEntry = entries.find(
+      (candidate) => candidate.layoutKey === next.focusLayoutKey,
+    );
+    if (nextEntry) {
+      syncFolderSidePreview(scopeId, nextEntry);
+      window.requestAnimationFrame(() => {
+        findEntryButton(scopeId, nextEntry.id)?.focus();
+      });
+    }
+    return true;
+  }
+
   function planeDimensions(scopeId: string, entries: Entry[]) {
-    let width = PLANE_MIN_WIDTH;
+    let width = 0;
     let height = PLANE_MIN_HEIGHT;
     entries.forEach((entry, index) => {
       const placement = placementFor(scopeId, entry, index);
@@ -3377,6 +3994,12 @@ export default function FilesView({
     targetFolderId: string,
     announce = true,
   ) {
+    if (
+      entry.isFolder &&
+      !confirmPreviewLifecycleChange(entry)
+    ) {
+      return false;
+    }
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
     if (!entry.version) {
       setTransientPositions((current) => {
@@ -3526,6 +4149,11 @@ export default function FilesView({
     entry: Entry,
     announce = true,
   ) {
+    if (
+      !confirmPreviewLifecycleChange(entry)
+    ) {
+      return false;
+    }
     if (movingEntryIdsRef.current.has(entry.id)) return false;
     const sourceFolderId = scopeFolderId(sourceScopeId);
     const transientKey = `${sourceScopeId}:${entry.layoutKey}`;
@@ -3829,6 +4457,7 @@ export default function FilesView({
 
     event.preventDefault();
     setContextMenu(null);
+    keyboardSelectionRef.current = null;
     if (!additive) setSelected(null);
 
     const onMove = (next: PointerEvent) => {
@@ -4519,6 +5148,20 @@ export default function FilesView({
 
   async function submitDialog() {
     if (!dialog || dialogBusy) return;
+    if (
+      dialog.kind !== "create" &&
+      (dialog.kind === "delete" || dialog.entry.isFolder) &&
+      !confirmPreviewLifecycleChange(dialog.entry)
+    ) {
+      return;
+    }
+    if (
+      dialog.kind === "rename" &&
+      !dialog.entry.isFolder &&
+      !confirmPreviewRenameTransition(dialog.entry.id, dialog.value.trim())
+    ) {
+      return;
+    }
     setDialogBusy(true);
     let deleteFocus:
       | {
@@ -4553,8 +5196,12 @@ export default function FilesView({
             });
           }
         }
+        let previewClosed = false;
         if (!dialog.entry.isFolder) {
-          updatePreviewAfterRename(dialog.entry.id, result.entry);
+          previewClosed = updatePreviewAfterRename(
+            dialog.entry.id,
+            result.entry,
+          );
           if (
             result.entry.id !== dialog.entry.id &&
             previewOpenerRef.current?.entryId === dialog.entry.id
@@ -4562,7 +5209,7 @@ export default function FilesView({
             previewOpenerRef.current = null;
           }
         }
-        setNotice("이름을 바꿨습니다");
+        if (!previewClosed) setNotice("이름을 바꿨습니다");
       } else {
         const entries = scopeData(dialog.scopeId)?.entries ?? [];
         const deletedIndex = entries.findIndex(
@@ -4615,8 +5262,6 @@ export default function FilesView({
       ) {
         if (dialog.entry.isFolder) {
           closeWindowsContainingFolder(dialog.entry.id);
-        } else {
-          discardPreviewForEntry(dialog.entry.id);
         }
         await refreshScope(dialog.scopeId, true);
       }
@@ -4627,6 +5272,8 @@ export default function FilesView({
   }
 
   async function logout() {
+    if (!confirmPreviewDiscard()) return;
+    if (activePreviewDiscardReason()) discardActivePreview();
     await fetch("/api/presence", {
       method: "DELETE",
       cache: "no-store",
@@ -4658,6 +5305,7 @@ export default function FilesView({
         data-canvas-folder={scopeFolderId(scopeId)}
         onClick={() => {
           if (suppressedCanvasClickRef.current.delete(scopeId)) return;
+          keyboardSelectionRef.current = null;
           setSelected(null);
           setContextMenu(null);
         }}
@@ -4739,14 +5387,18 @@ export default function FilesView({
                   if (window.matchMedia("(pointer: coarse)").matches) {
                     activateEntry(entry, scopeId);
                   } else {
-                    setSelected((current) =>
-                      selectLayoutKey(
-                        current,
-                        scopeId,
-                        entry.layoutKey,
-                        event.ctrlKey || event.metaKey,
-                      ),
+                    selectIconFromClick(
+                      scopeId,
+                      data.entries,
+                      entry.layoutKey,
+                      event.ctrlKey || event.metaKey,
                     );
+                    const sidePreviewOpened = syncFolderSidePreview(
+                      scopeId,
+                      entry,
+                    );
+                    if (sidePreviewOpened) focusFolderSidePreview(scopeId);
+                    else event.currentTarget.focus();
                     setContextMenu(null);
                   }
                 }}
@@ -4757,6 +5409,16 @@ export default function FilesView({
                   }
                 }}
                 onKeyDown={(event) => {
+                  if (
+                    moveIconSelectionWithKeyboard(
+                      event,
+                      scopeId,
+                      data.entries,
+                      entry,
+                    )
+                  ) {
+                    return;
+                  }
                   if (event.key === "Enter") {
                     event.preventDefault();
                     activateEntry(entry, scopeId, event.currentTarget);
@@ -5020,6 +5682,17 @@ export default function FilesView({
           busy: false,
           error: null,
         };
+        const sidePreviewEntries = folderImagePreviewEntries(item.data.entries);
+        const sidePreviewEntry = item.sidePreviewLayoutKey
+          ? sidePreviewEntries.find(
+              (entry) => entry.layoutKey === item.sidePreviewLayoutKey,
+            ) ?? null
+          : null;
+        const sidePreviewIndex = sidePreviewEntry
+          ? sidePreviewEntries.findIndex(
+              (entry) => entry.layoutKey === sidePreviewEntry.layoutKey,
+            )
+          : -1;
         return (
           <section
             key={item.id}
@@ -5178,7 +5851,92 @@ export default function FilesView({
               </button>
             </div>
 
-            <div className={styles.windowBody}>{renderCanvas(item.id)}</div>
+            <div
+              className={`${styles.windowBody} ${
+                sidePreviewEntry ? styles.windowBodyWithPreview : ""
+              }`}
+            >
+              {renderCanvas(item.id)}
+              {sidePreviewEntry && (
+                <aside
+                  className={styles.folderSidePreview}
+                  data-folder-side-preview={item.id}
+                  tabIndex={0}
+                  aria-label={`${sidePreviewEntry.name} 폴더 미리보기`}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeFolderSidePreview(item.id, sidePreviewEntry);
+                    }
+                    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      moveFolderSidePreview(
+                        item,
+                        sidePreviewEntry,
+                        event.key === "ArrowLeft" ? -1 : 1,
+                      );
+                    }
+                  }}
+                >
+                  <header className={styles.folderSidePreviewHeader}>
+                    <PixelFileIcon entry={sidePreviewEntry} size={18} />
+                    <strong title={sidePreviewEntry.name}>
+                      {sidePreviewEntry.name}
+                    </strong>
+                    <button
+                      type="button"
+                      aria-label="이전 이미지"
+                      aria-keyshortcuts="ArrowLeft"
+                      disabled={sidePreviewIndex <= 0}
+                      onClick={() =>
+                        moveFolderSidePreview(item, sidePreviewEntry, -1)
+                      }
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="다음 이미지"
+                      aria-keyshortcuts="ArrowRight"
+                      disabled={
+                        sidePreviewIndex < 0 ||
+                        sidePreviewIndex >= sidePreviewEntries.length - 1
+                      }
+                      onClick={() =>
+                        moveFolderSidePreview(item, sidePreviewEntry, 1)
+                      }
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="폴더 미리보기 닫기"
+                      onClick={() =>
+                        closeFolderSidePreview(item.id, sidePreviewEntry)
+                      }
+                    >
+                      ×
+                    </button>
+                  </header>
+                  <div className={styles.folderSidePreviewBody}>
+                    {/* 원본 크기와 무관하게 폴더 미리보기 영역에 맞춘다. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl(sidePreviewEntry)}
+                      alt={sidePreviewEntry.name}
+                    />
+                  </div>
+                  <footer className={styles.folderSidePreviewStatus}>
+                    <span>
+                      {sidePreviewIndex + 1} / {sidePreviewEntries.length}
+                    </span>
+                    <span>{formatSize(sidePreviewEntry.size)}</span>
+                  </footer>
+                </aside>
+              )}
+            </div>
 
             <footer className={styles.windowStatus}>
               <span>{item.data.entries.length}개 항목</span>
@@ -5309,11 +6067,13 @@ export default function FilesView({
                       type="button"
                       className={styles.searchResultMain}
                       title={result.path}
-                      onDoubleClick={() => openSearchResult(result)}
+                      onDoubleClick={(event) =>
+                        openSearchResult(result, event.currentTarget)
+                      }
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          openSearchResult(result);
+                          openSearchResult(result, event.currentTarget);
                         }
                         if (
                           event.key === "ContextMenu" ||
@@ -5335,7 +6095,9 @@ export default function FilesView({
                     <div className={styles.searchResultActions}>
                       <button
                         type="button"
-                        onClick={() => openSearchResult(result)}
+                        onClick={(event) =>
+                          openSearchResult(result, event.currentTarget)
+                        }
                       >
                         {result.entry.isFolder ? "폴더 열기" : "열기"}
                       </button>
@@ -5501,8 +6263,12 @@ export default function FilesView({
             </ul>
           </div>
 
-          <footer className={styles.windowStatus}>
-            <span>{trashWindow.entries.length}개 항목 · 30일 후 자동 삭제</span>
+          <footer
+            className={`${styles.windowStatus} ${styles.trashFooter}`}
+          >
+            <span className={styles.trashSummary}>
+              {trashWindow.entries.length}개 항목 · 30일 후 자동 삭제
+            </span>
             {trashWindow.entries.length > 0 &&
               (trashWindow.confirmId === "__empty__" ? (
                 <span className={styles.trashActions}>
@@ -5968,7 +6734,12 @@ export default function FilesView({
           {contextMenu.searchResult ? (
             <>
               <MenuButton
-                onClick={() => openSearchResult(contextMenu.searchResult!)}
+                onClick={() =>
+                  openSearchResult(
+                    contextMenu.searchResult!,
+                    contextMenu.opener ?? undefined,
+                  )
+                }
               >
                 {contextMenu.searchResult.entry.isFolder
                   ? "폴더 열기"
@@ -6004,7 +6775,11 @@ export default function FilesView({
                   if (action === "folder") {
                     openFolder(entry, contextMenu.scopeId);
                   } else if (action === "preview") {
-                    openPreview(entry);
+                    openPreviewInScope(
+                      entry,
+                      contextMenu.scopeId,
+                      contextMenu.opener ?? undefined,
+                    );
                   } else {
                     void downloadEntry(entry);
                   }

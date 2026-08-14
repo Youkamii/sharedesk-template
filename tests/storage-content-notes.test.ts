@@ -88,6 +88,8 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         "text/plain",
         stream("수정된 내용"),
       );
+      assert.equal(saved.id, editable.id);
+      assert.notEqual(saved.layoutKey, editable.layoutKey);
       assert.notEqual(saved.version, editable.version);
       assert.equal(await readFile(path.join(root, "문서", "공용.txt"), "utf8"), "수정된 내용");
 
