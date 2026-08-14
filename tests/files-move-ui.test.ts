@@ -362,6 +362,40 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
 });
 
+test("휴지통 목록은 행 구성을 고정하고 목록만 스크롤하며 비우기를 우측 하단에 둔다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(
+    css,
+    /\.trashBody \{[\s\S]*?overflow: hidden;/,
+  );
+  assert.match(
+    css,
+    /\.trashList \{[\s\S]*?min-height: 0;[\s\S]*?overflow: hidden auto;/,
+  );
+  assert.match(
+    css,
+    /\.trashRow \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: 32px minmax\(0, 1fr\) auto;/,
+  );
+  assert.match(
+    css,
+    /\.trashMeta \{[\s\S]*?overflow: hidden;[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/,
+  );
+  assert.match(
+    source,
+    /className=\{`\$\{styles\.windowStatus\} \$\{styles\.trashFooter\}`\}/,
+  );
+  assert.match(source, /className=\{styles\.trashSummary\}/);
+  assert.match(source, /className=\{styles\.trashDanger\}[\s\S]*?>\s*비우기…/);
+  assert.match(
+    css,
+    /\.trashFooter \{[\s\S]*?justify-content: flex-end;[\s\S]*?\.trashSummary \{[\s\S]*?margin-right: auto;/,
+  );
+});
+
 test("Ctrl/Command 선택은 같은 폴더에서 항목을 더하고 다시 누르면 뺀다", () => {
   const first = selectLayoutKey(null, "desktop", "a", false);
   const second = selectLayoutKey(first, "desktop", "b", true);

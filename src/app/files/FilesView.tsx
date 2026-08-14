@@ -5524,8 +5524,12 @@ export default function FilesView({
             </ul>
           </div>
 
-          <footer className={styles.windowStatus}>
-            <span>{trashWindow.entries.length}개 항목 · 30일 후 자동 삭제</span>
+          <footer
+            className={`${styles.windowStatus} ${styles.trashFooter}`}
+          >
+            <span className={styles.trashSummary}>
+              {trashWindow.entries.length}개 항목 · 30일 후 자동 삭제
+            </span>
             {trashWindow.entries.length > 0 &&
               (trashWindow.confirmId === "__empty__" ? (
                 <span className={styles.trashActions}>

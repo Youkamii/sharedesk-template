@@ -503,7 +503,7 @@
 
 /* 휴지통 창 — folderWindow 골격에서 툴바 줄만 뺀다. */
 .trashWindow {
-  grid-template-rows: 32px minmax(0, 1fr) 24px;
+  grid-template-rows: 32px minmax(0, 1fr) 26px;
   width: min(480px, calc(100% - 16px));
   height: min(400px, calc(100% - 120px));
   min-width: 320px;
@@ -540,16 +540,19 @@
 }
 
 .trashBody {
+  display: grid;
   min-height: 0;
   padding: 6px;
-  overflow: hidden auto;
+  overflow: hidden;
   background: #f4e7c5;
 }
 
 .trashMessage {
+  grid-area: 1 / 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin: 0;
   padding: 24px 10px;
   text-align: center;
   color: #4b5063;
@@ -562,18 +565,25 @@
 }
 
 .trashList {
-  display: flex;
-  flex-direction: column;
+  grid-area: 1 / 1;
+  display: grid;
+  min-height: 0;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 4px;
   margin: 0;
-  padding: 0;
+  padding: 0 2px 2px 0;
+  overflow: hidden auto;
   list-style: none;
+  overscroll-behavior: contain;
 }
 
 .trashRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 5px 6px;
   background: #fff8e7;
   border: 2px solid #8f806d;
@@ -596,14 +606,19 @@
 }
 
 .trashMeta {
+  overflow: hidden;
   color: #7a6f5e;
   font-family: var(--font-geist-mono), monospace;
   font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .trashActions {
-  display: flex;
+  display: grid;
   flex: none;
+  grid-auto-flow: column;
+  grid-auto-columns: max-content;
   gap: 4px;
 }
 
@@ -625,10 +640,36 @@
   opacity: 0.5;
 }
 
+.trashActions button {
+  white-space: nowrap;
+}
+
 .trashActions .trashDanger,
 .windowStatus .trashDanger {
   color: #a02533;
   border-color: #a02533;
+}
+
+.trashFooter {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.trashSummary {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trashFooter .trashActions {
+  margin-left: auto;
+}
+
+.trashFooter .trashActions button {
+  padding: 1px 6px;
+  font-size: 10px;
 }
 
 /* 미리보기 창 */
