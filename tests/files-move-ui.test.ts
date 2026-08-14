@@ -915,6 +915,38 @@ test("폴더 우측 미리보기가 아이콘 평면에 고정 최소폭을 남�
   assert.match(css, /\.iconPlane \{[\s\S]*?min-width: 100%;/);
 });
 
+test("새 메모장은 서버가 배정한 항목과 좌표를 같은 폴더 화면에 함께 반영한다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const mergeStart = source.indexOf("function mergeFreshFolderData");
+  const mergeEnd = source.indexOf(
+    "async function refreshDetachedFolder",
+    mergeStart,
+  );
+  const createStart = source.indexOf("async function createNotepad");
+  const createEnd = source.indexOf("async function submitDialog", createStart);
+  const mergeFresh = source.slice(mergeStart, mergeEnd);
+  const createNotepad = source.slice(createStart, createEnd);
+
+  assert.ok(mergeStart >= 0 && mergeEnd > mergeStart);
+  assert.ok(createStart >= 0 && createEnd > createStart);
+  assert.match(
+    mergeFresh,
+    /setRootData\([\s\S]*?mergeFolderData\(current, fresh\)/,
+  );
+  assert.match(
+    mergeFresh,
+    /item\.path\.at\(-1\)\?\.id === folderId[\s\S]*?mergeFolderData\(item\.data, fresh\)/,
+  );
+  assert.match(
+    createNotepad,
+    /const fresh = await fetchFolder\([\s\S]*?mergeFreshFolderData\(folderId, fresh\)/,
+  );
+  assert.doesNotMatch(createNotepad, /upsertFolderEntry\(/);
+});
+
 test("the root desktop plane owns arrow navigation before an icon has focus", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),

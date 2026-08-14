@@ -73,6 +73,7 @@ test("31개 이상 기존 기본 배치를 유지하고 78개까지 안전 격�
         defaultPlacement(index),
       );
     });
+    assert.deepEqual(normalized.corrections, []);
   }
 
   const input = entries(78);
@@ -84,18 +85,19 @@ test("31개 이상 기존 기본 배치를 유지하고 78개까지 안전 격�
       assert.equal(overlaps(placement, other), false);
     });
   });
+  assert.deepEqual(normalized.corrections, []);
 });
 
 test("예전의 화면 밖 좌표를 즉시 공통 ROOT 경계 안으로 당긴다", () => {
   const [entry] = entries(1);
   const normalized = normalizeRootDesktopLayout([entry], {
-    [entry.layoutKey]: { x: 1500, y: 800, version: 7 },
+    [entry.layoutKey]: { x: 1500, y: 800, version: 1 },
   });
 
   assert.deepEqual(normalized.positions[entry.layoutKey], {
     x: 1192,
     y: 534,
-    version: 7,
+    version: 1,
   });
   assert.deepEqual(normalized.corrections, [
     {
@@ -103,6 +105,14 @@ test("예전의 화면 밖 좌표를 즉시 공통 ROOT 경계 안으로 당긴�
       placement: normalized.positions[entry.layoutKey],
     },
   ]);
+});
+
+test("저장 좌표가 아직 없는 optimistic 항목은 PATCH 보정 대상으로 만들지 않는다", () => {
+  const [entry] = entries(1);
+  const normalized = normalizeRootDesktopLayout([entry], {});
+
+  assert.deepEqual(normalized.positions[entry.layoutKey], defaultPlacement(0));
+  assert.deepEqual(normalized.corrections, []);
 });
 
 test("경계로 당긴 좌표가 겹치면 비어 있는 13x6 격자로 옮긴다", () => {

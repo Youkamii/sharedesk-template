@@ -138,10 +138,11 @@ export function normalizeRootDesktopLayout(
     else missing.push({ entry, index });
   });
 
-  const placeCorrection = (
+  const placePosition = (
     entry: RootDesktopEntry,
     candidate: Pick<RootDesktopPlacement, "x" | "y">,
     version: number,
+    needsCorrection: boolean,
   ) => {
     const nearest = clampedPosition(candidate);
     const position = occupied.some((current) =>
@@ -155,7 +156,9 @@ export function normalizeRootDesktopLayout(
     };
     positions[entry.layoutKey] = placement;
     occupied.push(placement);
-    corrections.push({ layoutKey: entry.layoutKey, placement });
+    if (needsCorrection) {
+      corrections.push({ layoutKey: entry.layoutKey, placement });
+    }
   };
 
   storedOutside
@@ -167,11 +170,11 @@ export function normalizeRootDesktopLayout(
           : 0,
     )
     .forEach(({ entry, stored }) => {
-      placeCorrection(entry, stored, stored.version);
+      placePosition(entry, stored, stored.version, true);
     });
 
   missing.forEach(({ entry, index }) => {
-    placeCorrection(entry, defaultPosition(index), 0);
+    placePosition(entry, defaultPosition(index), 0, false);
   });
 
   return { positions, corrections };

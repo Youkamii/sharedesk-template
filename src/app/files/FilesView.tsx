@@ -1823,6 +1823,19 @@ export default function FilesView({
     );
   }
 
+  function mergeFreshFolderData(folderId: string, fresh: FolderData) {
+    if (folderId === ROOT_ID) {
+      setRootData((current) => mergeFolderData(current, fresh));
+    }
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.path.at(-1)?.id === folderId
+          ? { ...item, data: mergeFolderData(item.data, fresh) }
+          : item,
+      ),
+    );
+  }
+
   async function refreshDetachedFolder(folderId: string) {
     if ((pendingFolderMutationsRef.current.get(folderId) ?? 0) > 0) {
       foldersNeedingRefreshRef.current.add(folderId);
@@ -5265,7 +5278,7 @@ export default function FilesView({
         void refreshScope(scopeId, true);
         return;
       }
-      upsertFolderEntry(folderId, entry);
+      mergeFreshFolderData(folderId, fresh);
       openPreview(entry);
       setNotice(`‘${name}’ 메모장을 만들었습니다`);
     } catch {
