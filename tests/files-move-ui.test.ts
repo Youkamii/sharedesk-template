@@ -274,6 +274,68 @@ test("같은 폴더를 연 창들은 새 layoutKey 좌표를 서버에 한 번�
   );
 });
 
+test("이름 변경은 미리보기 형식 전환 전에 초안을 확인하고 성공한 응답으로 상태를 다시 만든다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const renameGuard = source.slice(
+    source.indexOf("function confirmPreviewRenameTransition"),
+    source.indexOf("function updatePreviewAfterRename"),
+  );
+  const renameUpdate = source.slice(
+    source.indexOf("function updatePreviewAfterRename"),
+    source.indexOf("function movePreviewWindow"),
+  );
+  const submitDialog = source.slice(
+    source.indexOf("async function submitDialog"),
+    source.indexOf("async function logout"),
+  );
+
+  assert.match(renameGuard, /const nextKind = previewKindOf\(nextEntry\)/);
+  assert.match(
+    renameGuard,
+    /activePreviewDiscardReason\(\) === "saving"[\s\S]*?return confirmPreviewDiscard\(\)/,
+  );
+  assert.match(renameGuard, /isEditableTextEntry\(current\.entry\)/);
+  assert.match(renameGuard, /!isEditableTextEntry\(nextEntry\)/);
+  assert.match(renameGuard, /return confirmPreviewDiscard\(\)/);
+  assert.match(
+    submitDialog,
+    /confirmPreviewRenameTransition\([\s\S]*?setDialogBusy\(true\)[\s\S]*?\/api\/drive\/rename/,
+  );
+
+  assert.match(renameUpdate, /const nextKind = previewKindOf\(entry\)/);
+  assert.match(
+    renameUpdate,
+    /if \(!nextKind\) \{\s*discardActivePreview\(\);[\s\S]*?미리보기를 지원하지 않아 창을 닫았습니다[\s\S]*?return true/,
+  );
+  assert.match(
+    renameUpdate,
+    /nextKind === current\.kind && entry\.id === previousId[\s\S]*?text: losesTextEditing \? current\.originalText : current\.text/,
+  );
+  assert.match(
+    renameUpdate,
+    /const kindChanged = nextKind !== current\.kind[\s\S]*?kind: nextKind[\s\S]*?text: kindChanged\s*\? null/,
+  );
+  assert.match(
+    renameUpdate,
+    /current\.kind === "text" && current\.textLoading/,
+  );
+  assert.match(
+    renameUpdate,
+    /if \(shouldReload\) void loadPreviewText\(entry, instanceId\)/,
+  );
+  assert.doesNotMatch(
+    submitDialog,
+    /classifyMoveFailure\(error\) === "uncertain"[\s\S]*?discardPreviewForEntry/,
+  );
+  assert.match(
+    submitDialog,
+    /if \(!previewClosed\) setNotice\("이름을 바꿨습니다"\)/,
+  );
+});
+
 test("TXT 저장 성공은 새 layoutKey 상태 이관 뒤 대표 좌표를 버전 0으로 저장한다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),

@@ -2796,28 +2796,81 @@ export default function FilesView({
     discardActivePreview();
   }
 
-  function updatePreviewAfterRename(previousId: string, entry: Entry) {
+  function confirmPreviewRenameTransition(entryId: string, nextName: string) {
     const current = previewWindowRef.current;
-    if (!current || current.entry.id !== previousId) return;
-    if (entry.id === previousId) {
-      const next = { ...current, entry };
+    if (!current || current.entry.id !== entryId) return true;
+    if (activePreviewDiscardReason() === "saving") {
+      return confirmPreviewDiscard();
+    }
+    const nextEntry = { ...current.entry, name: nextName };
+    const nextKind = previewKindOf(nextEntry);
+    const losesTextEditing =
+      current.kind === "text" &&
+      isEditableTextEntry(current.entry) &&
+      !isEditableTextEntry(nextEntry);
+    if (nextKind === current.kind && !losesTextEditing) return true;
+    return confirmPreviewDiscard();
+  }
+
+  function updatePreviewAfterRename(previousId: string, entry: Entry): boolean {
+    const current = previewWindowRef.current;
+    if (!current || current.entry.id !== previousId) return false;
+    const nextKind = previewKindOf(entry);
+    if (!nextKind) {
+      discardActivePreview();
+      setNotice(
+        "새 이름의 파일은 미리보기를 지원하지 않아 창을 닫았습니다",
+      );
+      return true;
+    }
+
+    const losesTextEditing =
+      current.kind === "text" &&
+      nextKind === "text" &&
+      isEditableTextEntry(current.entry) &&
+      !isEditableTextEntry(entry);
+    if (nextKind === current.kind && entry.id === previousId) {
+      const next = {
+        ...current,
+        entry,
+        text: losesTextEditing ? current.originalText : current.text,
+        textSaveError: losesTextEditing ? null : current.textSaveError,
+        textConflict: losesTextEditing ? false : current.textConflict,
+      };
       previewWindowRef.current = next;
       setPreviewWindow((active) =>
         active?.instanceId === current.instanceId
-          ? { ...active, entry }
+          ? {
+              ...active,
+              entry,
+              text: losesTextEditing ? active.originalText : active.text,
+              textSaveError: losesTextEditing ? null : active.textSaveError,
+              textConflict: losesTextEditing ? false : active.textConflict,
+            }
           : active,
       );
-      return;
+      return false;
     }
 
-    const shouldReload = current.kind === "text" && current.text === null;
+    const kindChanged = nextKind !== current.kind;
+    const shouldReload = kindChanged
+      ? nextKind === "text"
+      : current.kind === "text" && current.textLoading;
     const instanceId = beginPreviewInstance();
-    const next = {
+    const next: PreviewWindowState = {
       ...current,
       instanceId,
       entry,
+      kind: nextKind,
+      text: kindChanged
+        ? null
+        : losesTextEditing
+          ? current.originalText
+          : current.text,
+      originalText: kindChanged ? null : current.originalText,
       textLoading: shouldReload,
-      textError: shouldReload ? null : current.textError,
+      textError: kindChanged || shouldReload ? null : current.textError,
+      textReadOnlyReason: kindChanged ? null : current.textReadOnlyReason,
       textSaving: false,
       textSaveError: null,
       textConflict: false,
@@ -2829,8 +2882,18 @@ export default function FilesView({
             ...active,
             instanceId,
             entry,
+            kind: nextKind,
+            text: kindChanged
+              ? null
+              : losesTextEditing
+                ? active.originalText
+                : active.text,
+            originalText: kindChanged ? null : active.originalText,
             textLoading: shouldReload,
-            textError: shouldReload ? null : active.textError,
+            textError: kindChanged || shouldReload ? null : active.textError,
+            textReadOnlyReason: kindChanged
+              ? null
+              : active.textReadOnlyReason,
             textSaving: false,
             textSaveError: null,
             textConflict: false,
@@ -2838,6 +2901,7 @@ export default function FilesView({
         : active,
     );
     if (shouldReload) void loadPreviewText(entry, instanceId);
+    return false;
   }
 
   function movePreviewWindow(event: ReactPointerEvent<HTMLDivElement>) {
@@ -5091,6 +5155,13 @@ export default function FilesView({
     ) {
       return;
     }
+    if (
+      dialog.kind === "rename" &&
+      !dialog.entry.isFolder &&
+      !confirmPreviewRenameTransition(dialog.entry.id, dialog.value.trim())
+    ) {
+      return;
+    }
     setDialogBusy(true);
     let deleteFocus:
       | {
@@ -5125,8 +5196,12 @@ export default function FilesView({
             });
           }
         }
+        let previewClosed = false;
         if (!dialog.entry.isFolder) {
-          updatePreviewAfterRename(dialog.entry.id, result.entry);
+          previewClosed = updatePreviewAfterRename(
+            dialog.entry.id,
+            result.entry,
+          );
           if (
             result.entry.id !== dialog.entry.id &&
             previewOpenerRef.current?.entryId === dialog.entry.id
@@ -5134,7 +5209,7 @@ export default function FilesView({
             previewOpenerRef.current = null;
           }
         }
-        setNotice("이름을 바꿨습니다");
+        if (!previewClosed) setNotice("이름을 바꿨습니다");
       } else {
         const entries = scopeData(dialog.scopeId)?.entries ?? [];
         const deletedIndex = entries.findIndex(
@@ -5187,8 +5262,6 @@ export default function FilesView({
       ) {
         if (dialog.entry.isFolder) {
           closeWindowsContainingFolder(dialog.entry.id);
-        } else {
-          discardPreviewForEntry(dialog.entry.id);
         }
         await refreshScope(dialog.scopeId, true);
       }
