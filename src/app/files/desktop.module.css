@@ -311,6 +311,7 @@
 .rootCanvas {
   inset: 34px 0 58px;
   z-index: 1;
+  overflow: hidden;
 }
 
 .windowCanvas {

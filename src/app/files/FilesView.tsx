@@ -8,6 +8,7 @@ import type {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -55,6 +56,11 @@ import {
   type LayoutMigrationTarget,
 } from "@/lib/client/layout-key-migration";
 import { previewDiscardReason } from "@/lib/client/preview-draft";
+import {
+  moveRootDesktopGroup,
+  normalizeRootDesktopLayout,
+  type RootDesktopCorrection,
+} from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -608,6 +614,10 @@ export default function FilesView({
     state: DesktopKeyboardSelectionState;
   } | null>(null);
   const transientPositionsRef = useRef<Record<string, Placement>>({});
+  const rootDesktopCorrectionAttemptRef = useRef("");
+  const queueRootDesktopCorrectionsRef = useRef<
+    (corrections: RootDesktopCorrection[]) => boolean
+  >(() => false);
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
@@ -666,6 +676,10 @@ export default function FilesView({
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
   transientPositionsRef.current = transientPositions;
+  const rootDesktopLayout = useMemo(
+    () => normalizeRootDesktopLayout(rootData.entries, rootData.positions),
+    [rootData.entries, rootData.positions],
+  );
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
 
@@ -1216,6 +1230,51 @@ export default function FilesView({
       // 저장소 접근이 막힌 브라우저에서는 기본값을 쓴다.
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      rootData.loading ||
+      !rootData.folderIdentity ||
+      rootDesktopLayout.corrections.length === 0
+    ) {
+      if (rootDesktopLayout.corrections.length === 0) {
+        rootDesktopCorrectionAttemptRef.current = "";
+      }
+      return;
+    }
+    const applicableCorrections = rootDesktopLayout.corrections.filter(
+      ({ layoutKey }) => {
+        const entry = rootData.entries.find(
+          (candidate) => candidate.layoutKey === layoutKey,
+        );
+        return (
+          entry &&
+          !savingPositions.has(`${ROOT_SCOPE}:${layoutKey}`) &&
+          !movingEntryIdsRef.current.has(entry.id)
+        );
+      },
+    );
+    if (applicableCorrections.length === 0) return;
+    const correctionToken = [
+      rootData.folderIdentity,
+      rootData.revision,
+      ...applicableCorrections.map(
+        ({ layoutKey, placement }) =>
+          `${layoutKey}:${placement.version}:${placement.x}:${placement.y}`,
+      ),
+    ].join("|");
+    if (rootDesktopCorrectionAttemptRef.current === correctionToken) return;
+    if (queueRootDesktopCorrectionsRef.current(applicableCorrections)) {
+      rootDesktopCorrectionAttemptRef.current = correctionToken;
+    }
+  }, [
+    rootData.folderIdentity,
+    rootData.entries,
+    rootData.loading,
+    rootData.revision,
+    rootDesktopLayout.corrections,
+    savingPositions,
+  ]);
 
   useEffect(() => {
     const resizedViewport = {
@@ -3484,6 +3543,11 @@ export default function FilesView({
   function placementFor(scopeId: string, entry: Entry, index: number) {
     const transient = transientPositions[`${scopeId}:${entry.layoutKey}`];
     if (transient) return transient;
+    if (scopeId === ROOT_SCOPE) {
+      return (
+        rootDesktopLayout.positions[entry.layoutKey] ?? defaultPlacement(index)
+      );
+    }
     const stored = scopeData(scopeId)?.positions[entry.layoutKey];
     if (stored) return stored;
     return defaultPlacement(index);
@@ -3786,6 +3850,33 @@ export default function FilesView({
     });
     void pumpBatchSave(nodes);
   }
+
+  queueRootDesktopCorrectionsRef.current = (corrections) => {
+    const entriesByLayoutKey = new Map(
+      rootData.entries.map((entry) => [entry.layoutKey, entry]),
+    );
+    const placements = corrections.flatMap((correction) => {
+      const entry = entriesByLayoutKey.get(correction.layoutKey);
+      const key = `${ROOT_SCOPE}:${correction.layoutKey}`;
+      if (
+        !entry ||
+        saveQueueRef.current.has(key) ||
+        movingEntryIdsRef.current.has(entry.id)
+      ) {
+        return [];
+      }
+      return [{ entry, placement: correction.placement }];
+    });
+    if (placements.length === 0) return false;
+    queuePlacementBatch(
+      ROOT_SCOPE,
+      ROOT_ID,
+      rootData.folderIdentity,
+      layoutSaveGeneration(ROOT_SCOPE),
+      placements,
+    );
+    return true;
+  };
 
   async function pumpBatchSave(
     nodes: Array<{
@@ -4648,26 +4739,36 @@ export default function FilesView({
       }
       const deltaX = logicalPointerDelta(lastClientX - startX, uiScale);
       const deltaY = logicalPointerDelta(lastClientY - startY, uiScale);
+      const movedRootPlacements =
+        scopeId === ROOT_SCOPE
+          ? moveRootDesktopGroup(
+              dragNodes.map((node) => node.startPlacement),
+              deltaX,
+              deltaY,
+            )
+          : null;
       queuePlacementBatch(
         scopeId,
         folderId,
         folderIdentity,
         saveGeneration,
-        dragNodes.map((node) => ({
+        dragNodes.map((node, nodeIndex) => ({
           entry: node.entry,
-          placement: {
-            ...node.startPlacement,
-            x: clamp(
-              node.startPlacement.x + deltaX,
-              0,
-              MAX_LOGICAL_COORDINATE,
-            ),
-            y: clamp(
-              node.startPlacement.y + deltaY,
-              0,
-              MAX_LOGICAL_COORDINATE,
-            ),
-          },
+          placement:
+            movedRootPlacements?.[nodeIndex] ??
+            {
+              ...node.startPlacement,
+              x: clamp(
+                node.startPlacement.x + deltaX,
+                0,
+                MAX_LOGICAL_COORDINATE,
+              ),
+              y: clamp(
+                node.startPlacement.y + deltaY,
+                0,
+                MAX_LOGICAL_COORDINATE,
+              ),
+            },
         })),
       );
     };
@@ -5292,7 +5393,7 @@ export default function FilesView({
       if (element) windowCanvasRefs.current.set(scopeId, element);
       else windowCanvasRefs.current.delete(scopeId);
     };
-    const dimensions = planeDimensions(scopeId, data.entries);
+    const dimensions = isRoot ? null : planeDimensions(scopeId, data.entries);
 
     return (
       <div
@@ -5333,7 +5434,11 @@ export default function FilesView({
           ref={isRoot ? rootCanvasRef : setCanvasRef}
           className={styles.iconPlane}
           tabIndex={-1}
-          style={{ width: dimensions.width, height: dimensions.height }}
+          style={
+            dimensions
+              ? { width: dimensions.width, height: dimensions.height }
+              : { width: "100%", height: "100%" }
+          }
           onPointerDown={(event) =>
             startSelectionRectangle(event, scopeId, data.entries)
           }
