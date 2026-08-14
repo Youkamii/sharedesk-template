@@ -735,3 +735,19 @@ test("관리자 업데이트 화면은 사용자 관리 앞에서 최신 상태�
   assert.match(css, /\.updateInstruction \{/);
   assert.match(css, /\.updateError \{/);
 });
+
+test("desktop and folder icons keep keyboard focus and range selection wired", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /keyboardSelectableIcons\(/);
+  assert.match(source, /moveDesktopKeyboardSelection\(/);
+  assert.match(source, /extend: event\.shiftKey/);
+  assert.match(source, /preserveSelection: toggleModifier && !event\.shiftKey/);
+  assert.match(source, /toggleDesktopSelectionKey\(/);
+  assert.match(source, /findEntryButton\(scopeId, nextEntry\.id\)\?\.focus\(\)/);
+  assert.match(source, /shouldIgnoreDesktopSelectionKeydown\(event\.target\)/);
+  assert.match(source, /keyboardSelectionRef\.current = null/);
+});

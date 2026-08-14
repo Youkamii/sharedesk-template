@@ -1,6 +1,10 @@
 "use client";
 
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   useCallback,
   useEffect,
@@ -22,11 +26,19 @@ import {
 import {
   batchMutationNotice,
   removeSelectedLayoutKeys,
-  selectLayoutKey,
   selectLayoutsInRectangle,
   type BatchSelection,
   type SelectionRect,
 } from "@/lib/client/batch-selection";
+import {
+  isDesktopArrowKey,
+  moveDesktopKeyboardSelection,
+  reconcileDesktopKeyboardSelection,
+  shouldIgnoreDesktopSelectionKeydown,
+  toggleDesktopSelectionKey,
+  type DesktopKeyboardSelectionState,
+  type DesktopSelectableIcon,
+} from "@/lib/client/desktop-keyboard-selection";
 import {
   downloadFileName,
   fileActivationAction,
@@ -579,6 +591,10 @@ export default function FilesView({
   const windowIdRef = useRef(0);
   const suppressedClickRef = useRef(new Set<string>());
   const suppressedCanvasClickRef = useRef(new Set<string>());
+  const keyboardSelectionRef = useRef<{
+    scopeId: string;
+    state: DesktopKeyboardSelectionState;
+  } | null>(null);
 
   const [rootData, setRootData] = useState<FolderData>(() => blankFolder());
   const [deskWindows, setDeskWindows] = useState<DeskWindow[]>([]);
@@ -3006,6 +3022,116 @@ export default function FilesView({
     return defaultPlacement(index);
   }
 
+  function keyboardSelectableIcons(
+    scopeId: string,
+    entries: Entry[],
+  ): DesktopSelectableIcon[] {
+    return entries.map((entry, index) => {
+      const placement = placementFor(scopeId, entry, index);
+      return {
+        layoutKey: entry.layoutKey,
+        x: placement.x,
+        y: placement.y,
+        width: ICON_WIDTH,
+        height: ICON_HEIGHT,
+        order: index,
+      };
+    });
+  }
+
+  function currentKeyboardSelection(
+    scopeId: string,
+    icons: DesktopSelectableIcon[],
+    focusLayoutKey?: string,
+  ) {
+    const remembered =
+      keyboardSelectionRef.current?.scopeId === scopeId
+        ? keyboardSelectionRef.current.state
+        : null;
+    return reconcileDesktopKeyboardSelection(icons, {
+      selectedLayoutKeys:
+        selected?.scopeId === scopeId ? selected.layoutKeys : [],
+      anchorLayoutKey:
+        remembered?.anchorLayoutKey ?? focusLayoutKey ?? null,
+      focusLayoutKey:
+        focusLayoutKey ?? remembered?.focusLayoutKey ?? null,
+    });
+  }
+
+  function applyKeyboardSelection(
+    scopeId: string,
+    state: DesktopKeyboardSelectionState,
+  ) {
+    keyboardSelectionRef.current = { scopeId, state };
+    setSelected(
+      state.selectedLayoutKeys.length > 0
+        ? { scopeId, layoutKeys: [...state.selectedLayoutKeys] }
+        : null,
+    );
+  }
+
+  function selectIconFromClick(
+    scopeId: string,
+    entries: Entry[],
+    layoutKey: string,
+    additive: boolean,
+  ) {
+    const icons = keyboardSelectableIcons(scopeId, entries);
+    const next = additive
+      ? toggleDesktopSelectionKey(
+          icons,
+          currentKeyboardSelection(scopeId, icons),
+          layoutKey,
+        )
+      : {
+          selectedLayoutKeys: [layoutKey],
+          anchorLayoutKey: layoutKey,
+          focusLayoutKey: layoutKey,
+        };
+    applyKeyboardSelection(scopeId, next);
+  }
+
+  function moveIconSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    scopeId: string,
+    entries: Entry[],
+    entry: Entry,
+  ) {
+    if (
+      !isDesktopArrowKey(event.key) ||
+      event.altKey ||
+      shouldIgnoreDesktopSelectionKeydown(event.target)
+    ) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const icons = keyboardSelectableIcons(scopeId, entries);
+    const toggleModifier = event.ctrlKey || event.metaKey;
+    const next = moveDesktopKeyboardSelection(
+      icons,
+      currentKeyboardSelection(scopeId, icons, entry.layoutKey),
+      event.key,
+      {
+        extend: event.shiftKey,
+        additive: event.shiftKey && toggleModifier,
+        preserveSelection: toggleModifier && !event.shiftKey,
+      },
+    );
+    applyKeyboardSelection(scopeId, next);
+
+    const nextEntry = entries.find(
+      (candidate) => candidate.layoutKey === next.focusLayoutKey,
+    );
+    if (nextEntry) {
+      window.requestAnimationFrame(() => {
+        findEntryButton(scopeId, nextEntry.id)?.focus();
+      });
+    }
+    return true;
+  }
+
   function planeDimensions(scopeId: string, entries: Entry[]) {
     let width = PLANE_MIN_WIDTH;
     let height = PLANE_MIN_HEIGHT;
@@ -3852,6 +3978,7 @@ export default function FilesView({
 
     event.preventDefault();
     setContextMenu(null);
+    keyboardSelectionRef.current = null;
     if (!additive) setSelected(null);
 
     const onMove = (next: PointerEvent) => {
@@ -4681,6 +4808,7 @@ export default function FilesView({
         data-canvas-folder={scopeFolderId(scopeId)}
         onClick={() => {
           if (suppressedCanvasClickRef.current.delete(scopeId)) return;
+          keyboardSelectionRef.current = null;
           setSelected(null);
           setContextMenu(null);
         }}
@@ -4762,14 +4890,13 @@ export default function FilesView({
                   if (window.matchMedia("(pointer: coarse)").matches) {
                     activateEntry(entry, scopeId);
                   } else {
-                    setSelected((current) =>
-                      selectLayoutKey(
-                        current,
-                        scopeId,
-                        entry.layoutKey,
-                        event.ctrlKey || event.metaKey,
-                      ),
+                    selectIconFromClick(
+                      scopeId,
+                      data.entries,
+                      entry.layoutKey,
+                      event.ctrlKey || event.metaKey,
                     );
+                    event.currentTarget.focus();
                     setContextMenu(null);
                   }
                 }}
@@ -4780,6 +4907,16 @@ export default function FilesView({
                   }
                 }}
                 onKeyDown={(event) => {
+                  if (
+                    moveIconSelectionWithKeyboard(
+                      event,
+                      scopeId,
+                      data.entries,
+                      entry,
+                    )
+                  ) {
+                    return;
+                  }
                   if (event.key === "Enter") {
                     event.preventDefault();
                     activateEntry(entry, scopeId, event.currentTarget);

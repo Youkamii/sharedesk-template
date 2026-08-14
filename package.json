@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test tests/invitations.test.ts tests/device-sessions.test.ts tests/admin-invitations-api.test.ts tests/drive-sharing.test.ts tests/setup-state.test.ts tests/desktop-layout.test.ts tests/storage-content-notes.test.ts tests/presence.test.ts tests/transfer-progress.test.ts tests/files-move-ui.test.ts tests/public-origin.test.ts tests/own-desk-onboarding.test.ts tests/onboarding-docs.test.ts tests/wallpaper-assets.test.ts tests/notice-timeout.test.ts tests/search.test.ts tests/update-flow.test.ts tests/office-preview.test.ts",
+    "test": "tsx --test tests/invitations.test.ts tests/device-sessions.test.ts tests/admin-invitations-api.test.ts tests/drive-sharing.test.ts tests/setup-state.test.ts tests/desktop-layout.test.ts tests/storage-content-notes.test.ts tests/presence.test.ts tests/transfer-progress.test.ts tests/files-move-ui.test.ts tests/public-origin.test.ts tests/own-desk-onboarding.test.ts tests/onboarding-docs.test.ts tests/wallpaper-assets.test.ts tests/notice-timeout.test.ts tests/search.test.ts tests/update-flow.test.ts tests/office-preview.test.ts tests/desktop-keyboard-selection.test.ts",
     "test:drive-operations": "node --env-file=.env.local --import tsx scripts/verify-drive-operations.ts --live",
     "test:drive-preview": "node --env-file=.env.local --import tsx scripts/verify-drive-preview.ts --live",
     "test:drive-sharing": "node --env-file=.env.local --import tsx scripts/verify-drive-sharing.ts --live",
