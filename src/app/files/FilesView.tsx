@@ -2993,7 +2993,7 @@ export default function FilesView({
     else void downloadEntry(entry);
   }
 
-  function openSearchResult(result: SearchResult) {
+  function openSearchResult(result: SearchResult, opener?: HTMLElement) {
     setContextMenu(null);
     const action = fileActivationAction(result.entry, downloadFirst);
     if (action === "folder") {
@@ -3003,8 +3003,12 @@ export default function FilesView({
       ]);
       return;
     }
-    if (action === "preview") openPreview(result.entry);
-    else void downloadEntry(result.entry);
+    if (action === "preview") {
+      openPreview(
+        result.entry,
+        opener ? { element: opener, scopeId: ROOT_SCOPE } : undefined,
+      );
+    } else void downloadEntry(result.entry);
   }
 
   function openOriginalLocation(result: SearchResult) {
@@ -5990,11 +5994,13 @@ export default function FilesView({
                       type="button"
                       className={styles.searchResultMain}
                       title={result.path}
-                      onDoubleClick={() => openSearchResult(result)}
+                      onDoubleClick={(event) =>
+                        openSearchResult(result, event.currentTarget)
+                      }
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          openSearchResult(result);
+                          openSearchResult(result, event.currentTarget);
                         }
                         if (
                           event.key === "ContextMenu" ||
@@ -6016,7 +6022,9 @@ export default function FilesView({
                     <div className={styles.searchResultActions}>
                       <button
                         type="button"
-                        onClick={() => openSearchResult(result)}
+                        onClick={(event) =>
+                          openSearchResult(result, event.currentTarget)
+                        }
                       >
                         {result.entry.isFolder ? "폴더 열기" : "열기"}
                       </button>
@@ -6653,7 +6661,12 @@ export default function FilesView({
           {contextMenu.searchResult ? (
             <>
               <MenuButton
-                onClick={() => openSearchResult(contextMenu.searchResult!)}
+                onClick={() =>
+                  openSearchResult(
+                    contextMenu.searchResult!,
+                    contextMenu.opener ?? undefined,
+                  )
+                }
               >
                 {contextMenu.searchResult.entry.isFolder
                   ? "폴더 열기"
@@ -6689,7 +6702,11 @@ export default function FilesView({
                   if (action === "folder") {
                     openFolder(entry, contextMenu.scopeId);
                   } else if (action === "preview") {
-                    openPreviewInScope(entry, contextMenu.scopeId);
+                    openPreviewInScope(
+                      entry,
+                      contextMenu.scopeId,
+                      contextMenu.opener ?? undefined,
+                    );
                   } else {
                     void downloadEntry(entry);
                   }

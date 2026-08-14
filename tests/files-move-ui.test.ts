@@ -765,7 +765,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /fileActivationAction\(entry, downloadFirst\)/);
   assert.match(
     source,
-    /function openSearchResult[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(result\.entry\)/,
+    /function openSearchResult\(result: SearchResult, opener\?: HTMLElement\)[\s\S]*?fileActivationAction\(result\.entry, downloadFirst\)[\s\S]*?action === "preview"[\s\S]*?openPreview\([\s\S]*?result\.entry,[\s\S]*?opener \? \{ element: opener, scopeId: ROOT_SCOPE \} : undefined/,
   );
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
   assert.match(source, />다운로드 우선</);
@@ -773,7 +773,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /브라우저에서 열기/);
   assert.match(
     source,
-    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\(entry, contextMenu\.scopeId\)/,
+    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\([\s\S]*?entry,[\s\S]*?contextMenu\.scopeId,[\s\S]*?contextMenu\.opener \?\? undefined/,
   );
   assert.match(css, /\.downloadPreference\s*\{/);
   assert.match(css, /input:checked \+ \.preferenceCheck::after/);
@@ -887,7 +887,22 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   assert.match(source, /searchInstanceRef\.current !== instanceId/);
   assert.match(source, /가상 검색결과/);
   assert.match(source, /result\.path/);
-  assert.match(source, /openSearchResult\(result\)/);
+  assert.match(
+    source,
+    /onDoubleClick=\{\(event\) =>[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /event\.key === "Enter"[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /onClick=\{\(event\) =>[\s\S]*?openSearchResult\(result, event\.currentTarget\)/,
+  );
+  assert.match(
+    source,
+    /openSearchResult\([\s\S]*?contextMenu\.searchResult!,[\s\S]*?contextMenu\.opener \?\? undefined/,
+  );
   assert.match(source, /openOriginalLocation\(result\)/);
   assert.match(source, /원래 위치 열기/);
   assert.match(source, /searchWindow\.truncated/);
