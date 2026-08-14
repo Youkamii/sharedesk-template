@@ -915,6 +915,47 @@ test("폴더 우측 미리보기가 아이콘 평면에 고정 최소폭을 남�
   assert.match(css, /\.iconPlane \{[\s\S]*?min-width: 100%;/);
 });
 
+test("the root desktop plane owns arrow navigation before an icon has focus", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  const canvas = source.slice(
+    source.indexOf("function renderCanvas"),
+    source.indexOf("\n  return (\n    <main"),
+  );
+  const sharedArrowHandler = source.slice(
+    source.indexOf("function moveSelectionWithKeyboard"),
+    source.indexOf("function planeDimensions"),
+  );
+
+  assert.match(
+    source,
+    /document\.activeElement === document\.body[\s\S]*?rootCanvasRef\.current\?\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(canvas, /tabIndex=\{isRoot \? 0 : -1\}/);
+  assert.match(canvas, /data-keyboard-canvas=\{isRoot \? "root" : undefined\}/);
+  assert.match(canvas, /role=\{isRoot \? "group" : undefined\}/);
+  assert.match(canvas, /aria-label=\{isRoot \? "공유 바탕화면 아이콘" : undefined\}/);
+  assert.match(
+    canvas,
+    /onKeyDown=\{\(event\) => \{[\s\S]*?moveRootPlaneSelectionWithKeyboard\(event, data\.entries\)/,
+  );
+  assert.match(
+    source,
+    /if \(scopeId === ROOT_SCOPE\) plane\.focus\(\{ preventScroll: true \}\)/,
+  );
+  assert.match(
+    sharedArrowHandler,
+    /event\.target !== event\.currentTarget[\s\S]*?moveSelectionWithKeyboard\(event, ROOT_SCOPE, entries\)/,
+  );
+  assert.match(sharedArrowHandler, /event\.stopPropagation\(\)/);
+  assert.match(
+    sharedArrowHandler,
+    /shouldIgnoreDesktopSelectionKeydown\(event\.target\)/,
+  );
+});
+
 test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),

@@ -960,6 +960,12 @@ export default function FilesView({
     };
   }, [loadDeskWindow, loadLayout, loadRoot]);
 
+  useEffect(() => {
+    if (document.activeElement === document.body) {
+      rootCanvasRef.current?.focus({ preventScroll: true });
+    }
+  }, []);
+
   const getPresenceTabId = useCallback(() => {
     if (presenceTabIdRef.current) return presenceTabIdRef.current;
     let tabId = "";
@@ -3622,11 +3628,11 @@ export default function FilesView({
     applyKeyboardSelection(scopeId, next);
   }
 
-  function moveIconSelectionWithKeyboard(
-    event: ReactKeyboardEvent<HTMLButtonElement>,
+  function moveSelectionWithKeyboard<T extends HTMLElement>(
+    event: ReactKeyboardEvent<T>,
     scopeId: string,
     entries: Entry[],
-    entry: Entry,
+    focusLayoutKey?: string,
   ) {
     if (
       !isDesktopArrowKey(event.key) ||
@@ -3642,7 +3648,7 @@ export default function FilesView({
     const toggleModifier = event.ctrlKey || event.metaKey;
     const next = moveDesktopKeyboardSelection(
       icons,
-      currentKeyboardSelection(scopeId, icons, entry.layoutKey),
+      currentKeyboardSelection(scopeId, icons, focusLayoutKey),
       event.key,
       {
         extend: event.shiftKey,
@@ -3662,6 +3668,28 @@ export default function FilesView({
       });
     }
     return true;
+  }
+
+  function moveIconSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    scopeId: string,
+    entries: Entry[],
+    entry: Entry,
+  ) {
+    return moveSelectionWithKeyboard(
+      event,
+      scopeId,
+      entries,
+      entry.layoutKey,
+    );
+  }
+
+  function moveRootPlaneSelectionWithKeyboard(
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    entries: Entry[],
+  ) {
+    if (event.target !== event.currentTarget) return false;
+    return moveSelectionWithKeyboard(event, ROOT_SCOPE, entries);
   }
 
   function planeDimensions(scopeId: string, entries: Entry[]) {
@@ -4528,6 +4556,7 @@ export default function FilesView({
       return;
     }
     const plane = event.currentTarget;
+    if (scopeId === ROOT_SCOPE) plane.focus({ preventScroll: true });
     const bounds = plane.getBoundingClientRect();
     const pointerId = event.pointerId;
     const startX = (event.clientX - bounds.left) / uiScale;
@@ -5433,7 +5462,13 @@ export default function FilesView({
         <div
           ref={isRoot ? rootCanvasRef : setCanvasRef}
           className={styles.iconPlane}
-          tabIndex={-1}
+          tabIndex={isRoot ? 0 : -1}
+          data-keyboard-canvas={isRoot ? "root" : undefined}
+          role={isRoot ? "group" : undefined}
+          aria-label={isRoot ? "공유 바탕화면 아이콘" : undefined}
+          aria-keyshortcuts={
+            isRoot ? "ArrowLeft ArrowRight ArrowUp ArrowDown" : undefined
+          }
           style={
             dimensions
               ? { width: dimensions.width, height: dimensions.height }
@@ -5442,6 +5477,11 @@ export default function FilesView({
           onPointerDown={(event) =>
             startSelectionRectangle(event, scopeId, data.entries)
           }
+          onKeyDown={(event) => {
+            if (isRoot) {
+              moveRootPlaneSelectionWithKeyboard(event, data.entries);
+            }
+          }}
         >
           {data.entries.map((entry, index) => {
           const position = placementFor(scopeId, entry, index);
