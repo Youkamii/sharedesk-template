@@ -197,7 +197,7 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
   const sessionSource = new Map<string, string>();
   const deleted: string[] = [];
   const deleteAttempts = new Map<string, number>();
-  let orphanListReads = 0;
+  const orphanQueries: string[] = [];
   let failBrokenCleanup = true;
   const metadata = new Map([
     [
@@ -268,33 +268,48 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
         .get("q")
         ?.includes("name contains '.sharedesk-preview-'")
     ) {
-      orphanListReads += 1;
+      const query = new URL(url).searchParams.get("q") ?? "";
+      orphanQueries.push(query);
+      assert.match(
+        query,
+        /^'state-folder' in parents and name contains '\.sharedesk-preview-' and trashed=(true|false)$/,
+      );
       return Response.json({
-        files:
-          orphanListReads === 1
-            ? [
-                {
-                  id: "orphan-preview",
-                  name: ".sharedesk-preview-orphan",
-                  createdTime: "2020-01-01T00:00:00.000Z",
-                },
-                {
-                  id: "unrelated-state-file",
-                  name: "users.json",
-                  createdTime: "2020-01-01T00:00:00.000Z",
-                },
-                {
-                  id: "recent-preview",
-                  name: ".sharedesk-preview-recent",
-                  createdTime: new Date().toISOString(),
-                },
-                {
-                  id: "invalid-date-preview",
-                  name: ".sharedesk-preview-unknown",
-                  createdTime: "not-a-date",
-                },
-              ]
-            : [],
+        files: query.includes("trashed=true")
+          ? [
+              {
+                id: "orphan-preview",
+                name: ".sharedesk-preview-orphan",
+                createdTime: "2020-01-01T00:00:00.000Z",
+              },
+              {
+                id: "unrelated-state-file",
+                name: "users.json",
+                createdTime: "2020-01-01T00:00:00.000Z",
+              },
+              {
+                id: "recent-preview",
+                name: ".sharedesk-preview-recent",
+                createdTime: new Date().toISOString(),
+              },
+              {
+                id: "invalid-date-preview",
+                name: ".sharedesk-preview-unknown",
+                createdTime: "not-a-date",
+              },
+            ]
+          : [
+              {
+                id: "active-orphan-preview",
+                name: ".sharedesk-preview-active-orphan",
+                createdTime: "2020-01-01T00:00:00.000Z",
+              },
+              {
+                id: "recent-active-preview",
+                name: ".sharedesk-preview-recent-active",
+                createdTime: new Date().toISOString(),
+              },
+            ],
       });
     }
     const metadataId = [...metadata.keys()].find((id) =>
@@ -375,6 +390,10 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
       deleted.push("orphan-preview");
       return new Response(null, { status: 204 });
     }
+    if (url.endsWith("/files/active-orphan-preview") && method === "DELETE") {
+      deleted.push("active-orphan-preview");
+      return new Response(null, { status: 204 });
+    }
     throw new Error(`예상하지 못한 요청: ${method} ${url}`);
   };
 
@@ -400,8 +419,15 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     assert.ok(deleted.includes("temporary-office-file-1"));
     assert.ok(deleted.includes("temporary-office-file-2"));
     assert.ok(deleted.includes("orphan-preview"));
+    assert.ok(deleted.includes("active-orphan-preview"));
+    assert.ok(orphanQueries.some((query) => query.endsWith("trashed=true")));
+    assert.ok(orphanQueries.some((query) => query.endsWith("trashed=false")));
     assert.equal(deleted.includes("unrelated-state-file"), false);
     assert.equal(deleted.includes("recent-preview"), false);
+    assert.equal(
+      calls.some((call) => call.url.endsWith("/files/recent-active-preview")),
+      false,
+    );
     assert.equal(deleted.includes("invalid-date-preview"), false);
 
     const original = await adapter.download("office-file", "bytes=0-3");

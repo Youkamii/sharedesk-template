@@ -539,27 +539,29 @@ async function cleanupOfficePreviewFiles(stateFolder: string): Promise<void> {
     await deleteOfficePreviewFile(id);
   }
 
-  const params = new URLSearchParams({
-    q: `'${stateFolder}' in parents and name contains '${OFFICE_PREVIEW_PREFIX}' and trashed=true`,
-    fields: "files(id,name,createdTime)",
-    pageSize: "1000",
-  });
-  const response = await driveFetch(`${API}/files?${params}`);
-  const body = (await response.json()) as {
-    files?: Array<{ id?: string; name?: string; createdTime?: string }>;
-  };
   const staleBefore = Date.now() - OFFICE_PREVIEW_STALE_MS;
-  for (const file of body.files ?? []) {
-    const createdAt = file.createdTime ? Date.parse(file.createdTime) : NaN;
-    if (
-      !file.id ||
-      !file.name?.startsWith(OFFICE_PREVIEW_PREFIX) ||
-      !Number.isFinite(createdAt) ||
-      createdAt > staleBefore
-    ) {
-      continue;
+  for (const trashed of [true, false]) {
+    const params = new URLSearchParams({
+      q: `'${stateFolder}' in parents and name contains '${OFFICE_PREVIEW_PREFIX}' and trashed=${trashed}`,
+      fields: "files(id,name,createdTime)",
+      pageSize: "1000",
+    });
+    const response = await driveFetch(`${API}/files?${params}`);
+    const body = (await response.json()) as {
+      files?: Array<{ id?: string; name?: string; createdTime?: string }>;
+    };
+    for (const file of body.files ?? []) {
+      const createdAt = file.createdTime ? Date.parse(file.createdTime) : NaN;
+      if (
+        !file.id ||
+        !file.name?.startsWith(OFFICE_PREVIEW_PREFIX) ||
+        !Number.isFinite(createdAt) ||
+        createdAt > staleBefore
+      ) {
+        continue;
+      }
+      await deleteOfficePreviewFile(file.id);
     }
-    await deleteOfficePreviewFile(file.id);
   }
 }
 
