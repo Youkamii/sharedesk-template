@@ -3201,6 +3201,11 @@ export default function FilesView({
     } else void downloadEntry(result.entry);
   }
 
+  function openPreviewInNewTab(entry: Entry) {
+    window.open(previewUrl(entry), "_blank", "noopener,noreferrer");
+    setContextMenu(null);
+  }
+
   function openOriginalLocation(result: SearchResult) {
     setContextMenu(null);
     openFolderPath(result.breadcrumbs, result.entry);
@@ -4991,7 +4996,11 @@ export default function FilesView({
     event.preventDefault();
     event.stopPropagation();
     const width = 210;
-    const height = result.entry.isFolder ? 105 : 148;
+    const height = result.entry.isFolder
+      ? 105
+      : previewKindOf(result.entry)
+        ? 183
+        : 148;
     const target = event.target as HTMLElement;
     setContextMenu({
       x: Math.max(
@@ -5017,7 +5026,11 @@ export default function FilesView({
 
   function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
     const rect = target.getBoundingClientRect();
-    const height = result.entry.isFolder ? 105 : 148;
+    const height = result.entry.isFolder
+      ? 105
+      : previewKindOf(result.entry)
+        ? 183
+        : 148;
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -7045,9 +7058,19 @@ export default function FilesView({
                 {contextMenu.searchResult.entry.isFolder
                   ? "폴더 열기"
                   : previewKindOf(contextMenu.searchResult.entry)
-                    ? "브라우저에서 열기"
+                    ? "ShareDesk에서 열기"
                     : "열기"}
               </MenuButton>
+              {!contextMenu.searchResult.entry.isFolder &&
+                previewKindOf(contextMenu.searchResult.entry) && (
+                  <MenuButton
+                    onClick={() =>
+                      openPreviewInNewTab(contextMenu.searchResult!.entry)
+                    }
+                  >
+                    새 탭에서 보기
+                  </MenuButton>
+                )}
               {!contextMenu.searchResult.entry.isFolder && (
                 <MenuButton
                   onClick={() => {
@@ -7090,10 +7113,18 @@ export default function FilesView({
                 {contextMenu.entry.isFolder
                   ? "열기"
                   : previewKindOf(contextMenu.entry)
-                    ? "브라우저에서 열기"
+                    ? "ShareDesk에서 열기"
                     : "다운로드"}
                 <kbd>Enter</kbd>
               </MenuButton>
+              {!contextMenu.entry.isFolder &&
+                previewKindOf(contextMenu.entry) && (
+                  <MenuButton
+                    onClick={() => openPreviewInNewTab(contextMenu.entry!)}
+                  >
+                    새 탭에서 보기
+                  </MenuButton>
+                )}
               {!contextMenu.entry.isFolder &&
                 previewKindOf(contextMenu.entry) && (
                   <MenuButton

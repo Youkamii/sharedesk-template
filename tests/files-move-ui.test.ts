@@ -836,7 +836,26 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
   assert.match(source, />다운로드 우선</);
   assert.match(source, /checked=\{downloadFirst\}/);
-  assert.match(source, /브라우저에서 열기/);
+  assert.match(source, /ShareDesk에서 열기/);
+  assert.match(
+    source,
+    /function openPreviewInNewTab\(entry: Entry\)[\s\S]*?window\.open\(previewUrl\(entry\), "_blank", "noopener,noreferrer"\)[\s\S]*?setContextMenu\(null\)/,
+  );
+  assert.equal(source.match(/새 탭에서 보기/g)?.length, 2);
+  assert.match(
+    source,
+    /contextMenu\.searchResult\.entry[\s\S]*?openPreviewInNewTab\(contextMenu\.searchResult!\.entry\)/,
+  );
+  assert.match(
+    source,
+    /contextMenu\.entry[\s\S]*?openPreviewInNewTab\(contextMenu\.entry!\)/,
+  );
+  assert.equal(
+    source.match(
+      /const height = result\.entry\.isFolder[\s\S]*?previewKindOf\(result\.entry\)[\s\S]*?\? 183[\s\S]*?: 148;/g,
+    )?.length,
+    2,
+  );
   assert.match(
     source,
     /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\([\s\S]*?entry,[\s\S]*?contextMenu\.scopeId,[\s\S]*?contextMenu\.opener \?\? undefined/,
