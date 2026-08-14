@@ -577,7 +577,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /브라우저에서 열기/);
   assert.match(
     source,
-    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreview\(entry\)/,
+    /fileActivationAction\(entry, false\)[\s\S]*?action === "preview"[\s\S]*?openPreviewInScope\(entry, contextMenu\.scopeId\)/,
   );
   assert.match(css, /\.downloadPreference\s*\{/);
   assert.match(css, /input:checked \+ \.preferenceCheck::after/);
@@ -604,6 +604,28 @@ test("이미지와 GIF 미리보기는 창의 본문을 채우고 최초 창은 
   assert.match(
     source,
     /x: clamp\([\s\S]*?logicalViewport\.width - previewWidth[\s\S]*?y: clamp\([\s\S]*?logicalViewport\.height - TASK_BAR - previewHeight/,
+  );
+});
+
+test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘긴다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(source, /sidePreviewLayoutKey: string \| null/);
+  assert.match(source, /folderImagePreviewEntries\(item\.data\.entries\)/);
+  assert.match(source, /data-folder-side-preview=\{item\.id\}/);
+  assert.match(source, /event\.key === "ArrowLeft" \|\| event\.key === "ArrowRight"/);
+  assert.match(source, /adjacentFolderImagePreviewKey\(/);
+  assert.match(source, /aria-label="폴더 미리보기 닫기"/);
+  assert.match(
+    css,
+    /\.windowBodyWithPreview \.windowCanvas \{[\s\S]*?right: clamp\(180px, 42%, 360px\);/,
+  );
+  assert.match(
+    css,
+    /\.folderSidePreviewBody img \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: contain;/,
   );
 });
 

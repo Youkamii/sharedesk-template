@@ -43,6 +43,10 @@ import {
   downloadFileName,
   fileActivationAction,
 } from "@/lib/client/file-activation";
+import {
+  adjacentFolderImagePreviewKey,
+  folderImagePreviewEntries,
+} from "@/lib/client/folder-side-preview";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   streamDownloadToDisk,
@@ -229,6 +233,7 @@ type DeskWindow = {
   z: number;
   minimized: boolean;
   maximized: boolean;
+  sidePreviewLayoutKey: string | null;
   restoreRect?: { x: number; y: number; width: number; height: number };
   data: FolderData;
 };
@@ -2117,6 +2122,7 @@ export default function FilesView({
       z: ++zRef.current,
       minimized: false,
       maximized: false,
+      sidePreviewLayoutKey: null,
       data: blankFolder(),
     };
     setDeskWindows((current) => [...current, next]);
@@ -2155,6 +2161,7 @@ export default function FilesView({
             ? {
                 ...item,
                 path: nextPath,
+                sidePreviewLayoutKey: null,
                 data: blankFolder(),
               }
             : item,
@@ -2587,6 +2594,108 @@ export default function FilesView({
     window.addEventListener("pointercancel", onEnd, { once: true });
   }
 
+  function focusFolderSidePreview(windowId: string) {
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-folder-side-preview="${windowId}"]`,
+        )
+        ?.focus();
+    });
+  }
+
+  function showFolderSidePreview(
+    windowId: string,
+    entry: Entry,
+    focusPreview = false,
+  ) {
+    if (previewKindOf(entry) !== "image" || !scopeWindow(windowId)) {
+      return false;
+    }
+    setContextMenu(null);
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? { ...item, sidePreviewLayoutKey: entry.layoutKey }
+          : item,
+      ),
+    );
+    if (focusPreview) focusFolderSidePreview(windowId);
+    return true;
+  }
+
+  function syncFolderSidePreview(windowId: string, entry: Entry) {
+    if (windowId === ROOT_SCOPE || !scopeWindow(windowId)) return;
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? {
+              ...item,
+              sidePreviewLayoutKey:
+                previewKindOf(entry) === "image" ? entry.layoutKey : null,
+            }
+          : item,
+      ),
+    );
+  }
+
+  function closeFolderSidePreview(windowId: string, entry?: Entry) {
+    setDeskWindows((current) =>
+      current.map((item) =>
+        item.id === windowId
+          ? { ...item, sidePreviewLayoutKey: null }
+          : item,
+      ),
+    );
+    if (entry) {
+      window.requestAnimationFrame(() => {
+        findEntryButton(windowId, entry.id)?.focus();
+      });
+    }
+  }
+
+  function moveFolderSidePreview(
+    item: DeskWindow,
+    entry: Entry,
+    direction: -1 | 1,
+  ) {
+    const nextLayoutKey = adjacentFolderImagePreviewKey(
+      item.data.entries,
+      entry.layoutKey,
+      direction,
+    );
+    if (!nextLayoutKey) return;
+    const nextEntry = item.data.entries.find(
+      (candidate) => candidate.layoutKey === nextLayoutKey,
+    );
+    if (!nextEntry) return;
+    setDeskWindows((current) =>
+      current.map((value) =>
+        value.id === item.id
+          ? { ...value, sidePreviewLayoutKey: nextLayoutKey }
+          : value,
+      ),
+    );
+    applyKeyboardSelection(item.id, {
+      selectedLayoutKeys: [nextLayoutKey],
+      anchorLayoutKey: nextLayoutKey,
+      focusLayoutKey: nextLayoutKey,
+    });
+    focusFolderSidePreview(item.id);
+  }
+
+  function openPreviewInScope(
+    entry: Entry,
+    scopeId: string,
+    keyboardOpener?: HTMLElement,
+  ) {
+    if (showFolderSidePreview(scopeId, entry, Boolean(keyboardOpener))) return;
+    openPreview(
+      entry,
+      keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
+    );
+  }
+
   function activateEntry(
     entry: Entry,
     scopeId: string,
@@ -2596,10 +2705,7 @@ export default function FilesView({
     const action = fileActivationAction(entry, downloadFirst);
     if (action === "folder") openFolder(entry, scopeId);
     else if (action === "preview") {
-      openPreview(
-        entry,
-        keyboardOpener ? { element: keyboardOpener, scopeId } : undefined,
-      );
+      openPreviewInScope(entry, scopeId, keyboardOpener);
     }
     else void downloadEntry(entry);
   }
@@ -2635,7 +2741,12 @@ export default function FilesView({
     setDeskWindows((current) =>
       current.map((value) =>
         value.id === windowId
-          ? { ...value, path: nextPath, data: blankFolder() }
+          ? {
+              ...value,
+              path: nextPath,
+              sidePreviewLayoutKey: null,
+              data: blankFolder(),
+            }
           : value,
       ),
     );
@@ -2688,7 +2799,12 @@ export default function FilesView({
       setDeskWindows((current) =>
         current.map((value) =>
           value.id === windowId
-            ? { ...value, path: nextPath, data: blankFolder() }
+            ? {
+                ...value,
+                path: nextPath,
+                sidePreviewLayoutKey: null,
+                data: blankFolder(),
+              }
             : value,
         ),
       );
@@ -3125,6 +3241,7 @@ export default function FilesView({
       (candidate) => candidate.layoutKey === next.focusLayoutKey,
     );
     if (nextEntry) {
+      syncFolderSidePreview(scopeId, nextEntry);
       window.requestAnimationFrame(() => {
         findEntryButton(scopeId, nextEntry.id)?.focus();
       });
@@ -4896,6 +5013,7 @@ export default function FilesView({
                       entry.layoutKey,
                       event.ctrlKey || event.metaKey,
                     );
+                    syncFolderSidePreview(scopeId, entry);
                     event.currentTarget.focus();
                     setContextMenu(null);
                   }
@@ -5180,6 +5298,17 @@ export default function FilesView({
           busy: false,
           error: null,
         };
+        const sidePreviewEntries = folderImagePreviewEntries(item.data.entries);
+        const sidePreviewEntry = item.sidePreviewLayoutKey
+          ? sidePreviewEntries.find(
+              (entry) => entry.layoutKey === item.sidePreviewLayoutKey,
+            ) ?? null
+          : null;
+        const sidePreviewIndex = sidePreviewEntry
+          ? sidePreviewEntries.findIndex(
+              (entry) => entry.layoutKey === sidePreviewEntry.layoutKey,
+            )
+          : -1;
         return (
           <section
             key={item.id}
@@ -5338,7 +5467,92 @@ export default function FilesView({
               </button>
             </div>
 
-            <div className={styles.windowBody}>{renderCanvas(item.id)}</div>
+            <div
+              className={`${styles.windowBody} ${
+                sidePreviewEntry ? styles.windowBodyWithPreview : ""
+              }`}
+            >
+              {renderCanvas(item.id)}
+              {sidePreviewEntry && (
+                <aside
+                  className={styles.folderSidePreview}
+                  data-folder-side-preview={item.id}
+                  tabIndex={0}
+                  aria-label={`${sidePreviewEntry.name} 폴더 미리보기`}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeFolderSidePreview(item.id, sidePreviewEntry);
+                    }
+                    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      moveFolderSidePreview(
+                        item,
+                        sidePreviewEntry,
+                        event.key === "ArrowLeft" ? -1 : 1,
+                      );
+                    }
+                  }}
+                >
+                  <header className={styles.folderSidePreviewHeader}>
+                    <PixelFileIcon entry={sidePreviewEntry} size={18} />
+                    <strong title={sidePreviewEntry.name}>
+                      {sidePreviewEntry.name}
+                    </strong>
+                    <button
+                      type="button"
+                      aria-label="이전 이미지"
+                      aria-keyshortcuts="ArrowLeft"
+                      disabled={sidePreviewIndex <= 0}
+                      onClick={() =>
+                        moveFolderSidePreview(item, sidePreviewEntry, -1)
+                      }
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="다음 이미지"
+                      aria-keyshortcuts="ArrowRight"
+                      disabled={
+                        sidePreviewIndex < 0 ||
+                        sidePreviewIndex >= sidePreviewEntries.length - 1
+                      }
+                      onClick={() =>
+                        moveFolderSidePreview(item, sidePreviewEntry, 1)
+                      }
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="폴더 미리보기 닫기"
+                      onClick={() =>
+                        closeFolderSidePreview(item.id, sidePreviewEntry)
+                      }
+                    >
+                      ×
+                    </button>
+                  </header>
+                  <div className={styles.folderSidePreviewBody}>
+                    {/* 원본 크기와 무관하게 폴더 미리보기 영역에 맞춘다. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl(sidePreviewEntry)}
+                      alt={sidePreviewEntry.name}
+                    />
+                  </div>
+                  <footer className={styles.folderSidePreviewStatus}>
+                    <span>
+                      {sidePreviewIndex + 1} / {sidePreviewEntries.length}
+                    </span>
+                    <span>{formatSize(sidePreviewEntry.size)}</span>
+                  </footer>
+                </aside>
+              )}
+            </div>
 
             <footer className={styles.windowStatus}>
               <span>{item.data.entries.length}개 항목</span>
@@ -6168,7 +6382,7 @@ export default function FilesView({
                   if (action === "folder") {
                     openFolder(entry, contextMenu.scopeId);
                   } else if (action === "preview") {
-                    openPreview(entry);
+                    openPreviewInScope(entry, contextMenu.scopeId);
                   } else {
                     void downloadEntry(entry);
                   }
