@@ -1128,68 +1128,41 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   assert.match(css, /\.searchResultPath \{/);
 });
 
-test("관리자 업데이트 화면은 사용자 관리 앞에서 최신 상태를 안전하게 확인한다", async () => {
-  const [source, css] = await Promise.all([
+test("관리자 업데이트는 자동 적용 없이 버튼 하나로 시작한다", async () => {
+  const [source, page, css, workflow] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+    readFile(new URL("../.github/workflows/sharedesk-update.yml", import.meta.url), "utf8"),
   ]);
 
   const trayStart = source.indexOf('<div className={styles.userTray}>');
   const trayEnd = source.indexOf("</div>", trayStart);
   const userTray = source.slice(trayStart, trayEnd);
-  const updateIndex = userTray.indexOf("업데이트");
+  const updateIndex = userTray.indexOf("업데이트 하기");
   const userManagementIndex = userTray.indexOf("사용자 관리");
 
   assert.ok(trayStart >= 0 && trayEnd > trayStart);
   assert.ok(updateIndex >= 0 && updateIndex < userManagementIndex);
   assert.match(
     userTray,
-    /\{isAdmin && \([\s\S]*?업데이트[\s\S]*?사용자 관리/,
+    /\{isAdmin && \([\s\S]*?href=\{updateWorkflowUrl \?\? UPDATE_GUIDE_URL\}[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?updateWorkflowUrl \? "업데이트 하기" : "업데이트 연결"[\s\S]*?사용자 관리/,
   );
-  assert.match(userTray, /aria-haspopup="dialog"/);
-
+  assert.doesNotMatch(userTray, /aria-haspopup="dialog"/);
   assert.match(
-    source,
-    /apiJson<UpdateStatusResponse>\("\/api\/admin\/update", \{[\s\S]*?method: "GET",[\s\S]*?cache: "no-store",[\s\S]*?signal: controller\.signal/,
-  );
-  assert.match(source, /updateControllerRef\.current\?\.abort\(\)/);
-  assert.match(source, /updateRequestIdRef\.current !== requestId/);
-  assert.match(source, /if \(!isAdmin\) return;/);
-
-  assert.match(
-    source,
-    /role="dialog"[\s\S]*?aria-modal="true"[\s\S]*?aria-labelledby="update-dialog-title"[\s\S]*?aria-describedby="update-dialog-description"/,
-  );
-  assert.match(source, /event\.key === "Escape"[\s\S]*?closeUpdatePanel\(\)/);
-  assert.match(
-    source,
-    /event\.target === event\.currentTarget[\s\S]*?closeUpdatePanel\(\)/,
-  );
-  assert.match(source, /현재 버전[\s\S]*?currentVersion/);
-  assert.match(source, /최신 버전[\s\S]*?latestVersion/);
-  assert.match(source, /최신 버전을 사용하고 있습니다/);
-  assert.match(source, /status\.error/);
-  assert.match(
-    source,
-    /status\.configured &&[\s\S]*?status\.updateAvailable &&[\s\S]*?status\.workflowUrl && \([\s\S]*?GitHub Actions 화면에서[\s\S]*?Run workflow[\s\S]*?Vercel/,
-  );
-  assert.match(
-    source,
-    /\{updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*업데이트 시작/,
+    page,
+    /resolveUpdateRepository\(\)[\s\S]*?getUpdateWorkflowUrl\(updateRepository\.repository\)[\s\S]*?updateWorkflowUrl=\{updateWorkflowUrl\}/,
   );
   assert.match(
     source,
     /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/UPDATE\.md/,
   );
-  assert.doesNotMatch(source, /href="\/docs"/);
+  assert.doesNotMatch(source, /updatePanel|\/api\/admin\/update/);
 
   assert.match(css, /\.updateTrayButton \{/);
-  assert.match(css, /\.updateDialog \{/);
-  assert.match(css, /\.updateDialogBody \{/);
-  assert.match(css, /\.updateVersions \{/);
-  assert.match(css, /\.updateSetup \{/);
-  assert.match(css, /\.updateInstruction \{/);
-  assert.match(css, /\.updateError \{/);
+  assert.doesNotMatch(css, /\.updateDialog|\.updateVersions|\.updateSetup|\.updateInstruction|\.updateError/);
+  assert.match(workflow, /on:\s*\n\s*workflow_dispatch:/);
+  assert.doesNotMatch(workflow, /schedule:|cron:/);
 });
 
 test("desktop and folder icons keep keyboard focus and range selection wired", async () => {
