@@ -5,6 +5,7 @@ import {
   getUpdateWorkflowUrl,
   resolveUpdateRepository,
 } from "@/lib/update-repository";
+import { isOwnerRegistryConfigured } from "@/lib/owner-registry";
 import FilesView from "./FilesView";
 
 export default async function FilesPage() {
@@ -29,8 +30,10 @@ export default async function FilesPage() {
   return (
     <FilesView
       userName={session.name}
+      userEmail={session.email}
       isAdmin={session.isAdmin}
       isGuest={session.isGuest}
+      canSendFeedback={!session.isGuest && isOwnerRegistryConfigured()}
       updateWorkflowUrl={updateWorkflowUrl}
     />
   );

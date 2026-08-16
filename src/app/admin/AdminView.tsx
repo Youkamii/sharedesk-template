@@ -1,6 +1,12 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
@@ -82,7 +88,7 @@ function formatDuration(minutes: number): string {
   return `${minutes}분`;
 }
 
-export default function AdminView({ adminEmail }: { adminEmail: string }) {
+export default function AdminView() {
   const router = useRouter();
   const mutationInFlightRef = useRef(false);
   const [users, setUsers] = useState<User[]>([]);
@@ -96,9 +102,6 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
   const [ownerRegistry, setOwnerRegistry] =
     useState<OwnerRegistryStatus | null>(null);
   const [ownerRegistryBusy, setOwnerRegistryBusy] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackBusy, setFeedbackBusy] = useState(false);
-  const [feedback, setFeedback] = useState({ subject: "", message: "" });
   const [inviteForm, setInviteForm] = useState({
     expiresInMinutes: 1_440,
     usageMode: "once" as InvitationUsageMode,
@@ -236,41 +239,6 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
       );
     } finally {
       setOwnerRegistryBusy(false);
-    }
-  }
-
-  async function submitFeedback(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (feedbackBusy) return;
-    setFeedbackBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch("/api/admin/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(feedback),
-      });
-      if (response.status === 401 || response.status === 403) {
-        router.replace("/files");
-        return;
-      }
-      const body = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        error?: string;
-      } | null;
-      if (!response.ok || body?.ok !== true) {
-        throw new Error(body?.error ?? "피드백을 보내지 못했습니다");
-      }
-      setFeedback({ subject: "", message: "" });
-      setFeedbackOpen(false);
-      setNotice("피드백을 보냈습니다.");
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "피드백을 보내지 못했습니다",
-      );
-    } finally {
-      setFeedbackBusy(false);
     }
   }
 
@@ -444,17 +412,6 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
           </div>
         </div>
         <div className={styles.headerActions}>
-          <button
-            type="button"
-            className={styles.feedbackToggle}
-            aria-label="피드백 메일 보내기"
-            aria-expanded={feedbackOpen}
-            aria-controls="admin-feedback-panel"
-            onClick={() => setFeedbackOpen((current) => !current)}
-          >
-            <span className={styles.mailIcon} aria-hidden="true" />
-            피드백
-          </button>
           <span
             className={styles.registryControl}
             title={ownerRegistry?.error ?? undefined}
@@ -518,77 +475,6 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
             <span className={styles.messageMark} aria-hidden="true">✓</span>
             {notice}
           </p>
-        )}
-
-        {feedbackOpen && (
-          <section
-            id="admin-feedback-panel"
-            aria-labelledby="feedback-title"
-            className={styles.feedbackWindow}
-          >
-            <div className={styles.window}>
-              <header className={`${styles.windowTitlebar} ${styles.feedbackTitlebar}`}>
-                <span className={styles.windowTitle}>
-                  <span className={styles.mailGlyph} aria-hidden="true" />
-                  <h2 id="feedback-title">피드백 보내기</h2>
-                </span>
-                <button
-                  type="button"
-                  className={styles.titlebarClose}
-                  aria-label="피드백 닫기"
-                  onClick={() => setFeedbackOpen(false)}
-                >
-                  ×
-                </button>
-              </header>
-              <form className={styles.feedbackForm} onSubmit={submitFeedback}>
-                <p className={styles.feedbackSender}>
-                  보내는 관리자 <strong>{adminEmail}</strong>
-                </p>
-                <label className={styles.field}>
-                  <span>제목</span>
-                  <input
-                    className={styles.textInput}
-                    value={feedback.subject}
-                    maxLength={120}
-                    required
-                    autoFocus
-                    onChange={(event) =>
-                      setFeedback((current) => ({
-                        ...current,
-                        subject: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className={styles.field}>
-                  <span>내용</span>
-                  <textarea
-                    className={styles.feedbackMessage}
-                    value={feedback.message}
-                    maxLength={4_000}
-                    required
-                    onChange={(event) =>
-                      setFeedback((current) => ({
-                        ...current,
-                        message: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <div className={styles.feedbackActions}>
-                  <span>{feedback.message.length.toLocaleString("ko-KR")} / 4,000</span>
-                  <button
-                    type="submit"
-                    className={`${styles.pixelButton} ${styles.primaryButton}`}
-                    disabled={feedbackBusy}
-                  >
-                    {feedbackBusy ? "보내는 중…" : "메일 보내기"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </section>
         )}
 
         <section aria-labelledby="invite-title">

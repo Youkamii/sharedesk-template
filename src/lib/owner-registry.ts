@@ -257,7 +257,7 @@ export async function recordOwnerRegistryObservation(
 export async function sendOwnerFeedback(
   requestOrigin: string,
   sender: { email: string; name: string },
-  feedback: { subject: string; message: string },
+  feedback: { feedbackId: string; subject: string; message: string },
   env: Environment = process.env,
 ): Promise<OwnerFeedbackResult> {
   const config = resolveConfig(env);
@@ -265,12 +265,15 @@ export async function sendOwnerFeedback(
   if (!config.configured || !status.enabled || !status.site) {
     return {
       ok: false,
-      error: status.error ?? "관리자 피드백 연결이 설정되지 않았습니다.",
+      error: status.error ?? "사용자 피드백 연결이 설정되지 않았습니다.",
       reason: "disabled",
     };
   }
 
   const sentAt = new Date().toISOString();
+  const senderEmail = sender.email.trim().toLowerCase();
+  const senderName =
+    sender.name.trim().slice(0, 120) || senderEmail.slice(0, 120);
   try {
     const response = await fetch(config.endpoint, {
       method: "POST",
@@ -279,6 +282,7 @@ export async function sendOwnerFeedback(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        feedbackId: feedback.feedbackId,
         kind: "feedback",
         sharedSecret: config.sharedSecret,
         installationId: config.installationId,
@@ -286,8 +290,8 @@ export async function sendOwnerFeedback(
         site: status.site,
         repository: status.repository,
         sentAt,
-        adminEmail: sender.email,
-        adminName: sender.name,
+        senderEmail,
+        senderName,
         subject: feedback.subject,
         message: feedback.message,
       }),
