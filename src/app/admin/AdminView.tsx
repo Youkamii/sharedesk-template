@@ -206,6 +206,8 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
     try {
       const response = await fetch("/api/admin/owner-registry", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
       });
       if (response.status === 401 || response.status === 403) {
         router.replace("/files");
@@ -472,7 +474,7 @@ export default function AdminView({ adminEmail }: { adminEmail: string }) {
               </button>
             ) : (
               <span className={styles.registryLabel}>
-                {ownerRegistry ? "등록부 꺼짐" : "등록부 확인 중"}
+                {ownerRegistry?.error ?? "등록부 확인 중"}
               </span>
             )}
           </span>

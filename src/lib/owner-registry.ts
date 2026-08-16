@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import packageMetadata from "../../package.json";
 import { resolvePublicOrigin } from "@/lib/public-origin";
 import { resolveUpdateRepository } from "@/lib/update-repository";
@@ -49,29 +50,44 @@ export type OwnerFeedbackResult =
       reason: "disabled" | "upstream";
     };
 
-const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const INSTALLATION_SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const INSTALLATION_ID_CONTEXT = "sharedesk-installation-id-v1:";
+
+function isInstallationSecret(value: string): boolean {
+  if (!INSTALLATION_SECRET_PATTERN.test(value)) return false;
+  const bytes = Buffer.from(value, "base64url");
+  return bytes.length === 32 && bytes.toString("base64url") === value;
+}
+
+function deriveInstallationId(sharedSecret: string): string {
+  const digest = createHash("sha256")
+    .update(INSTALLATION_ID_CONTEXT, "utf8")
+    .update(Buffer.from(sharedSecret, "base64url"))
+    .digest("base64url");
+  return `sd1_${digest}`;
+}
 
 function resolveConfig(env: Environment): RegistryConfig {
   const endpointValue = env.SHAREDESK_OWNER_REGISTRY_ENDPOINT?.trim() ?? "";
   const sharedSecret = env.SHAREDESK_OWNER_REGISTRY_SECRET ?? "";
-  const installationId = env.SHAREDESK_INSTALLATION_ID?.trim() ?? "";
 
-  if (!endpointValue && !sharedSecret && !installationId) {
+  if (!endpointValue && !sharedSecret) {
     return {
       configured: false,
       error: "비공개 설치 등록부가 설정되지 않았습니다.",
     };
   }
-  if (!endpointValue || !sharedSecret || !installationId) {
+  if (!endpointValue || !sharedSecret) {
     return {
       configured: false,
-      error: "비공개 설치 등록부 환경 값을 모두 설정해 주세요.",
+      error: "비공개 설치 등록부 URL과 설치 비밀을 모두 설정해 주세요.",
     };
   }
-  if (!INSTALLATION_ID_PATTERN.test(installationId)) {
+  if (!isInstallationSecret(sharedSecret)) {
     return {
       configured: false,
-      error: "SHAREDESK_INSTALLATION_ID 값이 올바르지 않습니다.",
+      error:
+        "SHAREDESK_OWNER_REGISTRY_SECRET에는 32바이트 base64url 값만 사용할 수 있습니다.",
     };
   }
 
@@ -104,10 +120,16 @@ function resolveConfig(env: Environment): RegistryConfig {
   return {
     configured: true,
     endpoint: endpoint.toString(),
-    installationId,
+    installationId: deriveInstallationId(sharedSecret),
     sharedSecret,
     error: null,
   };
+}
+
+export function isOwnerRegistryConfigured(
+  env: Environment = process.env,
+): boolean {
+  return resolveConfig(env).configured;
 }
 
 function resolveMetadata(
