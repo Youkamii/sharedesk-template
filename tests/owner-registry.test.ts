@@ -156,7 +156,8 @@ async function startNext(
 }
 
 test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직접 기록한다", async (t) => {
-  const [source, routeSource, adminSource] = await Promise.all([
+  const [source, routeSource, feedbackRouteSource, adminSource, adminPageSource] =
+    await Promise.all([
     readFile(
       new URL("../src/lib/owner-registry.ts", import.meta.url),
       "utf8",
@@ -166,9 +167,14 @@ test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직�
       "utf8",
     ),
     readFile(
+      new URL("../src/app/api/admin/feedback/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
       new URL("../src/app/admin/AdminView.tsx", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../src/app/admin/page.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(source, /^import "server-only";/);
   assert.doesNotMatch(source, /NEXT_PUBLIC_/);
@@ -176,6 +182,11 @@ test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직�
     routeSource.match(/requireAdmin\(\{ fresh: true \}\)/g)?.length,
     2,
   );
+  assert.match(feedbackRouteSource, /requireAdmin\(\{ fresh: true \}\)/);
+  assert.match(adminPageSource, /<AdminView adminEmail=\{session\.email\}/);
+  assert.match(adminSource, /aria-label="피드백 메일 보내기"/);
+  assert.match(adminSource, /보내는 관리자 <strong>\{adminEmail\}<\/strong>/);
+  assert.doesNotMatch(adminSource, /name=["'](?:from|sender|to)["']/i);
   assert.match(adminSource, /"현재 설치 등록"/);
   assert.match(
     adminSource,
@@ -308,6 +319,7 @@ test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직�
     const observation = received[0];
     assert.deepEqual(Object.keys(observation).sort(), [
       "installationId",
+      "kind",
       "observedAt",
       "observedByEmail",
       "repository",
@@ -315,6 +327,7 @@ test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직�
       "site",
       "version",
     ]);
+    assert.equal(observation.kind, "observation");
     assert.equal(observation.sharedSecret, "collector-secret");
     assert.equal(observation.installationId, "installation-test");
     assert.equal(observation.site, "https://desk.example.com");
@@ -327,13 +340,112 @@ test("비공개 설치 등록부는 설정이 완전할 때만 관리자가 직�
     );
     assert.doesNotMatch(JSON.stringify(observation), /never-send/);
 
+    const unauthorizedFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject: "제목", message: "내용" }),
+      },
+    );
+    assert.equal(unauthorizedFeedback.status, 401);
+
+    const forbiddenFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `sharedesk_session=${session("member-sub")}`,
+        },
+        body: JSON.stringify({ subject: "제목", message: "내용" }),
+      },
+    );
+    assert.equal(forbiddenFeedback.status, 403);
+
+    const spoofedFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({
+          subject: "제목",
+          message: "내용",
+          from: "spoof@example.com",
+          to: "other@example.com",
+        }),
+      },
+    );
+    assert.equal(spoofedFeedback.status, 400);
+    assert.equal(received.length, 1);
+
+    const oversizedFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ subject: "제목", message: "가".repeat(20_000) }),
+      },
+    );
+    assert.equal(oversizedFeedback.status, 413);
+    assert.equal(received.length, 1);
+
+    const sentFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({
+          subject: "파일 미리보기 제안",
+          message: "PDF 이동을 더 빠르게 해 주세요.",
+        }),
+      },
+    );
+    assert.equal(sentFeedback.status, 200);
+    const sentBody = (await sentFeedback.json()) as Record<string, unknown>;
+    assert.equal(sentBody.ok, true);
+    assert.equal(received.length, 2);
+    const feedbackRequest = received[1];
+    assert.deepEqual(Object.keys(feedbackRequest).sort(), [
+      "adminEmail",
+      "adminName",
+      "installationId",
+      "kind",
+      "message",
+      "repository",
+      "sentAt",
+      "sharedSecret",
+      "site",
+      "subject",
+      "version",
+    ]);
+    assert.equal(feedbackRequest.kind, "feedback");
+    assert.equal(feedbackRequest.adminEmail, "admin@example.com");
+    assert.equal(feedbackRequest.adminName, "관리자");
+    assert.equal(feedbackRequest.subject, "파일 미리보기 제안");
+    assert.equal(feedbackRequest.message, "PDF 이동을 더 빠르게 해 주세요.");
+    assert.equal(feedbackRequest.sharedSecret, "collector-secret");
+    assert.doesNotMatch(
+      JSON.stringify(feedbackRequest),
+      /spoof@example\.com|other@example\.com/,
+    );
+
     await writeUsers(configuredRoot, "blocked");
     const blockedRecord = await fetch(
       `${configured.origin}/api/admin/owner-registry`,
       { method: "POST", headers: { Cookie: adminCookie } },
     );
     assert.equal(blockedRecord.status, 401);
-    assert.equal(received.length, 1);
+    const blockedFeedback = await fetch(
+      `${configured.origin}/api/admin/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: JSON.stringify({ subject: "제목", message: "내용" }),
+      },
+    );
+    assert.equal(blockedFeedback.status, 401);
+    assert.equal(received.length, 2);
   } finally {
     await stopServer(configured.child);
     await rm(configuredRoot, { recursive: true, force: true });

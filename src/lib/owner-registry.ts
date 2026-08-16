@@ -41,6 +41,14 @@ export type OwnerRegistryObservation =
       reason: "disabled" | "upstream";
     };
 
+export type OwnerFeedbackResult =
+  | { ok: true; sentAt: string }
+  | {
+      ok: false;
+      error: string;
+      reason: "disabled" | "upstream";
+    };
+
 const INSTALLATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function resolveConfig(env: Environment): RegistryConfig {
@@ -185,6 +193,7 @@ export async function recordOwnerRegistryObservation(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        kind: "observation",
         sharedSecret: config.sharedSecret,
         installationId: config.installationId,
         version: status.version,
@@ -218,6 +227,66 @@ export async function recordOwnerRegistryObservation(
       ok: false,
       status,
       error: "비공개 설치 등록부에 연결하지 못했습니다.",
+      reason: "upstream",
+    };
+  }
+}
+
+export async function sendOwnerFeedback(
+  requestOrigin: string,
+  sender: { email: string; name: string },
+  feedback: { subject: string; message: string },
+  env: Environment = process.env,
+): Promise<OwnerFeedbackResult> {
+  const config = resolveConfig(env);
+  const status = getOwnerRegistryStatus(requestOrigin, env);
+  if (!config.configured || !status.enabled || !status.site) {
+    return {
+      ok: false,
+      error: status.error ?? "관리자 피드백 연결이 설정되지 않았습니다.",
+      reason: "disabled",
+    };
+  }
+
+  const sentAt = new Date().toISOString();
+  try {
+    const response = await fetch(config.endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        kind: "feedback",
+        sharedSecret: config.sharedSecret,
+        installationId: config.installationId,
+        version: status.version,
+        site: status.site,
+        repository: status.repository,
+        sentAt,
+        adminEmail: sender.email,
+        adminName: sender.name,
+        subject: feedback.subject,
+        message: feedback.message,
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = (await response.json().catch(() => null)) as {
+      ok?: unknown;
+    } | null;
+    if (!response.ok || body?.ok !== true) {
+      throw new Error(`collector returned ${response.status}`);
+    }
+    return { ok: true, sentAt };
+  } catch (error) {
+    console.error(
+      "[owner-feedback] send failed",
+      error instanceof Error ? error.message : error,
+    );
+    return {
+      ok: false,
+      error: "피드백 메일을 보내지 못했습니다.",
       reason: "upstream",
     };
   }

@@ -17,5 +17,5 @@ export default async function AdminPage() {
     );
   }
   if (!session.isAdmin) redirect("/files");
-  return <AdminView />;
+  return <AdminView adminEmail={session.email} />;
 }
