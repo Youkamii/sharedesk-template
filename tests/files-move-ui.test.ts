@@ -428,6 +428,14 @@ test("파일 화면은 배율·드래그 고스트·주소창·메모 편집 계
   assert.match(source, /\.txt 파일만 여기에서 편집할 수 있습니다/);
   assert.match(source, /다른 사람이 먼저 파일을 바꿨습니다/);
   assert.match(source, /new TextDecoder\("utf-8", \{ fatal: true \}\)/);
+  const folderStatus = source.match(
+    /<footer className=\{styles\.windowStatus\}>([\s\S]*?)<\/footer>/,
+  )?.[1];
+  assert.ok(folderStatus);
+  assert.doesNotMatch(
+    folderStatus,
+    /아이콘을 끌어 위치를 바꾸고|폴더 위에 놓으면/,
+  );
   assert.match(source, /previewInstanceRef\.current !== instanceId/);
   assert.match(source, /folderNoteInstanceRef\.current !== instanceId/);
   assert.match(

@@ -6299,9 +6299,7 @@ export default function FilesView({
                     ? `${selectedEntries[0].name} · ${formatSize(selectedEntries[0].size)} · ${formatDate(selectedEntries[0].modifiedAt)}`
                     : `${selectedEntries.length}개 항목 선택`}
                 </span>
-              ) : (
-                <span>아이콘을 끌어 위치를 바꾸고, 폴더 위에 놓으면 그 안으로 옮겨져요</span>
-              )}
+              ) : null}
             </footer>
             <button
               type="button"
