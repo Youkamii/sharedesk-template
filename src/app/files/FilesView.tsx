@@ -68,7 +68,11 @@ import {
   type TransferProgress,
   uploadWithProgress,
 } from "@/lib/client/transfer";
-import { previewKindOf, type PreviewKind } from "@/lib/preview";
+import {
+  isEditableTextPreview,
+  previewKindOf,
+  type PreviewKind,
+} from "@/lib/preview";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
@@ -490,7 +494,36 @@ function previewUrl(entry: Entry) {
 }
 
 function isEditableTextEntry(entry: Entry) {
-  return entry.name.toLocaleLowerCase("en-US").endsWith(".txt");
+  return isEditableTextPreview(entry);
+}
+
+function canOpenPreviewInNewTab(entry: Entry) {
+  return previewKindOf(entry) !== null && !isEditableTextEntry(entry);
+}
+
+function entryOpenLabel(
+  entry: Entry,
+  folderLabel: string,
+  unsupportedLabel: string,
+) {
+  if (entry.isFolder) return folderLabel;
+  if (isEditableTextEntry(entry)) return "메모장으로 편집";
+  return previewKindOf(entry) ? "ShareDesk에서 열기" : unsupportedLabel;
+}
+
+function searchContextMenuHeight(entry: Entry) {
+  if (entry.isFolder) return 105;
+  return canOpenPreviewInNewTab(entry) ? 183 : 148;
+}
+
+function itemContextMenuHeight(
+  entry: Entry,
+  isAdmin: boolean,
+  hasParent: boolean,
+) {
+  const fullHeight = (isAdmin ? 250 : 205) + (hasParent ? 45 : 0);
+  if (!previewKindOf(entry)) return fullHeight - 70;
+  return canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35;
 }
 
 function previewTextReadOnlyReason(preview: PreviewWindowState) {
@@ -1421,8 +1454,10 @@ export default function FilesView({
             .find((item) => item.id === current.scopeId)
             ?.path.at(-2),
       );
-      const height = current.entry
-        ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
+      const height = current.searchResult
+        ? searchContextMenuHeight(current.searchResult.entry)
+        : current.entry
+          ? itemContextMenuHeight(current.entry, isAdmin, hasParent)
         : current.scopeId === ROOT_SCOPE
           ? 330
           : 194;
@@ -1715,8 +1750,12 @@ export default function FilesView({
     return scopeWindow(scopeId)?.path.at(-2)?.id ?? null;
   }
 
-  function entryContextMenuHeight(scopeId: string) {
-    return (isAdmin ? 250 : 205) + (scopeParentFolderId(scopeId) ? 45 : 0);
+  function entryContextMenuHeight(scopeId: string, entry: Entry) {
+    return itemContextMenuHeight(
+      entry,
+      isAdmin,
+      Boolean(scopeParentFolderId(scopeId)),
+    );
   }
 
   function scopeCanvas(scopeId: string) {
@@ -4957,7 +4996,7 @@ export default function FilesView({
     const width = 210;
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
-      ? entryContextMenuHeight(scopeId)
+      ? entryContextMenuHeight(scopeId, entry)
       : scopeId === ROOT_SCOPE
         ? 330
         : 194;
@@ -5004,11 +5043,7 @@ export default function FilesView({
     event.preventDefault();
     event.stopPropagation();
     const width = 210;
-    const height = result.entry.isFolder
-      ? 105
-      : previewKindOf(result.entry)
-        ? 183
-        : 148;
+    const height = searchContextMenuHeight(result.entry);
     const target = event.target as HTMLElement;
     setContextMenu({
       x: Math.max(
@@ -5034,11 +5069,7 @@ export default function FilesView({
 
   function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
     const rect = target.getBoundingClientRect();
-    const height = result.entry.isFolder
-      ? 105
-      : previewKindOf(result.entry)
-        ? 183
-        : 148;
+    const height = searchContextMenuHeight(result.entry);
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -5064,7 +5095,7 @@ export default function FilesView({
     entry: Entry,
   ) {
     const rect = target.getBoundingClientRect();
-    const menuHeight = entryContextMenuHeight(scopeId);
+    const menuHeight = entryContextMenuHeight(scopeId, entry);
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -7064,14 +7095,14 @@ export default function FilesView({
                   )
                 }
               >
-                {contextMenu.searchResult.entry.isFolder
-                  ? "폴더 열기"
-                  : previewKindOf(contextMenu.searchResult.entry)
-                    ? "ShareDesk에서 열기"
-                    : "열기"}
+                {entryOpenLabel(
+                  contextMenu.searchResult.entry,
+                  "폴더 열기",
+                  "열기",
+                )}
               </MenuButton>
               {!contextMenu.searchResult.entry.isFolder &&
-                previewKindOf(contextMenu.searchResult.entry) && (
+                canOpenPreviewInNewTab(contextMenu.searchResult.entry) && (
                   <MenuButton
                     onClick={() =>
                       openPreviewInNewTab(
@@ -7122,15 +7153,15 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                {contextMenu.entry.isFolder
-                  ? "열기"
-                  : previewKindOf(contextMenu.entry)
-                    ? "ShareDesk에서 열기"
-                    : "다운로드"}
+                {entryOpenLabel(
+                  contextMenu.entry,
+                  "열기",
+                  "다운로드",
+                )}
                 <kbd>Enter</kbd>
               </MenuButton>
               {!contextMenu.entry.isFolder &&
-                previewKindOf(contextMenu.entry) && (
+                canOpenPreviewInNewTab(contextMenu.entry) && (
                   <MenuButton
                     onClick={() =>
                       openPreviewInNewTab(

@@ -839,22 +839,31 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   assert.match(source, /ShareDesk에서 열기/);
   assert.match(
     source,
+    /function entryOpenLabel[\s\S]*?isEditableTextEntry\(entry\)[\s\S]*?메모장으로 편집/,
+  );
+  assert.match(
+    source,
+    /function canOpenPreviewInNewTab[\s\S]*?!isEditableTextEntry\(entry\)/,
+  );
+  assert.match(
+    source,
     /function openPreviewInNewTab\(entry: Entry, opener\?: HTMLElement\)[\s\S]*?window\.open\(previewUrl\(entry\), "_blank", "noopener,noreferrer"\)[\s\S]*?setContextMenu\(null\)[\s\S]*?opener\?\.focus\(\)/,
   );
-  assert.equal(source.match(/새 탭에서 보기/g)?.length, 2);
   assert.match(
     source,
-    /openPreviewInNewTab\([\s\S]*?contextMenu\.searchResult!\.entry,[\s\S]*?contextMenu\.opener \?\? undefined/,
+    /canOpenPreviewInNewTab\(contextMenu\.searchResult\.entry\)[\s\S]*?openPreviewInNewTab\([\s\S]*?contextMenu\.searchResult!\.entry/,
   );
   assert.match(
     source,
-    /openPreviewInNewTab\([\s\S]*?contextMenu\.entry!,[\s\S]*?contextMenu\.opener \?\? undefined/,
+    /canOpenPreviewInNewTab\(contextMenu\.entry\)[\s\S]*?openPreviewInNewTab\([\s\S]*?contextMenu\.entry!/,
   );
-  assert.equal(
-    source.match(
-      /const height = result\.entry\.isFolder[\s\S]*?previewKindOf\(result\.entry\)[\s\S]*?\? 183[\s\S]*?: 148;/g,
-    )?.length,
-    2,
+  assert.match(
+    source,
+    /function searchContextMenuHeight[\s\S]*?canOpenPreviewInNewTab\(entry\) \? 183 : 148/,
+  );
+  assert.match(
+    source,
+    /current\.searchResult[\s\S]*?searchContextMenuHeight\(current\.searchResult\.entry\)/,
   );
   assert.match(
     source,
