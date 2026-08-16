@@ -9,11 +9,14 @@
   --admin-teal: #61b3a6;
   --admin-peach: #f2a56f;
   --admin-ink: #111629;
+  position: fixed;
+  inset: 0;
   width: 100%;
   min-width: 0;
   min-height: 100%;
   flex: 1;
-  overflow-x: clip;
+  overflow-x: hidden;
+  overflow-y: auto;
   color: var(--admin-ink);
   background-color: var(--admin-night);
   background-image:
@@ -857,6 +860,16 @@
 
   .primaryButton {
     width: 100%;
+  }
+
+  .feedbackActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .feedbackActions > span {
+    align-self: flex-end;
+    white-space: nowrap;
   }
 }
 

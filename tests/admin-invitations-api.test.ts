@@ -59,7 +59,10 @@ test("관리자 화면은 도트 도구 스타일과 접근 가능한 스크롤 
   assert.match(css, /border:\s*2px solid/);
   assert.match(css, /:focus-visible/);
 
-  assert.match(css, /\.page\s*\{[\s\S]*?overflow-x:\s*clip/);
+  assert.match(
+    css,
+    /\.page\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?overflow-x:\s*hidden;[\s\S]*?overflow-y:\s*auto/,
+  );
   assert.match(css, /\.tableRegion\s*\{[\s\S]*?overflow-x:\s*auto/);
   assert.equal(css.match(/overflow-x:\s*auto/g)?.length, 1);
   assert.equal(source.match(/className=\{styles\.tableRegion\}/g)?.length, 2);
