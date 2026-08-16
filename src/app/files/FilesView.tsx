@@ -68,7 +68,11 @@ import {
   type TransferProgress,
   uploadWithProgress,
 } from "@/lib/client/transfer";
-import { previewKindOf, type PreviewKind } from "@/lib/preview";
+import {
+  isEditableTextPreview,
+  previewKindOf,
+  type PreviewKind,
+} from "@/lib/preview";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
@@ -185,22 +189,6 @@ type PresenceState = {
   loading: boolean;
   error: string | null;
   open: boolean;
-};
-
-type UpdateStatusResponse = {
-  currentVersion: string;
-  latestVersion: string | null;
-  updateAvailable: boolean;
-  repository: string | null;
-  workflowUrl: string | null;
-  configured: boolean;
-  error?: string;
-};
-
-type UpdatePanelState = {
-  loading: boolean;
-  status: UpdateStatusResponse | null;
-  loadError: string | null;
 };
 
 type TrashWindowState = {
@@ -490,7 +478,36 @@ function previewUrl(entry: Entry) {
 }
 
 function isEditableTextEntry(entry: Entry) {
-  return entry.name.toLocaleLowerCase("en-US").endsWith(".txt");
+  return isEditableTextPreview(entry);
+}
+
+function canOpenPreviewInNewTab(entry: Entry) {
+  return previewKindOf(entry) !== null && !isEditableTextEntry(entry);
+}
+
+function entryOpenLabel(
+  entry: Entry,
+  folderLabel: string,
+  unsupportedLabel: string,
+) {
+  if (entry.isFolder) return folderLabel;
+  if (isEditableTextEntry(entry)) return "메모장으로 편집";
+  return previewKindOf(entry) ? "ShareDesk에서 열기" : unsupportedLabel;
+}
+
+function searchContextMenuHeight(entry: Entry) {
+  if (entry.isFolder) return 105;
+  return canOpenPreviewInNewTab(entry) ? 183 : 148;
+}
+
+function itemContextMenuHeight(
+  entry: Entry,
+  isAdmin: boolean,
+  hasParent: boolean,
+) {
+  const fullHeight = (isAdmin ? 250 : 205) + (hasParent ? 45 : 0);
+  if (!previewKindOf(entry)) return fullHeight - 70;
+  return canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35;
 }
 
 function previewTextReadOnlyReason(preview: PreviewWindowState) {
@@ -529,10 +546,12 @@ export default function FilesView({
   userName,
   isAdmin,
   isGuest,
+  updateWorkflowUrl,
 }: {
   userName: string;
   isAdmin: boolean;
   isGuest: boolean;
+  updateWorkflowUrl: string | null;
 }) {
   const router = useRouter();
   const viewport = useViewport();
@@ -572,10 +591,6 @@ export default function FilesView({
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
   const searchInstanceRef = useRef(0);
   const searchControllerRef = useRef<AbortController | null>(null);
-  const updateDialogRef = useRef<HTMLElement>(null);
-  const updateDialogOpenerRef = useRef<HTMLElement | null>(null);
-  const updateControllerRef = useRef<AbortController | null>(null);
-  const updateRequestIdRef = useRef(0);
   const presenceControllerRef = useRef<AbortController | null>(null);
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
@@ -660,7 +675,6 @@ export default function FilesView({
   const [folderSearchQueries, setFolderSearchQueries] = useState<
     Record<string, string>
   >({});
-  const [updatePanel, setUpdatePanel] = useState<UpdatePanelState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
   const [folderNoteWindow, setFolderNoteWindow] =
@@ -711,8 +725,6 @@ export default function FilesView({
     [rootData.entries, rootData.positions],
   );
   const dialogOpen = dialog !== null;
-  const updatePanelOpen = updatePanel !== null;
-
   const fetchFolder = useCallback(
     async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
       const listResponse = await fetch(
@@ -1228,7 +1240,6 @@ export default function FilesView({
       folderNoteLoadControllerRef.current?.abort();
       folderNoteSaveControllerRef.current?.abort();
       searchControllerRef.current?.abort();
-      updateControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -1421,8 +1432,10 @@ export default function FilesView({
             .find((item) => item.id === current.scopeId)
             ?.path.at(-2),
       );
-      const height = current.entry
-        ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
+      const height = current.searchResult
+        ? searchContextMenuHeight(current.searchResult.entry)
+        : current.entry
+          ? itemContextMenuHeight(current.entry, isAdmin, hasParent)
         : current.scopeId === ROOT_SCOPE
           ? 330
           : 194;
@@ -1499,16 +1512,6 @@ export default function FilesView({
       });
     };
   }, [dialogOpen]);
-
-  useEffect(() => {
-    if (!updatePanelOpen) return;
-    const focusFrame = window.requestAnimationFrame(() => {
-      updateDialogRef.current
-        ?.querySelector<HTMLElement>("[data-update-initial-focus]")
-        ?.focus();
-    });
-    return () => window.cancelAnimationFrame(focusFrame);
-  }, [updatePanelOpen]);
 
   useEffect(() => {
     if (!previewFocusRequest) return;
@@ -1715,8 +1718,12 @@ export default function FilesView({
     return scopeWindow(scopeId)?.path.at(-2)?.id ?? null;
   }
 
-  function entryContextMenuHeight(scopeId: string) {
-    return (isAdmin ? 250 : 205) + (scopeParentFolderId(scopeId) ? 45 : 0);
+  function entryContextMenuHeight(scopeId: string, entry: Entry) {
+    return itemContextMenuHeight(
+      entry,
+      isAdmin,
+      Boolean(scopeParentFolderId(scopeId)),
+    );
   }
 
   function scopeCanvas(scopeId: string) {
@@ -4957,7 +4964,7 @@ export default function FilesView({
     const width = 210;
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
-      ? entryContextMenuHeight(scopeId)
+      ? entryContextMenuHeight(scopeId, entry)
       : scopeId === ROOT_SCOPE
         ? 330
         : 194;
@@ -5004,11 +5011,7 @@ export default function FilesView({
     event.preventDefault();
     event.stopPropagation();
     const width = 210;
-    const height = result.entry.isFolder
-      ? 105
-      : previewKindOf(result.entry)
-        ? 183
-        : 148;
+    const height = searchContextMenuHeight(result.entry);
     const target = event.target as HTMLElement;
     setContextMenu({
       x: Math.max(
@@ -5034,11 +5037,7 @@ export default function FilesView({
 
   function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
     const rect = target.getBoundingClientRect();
-    const height = result.entry.isFolder
-      ? 105
-      : previewKindOf(result.entry)
-        ? 183
-        : 148;
+    const height = searchContextMenuHeight(result.entry);
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -5064,7 +5063,7 @@ export default function FilesView({
     entry: Entry,
   ) {
     const rect = target.getBoundingClientRect();
-    const menuHeight = entryContextMenuHeight(scopeId);
+    const menuHeight = entryContextMenuHeight(scopeId, entry);
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -5097,102 +5096,6 @@ export default function FilesView({
     window.requestAnimationFrame(() => {
       if (opener?.isConnected) opener.focus();
     });
-  }
-
-  async function loadUpdateStatus() {
-    updateControllerRef.current?.abort();
-    const controller = new AbortController();
-    const requestId = updateRequestIdRef.current + 1;
-    updateControllerRef.current = controller;
-    updateRequestIdRef.current = requestId;
-    setUpdatePanel({ loading: true, status: null, loadError: null });
-    try {
-      const status = await apiJson<UpdateStatusResponse>("/api/admin/update", {
-        method: "GET",
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      if (
-        updateRequestIdRef.current !== requestId ||
-        updateControllerRef.current !== controller
-      ) {
-        return;
-      }
-      setUpdatePanel({ loading: false, status, loadError: null });
-    } catch (error) {
-      if (
-        controller.signal.aborted ||
-        updateRequestIdRef.current !== requestId ||
-        updateControllerRef.current !== controller
-      ) {
-        return;
-      }
-      setUpdatePanel({
-        loading: false,
-        status: null,
-        loadError: errorMessage(error, "업데이트 상태를 확인하지 못했습니다"),
-      });
-    } finally {
-      if (updateControllerRef.current === controller) {
-        updateControllerRef.current = null;
-      }
-    }
-  }
-
-  function openUpdatePanel(opener: HTMLElement) {
-    if (!isAdmin) return;
-    updateDialogOpenerRef.current = opener;
-    setContextMenu(null);
-    void loadUpdateStatus();
-  }
-
-  function closeUpdatePanel() {
-    updateRequestIdRef.current += 1;
-    updateControllerRef.current?.abort();
-    updateControllerRef.current = null;
-    setUpdatePanel(null);
-    const opener = updateDialogOpenerRef.current;
-    updateDialogOpenerRef.current = null;
-    window.requestAnimationFrame(() => {
-      if (opener?.isConnected) opener.focus();
-    });
-  }
-
-  function handleUpdateDialogKeyDown(
-    event: React.KeyboardEvent<HTMLElement>,
-  ) {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeUpdatePanel();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = Array.from(
-      event.currentTarget.querySelectorAll<HTMLElement>(
-        DIALOG_FOCUSABLE_SELECTOR,
-      ),
-    );
-    if (!focusable.length) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable.at(-1)!;
-    const active = document.activeElement;
-    if (
-      event.shiftKey &&
-      (active === first || !event.currentTarget.contains(active))
-    ) {
-      event.preventDefault();
-      last.focus();
-    } else if (
-      !event.shiftKey &&
-      (active === last || !event.currentTarget.contains(active))
-    ) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   function openDialog(nextDialog: DialogState, opener?: HTMLElement | null) {
@@ -5490,7 +5393,11 @@ export default function FilesView({
         const result = await apiJson<{ entry: Entry }>("/api/drive/rename", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: dialog.entry.id, name: dialog.value }),
+          body: JSON.stringify({
+            id: dialog.entry.id,
+            name: dialog.value,
+            expectedVersion: dialog.entry.version,
+          }),
         });
         const renamedName = result.entry?.name ?? dialog.value.trim();
         if (dialog.entry.isFolder) {
@@ -6268,9 +6175,7 @@ export default function FilesView({
                     ? `${selectedEntries[0].name} · ${formatSize(selectedEntries[0].size)} · ${formatDate(selectedEntries[0].modifiedAt)}`
                     : `${selectedEntries.length}개 항목 선택`}
                 </span>
-              ) : (
-                <span>아이콘을 끌어 위치를 바꾸고, 폴더 위에 놓으면 그 안으로 옮겨져요</span>
-              )}
+              ) : null}
             </footer>
             <button
               type="button"
@@ -7012,14 +6917,14 @@ export default function FilesView({
         <div className={styles.userTray}>
           {isAdmin && (
             <>
-              <button
-                type="button"
+              <a
+                href={updateWorkflowUrl ?? UPDATE_GUIDE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className={`${styles.trayLink} ${styles.updateTrayButton}`}
-                aria-haspopup="dialog"
-                onClick={(event) => openUpdatePanel(event.currentTarget)}
               >
-                업데이트
-              </button>
+                {updateWorkflowUrl ? "업데이트 하기" : "업데이트 연결"}
+              </a>
               <a href="/admin" className={styles.trayLink}>
                 사용자 관리
               </a>
@@ -7064,14 +6969,14 @@ export default function FilesView({
                   )
                 }
               >
-                {contextMenu.searchResult.entry.isFolder
-                  ? "폴더 열기"
-                  : previewKindOf(contextMenu.searchResult.entry)
-                    ? "ShareDesk에서 열기"
-                    : "열기"}
+                {entryOpenLabel(
+                  contextMenu.searchResult.entry,
+                  "폴더 열기",
+                  "열기",
+                )}
               </MenuButton>
               {!contextMenu.searchResult.entry.isFolder &&
-                previewKindOf(contextMenu.searchResult.entry) && (
+                canOpenPreviewInNewTab(contextMenu.searchResult.entry) && (
                   <MenuButton
                     onClick={() =>
                       openPreviewInNewTab(
@@ -7122,15 +7027,15 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                {contextMenu.entry.isFolder
-                  ? "열기"
-                  : previewKindOf(contextMenu.entry)
-                    ? "ShareDesk에서 열기"
-                    : "다운로드"}
+                {entryOpenLabel(
+                  contextMenu.entry,
+                  "열기",
+                  "다운로드",
+                )}
                 <kbd>Enter</kbd>
               </MenuButton>
               {!contextMenu.entry.isFolder &&
-                previewKindOf(contextMenu.entry) && (
+                canOpenPreviewInNewTab(contextMenu.entry) && (
                   <MenuButton
                     onClick={() =>
                       openPreviewInNewTab(
@@ -7270,166 +7175,6 @@ export default function FilesView({
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
-      )}
-
-      {isAdmin && updatePanel && (
-        <div
-          className={styles.dialogBackdrop}
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeUpdatePanel();
-          }}
-        >
-          <section
-            ref={updateDialogRef}
-            className={`${styles.dialog} ${styles.updateDialog}`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="update-dialog-title"
-            aria-describedby="update-dialog-description"
-            aria-busy={updatePanel.loading}
-            onKeyDown={handleUpdateDialogKeyDown}
-          >
-            <header className={styles.dialogTitlebar}>
-              <strong id="update-dialog-title">ShareDesk 업데이트</strong>
-              <button
-                type="button"
-                data-update-initial-focus
-                aria-label="업데이트 창 닫기"
-                onClick={closeUpdatePanel}
-              >
-                ×
-              </button>
-            </header>
-            <div className={styles.updateDialogBody}>
-              {updatePanel.loading ? (
-                <p id="update-dialog-description" role="status">
-                  현재 버전과 새 버전을 확인하는 중입니다…
-                </p>
-              ) : updatePanel.loadError ? (
-                <>
-                  <p
-                    id="update-dialog-description"
-                    className={styles.updateError}
-                    role="alert"
-                  >
-                    {updatePanel.loadError}
-                  </p>
-                  <div className={styles.dialogActions}>
-                    <button
-                      type="button"
-                      className={styles.secondaryButton}
-                      onClick={() => void loadUpdateStatus()}
-                    >
-                      다시 확인
-                    </button>
-                  </div>
-                </>
-              ) : updatePanel.status ? (
-                <>
-                  <p
-                    id="update-dialog-description"
-                    className={styles.updateSummary}
-                    role="status"
-                  >
-                    {!updatePanel.status.configured
-                      ? "업데이트 연결이 필요합니다."
-                      : updatePanel.status.updateAvailable
-                        ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
-                        : updatePanel.status.latestVersion
-                          ? "최신 버전을 사용하고 있습니다."
-                          : "최신 버전을 확인하지 못했습니다."}
-                  </p>
-                  <dl className={styles.updateVersions}>
-                    <div>
-                      <dt>현재 버전</dt>
-                      <dd>{updatePanel.status.currentVersion}</dd>
-                    </div>
-                    <div>
-                      <dt>최신 버전</dt>
-                      <dd>{updatePanel.status.latestVersion ?? "확인 실패"}</dd>
-                    </div>
-                    <div>
-                      <dt>업데이트 상태</dt>
-                      <dd>
-                        {updatePanel.status.updateAvailable
-                          ? "새 버전 있음"
-                          : "새 버전 없음"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>설치 저장소</dt>
-                      <dd>
-                        {updatePanel.status.repository ?? "연결되지 않음"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {!updatePanel.status.configured && (
-                    <div className={styles.updateSetup}>
-                      <strong>기존 설치는 한 번만 전환하면 됩니다.</strong>
-                      <span>
-                        설치 저장소를 업데이트 구조에 연결한 뒤 다시 확인해 주세요.
-                      </span>
-                      <a
-                        href={UPDATE_GUIDE_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        기존 설치 전환 안내 열기
-                      </a>
-                    </div>
-                  )}
-                  {updatePanel.status.configured &&
-                    updatePanel.status.updateAvailable &&
-                    updatePanel.status.workflowUrl && (
-                      <p className={styles.updateInstruction}>
-                        GitHub Actions 화면에서 <strong>Run workflow</strong>를
-                        누르면 업데이트 후 Vercel이 자동으로 다시 배포됩니다.
-                      </p>
-                    )}
-                  {updatePanel.status.configured &&
-                    updatePanel.status.updateAvailable &&
-                    !updatePanel.status.workflowUrl && (
-                      <p className={styles.updateError} role="alert">
-                        업데이트 실행 화면 주소를 확인하지 못했습니다.
-                      </p>
-                    )}
-                  {updatePanel.status.error && (
-                    <p className={styles.updateError} role="alert">
-                      {updatePanel.status.error}
-                    </p>
-                  )}
-                  <div className={styles.dialogActions}>
-                    <button
-                      type="button"
-                      className={styles.secondaryButton}
-                      onClick={() => void loadUpdateStatus()}
-                    >
-                      다시 확인
-                    </button>
-                    {updatePanel.status.configured &&
-                      updatePanel.status.updateAvailable &&
-                      updatePanel.status.workflowUrl && (
-                        <button
-                          type="button"
-                          className={styles.primaryButton}
-                          onClick={() =>
-                            window.open(
-                              updatePanel.status!.workflowUrl!,
-                              "_blank",
-                              "noopener,noreferrer",
-                            )
-                          }
-                        >
-                          업데이트 시작
-                        </button>
-                      )}
-                  </div>
-                </>
-              ) : null}
-            </div>
-          </section>
-        </div>
       )}
 
       {dialog && (

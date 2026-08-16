@@ -201,6 +201,14 @@ export function previewKindOf(entry: {
   return mime ? classify(mime) : null;
 }
 
+export function isEditableTextPreview(entry: {
+  isFolder: boolean;
+  name: string;
+  mimeType: string | null;
+}): boolean {
+  return extensionOf(entry.name) === "txt" && previewKindOf(entry) === "text";
+}
+
 // 다운로드 라우트: inline로 내보내도 안전한 Content-Type을 돌려준다(없으면 null
 // → attachment). 텍스트류는 브라우저가 절대 실행하지 않도록 text/plain으로 강제.
 export function inlineContentType(mimeType: string, name = ""): string | null {
