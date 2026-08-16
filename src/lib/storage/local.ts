@@ -402,7 +402,14 @@ export class LocalAdapter implements StorageAdapter {
     });
   }
 
-  async rename(id: string, name: string): Promise<Entry> {
+  async rename(
+    id: string,
+    name: string,
+    expectedVersion: string,
+  ): Promise<Entry> {
+    if (!expectedVersion || expectedVersion.length > 1024) {
+      throw new StorageError("BAD_ID", "잘못된 파일 버전입니다");
+    }
     const clean = assertUserName(name);
     const rel = idToRel(id);
     if (!rel)
@@ -410,6 +417,18 @@ export class LocalAdapter implements StorageAdapter {
     const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
     const newRel = joinRel(dir, clean);
     return withLocalMutationLock(async () => {
+      let current: Stats;
+      try {
+        current = await stat(/* turbopackIgnore: true */ await safeAbs(rel));
+      } catch (error) {
+        if (isNoEnt(error)) {
+          throw new StorageError("NOT_FOUND", "대상이 없습니다");
+        }
+        throw error;
+      }
+      if (entryVersion(current) !== expectedVersion) {
+        throw new StorageError("CONFLICT", "다른 사람이 먼저 파일을 수정했습니다");
+      }
       // fsRename은 목적지를 말없이 덮어쓴다. 이름만 바꾸는 경우(대소문자 변경 등)를
       // 제외하고 목적지가 이미 있으면 거부한다.
       if (

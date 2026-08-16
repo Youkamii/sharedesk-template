@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   inlineContentType,
+  isEditableTextPreview,
   officePreviewImport,
   previewKindOf,
 } from "@/lib/preview";
@@ -117,7 +118,31 @@ test("inline 요청은 preview 경로를 쓰고 TXT 편집 계약은 유지한�
   assert.match(contentRoute, /export async function PATCH/);
   assert.match(contentRoute, /adapter\.replaceContent\(/);
   assert.match(contentRoute, /value\.expectedVersion/);
-  assert.match(filesView, /function isEditableTextEntry[\s\S]*?endsWith\("\.txt"\)/);
+  assert.equal(
+    isEditableTextPreview({
+      isFolder: false,
+      name: "메모.txt",
+      mimeType: "text/plain",
+    }),
+    true,
+  );
+  assert.equal(
+    isEditableTextPreview({
+      isFolder: false,
+      name: "메모.txt",
+      mimeType: "image/png",
+    }),
+    false,
+  );
+  assert.equal(
+    isEditableTextPreview({
+      isFolder: false,
+      name: "압축.txt",
+      mimeType: "application/zip",
+    }),
+    false,
+  );
+  assert.match(filesView, /function isEditableTextEntry[\s\S]*?isEditableTextPreview\(entry\)/);
   assert.match(filesView, /async function savePreviewText/);
   assert.match(filesView, /method: "PATCH"/);
 });

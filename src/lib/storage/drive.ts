@@ -888,7 +888,14 @@ export class DriveAdapter implements StorageAdapter {
     return toEntry((await res.json()) as DriveFile);
   }
 
-  async rename(id: string, name: string): Promise<Entry> {
+  async rename(
+    id: string,
+    name: string,
+    expectedVersion: string,
+  ): Promise<Entry> {
+    if (!expectedVersion || expectedVersion.length > 1024) {
+      throw new StorageError("BAD_ID", "잘못된 파일 버전입니다");
+    }
     const clean = assertUserName(name);
     const real = resolveId(id);
     if (real === rootFolderId()) {
@@ -899,15 +906,18 @@ export class DriveAdapter implements StorageAdapter {
     const parent = ((await metaRes.json()) as { parents?: string[] })
       .parents?.[0];
     if (parent) await assertNameFree(parent, clean);
-    const res = await driveFetch(
-      `${API}/files/${real}?fields=${FILE_FIELDS}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json; charset=UTF-8" },
-        body: JSON.stringify({ name: clean }),
+    const params = new URLSearchParams({
+      fields: "id,title,mimeType,fileSize,modifiedDate,etag",
+    });
+    const res = await driveFetch(`${V2_API}/files/${real}?${params}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json; charset=UTF-8",
+        "If-Match": expectedVersion,
       },
-    );
-    return toEntry((await res.json()) as DriveFile);
+      body: JSON.stringify({ title: clean }),
+    });
+    return toEntryV2((await res.json()) as DriveFileV2);
   }
 
   async move(

@@ -70,7 +70,11 @@ async function main(): Promise<void> {
     );
     createdIds.push(uploaded.id);
     const sourceAfterUpload = await adapter.list(source.id);
-    assert.ok(sourceAfterUpload.some((entry) => entry.id === uploaded.id));
+    const uploadedEntry = sourceAfterUpload.find(
+      (entry) => entry.id === uploaded.id,
+    );
+    assert.ok(uploadedEntry);
+    assert.ok(uploadedEntry.version, "이름 변경에 쓸 목록 ETag가 없습니다");
     logStep("서버 업로드와 폴더 목록", startedAt);
 
     startedAt = Date.now();
@@ -80,7 +84,7 @@ async function main(): Promise<void> {
     logStep("전체 다운로드", startedAt);
 
     startedAt = Date.now();
-    await adapter.rename(uploaded.id, "renamed.txt");
+    await adapter.rename(uploaded.id, "renamed.txt", uploadedEntry.version);
     const renamed = (await adapter.list(source.id)).find(
       (entry) => entry.id === uploaded.id,
     );

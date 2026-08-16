@@ -131,7 +131,9 @@ export interface StorageAdapter {
     expectedVersion: string | null,
   ): Promise<string | null>;
   createFolder(parentId: string, name: string): Promise<Entry>;
-  rename(id: string, name: string): Promise<Entry>;
+  // 마지막으로 본 버전일 때만 이름을 바꾼다. 이름 변경과 본문 저장이
+  // 엇갈려도 새 버전을 오래된 초안의 저장 기준으로 잘못 쓰지 않는다.
+  rename(id: string, name: string, expectedVersion: string): Promise<Entry>;
   // 대상을 다른 폴더로 옮긴다. expectedVersion은 호출자가 마지막으로 본 버전 —
   // 그 사이 누가 대상을 옮기거나 바꿨으면 CONFLICT를 던진다 (늦은 쪽 명시 거부).
   move(id: string, targetFolderId: string, expectedVersion: string): Promise<Entry>;
