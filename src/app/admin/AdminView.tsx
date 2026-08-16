@@ -27,6 +27,14 @@ type LastInvitationAccess = {
   code: string;
 };
 
+interface OwnerRegistryStatus {
+  enabled: boolean;
+  version: string;
+  site: string | null;
+  repository: string | null;
+  error: string | null;
+}
+
 const STATUS_LABEL: Record<User["status"], string> = {
   pending: "코드 입력 대기",
   approved: "승인됨",
@@ -85,6 +93,9 @@ export default function AdminView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [lastAccess, setLastAccess] = useState<LastInvitationAccess | null>(null);
+  const [ownerRegistry, setOwnerRegistry] =
+    useState<OwnerRegistryStatus | null>(null);
+  const [ownerRegistryBusy, setOwnerRegistryBusy] = useState(false);
   const [inviteForm, setInviteForm] = useState({
     expiresInMinutes: 1_440,
     usageMode: "once" as InvitationUsageMode,
@@ -144,6 +155,84 @@ export default function AdminView() {
     const initial = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(initial);
   }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void fetch("/api/admin/owner-registry", {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (response.status === 401 || response.status === 403) {
+            router.replace("/files");
+            return null;
+          }
+          const body = (await response.json().catch(() => null)) as
+            | OwnerRegistryStatus
+            | { error?: string }
+            | null;
+          if (!response.ok || !body || !("enabled" in body)) {
+            throw new Error(body?.error ?? "설치 등록부 상태를 확인하지 못했습니다");
+          }
+          return body;
+        })
+        .then((status) => {
+          if (status) setOwnerRegistry(status);
+        })
+        .catch((caught) => {
+          if (caught instanceof DOMException && caught.name === "AbortError") return;
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "설치 등록부 상태를 확인하지 못했습니다",
+          );
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [router]);
+
+  async function recordCurrentInstallation() {
+    if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
+    setOwnerRegistryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/owner-registry", {
+        method: "POST",
+      });
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/files");
+        return;
+      }
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        created?: boolean;
+        error?: string;
+        status?: OwnerRegistryStatus;
+      } | null;
+      if (!response.ok || body?.ok !== true) {
+        throw new Error(body?.error ?? "현재 설치 정보를 등록하지 못했습니다");
+      }
+      if (body.status) setOwnerRegistry(body.status);
+      setNotice(
+        body.created
+          ? `ShareDesk ${ownerRegistry.version} 설치 정보를 등록했습니다.`
+          : `ShareDesk ${ownerRegistry.version} 기록을 갱신했습니다.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "현재 설치 정보를 등록하지 못했습니다",
+      );
+    } finally {
+      setOwnerRegistryBusy(false);
+    }
+  }
 
   function beginMutation(operationId: string): boolean {
     if (mutationInFlightRef.current) return false;
@@ -315,6 +404,29 @@ export default function AdminView() {
           </div>
         </div>
         <div className={styles.headerActions}>
+          <span
+            className={styles.registryControl}
+            title={ownerRegistry?.error ?? undefined}
+          >
+            <span
+              className={`${styles.registryLamp} ${ownerRegistry?.enabled ? styles.registryLampOn : ""}`}
+              aria-hidden="true"
+            />
+            {ownerRegistry?.enabled ? (
+              <button
+                type="button"
+                className={styles.registryButton}
+                disabled={ownerRegistryBusy}
+                onClick={() => void recordCurrentInstallation()}
+              >
+                {ownerRegistryBusy ? "등록 중…" : "현재 설치 등록"}
+              </button>
+            ) : (
+              <span className={styles.registryLabel}>
+                {ownerRegistry ? "등록부 꺼짐" : "등록부 확인 중"}
+              </span>
+            )}
+          </span>
           <a href="/files" className={styles.headerLink}>
             <span aria-hidden="true">←</span>
             파일로 돌아가기

@@ -124,6 +124,54 @@
   gap: 8px;
 }
 
+.registryControl {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  color: var(--admin-cream);
+  background: #0b1122;
+  border: 2px solid #070b16;
+  box-shadow: inset 1px 1px 0 #2a365d;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 9px;
+}
+
+.registryLamp {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: #596078;
+  border: 1px solid #070b16;
+  box-shadow: 1px 1px 0 #070b16;
+}
+
+.registryLampOn {
+  background: var(--admin-teal);
+}
+
+.registryButton {
+  padding: 4px 5px;
+  color: var(--admin-cream);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.registryButton:hover:not(:disabled) {
+  color: var(--admin-amber);
+}
+
+.registryButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.registryLabel {
+  color: #9da9c2;
+}
+
 .headerLink {
   display: inline-flex;
   min-height: 36px;
