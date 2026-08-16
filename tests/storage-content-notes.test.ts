@@ -204,7 +204,11 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         blockedBody,
       );
       await started;
-      const renaming = adapter.rename(race.id, "잠금-변경.txt");
+      const renaming = adapter.rename(
+        race.id,
+        "잠금-변경.txt",
+        race.version,
+      );
       const mutations = Promise.allSettled([replacing, renaming]);
       const early = await Promise.race([
         renaming.then(
@@ -221,10 +225,15 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
       assert.equal(early, "pending");
       assert.deepEqual(
         results.map((result) => result.status),
-        ["fulfilled", "fulfilled"],
+        ["fulfilled", "rejected"],
       );
       assert.equal(
-        await readFile(path.join(root, "문서", "잠금-변경.txt"), "utf8"),
+        results[1].status === "rejected" &&
+          (results[1].reason as { code?: unknown }).code,
+        "CONFLICT",
+      );
+      assert.equal(
+        await readFile(path.join(root, "문서", "잠금.txt"), "utf8"),
         "교체 본문",
       );
     });
@@ -777,6 +786,140 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
             stream("루트 본문"),
           ),
           "BAD_ID",
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+        process.env.GOOGLE_CLIENT_ID = originalGoogle.clientId;
+        process.env.GOOGLE_CLIENT_SECRET = originalGoogle.clientSecret;
+        process.env.GOOGLE_REFRESH_TOKEN = originalGoogle.refreshToken;
+        process.env.DRIVE_ROOT_FOLDER_ID = originalGoogle.driveRoot;
+        process.env.DRIVE_STATE_FOLDER_ID = originalGoogle.stateFolder;
+      }
+    });
+
+    await t.test("Drive TXT 이름 변경은 새 ETag를 반환하고 이름 충돌을 지킨다", async () => {
+      const originalFetch = globalThis.fetch;
+      const originalGoogle = {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+        driveRoot: process.env.DRIVE_ROOT_FOLDER_ID,
+        stateFolder: process.env.DRIVE_STATE_FOLDER_ID,
+      };
+      process.env.GOOGLE_CLIENT_ID = "test-client";
+      process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+      process.env.GOOGLE_REFRESH_TOKEN = "test-refresh";
+      process.env.DRIVE_ROOT_FOLDER_ID = "drive-root";
+      process.env.DRIVE_STATE_FOLDER_ID = "state-dir";
+      const calls: Array<{ url: string; method: string; body: string }> = [];
+
+      globalThis.fetch = async (input, init = {}) => {
+        const url = String(input);
+        const method = init.method ?? "GET";
+        calls.push({
+          url,
+          method,
+          body: typeof init.body === "string" ? init.body : "",
+        });
+        if (url === "https://oauth2.googleapis.com/token") {
+          return Response.json({ access_token: "test-token", expires_in: 3600 });
+        }
+        if (
+          url.includes(
+            "/drive/v3/files/state-dir?fields=id,name,mimeType,parents,trashed",
+          )
+        ) {
+          return Response.json({
+            id: "state-dir",
+            name: ".sharedesk",
+            mimeType: "application/vnd.google-apps.folder",
+            parents: ["drive-root"],
+            trashed: false,
+          });
+        }
+        if (
+          url.includes(
+            "/drive/v3/files/drive-text?fields=id,parents,trashed",
+          )
+        ) {
+          return Response.json({
+            id: "drive-text",
+            parents: ["drive-root"],
+            trashed: false,
+          });
+        }
+        if (url.includes("/drive/v3/files/drive-text?fields=id,parents")) {
+          return Response.json({
+            id: "drive-text",
+            parents: ["drive-root"],
+          });
+        }
+        if (url.includes("/drive/v3/files?") && method === "GET") {
+          const query = new URL(url).searchParams.get("q") ?? "";
+          return Response.json({
+            files: query.includes("name='이미있음.txt'")
+              ? [{ id: "duplicate-text" }]
+              : [],
+          });
+        }
+        if (
+          url.includes(
+            "/drive/v2/files/drive-text?fields=id%2Ctitle%2CmimeType%2CfileSize%2CmodifiedDate%2Cetag",
+          ) &&
+          method === "PATCH"
+        ) {
+          const expectedVersion = new Headers(init.headers).get("If-Match");
+          if (expectedVersion === '"stale-etag"') {
+            return new Response(null, { status: 412 });
+          }
+          assert.equal(expectedVersion, '"before-rename-etag"');
+          assert.deepEqual(JSON.parse(String(init.body)), {
+            title: "이름변경.txt",
+          });
+          return Response.json({
+            id: "drive-text",
+            title: "이름변경.txt",
+            mimeType: "text/plain",
+            fileSize: "4",
+            modifiedDate: "2026-08-16T00:00:00.000Z",
+            etag: '"renamed-etag"',
+          });
+        }
+        throw new Error(`예상하지 못한 Drive 요청: ${method} ${url}`);
+      };
+
+      try {
+        const { DriveAdapter } = await import("@/lib/storage/drive");
+        const drive = new DriveAdapter();
+        const renamed = await drive.rename(
+          "drive-text",
+          "이름변경.txt",
+          '"before-rename-etag"',
+        );
+        assert.equal(renamed.name, "이름변경.txt");
+        assert.equal(renamed.mimeType, "text/plain");
+        assert.equal(renamed.version, '"renamed-etag"');
+
+        await rejectsWithCode(
+          drive.rename("drive-text", "늦은변경.txt", '"stale-etag"'),
+          "CONFLICT",
+        );
+
+        await rejectsWithCode(
+          drive.rename(
+            "drive-text",
+            "이미있음.txt",
+            '"renamed-etag"',
+          ),
+          "CONFLICT",
+        );
+        assert.equal(
+          calls.filter(
+            (call) =>
+              call.method === "PATCH" &&
+              call.url.includes("/drive/v2/files/drive-text"),
+          ).length,
+          2,
         );
       } finally {
         globalThis.fetch = originalFetch;

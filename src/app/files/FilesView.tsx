@@ -5521,7 +5521,11 @@ export default function FilesView({
         const result = await apiJson<{ entry: Entry }>("/api/drive/rename", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: dialog.entry.id, name: dialog.value }),
+          body: JSON.stringify({
+            id: dialog.entry.id,
+            name: dialog.value,
+            expectedVersion: dialog.entry.version,
+          }),
         });
         const renamedName = result.entry?.name ?? dialog.value.trim();
         if (dialog.entry.isFolder) {

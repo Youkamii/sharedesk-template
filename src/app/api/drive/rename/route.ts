@@ -9,12 +9,17 @@ export async function POST(req: NextRequest) {
   if (
     !body ||
     typeof body.id !== "string" ||
-    typeof body.name !== "string"
+    typeof body.name !== "string" ||
+    typeof body.expectedVersion !== "string"
   ) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
   }
   try {
-    const entry = await getAdapter().rename(body.id, body.name);
+    const entry = await getAdapter().rename(
+      body.id,
+      body.name,
+      body.expectedVersion,
+    );
     return NextResponse.json({ entry });
   } catch (e) {
     return errorResponse(e);

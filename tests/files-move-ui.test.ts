@@ -871,6 +871,10 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   );
   assert.match(
     source,
+    /\/api\/drive\/rename[\s\S]*?expectedVersion: dialog\.entry\.version/,
+  );
+  assert.match(
+    source,
     /current\.searchResult[\s\S]*?searchContextMenuHeight\(current\.searchResult\.entry\)/,
   );
   assert.match(
