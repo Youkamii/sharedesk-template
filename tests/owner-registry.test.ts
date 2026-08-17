@@ -325,9 +325,11 @@ test("설치별 증명으로 등록하고 승인된 Google 사용자가 피드�
       "error",
       "repository",
       "site",
+      "unset",
       "version",
     ]);
     assert.equal(status.enabled, true);
+    assert.equal(status.unset, false);
     assert.equal(status.site, "https://desk.example.com");
     assert.equal(status.repository, "owner/installed-repo");
     assert.equal(status.error, null);
