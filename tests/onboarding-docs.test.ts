@@ -120,6 +120,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
     "DRIVE_ROOT_FOLDER_ID",
     "DRIVE_STATE_FOLDER_ID",
     "PUBLIC_BASE_URL",
+    "SHAREDESK_GITHUB_TOKEN",
   ]);
   assert.match(productionSection, /LOCAL_STORAGE_ROOT.*운영 환경에 넣지 않습니다/);
   assert.match(productionSection, /SHAREDESK_SHARE_TEST_EMAIL.*운영 환경에 넣지 않습니다/);
@@ -241,13 +242,13 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
     ]);
 
   assert.match(readme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
-  assert.match(install, /화면의 `업데이트 하기` 버튼/);
+  assert.match(install, /관리자 화면의 `업데이트` 버튼/);
   assert.match(aiGuide, /ShareDesk 업데이트 안내/);
   assert.match(localGuide, /업데이트 안내/);
   assert.match(updateGuide, /GitHub Actions[\s\S]*`Run workflow`/);
   assert.match(updateGuide, /새 버전을 자동으로 적용하지 않습니다/);
-  assert.match(updateGuide, /관리자가 직접 시작한 경우에만/);
-  assert.match(updateGuide, /`업데이트 연결`[\s\S]*`업데이트 하기`/);
+  assert.match(updateGuide, /새 버전이 있을 때만[\s\S]*`업데이트`에 별/);
+  assert.match(updateGuide, /내부 화면의 `업데이트 하기`/);
   assert.match(updateGuide, /검사나 빌드가 실패하면 `main`에 커밋하지 않으므로/);
   assert.match(updateGuide, /releases\/latest\/download\/sharedesk-bootstrap\.mjs/);
   assert.match(updateGuide, /\$env:TEMP/);

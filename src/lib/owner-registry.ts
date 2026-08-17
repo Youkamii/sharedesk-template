@@ -3,7 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import packageMetadata from "../../package.json";
 import { resolvePublicOrigin } from "@/lib/public-origin";
-import { resolveUpdateRepository } from "@/lib/update-repository";
+import { resolveUpdateRepository } from "@/lib/update-status";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
