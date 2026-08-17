@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { translate, type Locale } from "@/lib/i18n";
 
-export default function KeyForm() {
+export default function KeyForm({ locale }: { locale: Locale }) {
   const router = useRouter();
+  const t = (text: string, vars?: Record<string, string | number>) =>
+    translate(locale, text, vars);
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -55,7 +58,7 @@ export default function KeyForm() {
         type="password"
         value={key}
         onChange={(e) => setKey(e.target.value)}
-        placeholder="접속 키"
+        placeholder={t("접속 키")}
         className="rounded-lg border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
       />
       <button
@@ -63,9 +66,11 @@ export default function KeyForm() {
         disabled={busy || !key.trim()}
         className="rounded-lg border border-black/15 py-2 font-medium transition-opacity disabled:opacity-40 dark:border-white/20"
       >
-        {busy ? "확인 중..." : "키로 입장"}
+        {busy ? t("확인 중...") : t("키로 입장")}
       </button>
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p className="text-sm text-red-600 dark:text-red-400">{t(error)}</p>
+      )}
     </form>
   );
 }

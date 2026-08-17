@@ -2,8 +2,10 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
+import { LOCALE_COOKIE, resolveLocale, translate } from "@/lib/i18n";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
+import LanguageToggle from "./LanguageToggle";
 
 const CREATE_DESK_URL =
   "https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.md";
@@ -39,12 +41,17 @@ export default async function Home({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const token = (await cookies()).get(COOKIE_NAME)?.value;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
   const session = await resolveSession(token);
   if (session) redirect("/files");
   const identity = await resolveIdentity(token);
   if (identity?.status === "pending") redirect("/join");
   if (identity?.status === "blocked") redirect("/pending");
+
+  const locale = resolveLocale(cookieStore.get(LOCALE_COOKIE)?.value);
+  const t = (text: string, vars?: Record<string, string | number>) =>
+    translate(locale, text, vars);
 
   const { error } = await searchParams;
   const keyLoginEnabled = getAccessKeys().length > 0;
@@ -53,29 +60,34 @@ export default async function Home({
     GOOGLE_LOGIN_ENV.every((name) => Boolean(process.env[name]?.trim()));
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
+    <main className="relative flex flex-1 items-center justify-center p-6">
+      <LanguageToggle
+        locale={locale}
+        className="absolute right-4 top-4 rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 dark:border-white/20 dark:text-zinc-300 dark:hover:bg-white/10"
+      />
       <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
         <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
         {googleLoginEnabled ? (
           <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-            호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓰는
-            ShareDesk입니다. 초대받았다면 별도 설치 없이 내 Google 계정으로
-            로그인하고, 처음 한 번만 호스트가 준 초대 코드를 입력하세요.
+            {t(
+              "호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓰는 ShareDesk입니다. 초대받았다면 별도 설치 없이 내 Google 계정으로 로그인하고, 처음 한 번만 호스트가 준 초대 코드를 입력하세요.",
+            )}
           </p>
         ) : keyLoginEnabled ? (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.
+            {t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
           </p>
         ) : (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google
-            OAuth와 Drive 연결을 마쳐 주세요.
+            {t(
+              "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.",
+            )}
           </p>
         )}
 
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
-            {ERRORS[error] ?? "로그인에 실패했습니다."}
+            {t(ERRORS[error] ?? "로그인에 실패했습니다.")}
           </p>
         )}
 
@@ -85,7 +97,7 @@ export default async function Home({
             prefetch={false}
             className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
           >
-            Google로 계속하기
+            {t("Google로 계속하기")}
           </Link>
         ) : !keyLoginEnabled ? (
           <a
@@ -94,7 +106,7 @@ export default async function Home({
             rel="noreferrer"
             className="mt-6 flex items-center justify-center rounded-lg bg-foreground py-2.5 font-medium text-background"
           >
-            설치 안내 열기
+            {t("설치 안내 열기")}
           </a>
         ) : null}
 
@@ -103,22 +115,24 @@ export default async function Home({
             {googleLoginEnabled && (
               <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
                 <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
-                또는 손님용 키
+                {t("또는 손님용 키")}
                 <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
               </div>
             )}
             <div className={googleLoginEnabled ? "" : "mt-6"}>
-              <KeyForm />
+              <KeyForm locale={locale} />
             </div>
           </>
         )}
 
         <section className="mt-6 border-t border-black/10 pt-6 dark:border-white/15">
-          <p className="text-sm font-medium">내 Drive로 새 공유 공간을 열고 싶나요?</p>
+          <p className="text-sm font-medium">
+            {t("내 Drive로 새 공유 공간을 열고 싶나요?")}
+          </p>
           <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            내 Google Drive 용량을 여러 사람과 함께 쓸 새 공유 공간을
-            열 때만 설치하세요. 누군가에게 초대받은 참여자라면 GitHub,
-            Vercel, OAuth 설정 없이 위의 Google 로그인만 하면 됩니다.
+            {t(
+              "내 Google Drive 용량을 여러 사람과 함께 쓸 새 공유 공간을 열 때만 설치하세요. 누군가에게 초대받은 참여자라면 GitHub, Vercel, OAuth 설정 없이 위의 Google 로그인만 하면 됩니다.",
+            )}
           </p>
           <a
             href={CREATE_DESK_URL}
@@ -126,7 +140,7 @@ export default async function Home({
             rel="noreferrer"
             className="mt-4 flex items-center justify-center rounded-lg border border-black/15 py-2.5 font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
           >
-            호스트 설치 안내
+            {t("호스트 설치 안내")}
           </a>
         </section>
       </div>

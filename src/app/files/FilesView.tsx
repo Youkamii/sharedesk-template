@@ -79,6 +79,8 @@ import {
   previewKindOf,
   type PreviewKind,
 } from "@/lib/preview";
+import { translate, type Locale } from "@/lib/i18n";
+import LanguageToggle from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
@@ -485,9 +487,9 @@ function formatSize(bytes: number | null) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-function formatDate(iso: string | null) {
+function formatDate(iso: string | null, dateLocale: "ko-KR" | "en-US") {
   if (!iso) return "수정일 없음";
-  return new Date(iso).toLocaleString("ko-KR", {
+  return new Date(iso).toLocaleString(dateLocale, {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -572,14 +574,26 @@ export default function FilesView({
   isAdmin,
   isGuest,
   canSendFeedback,
+  locale,
 }: {
   userName: string;
   userEmail: string;
   isAdmin: boolean;
   isGuest: boolean;
   canSendFeedback: boolean;
+  locale: Locale;
 }) {
   const router = useRouter();
+  // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
+  // useCallback 안에서도 항상 현재 언어로 번역된다.
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
+  const t = useCallback(
+    (text: string, vars?: Record<string, string | number>) =>
+      translate(localeRef.current, text, vars),
+    [],
+  );
+  const dateLocale: "ko-KR" | "en-US" = locale === "en" ? "en-US" : "ko-KR";
   const viewport = useViewport();
   const uiScale = uiScaleForViewport(viewport.width, viewport.height);
   const logicalViewport = logicalViewportFor(
@@ -791,11 +805,11 @@ export default function FilesView({
       );
       if (listResponse.status === 401) {
         router.replace("/");
-        throw new Error("세션이 만료되었습니다");
+        throw new Error(t("세션이 만료되었습니다"));
       }
       const listBody = await listResponse.json().catch(() => null);
       if (!listResponse.ok) {
-        throw new Error(listBody?.error ?? "폴더를 불러오지 못했습니다");
+        throw new Error(listBody?.error ?? t("폴더를 불러오지 못했습니다"));
       }
 
       const snapshot: LayoutSnapshot = listBody.layout ?? {
@@ -816,7 +830,7 @@ export default function FilesView({
         layoutError,
       };
     },
-    [router],
+    [router, t],
   );
 
   const loadRoot = useCallback(
@@ -879,14 +893,14 @@ export default function FilesView({
         setRootData((current) => ({
           ...current,
           loading: false,
-          error: errorMessage(error, "바탕화면을 불러오지 못했습니다"),
+          error: errorMessage(error, t("바탕화면을 불러오지 못했습니다")),
         }));
         return false;
       } finally {
         finishScopedRequest(listRequestsRef.current, ROOT_SCOPE, request);
       }
     },
-    [fetchFolder],
+    [fetchFolder, t],
   );
 
   const loadDeskWindow = useCallback(
@@ -970,7 +984,7 @@ export default function FilesView({
                     loading: false,
                     error: errorMessage(
                       error,
-                      "폴더를 불러오지 못했습니다",
+                      t("폴더를 불러오지 못했습니다"),
                     ),
                   },
                 }
@@ -982,7 +996,7 @@ export default function FilesView({
         finishScopedRequest(listRequestsRef.current, windowId, request);
       }
     },
-    [fetchFolder],
+    [fetchFolder, t],
   );
 
   const loadLayout = useCallback(
@@ -995,11 +1009,11 @@ export default function FilesView({
         );
         if (response.status === 401) {
           router.replace("/");
-          throw new Error("세션이 만료되었습니다");
+          throw new Error(t("세션이 만료되었습니다"));
         }
         const body = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(body?.error ?? "공유 배치를 불러오지 못했습니다");
+          throw new Error(body?.error ?? t("공유 배치를 불러오지 못했습니다"));
         }
         if (layoutRequestsRef.current.get(scopeId) !== request) return;
         // 저장 응답과 같은 병합 규칙(revision 단조성 + layoutError 초기화)을 쓴다.
@@ -1013,7 +1027,7 @@ export default function FilesView({
         }
         const layoutError = errorMessage(
           error,
-          "공유 배치를 불러오지 못했습니다",
+          t("공유 배치를 불러오지 못했습니다"),
         );
         if (scopeId === ROOT_SCOPE) {
           setRootData((current) => ({ ...current, layoutError }));
@@ -1030,7 +1044,7 @@ export default function FilesView({
         finishScopedRequest(layoutRequestsRef.current, scopeId, request);
       }
     },
-    [router],
+    [router, t],
   );
 
   useEffect(() => {
@@ -1132,7 +1146,7 @@ export default function FilesView({
       }
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "접속 인원을 불러오지 못했습니다");
+        throw new Error(body?.error ?? t("접속 인원을 불러오지 못했습니다"));
       }
       if (presenceRequestIdRef.current !== requestId) return;
       applyPresenceSnapshot(body);
@@ -1146,14 +1160,14 @@ export default function FilesView({
       setPresence((current) => ({
         ...current,
         loading: false,
-        error: errorMessage(error, "접속 인원을 불러오지 못했습니다"),
+        error: errorMessage(error, t("접속 인원을 불러오지 못했습니다")),
       }));
     } finally {
       if (presenceControllerRef.current === controller) {
         presenceControllerRef.current = null;
       }
     }
-  }, [applyPresenceSnapshot, getPresenceTabId, router]);
+  }, [applyPresenceSnapshot, getPresenceTabId, router, t]);
 
   const readPresence = useCallback(async () => {
     const requestId = presenceReadRequestIdRef.current + 1;
@@ -1172,7 +1186,7 @@ export default function FilesView({
       }
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "접속 인원을 불러오지 못했습니다");
+        throw new Error(body?.error ?? t("접속 인원을 불러오지 못했습니다"));
       }
       if (presenceReadRequestIdRef.current !== requestId) return;
       applyPresenceSnapshot(body);
@@ -1186,14 +1200,14 @@ export default function FilesView({
       setPresence((current) => ({
         ...current,
         loading: false,
-        error: errorMessage(error, "접속 인원을 불러오지 못했습니다"),
+        error: errorMessage(error, t("접속 인원을 불러오지 못했습니다")),
       }));
     } finally {
       if (presenceReadControllerRef.current === controller) {
         presenceReadControllerRef.current = null;
       }
     }
-  }, [applyPresenceSnapshot, router]);
+  }, [applyPresenceSnapshot, router, t]);
 
   const reportTransferProgress = useCallback(
     (transfer: TransferProgress | null, removeId?: string) => {
@@ -1627,7 +1641,7 @@ export default function FilesView({
         }
         const body = await response.json().catch(() => null);
         if (!response.ok) {
-          throw new Error(body?.error ?? "업데이트 상태를 확인하지 못했습니다");
+          throw new Error(body?.error ?? t("업데이트 상태를 확인하지 못했습니다"));
         }
         if (
           updateRequestIdRef.current !== requestId ||
@@ -1652,7 +1666,7 @@ export default function FilesView({
         updateControllerRef.current = null;
       }
     };
-  }, [isAdmin, router]);
+  }, [isAdmin, router, t]);
 
   // 원클릭 업데이트 진행 폴링. 패널이 닫혀도 실행이 끝날 때까지 이어간다.
   useEffect(() => {
@@ -1690,7 +1704,7 @@ export default function FilesView({
             const message =
               typeof (body as { error?: unknown } | null)?.error === "string"
                 ? ((body as { error: string }).error)
-                : "업데이트 상태를 확인하지 못했습니다";
+                : t("업데이트 상태를 확인하지 못했습니다");
             setUpdateRun((prev) =>
               prev &&
               (prev.phase === "starting" ||
@@ -1759,7 +1773,7 @@ export default function FilesView({
     void poll();
     const timer = window.setInterval(() => void poll(), UPDATE_RUN_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [updateRunActive, router]);
+  }, [updateRunActive, router, t]);
 
   useEffect(() => {
     if (!previewFocusRequest) return;
@@ -1775,7 +1789,7 @@ export default function FilesView({
     const response = await fetch(pathname, init);
     if (response.status === 401) {
       router.replace("/");
-      const error = new Error("세션이 만료되었습니다");
+      const error = new Error(t("세션이 만료되었습니다"));
       Object.assign(error, { status: response.status });
       throw error;
     }
@@ -1784,7 +1798,7 @@ export default function FilesView({
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new Error(body?.error ?? "요청에 실패했습니다");
+      const error = new Error(body?.error ?? t("요청에 실패했습니다"));
       Object.assign(error, { status: response.status });
       throw error;
     }
@@ -1798,7 +1812,7 @@ export default function FilesView({
   ) {
     const query = rawQuery.trim();
     if (!query) {
-      setNotice("검색어를 입력해 주세요");
+      setNotice(t("검색어를 입력해 주세요"));
       return;
     }
 
@@ -1888,7 +1902,7 @@ export default function FilesView({
           ? {
               ...current,
               loading: false,
-              error: errorMessage(error, "파일을 검색하지 못했습니다"),
+              error: errorMessage(error, t("파일을 검색하지 못했습니다")),
             }
           : current,
       );
@@ -2639,12 +2653,12 @@ export default function FilesView({
       if (result === "native") {
         nativeDownload(entry);
         setNotice(
-          "브라우저 다운로드로 넘겼습니다. 이 브라우저에서는 진행량을 확인할 수 없습니다.",
+          t("브라우저 다운로드로 넘겼습니다. 이 브라우저에서는 진행량을 확인할 수 없습니다."),
         );
       }
     } catch (error) {
       if (!isAbortError(error)) {
-        setNotice(errorMessage(error, "다운로드에 실패했습니다"));
+        setNotice(errorMessage(error, t("다운로드에 실패했습니다")));
       }
     } finally {
       reportTransferProgress(null, id);
@@ -2661,7 +2675,7 @@ export default function FilesView({
         signal: controller.signal,
       });
       if (!response.ok && response.status !== 206) {
-        throw new Error("내용을 불러오지 못했습니다");
+        throw new Error(t("내용을 불러오지 못했습니다"));
       }
       const bytes = new Uint8Array(await response.arrayBuffer());
       const contentRange = response.headers.get("content-range");
@@ -2708,7 +2722,7 @@ export default function FilesView({
           ? {
               ...current,
               textLoading: false,
-              textError: errorMessage(error, "내용을 불러오지 못했습니다"),
+              textError: errorMessage(error, t("내용을 불러오지 못했습니다")),
             }
           : current,
       );
@@ -2951,7 +2965,7 @@ export default function FilesView({
           ? {
               ...current,
               textSaveError:
-                "최신 버전 정보가 없어 저장하지 않았습니다. 새로고침 후 다시 열어 주세요.",
+                t("최신 버전 정보가 없어 저장하지 않았습니다. 새로고침 후 다시 열어 주세요."),
             }
           : current,
       );
@@ -2962,7 +2976,7 @@ export default function FilesView({
         current
           ? {
               ...current,
-              textSaveError: "텍스트 파일은 1 MiB까지 저장할 수 있습니다.",
+              textSaveError: t("텍스트 파일은 1 MiB까지 저장할 수 있습니다."),
             }
           : current,
       );
@@ -3035,8 +3049,8 @@ export default function FilesView({
       );
       setNotice(
         positionSaved
-          ? "텍스트 파일을 저장했습니다"
-          : "텍스트는 저장했지만 아이콘 위치를 저장하지 못했습니다",
+          ? t("텍스트 파일을 저장했습니다")
+          : t("텍스트는 저장했지만 아이콘 위치를 저장하지 못했습니다"),
       );
     } catch (error) {
       if (
@@ -3054,8 +3068,8 @@ export default function FilesView({
               textSaving: false,
               textConflict: conflict,
               textSaveError: conflict
-                ? "다른 사람이 먼저 파일을 바꿨습니다. 현재 글은 덮어쓰지 않았습니다."
-                : errorMessage(error, "텍스트 파일을 저장하지 못했습니다"),
+                ? t("다른 사람이 먼저 파일을 바꿨습니다. 현재 글은 덮어쓰지 않았습니다.")
+                : errorMessage(error, t("텍스트 파일을 저장하지 못했습니다")),
             }
           : current,
       );
@@ -3082,10 +3096,10 @@ export default function FilesView({
     const reason = activePreviewDiscardReason();
     if (!reason) return true;
     if (reason === "saving") {
-      setNotice("텍스트 파일을 저장하는 중입니다. 저장이 끝난 뒤 다시 시도해 주세요");
+      setNotice(t("텍스트 파일을 저장하는 중입니다. 저장이 끝난 뒤 다시 시도해 주세요"));
       return false;
     }
-    return window.confirm("저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?");
+    return window.confirm(t("저장하지 않은 내용이 있습니다. 변경 내용을 버릴까요?"));
   }
 
   function openPreview(
@@ -3203,7 +3217,7 @@ export default function FilesView({
     if (!nextKind) {
       discardActivePreview();
       setNotice(
-        "새 이름의 파일은 미리보기를 지원하지 않아 창을 닫았습니다",
+        t("새 이름의 파일은 미리보기를 지원하지 않아 창을 닫았습니다"),
       );
       return true;
     }
@@ -3577,7 +3591,7 @@ export default function FilesView({
         [windowId]: {
           value: current[windowId]?.value ?? currentAddress,
           busy: false,
-          error: errorMessage(error, "폴더 주소를 찾지 못했습니다"),
+          error: errorMessage(error, t("폴더 주소를 찾지 못했습니다")),
         },
       }));
     } finally {
@@ -3647,7 +3661,7 @@ export default function FilesView({
           ? {
               ...current,
               loading: false,
-              error: errorMessage(error, "폴더 메모를 불러오지 못했습니다"),
+              error: errorMessage(error, t("폴더 메모를 불러오지 못했습니다")),
             }
           : current,
       );
@@ -3702,7 +3716,7 @@ export default function FilesView({
             })()
           : current,
       );
-      setNotice("폴더 메모를 저장했습니다");
+      setNotice(t("폴더 메모를 저장했습니다"));
     } catch (error) {
       if (
         isAbortError(error) ||
@@ -3719,8 +3733,8 @@ export default function FilesView({
               saving: false,
               conflict,
               error: conflict
-                ? "다른 사람이 먼저 메모를 바꿨습니다. 현재 글은 덮어쓰지 않았습니다."
-                : errorMessage(error, "폴더 메모를 저장하지 못했습니다"),
+                ? t("다른 사람이 먼저 메모를 바꿨습니다. 현재 글은 덮어쓰지 않았습니다.")
+                : errorMessage(error, t("폴더 메모를 저장하지 못했습니다")),
             }
           : current,
       );
@@ -4315,7 +4329,7 @@ export default function FilesView({
       if (activeNodes.length === 0 || isAbortError(error)) return;
       activeNodes.forEach(({ key, node }) => finishSave(key, node));
       if ((error as Error & { status?: number }).status === 409) {
-        setNotice("다른 사람이 먼저 옮긴 위치를 반영했습니다");
+        setNotice(t("다른 사람이 먼저 옮긴 위치를 반영했습니다"));
         if (scopeFolderId(first.node.scopeId) === first.node.folderId) {
           if (first.node.scopeId === ROOT_SCOPE) await loadRoot(true);
           else {
@@ -4328,7 +4342,7 @@ export default function FilesView({
         }
         deferRootDesktopCorrectionRetry(first.node);
       } else {
-        setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        setNotice(errorMessage(error, t("아이콘 위치를 저장하지 못했습니다")));
         deferRootDesktopCorrectionRetry(first.node);
       }
     }
@@ -4431,14 +4445,14 @@ export default function FilesView({
       node.controller = null;
       finishSave(key, node);
       if ((error as Error & { status?: number }).status === 409) {
-        setNotice("다른 사람이 먼저 옮긴 위치를 반영했습니다");
+        setNotice(t("다른 사람이 먼저 옮긴 위치를 반영했습니다"));
         if (scopeFolderId(node.scopeId) === node.folderId) {
           if (node.scopeId === ROOT_SCOPE) await loadRoot(true);
           else await loadDeskWindow(node.scopeId, node.folderId, true);
         }
         deferRootDesktopCorrectionRetry(node);
       } else {
-        setNotice(errorMessage(error, "아이콘 위치를 저장하지 못했습니다"));
+        setNotice(errorMessage(error, t("아이콘 위치를 저장하지 못했습니다")));
         deferRootDesktopCorrectionRetry(node);
       }
     }
@@ -4509,7 +4523,7 @@ export default function FilesView({
         return next;
       });
       if (announce) {
-        setNotice("항목 정보가 오래되어 옮기지 못했습니다 — 잠시 후 다시 시도해 주세요");
+        setNotice(t("항목 정보가 오래되어 옮기지 못했습니다 — 잠시 후 다시 시도해 주세요"));
       }
       await refreshScope(sourceScopeId, true);
       return false;
@@ -4582,7 +4596,9 @@ export default function FilesView({
         sortedEntries(confirmedMoveEntries(entries, entry.id, body.entry)),
       );
       const foldersToRefresh = finishFolderMutations();
-      if (announce) setNotice(`‘${entry.name}’ 항목을 옮겼습니다`);
+      if (announce) {
+        setNotice(t("‘{name}’ 항목을 옮겼습니다", { name: entry.name }));
+      }
       if (foldersToRefresh.length > 0) {
         void refreshFolders(foldersToRefresh);
       }
@@ -4600,7 +4616,11 @@ export default function FilesView({
           discardPreviewForEntry(entry.id);
         }
         if (announce) {
-          setNotice(`‘${entry.name}’ 항목의 실제 위치를 확인하고 있습니다`);
+          setNotice(
+            t("‘{name}’ 항목의 실제 위치를 확인하고 있습니다", {
+              name: entry.name,
+            }),
+          );
         }
       }
       affectedFolderIds.forEach((folderId) =>
@@ -4608,7 +4628,7 @@ export default function FilesView({
       );
       const foldersToRefresh = finishFolderMutations();
       if (failureKind === "definitive") {
-        if (announce) setNotice(errorMessage(error, "옮기지 못했습니다"));
+        if (announce) setNotice(errorMessage(error, t("옮기지 못했습니다")));
         await refreshFolders(foldersToRefresh);
         return false;
       }
@@ -4637,8 +4657,12 @@ export default function FilesView({
       if (announce) {
         setNotice(
           refreshed
-            ? `‘${entry.name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다`
-            : `‘${entry.name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요`,
+            ? t("‘{name}’ 항목의 원본과 대상 폴더를 다시 불러왔습니다", {
+                name: entry.name,
+              })
+            : t("‘{name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요", {
+                name: entry.name,
+              }),
         );
       }
       return false;
@@ -4689,7 +4713,9 @@ export default function FilesView({
         discardPreviewForEntry(entry.id);
       }
       succeeded = true;
-      if (announce) setNotice(`‘${entry.name}’을 휴지통에 넣었습니다`);
+      if (announce) {
+        setNotice(t("‘{name}’을 휴지통에 넣었습니다", { name: entry.name }));
+      }
       if (trashWindow && announce) {
         setTrashWindow((current) =>
           current ? { ...current, loading: true } : current,
@@ -4704,7 +4730,9 @@ export default function FilesView({
       } else {
         discardPreviewForEntry(entry.id);
       }
-      if (announce) setNotice(errorMessage(error, "휴지통에 넣지 못했습니다"));
+      if (announce) {
+        setNotice(errorMessage(error, t("휴지통에 넣지 못했습니다")));
+      }
       foldersNeedingRefreshRef.current.add(sourceFolderId);
     } finally {
       movingEntryIdsRef.current.delete(entry.id);
@@ -4794,7 +4822,7 @@ export default function FilesView({
           ? {
               ...current,
               loading: false,
-              error: errorMessage(error, "휴지통을 불러오지 못했습니다"),
+              error: errorMessage(error, t("휴지통을 불러오지 못했습니다")),
             }
           : current,
       );
@@ -4875,14 +4903,14 @@ export default function FilesView({
       setNotice(
         result.warning ??
           (action === "restore"
-            ? "복원했습니다"
+            ? t("복원했습니다")
             : action === "purge"
-              ? "완전히 삭제했습니다"
-              : "휴지통을 비웠습니다"),
+              ? t("완전히 삭제했습니다")
+              : t("휴지통을 비웠습니다")),
       );
       if (action === "restore") await refreshEverything();
     } catch (error) {
-      setNotice(errorMessage(error, "휴지통 작업에 실패했습니다"));
+      setNotice(errorMessage(error, t("휴지통 작업에 실패했습니다")));
     } finally {
       setTrashWindow((current) =>
         current ? { ...current, busyId: null, loading: true } : current,
@@ -5413,7 +5441,7 @@ export default function FilesView({
       setUpdatePanel({
         loading: false,
         status: null,
-        loadError: errorMessage(error, "업데이트 상태를 확인하지 못했습니다"),
+        loadError: errorMessage(error, t("업데이트 상태를 확인하지 못했습니다")),
       });
     } finally {
       if (updateControllerRef.current === controller) {
@@ -5467,7 +5495,7 @@ export default function FilesView({
         phase: "failed",
         startedVersion: status.currentVersion,
         targetVersion: status.latestVersion,
-        error: errorMessage(error, "업데이트를 시작하지 못했습니다"),
+        error: errorMessage(error, t("업데이트를 시작하지 못했습니다")),
         htmlUrl: null,
         startedAt: Date.now(),
       });
@@ -5706,7 +5734,7 @@ export default function FilesView({
           updateTransfer,
         );
         if (response.status < 200 || response.status >= 300) {
-          throw new Error("드라이브 업로드에 실패했습니다");
+          throw new Error(t("드라이브 업로드에 실패했습니다"));
         }
         const body = JSON.parse(response.responseText || "null") as {
           id?: string;
@@ -5722,14 +5750,14 @@ export default function FilesView({
       );
       if (response.status === 401) {
         router.replace("/");
-        throw new Error("세션이 만료되었습니다");
+        throw new Error(t("세션이 만료되었습니다"));
       }
       const body = JSON.parse(response.responseText || "null") as {
         error?: string;
         entry?: Entry;
       } | null;
       if (response.status < 200 || response.status >= 300) {
-        throw new Error(body?.error ?? "업로드에 실패했습니다");
+        throw new Error(body?.error ?? t("업로드에 실패했습니다"));
       }
       return body?.entry?.id ?? null;
     } finally {
@@ -5747,13 +5775,15 @@ export default function FilesView({
       try {
         await uploadOne(file, folderId);
       } catch (error) {
-        failed.push(`${file.name}: ${errorMessage(error, "실패")}`);
+        failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
       }
     }
     setNotice(
       failed.length
-        ? `일부 파일을 올리지 못했습니다 · ${failed.join(" / ")}`
-        : `${list.length}개 파일을 올렸습니다`,
+        ? t("일부 파일을 올리지 못했습니다 · {failures}", {
+            failures: failed.join(" / "),
+          })
+        : t("{count}개 파일을 올렸습니다", { count: list.length }),
     );
     await refreshScope(scopeId);
   }
@@ -5769,7 +5799,7 @@ export default function FilesView({
     try {
       uploadedId = await uploadOne(file, folderId);
     } catch (error) {
-      setNotice(errorMessage(error, "새 메모장을 만들지 못했습니다"));
+      setNotice(errorMessage(error, t("새 메모장을 만들지 못했습니다")));
       return;
     }
     const request = beginScopedRequest(listRequestsRef.current, scopeId);
@@ -5801,7 +5831,9 @@ export default function FilesView({
       if (staleResult) {
         foldersNeedingRefreshRef.current.add(folderId);
         setNotice(
-          `‘${name}’ 메모장은 만들었습니다 — 최신 목록을 다시 불러옵니다`,
+          t("‘{name}’ 메모장은 만들었습니다 — 최신 목록을 다시 불러옵니다", {
+            name,
+          }),
         );
         if (
           currentFolderId === folderId &&
@@ -5822,17 +5854,21 @@ export default function FilesView({
       );
       if (!entry) {
         setNotice(
-          `‘${name}’ 메모장은 만들었지만 바로 열지 못했습니다 — 새로고침해 주세요`,
+          t("‘{name}’ 메모장은 만들었지만 바로 열지 못했습니다 — 새로고침해 주세요", {
+            name,
+          }),
         );
         void refreshScope(scopeId, true);
         return;
       }
       mergeFreshFolderData(folderId, fresh);
       openPreview(entry);
-      setNotice(`‘${name}’ 메모장을 만들었습니다`);
+      setNotice(t("‘{name}’ 메모장을 만들었습니다", { name }));
     } catch {
       setNotice(
-        `‘${name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요`,
+        t("‘{name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요", {
+          name,
+        }),
       );
       void refreshScope(scopeId, true);
     } finally {
@@ -5867,7 +5903,7 @@ export default function FilesView({
         }),
       });
       if (result.ok !== true) {
-        throw new Error("피드백을 보내지 못했습니다");
+        throw new Error(t("피드백을 보내지 못했습니다"));
       }
       if (feedbackRequestIdRef.current === feedbackId) {
         feedbackRequestIdRef.current = null;
@@ -5879,10 +5915,10 @@ export default function FilesView({
         );
         setFeedbackOpen(false);
       }
-      setNotice("피드백을 보냈습니다");
+      setNotice(t("피드백을 보냈습니다"));
     } catch (error) {
       if (feedbackRequestIdRef.current === feedbackId) {
-        setFeedbackError(errorMessage(error, "피드백을 보내지 못했습니다"));
+        setFeedbackError(errorMessage(error, t("피드백을 보내지 못했습니다")));
       }
     } finally {
       setFeedbackBusy(false);
@@ -5921,7 +5957,9 @@ export default function FilesView({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parentId: folderId, name: dialog.value }),
         });
-        setNotice(`‘${dialog.value.trim()}’ 폴더를 만들었습니다`);
+        setNotice(
+          t("‘{name}’ 폴더를 만들었습니다", { name: dialog.value.trim() }),
+        );
       } else if (dialog.kind === "rename") {
         const result = await apiJson<{ entry: Entry }>("/api/drive/rename", {
           method: "POST",
@@ -5956,7 +5994,7 @@ export default function FilesView({
             previewOpenerRef.current = null;
           }
         }
-        if (!previewClosed) setNotice("이름을 바꿨습니다");
+        if (!previewClosed) setNotice(t("이름을 바꿨습니다"));
       } else {
         const entries = scopeData(dialog.scopeId)?.entries ?? [];
         const deletedIndex = entries.findIndex(
@@ -5980,7 +6018,7 @@ export default function FilesView({
         if (dialog.entry.isFolder) {
           closeWindowsContainingFolder(dialog.entry.id);
         }
-        setNotice(`‘${dialog.entry.name}’을 삭제했습니다`);
+        setNotice(t("‘{name}’을 삭제했습니다", { name: dialog.entry.name }));
         // 삭제 성공 뒤에는 곧 사라질 아이콘으로 포커스를 되돌리지 않는다.
         dialogOpenerRef.current = null;
         if (trashWindow) {
@@ -6012,7 +6050,7 @@ export default function FilesView({
         }
         await refreshScope(dialog.scopeId, true);
       }
-      setNotice(errorMessage(error, "작업을 마치지 못했습니다"));
+      setNotice(errorMessage(error, t("작업을 마치지 못했습니다")));
     } finally {
       setDialogBusy(false);
     }
@@ -6073,7 +6111,7 @@ export default function FilesView({
           setDragOverScope(null);
           void uploadFiles(event.dataTransfer.files, scopeId);
         }}
-        aria-label={isRoot ? "공유 바탕화면" : "폴더 내용"}
+        aria-label={isRoot ? t("공유 바탕화면") : t("폴더 내용")}
         aria-busy={data.loading}
       >
         <div
@@ -6082,7 +6120,7 @@ export default function FilesView({
           tabIndex={isRoot ? 0 : -1}
           data-keyboard-canvas={isRoot ? "root" : undefined}
           role={isRoot ? "group" : undefined}
-          aria-label={isRoot ? "공유 바탕화면 아이콘" : undefined}
+          aria-label={isRoot ? t("공유 바탕화면 아이콘") : undefined}
           aria-keyshortcuts={
             isRoot ? "ArrowLeft ArrowRight ArrowUp ArrowDown" : undefined
           }
@@ -6135,7 +6173,7 @@ export default function FilesView({
                 type="button"
                 className={styles.iconMain}
                 title={entry.name}
-                aria-label={`${entry.isFolder ? "폴더" : "파일"} ${entry.name}`}
+                aria-label={`${entry.isFolder ? t("폴더") : t("파일")} ${entry.name}`}
                 aria-pressed={active}
                 aria-busy={savingPositions.has(key) || moving}
                 data-entry-id={entry.id}
@@ -6219,7 +6257,7 @@ export default function FilesView({
               <button
                 type="button"
                 className={styles.iconMore}
-                aria-label={`${entry.name} 메뉴`}
+                aria-label={t("{name} 메뉴", { name: entry.name })}
                 disabled={moving}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={(event) => openContextMenu(event, scopeId, entry)}
@@ -6249,32 +6287,36 @@ export default function FilesView({
             <span className={styles.loadingPixels} aria-hidden="true">
               ▪ ▪ ▫
             </span>
-            <strong>{isRoot ? "책상 정리 중" : "폴더 여는 중"}</strong>
-            <span>잠시만 기다려 주세요</span>
+            <strong>{isRoot ? t("책상 정리 중") : t("폴더 여는 중")}</strong>
+            <span>{t("잠시만 기다려 주세요")}</span>
           </div>
         )}
 
         {!data.loading && data.error && (
           <div className={styles.canvasMessage} role="alert">
             <span className={styles.brokenPaper} aria-hidden="true" />
-            <strong>불러오지 못했어요</strong>
+            <strong>{t("불러오지 못했어요")}</strong>
             <span>{data.error}</span>
             <button type="button" onClick={() => void refreshScope(scopeId)}>
-              다시 시도
+              {t("다시 시도")}
             </button>
           </div>
         )}
 
         {data.layoutError && (
           <div className={styles.layoutWarning} role="status">
-            공유 배치를 불러오지 못해 자동으로 정렬했습니다
+            {t("공유 배치를 불러오지 못해 자동으로 정렬했습니다")}
           </div>
         )}
 
         {dragOverScope === scopeId && (
           <div className={styles.dropOverlay}>
-            <strong>여기에 놓아 주세요</strong>
-            <span>{isRoot ? "공유 바탕화면" : "이 폴더"}에 업로드합니다</span>
+            <strong>{t("여기에 놓아 주세요")}</strong>
+            <span>
+              {t("{target}에 업로드합니다", {
+                target: isRoot ? t("공유 바탕화면") : t("이 폴더"),
+              })}
+            </span>
           </div>
         )}
       </div>
@@ -6332,7 +6374,7 @@ export default function FilesView({
             <i />
           </span>
           <strong>ShareDesk</strong>
-          <span className={styles.desktopLabel}>공유 바탕화면</span>
+          <span className={styles.desktopLabel}>{t("공유 바탕화면")}</span>
         </div>
         <div className={styles.presenceArea}>
           <button
@@ -6353,12 +6395,12 @@ export default function FilesView({
             />
             <span>
               {presence.error
-                ? "접속 확인 실패"
+                ? t("접속 확인 실패")
                 : presence.count > 0
-                  ? `함께 쓰는 중 · ${presence.count}명`
+                  ? t("함께 쓰는 중 · {count}명", { count: presence.count })
                   : presence.loading
-                    ? "접속 인원 확인 중"
-                    : "현재 접속자 없음"}
+                    ? t("접속 인원 확인 중")
+                    : t("현재 접속자 없음")}
             </span>
           </button>
           {presence.open && (
@@ -6367,12 +6409,12 @@ export default function FilesView({
               className={styles.presencePanel}
               role="status"
             >
-              <strong>현재 접속 인원</strong>
+              <strong>{t("현재 접속 인원")}</strong>
               {presence.error ? (
                 <>
                   <p>{presence.error}</p>
                   <button type="button" onClick={() => void refreshPresence()}>
-                    다시 확인
+                    {t("다시 확인")}
                   </button>
                 </>
               ) : presence.members.length > 0 ? (
@@ -6385,14 +6427,22 @@ export default function FilesView({
                       <div className={styles.memberHeading}>
                         <span className={styles.memberDot} aria-hidden="true" />
                         <span title={member.name}>{member.name}</span>
-                        {member.isSelf && <em>나</em>}
+                        {member.isSelf && <em>{t("나")}</em>}
                       </div>
                       {member.transfers.length > 0 && (
                         <div className={styles.memberTransfers}>
                           <span>
-                            올리는 중 {member.transfers.filter((item) => item.kind === "upload").length}개
+                            {t("올리는 중 {count}개", {
+                              count: member.transfers.filter(
+                                (item) => item.kind === "upload",
+                              ).length,
+                            })}
                             {" · "}
-                            받는 중 {member.transfers.filter((item) => item.kind === "download").length}개
+                            {t("받는 중 {count}개", {
+                              count: member.transfers.filter(
+                                (item) => item.kind === "download",
+                              ).length,
+                            })}
                           </span>
                           {member.transfers.map((transfer) => (
                             <div className={styles.transferRow} key={transfer.id}>
@@ -6405,7 +6455,9 @@ export default function FilesView({
                                 <progress
                                   value={transfer.transferred}
                                   max={transfer.total}
-                                  aria-label={`${transfer.name} 진행률`}
+                                  aria-label={t("{name} 진행률", {
+                                    name: transfer.name,
+                                  })}
                                 />
                               )}
                             </div>
@@ -6418,8 +6470,8 @@ export default function FilesView({
               ) : (
                 <p>
                   {presence.loading
-                    ? "확인하고 있습니다"
-                    : "접속 중인 사람이 없습니다"}
+                    ? t("확인하고 있습니다")
+                    : t("접속 중인 사람이 없습니다")}
                 </p>
               )}
             </div>
@@ -6468,7 +6520,7 @@ export default function FilesView({
               height: item.height,
               zIndex: item.z,
             }}
-            aria-label={`${currentFolder?.name ?? "폴더"} 창`}
+            aria-label={t("{name} 창", { name: currentFolder?.name ?? t("폴더") })}
             onPointerDown={() => focusWindow(item.id)}
           >
             <div
@@ -6481,12 +6533,14 @@ export default function FilesView({
               }}
             >
               <span className={styles.miniFolder} aria-hidden="true" />
-              <strong>{currentFolder?.name ?? "폴더"}</strong>
-              {item.data.loading && <span className={styles.titleLoading}>여는 중</span>}
+              <strong>{currentFolder?.name ?? t("폴더")}</strong>
+              {item.data.loading && (
+                <span className={styles.titleLoading}>{t("여는 중")}</span>
+              )}
               <div className={styles.windowControls}>
                 <button
                   type="button"
-                  aria-label="최소화"
+                  aria-label={t("최소화")}
                   onClick={() =>
                     setDeskWindows((current) =>
                       current.map((value) =>
@@ -6501,14 +6555,14 @@ export default function FilesView({
                 </button>
                 <button
                   type="button"
-                  aria-label={item.maximized ? "복원" : "최대화"}
+                  aria-label={item.maximized ? t("복원") : t("최대화")}
                   onClick={() => toggleMaximize(item)}
                 >
                   <span className={styles.maximizeGlyph} />
                 </button>
                 <button
                   type="button"
-                  aria-label="닫기"
+                  aria-label={t("닫기")}
                   className={styles.closeButton}
                   onClick={() => closeWindow(item.id)}
                 >
@@ -6522,14 +6576,14 @@ export default function FilesView({
                 type="button"
                 className={styles.pixelButton}
                 disabled={item.path.length <= 1}
-                aria-label="뒤로"
+                aria-label={t("뒤로")}
                 onClick={() => navigateWindow(item.id, item.path.length - 2)}
               >
                 ←
               </button>
               <form
                 className={styles.addressBar}
-                aria-label="폴더 주소"
+                aria-label={t("폴더 주소")}
                 onSubmit={(event) => {
                   event.preventDefault();
                   void navigateAddress(item.id);
@@ -6537,7 +6591,7 @@ export default function FilesView({
               >
                 <input
                   data-testid={`folder-address-${item.id}`}
-                  aria-label="폴더 주소 입력"
+                  aria-label={t("폴더 주소 입력")}
                   aria-invalid={addressState.error ? true : undefined}
                   value={addressState.value}
                   disabled={addressState.busy}
@@ -6562,7 +6616,9 @@ export default function FilesView({
               <form
                 className={styles.folderSearch}
                 role="search"
-                aria-label={`${currentFolder?.name ?? "이 폴더"} 안에서 검색`}
+                aria-label={t("{name} 안에서 검색", {
+                  name: currentFolder?.name ?? t("이 폴더"),
+                })}
                 onSubmit={(event) => {
                   event.preventDefault();
                   if (!currentFolder) return;
@@ -6577,8 +6633,8 @@ export default function FilesView({
                   type="search"
                   data-testid={`folder-search-${item.id}`}
                   value={folderSearchQueries[item.id] ?? ""}
-                  placeholder="이 폴더 검색"
-                  aria-label="이 폴더와 하위 폴더 검색어"
+                  placeholder={t("이 폴더 검색")}
+                  aria-label={t("이 폴더와 하위 폴더 검색어")}
                   spellCheck={false}
                   onChange={(event) =>
                     setFolderSearchQueries((current) => ({
@@ -6587,7 +6643,7 @@ export default function FilesView({
                     }))
                   }
                 />
-                <button type="submit">검색</button>
+                <button type="submit">{t("검색")}</button>
               </form>
               <button
                 type="button"
@@ -6600,7 +6656,7 @@ export default function FilesView({
                   )
                 }
               >
-                + 폴더
+                {t("+ 폴더")}
               </button>
               <button
                 type="button"
@@ -6609,7 +6665,7 @@ export default function FilesView({
                 onClick={() => void openFolderNote(item)}
               >
                 <span className={styles.folderNoteGlyph} aria-hidden="true" />
-                폴더 메모
+                {t("폴더 메모")}
               </button>
             </div>
 
@@ -6624,7 +6680,9 @@ export default function FilesView({
                   className={styles.folderSidePreview}
                   data-folder-side-preview={item.id}
                   tabIndex={0}
-                  aria-label={`${sidePreviewEntry.name} 폴더 미리보기`}
+                  aria-label={t("{name} 폴더 미리보기", {
+                    name: sidePreviewEntry.name,
+                  })}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {
                       event.preventDefault();
@@ -6649,7 +6707,7 @@ export default function FilesView({
                     </strong>
                     <button
                       type="button"
-                      aria-label="이전 이미지"
+                      aria-label={t("이전 이미지")}
                       aria-keyshortcuts="ArrowLeft"
                       disabled={sidePreviewIndex <= 0}
                       onClick={() =>
@@ -6660,7 +6718,7 @@ export default function FilesView({
                     </button>
                     <button
                       type="button"
-                      aria-label="다음 이미지"
+                      aria-label={t("다음 이미지")}
                       aria-keyshortcuts="ArrowRight"
                       disabled={
                         sidePreviewIndex < 0 ||
@@ -6674,7 +6732,7 @@ export default function FilesView({
                     </button>
                     <button
                       type="button"
-                      aria-label="폴더 미리보기 닫기"
+                      aria-label={t("폴더 미리보기 닫기")}
                       onClick={() =>
                         closeFolderSidePreview(item.id, sidePreviewEntry)
                       }
@@ -6694,26 +6752,30 @@ export default function FilesView({
                     <span>
                       {sidePreviewIndex + 1} / {sidePreviewEntries.length}
                     </span>
-                    <span>{formatSize(sidePreviewEntry.size)}</span>
+                    <span>{t(formatSize(sidePreviewEntry.size))}</span>
                   </footer>
                 </aside>
               )}
             </div>
 
             <footer className={styles.windowStatus}>
-              <span>{item.data.entries.length}개 항목</span>
+              <span>
+                {t("{count}개 항목", { count: item.data.entries.length })}
+              </span>
               {selectedEntries.length > 0 ? (
                 <span className={styles.selectedMeta}>
                   {selectedEntries.length === 1
-                    ? `${selectedEntries[0].name} · ${formatSize(selectedEntries[0].size)} · ${formatDate(selectedEntries[0].modifiedAt)}`
-                    : `${selectedEntries.length}개 항목 선택`}
+                    ? `${selectedEntries[0].name} · ${t(formatSize(selectedEntries[0].size))} · ${t(formatDate(selectedEntries[0].modifiedAt, dateLocale))}`
+                    : t("{count}개 항목 선택", {
+                        count: selectedEntries.length,
+                      })}
                 </span>
               ) : null}
             </footer>
             <button
               type="button"
               className={styles.resizeHandle}
-              aria-label="창 크기 변경"
+              aria-label={t("창 크기 변경")}
               onPointerDown={(event) => resizeWindow(event, item)}
             />
           </section>
@@ -6730,7 +6792,7 @@ export default function FilesView({
             top: searchWindow.y,
             zIndex: searchWindow.z,
           }}
-          aria-label={`${searchWindow.query} 검색 결과 창`}
+          aria-label={t("{query} 검색 결과 창", { query: searchWindow.query })}
           onPointerDown={focusSearchWindow}
         >
           <div
@@ -6738,14 +6800,16 @@ export default function FilesView({
             onPointerDown={moveSearchWindow}
           >
             <span className={styles.searchGlyph} aria-hidden="true" />
-            <strong>검색 결과 — {searchWindow.query}</strong>
+            <strong>
+              {t("검색 결과 — {query}", { query: searchWindow.query })}
+            </strong>
             {searchWindow.loading && (
-              <span className={styles.titleLoading}>찾는 중</span>
+              <span className={styles.titleLoading}>{t("찾는 중")}</span>
             )}
             <div className={styles.windowControls}>
               <button
                 type="button"
-                aria-label="최소화"
+                aria-label={t("최소화")}
                 onClick={() =>
                   setSearchWindow((current) =>
                     current ? { ...current, minimized: true } : current,
@@ -6756,7 +6820,7 @@ export default function FilesView({
               </button>
               <button
                 type="button"
-                aria-label="검색 결과 닫기"
+                aria-label={t("검색 결과 닫기")}
                 className={styles.closeButton}
                 onClick={closeSearchWindow}
               >
@@ -6768,13 +6832,15 @@ export default function FilesView({
           <div className={`${styles.windowToolbar} ${styles.searchToolbar}`}>
             <span className={styles.virtualFolderBadge}>
               <span className={styles.miniFolder} aria-hidden="true" />
-              가상 검색결과
+              {t("가상 검색결과")}
             </span>
             <span
               className={styles.searchScopePath}
               title={folderAddress(searchWindow.scopePath)}
             >
-              범위: {folderAddress(searchWindow.scopePath)} 및 하위 폴더
+              {t("범위: {path} 및 하위 폴더", {
+                path: folderAddress(searchWindow.scopePath),
+              })}
             </span>
           </div>
 
@@ -6784,13 +6850,13 @@ export default function FilesView({
                 <span className={styles.loadingPixels} aria-hidden="true">
                   ▪ ▪ ▫
                 </span>
-                <strong>파일 이름을 찾고 있어요</strong>
-                <span>폴더와 하위 폴더를 살펴보고 있습니다</span>
+                <strong>{t("파일 이름을 찾고 있어요")}</strong>
+                <span>{t("폴더와 하위 폴더를 살펴보고 있습니다")}</span>
               </div>
             ) : searchWindow.error ? (
               <div className={styles.canvasMessage} role="alert">
                 <span className={styles.brokenPaper} aria-hidden="true" />
-                <strong>검색하지 못했어요</strong>
+                <strong>{t("검색하지 못했어요")}</strong>
                 <span>{searchWindow.error}</span>
                 <button
                   type="button"
@@ -6802,7 +6868,7 @@ export default function FilesView({
                     )
                   }
                 >
-                  다시 시도
+                  {t("다시 시도")}
                 </button>
               </div>
             ) : searchWindow.results.length === 0 ? (
@@ -6810,8 +6876,8 @@ export default function FilesView({
                 <span className={styles.searchEmptyGlyph} aria-hidden="true">
                   ?
                 </span>
-                <strong>검색 결과가 없습니다</strong>
-                <span>다른 파일 이름으로 찾아보세요</span>
+                <strong>{t("검색 결과가 없습니다")}</strong>
+                <span>{t("다른 파일 이름으로 찾아보세요")}</span>
               </div>
             ) : (
               <ul className={styles.searchResults}>
@@ -6859,26 +6925,28 @@ export default function FilesView({
                           openSearchResult(result, event.currentTarget)
                         }
                       >
-                        {result.entry.isFolder ? "폴더 열기" : "열기"}
+                        {result.entry.isFolder ? t("폴더 열기") : t("열기")}
                       </button>
                       {!result.entry.isFolder && (
                         <button
                           type="button"
                           onClick={() => void downloadEntry(result.entry)}
                         >
-                          다운로드
+                          {t("다운로드")}
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => openOriginalLocation(result)}
                       >
-                        원래 위치
+                        {t("원래 위치")}
                       </button>
                       <button
                         type="button"
                         className={styles.searchResultMore}
-                        aria-label={`${result.entry.name} 검색 결과 메뉴`}
+                        aria-label={t("{name} 검색 결과 메뉴", {
+                          name: result.entry.name,
+                        })}
                         onClick={(event) =>
                           openSearchContextMenu(event, result)
                         }
@@ -6893,11 +6961,13 @@ export default function FilesView({
           </div>
 
           <footer className={styles.windowStatus}>
-            <span>{searchWindow.results.length}개 검색 결과</span>
+            <span>
+              {t("{count}개 검색 결과", { count: searchWindow.results.length })}
+            </span>
             <span>
               {searchWindow.truncated
-                ? "일부 결과만 표시했습니다"
-                : `${searchWindow.explored}개 항목 확인`}
+                ? t("일부 결과만 표시했습니다")
+                : t("{count}개 항목 확인", { count: searchWindow.explored })}
             </span>
           </footer>
         </section>
@@ -6911,7 +6981,7 @@ export default function FilesView({
             top: trashWindow.y,
             zIndex: trashWindow.z,
           }}
-          aria-label="휴지통 창"
+          aria-label={t("휴지통 창")}
           onPointerDown={() => {
             const z = ++zRef.current;
             setTrashWindow((current) =>
@@ -6924,14 +6994,14 @@ export default function FilesView({
             onPointerDown={moveTrashWindow}
           >
             <span className={styles.trashGlyph} aria-hidden="true" />
-            <strong>휴지통</strong>
+            <strong>{t("휴지통")}</strong>
             {trashWindow.loading && (
-              <span className={styles.titleLoading}>여는 중</span>
+              <span className={styles.titleLoading}>{t("여는 중")}</span>
             )}
             <div className={styles.windowControls}>
               <button
                 type="button"
-                aria-label="닫기"
+                aria-label={t("닫기")}
                 className={styles.closeButton}
                 onClick={() => setTrashWindow(null)}
               >
@@ -6950,8 +7020,8 @@ export default function FilesView({
               !trashWindow.loading &&
               trashWindow.entries.length === 0 && (
                 <p className={styles.trashMessage}>
-                  휴지통이 비어 있어요.
-                  <small>삭제한 항목은 여기에 30일 동안 보관됩니다.</small>
+                  {t("휴지통이 비어 있어요.")}
+                  <small>{t("삭제한 항목은 여기에 30일 동안 보관됩니다.")}</small>
                 </p>
               )}
             <ul className={styles.trashList}>
@@ -6963,10 +7033,12 @@ export default function FilesView({
                       {entry.name}
                     </span>
                     <span className={styles.trashMeta}>
-                      {formatSize(entry.size)} ·{" "}
+                      {t(formatSize(entry.size))} ·{" "}
                       {entry.trashedAt
-                        ? `${formatDate(entry.trashedAt)} 삭제`
-                        : "휴지통 보관 중"}
+                        ? t("{date} 삭제", {
+                            date: formatDate(entry.trashedAt, dateLocale),
+                          })
+                        : t("휴지통 보관 중")}
                     </span>
                   </div>
                   {trashWindow.confirmId === entry.id ? (
@@ -6979,7 +7051,7 @@ export default function FilesView({
                           void trashAction("purge", entry.id, entry.version)
                         }
                       >
-                        삭제 확인
+                        {t("삭제 확인")}
                       </button>
                       <button
                         type="button"
@@ -6990,7 +7062,7 @@ export default function FilesView({
                           )
                         }
                       >
-                        취소
+                        {t("취소")}
                       </button>
                     </span>
                   ) : (
@@ -7000,7 +7072,7 @@ export default function FilesView({
                         disabled={trashWindow.busyId !== null}
                         onClick={() => void trashAction("restore", entry.id)}
                       >
-                        {trashWindow.busyId === entry.id ? "…" : "복원"}
+                        {trashWindow.busyId === entry.id ? "…" : t("복원")}
                       </button>
                       <button
                         type="button"
@@ -7014,7 +7086,7 @@ export default function FilesView({
                           )
                         }
                       >
-                        완전 삭제
+                        {t("완전 삭제")}
                       </button>
                     </span>
                   )}
@@ -7027,7 +7099,9 @@ export default function FilesView({
             className={`${styles.windowStatus} ${styles.trashFooter}`}
           >
             <span className={styles.trashSummary}>
-              {trashWindow.entries.length}개 항목 · 30일 후 자동 삭제
+              {t("{count}개 항목 · 30일 후 자동 삭제", {
+                count: trashWindow.entries.length,
+              })}
             </span>
             {trashWindow.entries.length > 0 &&
               (trashWindow.confirmId === "__empty__" ? (
@@ -7038,7 +7112,7 @@ export default function FilesView({
                     disabled={trashWindow.busyId !== null}
                     onClick={() => void trashAction("empty")}
                   >
-                    모두 삭제 확인
+                    {t("모두 삭제 확인")}
                   </button>
                   <button
                     type="button"
@@ -7049,7 +7123,7 @@ export default function FilesView({
                       )
                     }
                   >
-                    취소
+                    {t("취소")}
                   </button>
                 </span>
               ) : (
@@ -7065,7 +7139,7 @@ export default function FilesView({
                     )
                   }
                 >
-                  비우기…
+                  {t("비우기…")}
                 </button>
               ))}
           </footer>
@@ -7082,7 +7156,7 @@ export default function FilesView({
             zIndex: previewWindow.z,
           }}
           role="dialog"
-          aria-label={`${previewWindow.entry.name} 미리보기`}
+          aria-label={t("{name} 미리보기", { name: previewWindow.entry.name })}
           onKeyDown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
@@ -7107,7 +7181,7 @@ export default function FilesView({
             <div className={styles.windowControls}>
               <button
                 type="button"
-                aria-label="닫기"
+                aria-label={t("닫기")}
                 data-preview-initial-focus
                 className={styles.closeButton}
                 onClick={closePreview}
@@ -7155,7 +7229,7 @@ export default function FilesView({
             {previewWindow.kind === "text" &&
               (previewWindow.textLoading ? (
                 <p className={styles.trashMessage} role="status">
-                  여는 중…
+                  {t("여는 중…")}
                 </p>
               ) : previewWindow.textError ? (
                 <p className={styles.trashMessage} role="alert">
@@ -7165,12 +7239,14 @@ export default function FilesView({
                 <div className={styles.textEditor}>
                   {previewReadOnlyReason && (
                     <p className={styles.editorWarning} role="status">
-                      {previewReadOnlyReason}
+                      {t(previewReadOnlyReason)}
                     </p>
                   )}
                   <textarea
                     className={styles.previewText}
-                    aria-label={`${previewWindow.entry.name} 내용`}
+                    aria-label={t("{name} 내용", {
+                      name: previewWindow.entry.name,
+                    })}
                     value={previewWindow.text ?? ""}
                     readOnly={!!previewReadOnlyReason}
                     onChange={(event) =>
@@ -7200,8 +7276,8 @@ export default function FilesView({
 
           <footer className={styles.windowStatus}>
             <span>
-              {formatSize(previewWindow.entry.size)} ·{" "}
-              {formatDate(previewWindow.entry.modifiedAt)}
+              {t(formatSize(previewWindow.entry.size))} ·{" "}
+              {t(formatDate(previewWindow.entry.modifiedAt, dateLocale))}
             </span>
             <span className={styles.previewActions}>
               {previewWindow.kind === "text" && (
@@ -7217,7 +7293,7 @@ export default function FilesView({
                   }
                   onClick={() => void savePreviewText()}
                 >
-                  {previewWindow.textSaving ? "저장 중…" : "저장"}
+                  {previewWindow.textSaving ? t("저장 중…") : t("저장")}
                 </button>
               )}
               <button
@@ -7225,7 +7301,7 @@ export default function FilesView({
                 className={styles.previewDownload}
                 onClick={() => void downloadEntry(previewWindow.entry)}
               >
-                ↓ 다운로드
+                {t("↓ 다운로드")}
               </button>
             </span>
           </footer>
@@ -7241,7 +7317,9 @@ export default function FilesView({
             zIndex: folderNoteWindow.z,
           }}
           role="dialog"
-          aria-label={`${folderNoteWindow.folderName} 폴더 메모`}
+          aria-label={t("{name} 폴더 메모", {
+            name: folderNoteWindow.folderName,
+          })}
           data-testid="folder-note-window"
           onPointerDown={() =>
             setFolderNoteWindow((current) =>
@@ -7254,11 +7332,13 @@ export default function FilesView({
             onPointerDown={moveFolderNoteWindow}
           >
             <span className={styles.folderNoteGlyph} aria-hidden="true" />
-            <strong>{folderNoteWindow.folderName} · 폴더 메모</strong>
+            <strong>
+              {t("{name} · 폴더 메모", { name: folderNoteWindow.folderName })}
+            </strong>
             <div className={styles.windowControls}>
               <button
                 type="button"
-                aria-label="닫기"
+                aria-label={t("닫기")}
                 className={styles.closeButton}
                 onClick={closeFolderNote}
               >
@@ -7269,7 +7349,7 @@ export default function FilesView({
           <div className={styles.noteBody}>
             {folderNoteWindow.loading ? (
               <p className={styles.noteMessage} role="status">
-                메모를 여는 중…
+                {t("메모를 여는 중…")}
               </p>
             ) : folderNoteWindow.error && !folderNoteWindow.conflict ? (
               <p className={styles.noteMessage} role="alert">
@@ -7279,7 +7359,7 @@ export default function FilesView({
               <>
                 <textarea
                   value={folderNoteWindow.content}
-                  aria-label="폴더 메모 내용"
+                  aria-label={t("폴더 메모 내용")}
                   onChange={(event) =>
                     setFolderNoteWindow((current) =>
                       current
@@ -7304,8 +7384,8 @@ export default function FilesView({
           <footer className={styles.windowStatus}>
             <span>
               {folderNoteWindow.content === folderNoteWindow.originalContent
-                ? "저장됨"
-                : "저장하지 않은 변경 있음"}
+                ? t("저장됨")
+                : t("저장하지 않은 변경 있음")}
             </span>
             <button
               type="button"
@@ -7318,7 +7398,7 @@ export default function FilesView({
               }
               onClick={() => void saveFolderNote()}
             >
-              {folderNoteWindow.saving ? "저장 중…" : "저장"}
+              {folderNoteWindow.saving ? t("저장 중…") : t("저장")}
             </button>
           </footer>
         </section>
@@ -7343,18 +7423,18 @@ export default function FilesView({
           dropTargetKey === "trash" ? styles.trashDropTarget : ""
         }`}
         data-drop-trash="true"
-        aria-label="휴지통 열기"
+        aria-label={t("휴지통 열기")}
         onClick={openTrash}
       >
         <TrashCanIcon />
-        <span>휴지통</span>
+        <span>{t("휴지통")}</span>
       </button>
 
       <footer className={styles.taskBar}>
         <form
           className={styles.desktopSearch}
           role="search"
-          aria-label="공유 바탕화면 전체 검색"
+          aria-label={t("공유 바탕화면 전체 검색")}
           onSubmit={(event) => {
             event.preventDefault();
             void runSearch(rootSearchQuery, ROOT_ID, [
@@ -7365,18 +7445,18 @@ export default function FilesView({
           <input
             type="search"
             value={rootSearchQuery}
-            placeholder="전체 파일 검색"
-            aria-label="전체 파일 검색어"
+            placeholder={t("전체 파일 검색")}
+            aria-label={t("전체 파일 검색어")}
             spellCheck={false}
             onChange={(event) => setRootSearchQuery(event.target.value)}
           />
-          <button type="submit">검색</button>
+          <button type="submit">{t("검색")}</button>
         </form>
         <button
           ref={deskButtonRef}
           type="button"
           className={styles.deskButton}
-          aria-label="책상 설정"
+          aria-label={t("책상 설정")}
           onClick={(event) => {
             const rect = event.currentTarget.getBoundingClientRect();
             setContextMenu({
@@ -7391,9 +7471,9 @@ export default function FilesView({
           }}
         >
           <span className={styles.deskButtonMark} aria-hidden="true" />
-          책상 설정
+          {t("책상 설정")}
         </button>
-        <div className={styles.windowTasks} aria-label="열린 창">
+        <div className={styles.windowTasks} aria-label={t("열린 창")}>
           {deskWindows.map((item) => (
             <button
               type="button"
@@ -7423,7 +7503,7 @@ export default function FilesView({
             >
               <span className={styles.searchGlyph} aria-hidden="true" />
               <span className={styles.taskTitle}>
-                검색: {searchWindow.query}
+                {t("검색: {query}", { query: searchWindow.query })}
               </span>
             </button>
           )}
@@ -7432,7 +7512,10 @@ export default function FilesView({
           <div className={styles.uploadChip} role="status">
             <span className={styles.uploadArrow} aria-hidden="true">↕</span>
             <span>
-              전송 중 {activeTransfers.length}개 · {activeTransfers[0].name}
+              {t("전송 중 {count}개 · {name}", {
+                count: activeTransfers.length,
+                name: activeTransfers[0].name,
+              })}
               {" · "}
               {transferProgressText(activeTransfers[0])}
             </span>
@@ -7445,18 +7528,18 @@ export default function FilesView({
             onChange={(event) => selectDownloadFirst(event.target.checked)}
           />
           <span className={styles.preferenceCheck} aria-hidden="true" />
-          <span>다운로드 우선</span>
+          <span>{t("다운로드 우선")}</span>
         </label>
         <div className={styles.userTray}>
           {canSendFeedback && (
             <button
               type="button"
               className={`${styles.trayLink} ${styles.feedbackTrayButton}`}
-              aria-label="운영자에게 피드백 보내기"
+              aria-label={t("운영자에게 피드백 보내기")}
               aria-haspopup="dialog"
               aria-expanded={feedbackOpen}
               aria-controls="feedback-dialog"
-              title="피드백 보내기"
+              title={t("피드백 보내기")}
               onClick={(event) => openFeedbackDialog(event.currentTarget)}
             >
               <span className={styles.feedbackMailIcon} aria-hidden="true" />
@@ -7470,12 +7553,14 @@ export default function FilesView({
                 aria-haspopup="dialog"
                 aria-label={
                   updateAvailable
-                    ? `업데이트, 새 버전 ${updateStatus?.latestVersion ?? ""} 있음`
-                    : "업데이트"
+                    ? t("업데이트, 새 버전 {version} 있음", {
+                        version: updateStatus?.latestVersion ?? "",
+                      })
+                    : t("업데이트")
                 }
                 onClick={(event) => openUpdatePanel(event.currentTarget)}
               >
-                <span>업데이트</span>
+                <span>{t("업데이트")}</span>
                 {updateAvailable && (
                   <span className={styles.updateStar} aria-hidden="true">
                     ★
@@ -7483,20 +7568,21 @@ export default function FilesView({
                 )}
               </button>
               <a href="/admin" className={styles.trayLink}>
-                사용자 관리
+                {t("사용자 관리")}
               </a>
             </>
           )}
+          <LanguageToggle locale={locale} className={styles.trayLink} />
           <span className={styles.userName} title={userName}>
             {userName}
-            {isGuest ? " · 손님" : ""}
+            {isGuest ? ` · ${t("손님")}` : ""}
           </span>
           <button type="button" className={styles.trayLink} onClick={() => void logout()}>
-            나가기
+            {t("나가기")}
           </button>
           <time className={styles.clock} dateTime={clock?.toISOString()}>
             {clock
-              ? clock.toLocaleTimeString("ko-KR", {
+              ? clock.toLocaleTimeString(dateLocale, {
                   hour: "2-digit",
                   minute: "2-digit",
                 })
@@ -7511,7 +7597,11 @@ export default function FilesView({
           className={styles.contextMenu}
           style={{ left: contextMenu.x, top: contextMenu.y }}
           role="menu"
-          aria-label={contextMenu.entry ? `${contextMenu.entry.name} 메뉴` : "바탕화면 메뉴"}
+          aria-label={
+            contextMenu.entry
+              ? t("{name} 메뉴", { name: contextMenu.entry.name })
+              : t("바탕화면 메뉴")
+          }
           onContextMenu={(event) => event.preventDefault()}
           onKeyDown={handleContextMenuKeyDown}
         >
@@ -7526,10 +7616,12 @@ export default function FilesView({
                   )
                 }
               >
-                {entryOpenLabel(
-                  contextMenu.searchResult.entry,
-                  "폴더 열기",
-                  "열기",
+                {t(
+                  entryOpenLabel(
+                    contextMenu.searchResult.entry,
+                    "폴더 열기",
+                    "열기",
+                  ),
                 )}
               </MenuButton>
               {!contextMenu.searchResult.entry.isFolder &&
@@ -7542,7 +7634,7 @@ export default function FilesView({
                       )
                     }
                   >
-                    새 탭에서 보기
+                    {t("새 탭에서 보기")}
                   </MenuButton>
                 )}
               {!contextMenu.searchResult.entry.isFolder && (
@@ -7552,7 +7644,7 @@ export default function FilesView({
                     setContextMenu(null);
                   }}
                 >
-                  다운로드
+                  {t("다운로드")}
                 </MenuButton>
               )}
               <div className={styles.menuSeparator} />
@@ -7561,7 +7653,7 @@ export default function FilesView({
                   openOriginalLocation(contextMenu.searchResult!)
                 }
               >
-                원래 위치 열기
+                {t("원래 위치 열기")}
               </MenuButton>
             </>
           ) : contextMenu.entry ? (
@@ -7584,10 +7676,12 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                {entryOpenLabel(
-                  contextMenu.entry,
-                  "열기",
-                  "다운로드",
+                {t(
+                  entryOpenLabel(
+                    contextMenu.entry,
+                    "열기",
+                    "다운로드",
+                  ),
                 )}
                 <kbd>Enter</kbd>
               </MenuButton>
@@ -7601,7 +7695,7 @@ export default function FilesView({
                       )
                     }
                   >
-                    새 탭에서 보기
+                    {t("새 탭에서 보기")}
                   </MenuButton>
                 )}
               {!contextMenu.entry.isFolder &&
@@ -7612,7 +7706,7 @@ export default function FilesView({
                       setContextMenu(null);
                     }}
                   >
-                    다운로드
+                    {t("다운로드")}
                   </MenuButton>
                 )}
               <div className={styles.menuSeparator} />
@@ -7624,13 +7718,13 @@ export default function FilesView({
                     const targetFolderId = scopeParentFolderId(sourceScopeId);
                     setContextMenu(null);
                     if (!targetFolderId) {
-                      setNotice("상위 폴더를 찾지 못했습니다 — 새로고침해 주세요");
+                      setNotice(t("상위 폴더를 찾지 못했습니다 — 새로고침해 주세요"));
                       return;
                     }
                     void moveEntry(sourceScopeId, entry, targetFolderId);
                   }}
                 >
-                  상위 폴더로 이동
+                  {t("상위 폴더로 이동")}
                 </MenuButton>
               )}
               <MenuButton
@@ -7647,13 +7741,13 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                이름 바꾸기 <kbd>F2</kbd>
+                {t("이름 바꾸기")} <kbd>F2</kbd>
               </MenuButton>
               {isAdmin && (
                 <MenuButton
                   onClick={() => openShareDialog(contextMenu.entry!)}
                 >
-                  Google Drive로 공유…
+                  {t("Google Drive로 공유…")}
                 </MenuButton>
               )}
               <MenuButton
@@ -7670,7 +7764,7 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                삭제… <kbd>Del</kbd>
+                {t("삭제…")} <kbd>Del</kbd>
               </MenuButton>
             </>
           ) : (
@@ -7688,15 +7782,15 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                새 폴더 <kbd>⌘N</kbd>
+                {t("새 폴더")} <kbd>⌘N</kbd>
               </MenuButton>
               <MenuButton
                 onClick={() => void createNotepad(contextMenu.scopeId)}
               >
-                새 메모장
+                {t("새 메모장")}
               </MenuButton>
               <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
-                파일 업로드…
+                {t("파일 업로드…")}
               </MenuButton>
               <div className={styles.menuSeparator} />
               <MenuButton
@@ -7705,7 +7799,7 @@ export default function FilesView({
                   setContextMenu(null);
                 }}
               >
-                새로고침 <kbd>F5</kbd>
+                {t("새로고침")} <kbd>F5</kbd>
               </MenuButton>
               {contextMenu.scopeId === ROOT_SCOPE && (
                 <>
@@ -7715,7 +7809,7 @@ export default function FilesView({
                       key={wallpaper.id}
                       onClick={() => selectWallpaper(wallpaper.id)}
                     >
-                      배경 — {wallpaper.name}
+                      {t("배경 — {name}", { name: t(wallpaper.name) })}
                       {wallpaperId === wallpaper.id && <kbd>✓</kbd>}
                     </MenuButton>
                   ))}
@@ -7759,11 +7853,11 @@ export default function FilesView({
             <header className={styles.dialogTitlebar}>
               <strong id="feedback-dialog-title" className={styles.feedbackTitle}>
                 <span className={styles.feedbackMailIcon} aria-hidden="true" />
-                운영자에게 피드백 보내기
+                {t("운영자에게 피드백 보내기")}
               </strong>
               <button
                 type="button"
-                aria-label="피드백 닫기"
+                aria-label={t("피드백 닫기")}
                 disabled={feedbackBusy}
                 onClick={closeFeedbackDialog}
               >
@@ -7775,19 +7869,19 @@ export default function FilesView({
               onSubmit={submitFeedback}
             >
               <p className={styles.feedbackSender}>
-                <span>보내는 사람</span>
-                <strong aria-label="보낸 사람 이메일">{userEmail}</strong>
+                <span>{t("보내는 사람")}</span>
+                <strong aria-label={t("보낸 사람 이메일")}>{userEmail}</strong>
                 <small>{userName}</small>
               </p>
               <label className={styles.feedbackField}>
-                <span>제목</span>
+                <span>{t("제목")}</span>
                 <input
                   data-feedback-initial-focus
                   value={feedbackDraft.subject}
                   maxLength={120}
                   required
                   disabled={feedbackBusy}
-                  placeholder="예: 파일을 찾기 어려워요"
+                  placeholder={t("예: 파일을 찾기 어려워요")}
                   onChange={(event) => {
                     feedbackRequestIdRef.current = null;
                     setFeedbackError(null);
@@ -7799,14 +7893,14 @@ export default function FilesView({
                 />
               </label>
               <label className={styles.feedbackField}>
-                <span>내용</span>
+                <span>{t("내용")}</span>
                 <textarea
                   className={styles.feedbackMessage}
                   value={feedbackDraft.message}
                   maxLength={4_000}
                   required
                   disabled={feedbackBusy}
-                  placeholder="불편했던 점이나 필요한 기능을 적어 주세요."
+                  placeholder={t("불편했던 점이나 필요한 기능을 적어 주세요.")}
                   onChange={(event) => {
                     feedbackRequestIdRef.current = null;
                     setFeedbackError(null);
@@ -7839,7 +7933,7 @@ export default function FilesView({
                     disabled={feedbackBusy}
                     onClick={closeFeedbackDialog}
                   >
-                    취소
+                    {t("취소")}
                   </button>
                   <button
                     type="submit"
@@ -7850,7 +7944,7 @@ export default function FilesView({
                       !feedbackDraft.message.trim()
                     }
                   >
-                    {feedbackBusy ? "보내는 중…" : "보내기"}
+                    {feedbackBusy ? t("보내는 중…") : t("보내기")}
                   </button>
                 </div>
               </div>
@@ -7878,11 +7972,11 @@ export default function FilesView({
             onKeyDown={handleUpdateDialogKeyDown}
           >
             <header className={styles.dialogTitlebar}>
-              <strong id="update-dialog-title">ShareDesk 업데이트</strong>
+              <strong id="update-dialog-title">{t("ShareDesk 업데이트")}</strong>
               <button
                 type="button"
                 data-update-initial-focus
-                aria-label="업데이트 창 닫기"
+                aria-label={t("업데이트 창 닫기")}
                 onClick={closeUpdatePanel}
               >
                 ×
@@ -7891,7 +7985,7 @@ export default function FilesView({
             <div className={styles.updateDialogBody}>
               {updatePanel.loading ? (
                 <p id="update-dialog-description" role="status">
-                  현재 버전과 새 버전을 확인하는 중입니다…
+                  {t("현재 버전과 새 버전을 확인하는 중입니다…")}
                 </p>
               ) : updatePanel.loadError ? (
                 <>
@@ -7908,7 +8002,7 @@ export default function FilesView({
                       className={styles.secondaryButton}
                       onClick={() => void loadUpdateStatus()}
                     >
-                      다시 확인
+                      {t("다시 확인")}
                     </button>
                   </div>
                 </>
@@ -7920,18 +8014,20 @@ export default function FilesView({
                     role="status"
                   >
                     {!updatePanel.status.configured
-                      ? "설치 저장소 연결이 필요합니다."
+                      ? t("설치 저장소 연결이 필요합니다.")
                       : updatePanel.status.updateAvailable
-                        ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
-                        : "최신 버전을 사용하고 있습니다."}
+                        ? t("새 버전 {version}을 사용할 수 있습니다.", {
+                            version: updatePanel.status.latestVersion ?? "",
+                          })
+                        : t("최신 버전을 사용하고 있습니다.")}
                   </p>
                   <dl className={styles.updateVersions}>
                     <div>
-                      <dt>현재 버전</dt>
+                      <dt>{t("현재 버전")}</dt>
                       <dd>{updatePanel.status.currentVersion}</dd>
                     </div>
                     <div>
-                      <dt>최신 버전</dt>
+                      <dt>{t("최신 버전")}</dt>
                       {/* 새 버전 확인이 안 되는 동안에는 오류 대신 현재 버전을
                           최신으로 취급한다. 확인은 창을 열 때마다 다시 한다. */}
                       <dd>
@@ -7940,32 +8036,32 @@ export default function FilesView({
                       </dd>
                     </div>
                     <div>
-                      <dt>업데이트 상태</dt>
+                      <dt>{t("업데이트 상태")}</dt>
                       <dd>
                         {updatePanel.status.updateAvailable
-                          ? "새 버전 있음"
-                          : "새 버전 없음"}
+                          ? t("새 버전 있음")
+                          : t("새 버전 없음")}
                       </dd>
                     </div>
                     <div>
-                      <dt>설치 저장소</dt>
+                      <dt>{t("설치 저장소")}</dt>
                       <dd>
-                        {updatePanel.status.repository ?? "연결되지 않음"}
+                        {updatePanel.status.repository ?? t("연결되지 않음")}
                       </dd>
                     </div>
                   </dl>
                   {!updatePanel.status.configured && (
                     <div className={styles.updateSetup}>
-                      <strong>설치 저장소를 연결해 주세요.</strong>
+                      <strong>{t("설치 저장소를 연결해 주세요.")}</strong>
                       <span>
-                        설정 확인이나 기존 설치 전환 방법을 안내에서 확인한 뒤 다시 시도해 주세요.
+                        {t("설정 확인이나 기존 설치 전환 방법을 안내에서 확인한 뒤 다시 시도해 주세요.")}
                       </span>
                       <a
                         href={UPDATE_GUIDE_URL}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        설치 저장소 연결 안내 열기
+                        {t("설치 저장소 연결 안내 열기")}
                       </a>
                     </div>
                   )}
@@ -7974,18 +8070,17 @@ export default function FilesView({
                     updatePanel.status.updateAvailable &&
                     !updateRun && (
                       <p className={styles.updateInstruction}>
-                        업데이트 하기를 누르면 ShareDesk가 업데이트를 시작하고
-                        이 창에 진행 상황을 보여 줍니다.
+                        {t("업데이트 하기를 누르면 ShareDesk가 업데이트를 시작하고 이 창에 진행 상황을 보여 줍니다.")}
                       </p>
                     )}
                   {updateRunActive && updateRun && (
                     <p className={styles.updateProgress} role="status">
                       <span>
                         {updateRun.phase === "starting"
-                          ? "업데이트를 시작하고 있습니다"
+                          ? t("업데이트를 시작하고 있습니다")
                           : updateRun.phase === "running"
-                            ? "업데이트를 적용하고 있습니다. 몇 분 걸릴 수 있습니다"
-                            : "새 버전을 배포하고 있습니다. 잠시 뒤 자동으로 확인됩니다"}
+                            ? t("업데이트를 적용하고 있습니다. 몇 분 걸릴 수 있습니다")
+                            : t("새 버전을 배포하고 있습니다. 잠시 뒤 자동으로 확인됩니다")}
                       </span>
                       <span
                         className={styles.loadingPixels}
@@ -7998,15 +8093,17 @@ export default function FilesView({
                   {updateRun?.phase === "done" && (
                     <p className={styles.updateSummary} role="status">
                       {updateRun.targetVersion
-                        ? `업데이트가 끝났습니다. 새로고침하면 새 버전 ${updateRun.targetVersion}이 적용됩니다.`
-                        : "업데이트가 끝났습니다. 새로고침하면 새 버전이 적용됩니다."}
+                        ? t("업데이트가 끝났습니다. 새로고침하면 새 버전 {version}이 적용됩니다.", {
+                            version: updateRun.targetVersion,
+                          })
+                        : t("업데이트가 끝났습니다. 새로고침하면 새 버전이 적용됩니다.")}
                     </p>
                   )}
                   {updateRun?.phase === "failed" && (
                     <div className={styles.updateError} role="alert">
                       <span>
                         {updateRun.error ??
-                          "업데이트에 실패했습니다. 잠시 후 다시 시도해 주세요."}
+                          t("업데이트에 실패했습니다. 잠시 후 다시 시도해 주세요.")}
                       </span>{" "}
                       {updateRun.htmlUrl && (
                         <a
@@ -8014,15 +8111,14 @@ export default function FilesView({
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          자세한 기록 보기
+                          {t("자세한 기록 보기")}
                         </a>
                       )}
                     </div>
                   )}
                   {updateRun?.phase === "stalled" && (
                     <p className={styles.updateError} role="status">
-                      반영 확인이 늦어지고 있습니다. 잠시 후 새로고침으로
-                      확인해 주세요.
+                      {t("반영 확인이 늦어지고 있습니다. 잠시 후 새로고침으로 확인해 주세요.")}
                     </p>
                   )}
                   {/* 폴백: 토큰이 없는 설치는 기존 GitHub Run workflow 경로를 안내한다 */}
@@ -8031,26 +8127,25 @@ export default function FilesView({
                     updatePanel.status.updateAvailable &&
                     updatePanel.status.workflowUrl && (
                       <p className={styles.updateInstruction}>
-                        자동으로 적용되지는 않습니다. 아래 버튼을 누른 뒤 GitHub
-                        Actions 화면에서 <strong>Run workflow</strong>를 눌러야
-                        업데이트가 시작됩니다.
+                        {t("자동으로 적용되지는 않습니다. 아래 버튼을 누른 뒤 GitHub Actions 화면에서")}{" "}
+                        <strong>Run workflow</strong>
+                        {t("를 눌러야 업데이트가 시작됩니다.")}
                       </p>
                     )}
                   {!updatePanel.status.canDispatch &&
                     updatePanel.status.configured &&
                     updatePanel.status.updateAvailable && (
                       <div className={styles.updateSetup}>
-                        <strong>원클릭 업데이트도 켤 수 있습니다.</strong>
+                        <strong>{t("원클릭 업데이트도 켤 수 있습니다.")}</strong>
                         <span>
-                          Vercel 환경 변수에 SHAREDESK_GITHUB_TOKEN을 추가하면
-                          이 창에서 바로 업데이트할 수 있습니다.
+                          {t("Vercel 환경 변수에 SHAREDESK_GITHUB_TOKEN을 추가하면 이 창에서 바로 업데이트할 수 있습니다.")}
                         </span>
                         <a
                           href={UPDATE_GUIDE_URL}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          원클릭 업데이트 설정 안내 열기
+                          {t("원클릭 업데이트 설정 안내 열기")}
                         </a>
                       </div>
                     )}
@@ -8070,7 +8165,7 @@ export default function FilesView({
                       disabled={updateRunActive}
                       onClick={() => void loadUpdateStatus()}
                     >
-                      다시 확인
+                      {t("다시 확인")}
                     </button>
                     {updatePanel.status.canDispatch &&
                       updatePanel.status.updateAvailable &&
@@ -8080,7 +8175,7 @@ export default function FilesView({
                           className={styles.primaryButton}
                           onClick={() => void startUpdate()}
                         >
-                          업데이트 하기
+                          {t("업데이트 하기")}
                         </button>
                       )}
                     {updateRun?.phase === "failed" && (
@@ -8092,7 +8187,7 @@ export default function FilesView({
                           void startUpdate();
                         }}
                       >
-                        다시 시도
+                        {t("다시 시도")}
                       </button>
                     )}
                     {/* 편집 초안 보호(beforeunload 가드) 때문에 자동 reload 대신 버튼으로만 새로고침한다 */}
@@ -8103,7 +8198,7 @@ export default function FilesView({
                         className={styles.primaryButton}
                         onClick={() => window.location.reload()}
                       >
-                        새로고침
+                        {t("새로고침")}
                       </button>
                     )}
                     {!updatePanel.status.canDispatch &&
@@ -8121,7 +8216,7 @@ export default function FilesView({
                             )
                           }
                         >
-                          업데이트 하기
+                          {t("업데이트 하기")}
                         </button>
                       )}
                   </div>
@@ -8151,14 +8246,14 @@ export default function FilesView({
             <header className={styles.dialogTitlebar}>
               <strong id="desk-dialog-title">
                 {dialog.kind === "create"
-                  ? "새 폴더"
+                  ? t("새 폴더")
                   : dialog.kind === "rename"
-                    ? "이름 바꾸기"
-                    : "삭제 확인"}
+                    ? t("이름 바꾸기")
+                    : t("삭제 확인")}
               </strong>
               <button
                 type="button"
-                aria-label="닫기"
+                aria-label={t("닫기")}
                 disabled={dialogBusy}
                 onClick={closeDialog}
               >
@@ -8176,16 +8271,18 @@ export default function FilesView({
                 <>
                   <PixelFileIcon entry={dialog.entry} size={52} />
                   <p>
-                    <strong>‘{dialog.entry.name}’</strong>을 삭제할까요?
+                    <strong>‘{dialog.entry.name}’</strong>
+                    {t("을 삭제할까요?")}
                     <small>
-                      휴지통으로 이동하며, 30일이 지나면 자동으로 완전히
-                      삭제됩니다.
+                      {t("휴지통으로 이동하며, 30일이 지나면 자동으로 완전히 삭제됩니다.")}
                     </small>
                   </p>
                 </>
               ) : (
                 <label>
-                  <span>{dialog.kind === "create" ? "폴더 이름" : "새 이름"}</span>
+                  <span>
+                    {dialog.kind === "create" ? t("폴더 이름") : t("새 이름")}
+                  </span>
                   <input
                     data-dialog-initial-focus
                     value={dialog.value}
@@ -8193,7 +8290,9 @@ export default function FilesView({
                     onChange={(event) =>
                       setDialog({ ...dialog, value: event.target.value })
                     }
-                    placeholder={dialog.kind === "create" ? "예: 여름 여행" : undefined}
+                    placeholder={
+                      dialog.kind === "create" ? t("예: 여름 여행") : undefined
+                    }
                   />
                 </label>
               )}
@@ -8207,7 +8306,7 @@ export default function FilesView({
                   disabled={dialogBusy}
                   onClick={closeDialog}
                 >
-                  취소
+                  {t("취소")}
                 </button>
                 <button
                   type="submit"
@@ -8218,12 +8317,12 @@ export default function FilesView({
                   }
                 >
                   {dialogBusy
-                    ? "처리 중…"
+                    ? t("처리 중…")
                     : dialog.kind === "create"
-                      ? "만들기"
+                      ? t("만들기")
                       : dialog.kind === "rename"
-                        ? "저장"
-                        : "삭제하기"}
+                        ? t("저장")
+                        : t("삭제하기")}
                 </button>
               </div>
             </form>
@@ -8246,8 +8345,8 @@ export default function FilesView({
       {activeSelections.length > 0 && (
         <div className={styles.selectionHint} aria-live="polite">
           {activeSelections.length === 1
-            ? `${activeSelections[0].name} · ${formatSize(activeSelections[0].size)}`
-            : `${activeSelections.length}개 항목 선택`}
+            ? `${activeSelections[0].name} · ${t(formatSize(activeSelections[0].size))}`
+            : t("{count}개 항목 선택", { count: activeSelections.length })}
         </div>
       )}
       </div>
@@ -8266,7 +8365,9 @@ export default function FilesView({
         >
           <PixelFileIcon entry={dragGhost.entry} size={54} />
           <span title={dragGhost.entry.name}>{dragGhost.entry.name}</span>
-          {dragGhost.count > 1 && <strong>{dragGhost.count}개</strong>}
+          {dragGhost.count > 1 && (
+            <strong>{t("{count}개", { count: dragGhost.count })}</strong>
+          )}
         </div>
       )}
     </main>

@@ -1,8 +1,12 @@
-export default function JoinCodeForm() {
+import { translate, type Locale } from "@/lib/i18n";
+
+export default function JoinCodeForm({ locale }: { locale: Locale }) {
+  const t = (text: string, vars?: Record<string, string | number>) =>
+    translate(locale, text, vars);
   return (
     <form action="/api/invitations/code" method="post" className="mt-6 space-y-3">
       <label className="block space-y-1.5 text-left text-sm font-medium">
-        <span>초대 코드</span>
+        <span>{t("초대 코드")}</span>
         <input
           required
           name="code"
@@ -19,7 +23,7 @@ export default function JoinCodeForm() {
         type="submit"
         className="flex w-full items-center justify-center rounded-lg bg-foreground py-2.5 font-medium text-background"
       >
-        코드로 데스크 가입
+        {t("코드로 데스크 가입")}
       </button>
     </form>
   );

@@ -1,3 +1,5 @@
+[English](./README.en.md)
+
 # ShareDesk
 
 ShareDesk는 **한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 공유 파일 공간**입니다. 호스트만 처음에 한 번 설치하고, 참여자는 같은 주소에서 로그인한 뒤 초대 코드만 입력하면 같은 파일과 폴더를 함께 쓸 수 있습니다.
