@@ -1128,41 +1128,127 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   assert.match(css, /\.searchResultPath \{/);
 });
 
-test("관리자 업데이트는 자동 적용 없이 버튼 하나로 시작한다", async () => {
-  const [source, page, css, workflow] = await Promise.all([
+test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤 수동으로 시작한다", async () => {
+  const [source, css] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
-    readFile(new URL("../.github/workflows/sharedesk-update.yml", import.meta.url), "utf8"),
   ]);
 
   const trayStart = source.indexOf('<div className={styles.userTray}>');
   const trayEnd = source.indexOf("</div>", trayStart);
   const userTray = source.slice(trayStart, trayEnd);
-  const updateIndex = userTray.indexOf("업데이트 하기");
+  const updateIndex = userTray.indexOf("업데이트");
   const userManagementIndex = userTray.indexOf("사용자 관리");
+  const updateButtonStart = userTray.indexOf(
+    'className={`${styles.trayLink} ${styles.updateTrayButton}`}',
+  );
+  const updateButtonEnd = userTray.indexOf("</button>", updateButtonStart);
+  const updateButton = userTray.slice(updateButtonStart, updateButtonEnd);
 
   assert.ok(trayStart >= 0 && trayEnd > trayStart);
   assert.ok(updateIndex >= 0 && updateIndex < userManagementIndex);
+  assert.ok(updateButtonStart >= 0 && updateButtonEnd > updateButtonStart);
   assert.match(
     userTray,
-    /\{isAdmin && \([\s\S]*?href=\{updateWorkflowUrl \?\? UPDATE_GUIDE_URL\}[\s\S]*?target="_blank"[\s\S]*?rel="noopener noreferrer"[\s\S]*?updateWorkflowUrl \? "업데이트 하기" : "업데이트 연결"[\s\S]*?사용자 관리/,
+    /\{isAdmin && \([\s\S]*?업데이트[\s\S]*?사용자 관리/,
   );
-  assert.doesNotMatch(userTray, /aria-haspopup="dialog"/);
+  assert.match(userTray, /aria-haspopup="dialog"/);
+  assert.doesNotMatch(updateButton, /href=|window\.open/);
   assert.match(
-    page,
-    /resolveUpdateRepository\(\)[\s\S]*?getUpdateWorkflowUrl\(updateRepository\.repository\)[\s\S]*?updateWorkflowUrl=\{updateWorkflowUrl\}/,
+    userTray,
+    /updateAvailable[\s\S]*?updateStatus\?\.latestVersion[\s\S]*?styles\.updateStar[\s\S]*?★/,
+  );
+  assert.match(
+    source,
+    /const updateAvailable = Boolean\(updateStatus\?\.updateAvailable\)/,
+  );
+
+  assert.match(
+    source,
+    /apiJson<UpdateStatusResponse>\("\/api\/admin\/update", \{[\s\S]*?method: "GET",[\s\S]*?cache: "no-store",[\s\S]*?signal: controller\.signal/,
+  );
+  assert.match(source, /updateControllerRef\.current\?\.abort\(\)/);
+  assert.match(source, /updateRequestIdRef\.current !== requestId/);
+  assert.match(source, /if \(!isAdmin\) return;/);
+  assert.match(
+    source,
+    /if \(!isAdmin\) return;[\s\S]*?fetch\("\/api\/admin\/update", \{[\s\S]*?cache: "no-store"/,
+  );
+  assert.match(
+    source,
+    /function openUpdatePanel[\s\S]*?setContextMenu\(null\);\s*void loadUpdateStatus\(\);/,
+  );
+  assert.doesNotMatch(source, /if \(updateStatus\) \{\s*setUpdatePanel/);
+  assert.match(
+    source,
+    /response\.status === 403[\s\S]*?setUpdateStatus\(null\);[\s\S]*?router\.refresh\(\)/,
+  );
+  assert.match(
+    source,
+    /catch \(error\) \{[\s\S]*?setUpdateStatus\(null\);[\s\S]*?loadError: errorMessage/,
+  );
+
+  assert.match(
+    source,
+    /role="dialog"[\s\S]*?aria-modal="true"[\s\S]*?aria-labelledby="update-dialog-title"[\s\S]*?aria-describedby="update-dialog-description"/,
+  );
+  assert.match(source, /event\.key === "Escape"[\s\S]*?closeUpdatePanel\(\)/);
+  assert.match(
+    source,
+    /event\.target === event\.currentTarget[\s\S]*?closeUpdatePanel\(\)/,
+  );
+  assert.match(source, /현재 버전[\s\S]*?currentVersion/);
+  assert.match(source, /최신 버전[\s\S]*?latestVersion/);
+  assert.match(source, /최신 버전을 사용하고 있습니다/);
+  assert.match(
+    source,
+    /status\.latestVersion === null[\s\S]*?"확인 실패"[\s\S]*?status\.updateAvailable/,
+  );
+  assert.match(
+    source,
+    /status\.latestVersion === null[\s\S]*?status\.error[\s\S]*?"버전 비교 실패"/,
+  );
+  assert.match(source, /설치 저장소를 연결해 주세요/);
+  assert.match(source, /status\.error/);
+  assert.match(
+    source,
+    /status\.configured &&[\s\S]*?status\.updateAvailable &&[\s\S]*?status\.workflowUrl && \([\s\S]*?자동으로 적용되지는 않습니다[\s\S]*?GitHub[\s\S]*?Run workflow/,
+  );
+  assert.match(
+    source,
+    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(\) => void startUpdate\(\)\}\s*>\s*업데이트 하기/,
+  );
+  assert.match(
+    source,
+    /\{!updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*업데이트 하기/,
+  );
+  assert.match(
+    source,
+    /updateRunActive && updateRun && \(\s*<p className=\{styles\.updateProgress\} role="status">/,
+  );
+  assert.match(
+    source,
+    /updateRun\?\.phase === "done"[\s\S]*?새로고침하면 새 버전이/,
+  );
+  assert.match(
+    source,
+    /updateRun\?\.phase === "failed"[\s\S]*?role="alert"/,
   );
   assert.match(
     source,
     /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/UPDATE\.md/,
   );
-  assert.doesNotMatch(source, /updatePanel|\/api\/admin\/update/);
+  assert.doesNotMatch(source, /href="\/docs"/);
 
   assert.match(css, /\.updateTrayButton \{/);
-  assert.doesNotMatch(css, /\.updateDialog|\.updateVersions|\.updateSetup|\.updateInstruction|\.updateError/);
-  assert.match(workflow, /on:\s*\n\s*workflow_dispatch:/);
-  assert.doesNotMatch(workflow, /schedule:|cron:/);
+  assert.match(css, /\.updateStar \{[\s\S]*?color: #ffd27d;/);
+  assert.match(css, /\.updateDialog \{/);
+  assert.match(css, /\.updateDialogBody \{/);
+  assert.match(css, /\.updateVersions \{/);
+  assert.match(css, /\.updateSetup \{/);
+  assert.match(css, /\.updateInstruction \{/);
+  assert.match(css, /\.updateError \{/);
+  assert.match(css, /\.updateProgress \{/);
 });
 
 test("desktop and folder icons keep keyboard focus and range selection wired", async () => {
@@ -1179,4 +1265,111 @@ test("desktop and folder icons keep keyboard focus and range selection wired", a
   assert.match(source, /findEntryButton\(scopeId, nextEntry\.id\)\?\.focus\(\)/);
   assert.match(source, /shouldIgnoreDesktopSelectionKeydown\(event\.target\)/);
   assert.match(source, /keyboardSelectionRef\.current = null/);
+});
+
+test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피드백을 보낸다", async () => {
+  const [source, page, css] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /userEmail=\{session\.email\}/);
+  assert.match(page, /import \{ isOwnerRegistryConfigured \} from "@\/lib\/owner-registry"/);
+  assert.match(
+    page,
+    /canSendFeedback=\{!session\.isGuest && isOwnerRegistryConfigured\(\)\}/,
+  );
+  assert.match(
+    source,
+    /userEmail: string;[\s\S]*?canSendFeedback: boolean;/,
+  );
+
+  const trayStart = source.indexOf('<div className={styles.userTray}>');
+  const trayEnd = source.indexOf("</div>", trayStart);
+  const userTray = source.slice(trayStart, trayEnd);
+  const feedbackButtonIndex = userTray.indexOf("{canSendFeedback && (");
+  const adminControlsIndex = userTray.indexOf("{isAdmin && (");
+
+  assert.ok(trayStart >= 0 && trayEnd > trayStart);
+  assert.ok(
+    feedbackButtonIndex >= 0 && feedbackButtonIndex < adminControlsIndex,
+    "일반 승인 사용자와 관리자에게 공통인 피드백 버튼이어야 한다",
+  );
+  assert.match(
+    userTray,
+    /\{canSendFeedback && \([\s\S]*?aria-label="운영자에게 피드백 보내기"[\s\S]*?aria-haspopup="dialog"[\s\S]*?className=\{styles\.feedbackMailIcon\}/,
+  );
+
+  const feedbackDialogStart = source.indexOf(
+    "{canSendFeedback && feedbackOpen && (",
+  );
+  const feedbackDialogEnd = source.indexOf("{dialog && (", feedbackDialogStart);
+  const feedbackDialog = source.slice(feedbackDialogStart, feedbackDialogEnd);
+
+  assert.ok(feedbackDialogStart >= 0 && feedbackDialogEnd > feedbackDialogStart);
+  assert.match(feedbackDialog, /role="dialog"/);
+  assert.match(feedbackDialog, /aria-modal="true"/);
+  assert.match(
+    feedbackDialog,
+    /<strong aria-label="보낸 사람 이메일">\{userEmail\}<\/strong>/,
+  );
+  assert.match(feedbackDialog, /maxLength=\{120\}/);
+  assert.match(feedbackDialog, /maxLength=\{4_000\}/);
+  assert.doesNotMatch(feedbackDialog, /name=["'](?:sender|from|to)["']/i);
+  assert.match(
+    feedbackDialog,
+    /event\.target === event\.currentTarget && !feedbackBusy[\s\S]*?closeFeedbackDialog\(\)/,
+  );
+  assert.match(
+    feedbackDialog,
+    /aria-label="피드백 닫기"\s*disabled=\{feedbackBusy\}\s*onClick=\{closeFeedbackDialog\}/,
+  );
+  assert.equal(feedbackDialog.match(/disabled=\{feedbackBusy\}/g)?.length, 4);
+  assert.match(feedbackDialog, /onKeyDown=\{handleFeedbackDialogKeyDown\}/);
+
+  const submitStart = source.indexOf("async function submitFeedback");
+  const submitEnd = source.indexOf("async function submitDialog", submitStart);
+  const submitFeedback = source.slice(submitStart, submitEnd);
+  const failureStart = submitFeedback.indexOf("} catch (error)");
+  const failureEnd = submitFeedback.indexOf("} finally", failureStart);
+  const failureBranch = submitFeedback.slice(failureStart, failureEnd);
+
+  assert.ok(submitStart >= 0 && submitEnd > submitStart);
+  assert.match(
+    submitFeedback,
+    /apiJson<\{ ok\?: boolean \}>\("\/api\/feedback", \{[\s\S]*?method: "POST"/,
+  );
+  assert.match(
+    submitFeedback,
+    /feedbackRequestIdRef\.current \?\? window\.crypto\.randomUUID\(\)[\s\S]*?body: JSON\.stringify\(\{\s*feedbackId,\s*subject: feedbackDraft\.subject,\s*message: feedbackDraft\.message,\s*\}\)/,
+  );
+  assert.doesNotMatch(submitFeedback, /\b(?:sender|from|to):/i);
+  assert.match(
+    submitFeedback,
+    /feedbackRequestIdRef\.current === feedbackId[\s\S]*?current\.subject === submittedDraft\.subject[\s\S]*?current\.message === submittedDraft\.message[\s\S]*?setFeedbackOpen\(false\);[\s\S]*?setNotice\("피드백을 보냈습니다"\)/,
+  );
+  assert.match(failureBranch, /setFeedbackError\(/);
+  assert.doesNotMatch(failureBranch, /setFeedbackDraft|setFeedbackOpen\(false\)/);
+  assert.match(
+    feedbackDialog,
+    /onChange=\{\(event\) => \{\s*feedbackRequestIdRef\.current = null;\s*setFeedbackError\(null\);/,
+  );
+
+  assert.match(
+    source,
+    /if \(!feedbackOpen\) return;[\s\S]*?data-feedback-initial-focus[\s\S]*?const opener = feedbackDialogOpenerRef\.current;[\s\S]*?if \(opener\?\.isConnected\) opener\.focus\(\);/,
+  );
+  assert.match(
+    source,
+    /function handleFeedbackDialogKeyDown[\s\S]*?event\.key === "Escape"[\s\S]*?closeFeedbackDialog\(\)[\s\S]*?DIALOG_FOCUSABLE_SELECTOR/,
+  );
+  assert.match(
+    source,
+    /function closeFeedbackDialog\(\) \{\s*if \(feedbackBusy\) return;\s*setFeedbackOpen\(false\);\s*\}/,
+  );
+  assert.match(css, /\.feedbackTrayButton \{/);
+  assert.match(css, /\.feedbackMailIcon \{/);
+  assert.match(css, /\.feedbackError \{/);
+  assert.match(css, /\.feedbackMessage \{[\s\S]*?resize: none;/);
 });

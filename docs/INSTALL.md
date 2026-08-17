@@ -24,7 +24,7 @@ Google Cloud나 Vercel 설정이 낯설다면 직접 전부 따라 하지 않아
 4. **운영에 연결하기:** setup이 채운 필수 값을 Vercel Production 환경 변수로 옮기고 재배포합니다.
 5. **한 사람과 함께 확인하기:** 운영 로그인과 파일 저장을 먼저 확인한 뒤 `/admin`에서 초대 코드를 만듭니다. 한 사람을 초대해 두 계정에서 같은 파일이 보이는지 확인하면 핵심 설치가 끝납니다. Vercel Firewall은 그 뒤 운영 보호 단계에서 설정합니다.
 
-ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 설치 뒤 관리자가 바꾸기로 한 때에만 화면의 `업데이트 하기` 버튼으로 시작합니다. 기존 설치본을 처음 연결하는 방법은 [업데이트 안내](./UPDATE.md)에 있습니다.
+ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 설치 뒤 관리자 화면의 `업데이트` 버튼은 새 버전이 있을 때만 별을 표시합니다. 기존 설치본을 처음 연결하는 방법은 [업데이트 안내](./UPDATE.md)에 있습니다.
 
 아래는 각 단계의 상세 설명입니다. Google Cloud 화면이나 오류가 나온 부분만 찾아보셔도 됩니다.
 
@@ -236,6 +236,7 @@ npm run dev
 | `DRIVE_ROOT_FOLDER_ID` | setup이 만든 ShareDesk 폴더 ID |
 | `DRIVE_STATE_FOLDER_ID` | setup이 만든 상태 폴더 ID |
 | `PUBLIC_BASE_URL` | 고정 Production origin. 예: `https://my-sharedesk.vercel.app` |
+| `SHAREDESK_GITHUB_TOKEN` | (선택) 원클릭 업데이트용 fine-grained PAT — [업데이트 안내](./UPDATE.md) 참고 |
 
 설치 실수를 줄이려면 Vercel Production에 `PUBLIC_BASE_URL=https://실제-운영-도메인`을 명시하세요. 이 값은 로컬 `.env.local`에는 넣지 않습니다. 로컬 앱 로그인은 `http://localhost:3000`으로 돌아와야 하기 때문입니다.
 
@@ -300,7 +301,7 @@ Vercel 프로젝트의 Firewall에서 아래 Rate Limit 규칙을 만들고 `Pub
 
 ## 설치 뒤 업데이트
 
-관리자 작업표시줄의 `업데이트 하기`는 설치 저장소의 GitHub Actions 화면을 엽니다. 관리자가 그 화면에서 `Run workflow`를 누른 경우에만 새 버전을 적용합니다. 테스트·검사·빌드를 통과해야 `main`에 커밋하고, 연결된 Vercel이 다시 배포합니다.
+ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 새 버전이 확인되면 관리자 작업표시줄의 `업데이트`에 별을 표시합니다. 버튼을 누르면 ShareDesk 안에서 현재·최신 버전을 먼저 보여 줍니다. Vercel에 `SHAREDESK_GITHUB_TOKEN`을 넣어 둔 설치는 관리자가 `업데이트 하기`를 누르면 앱 안에서 바로 업데이트를 시작하고 진행 상황을 보여 줍니다. 토큰이 없는 설치는 기존처럼 GitHub Actions 화면이 열리며 `Run workflow`를 눌러 시작합니다. 어느 쪽이든 검사를 통과한 경우에만 `main`에 커밋하고, 연결된 Vercel이 다시 배포합니다.
 
 Drive 파일과 공유 상태, `.env.local`, Vercel 환경 변수는 코드 업데이트에 포함되지 않습니다. 업데이트 기능이 들어오기 전에 만든 설치본의 1회 전환과 충돌 해결은 [ShareDesk 업데이트](./UPDATE.md)를 따르세요.
 

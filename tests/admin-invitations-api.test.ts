@@ -36,6 +36,46 @@ test("관리자 초대 폼은 받는 사람 정보 없이 기간과 사용 방�
   assert.doesNotMatch(inviteSection, /정보 수정/);
 });
 
+test("관리자 화면은 도트 도구 스타일과 접근 가능한 스크롤 영역을 쓴다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(
+      new URL("../src/app/admin/AdminView.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/admin/admin.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(source, /import styles from "\.\/admin\.module\.css"/);
+  assert.match(css, /--admin-night:\s*#10172b/);
+  assert.match(css, /--admin-window:\s*#f4e7c5/);
+  assert.match(css, /--admin-amber:\s*#ffd27d/);
+  assert.match(css, /--admin-teal:\s*#61b3a6/);
+  assert.match(css, /radial-gradient/);
+  assert.match(css, /font-family:\s*var\(--font-geist-sans\)/);
+  assert.match(css, /font-family:\s*var\(--font-pixel\)/);
+  assert.match(css, /border:\s*2px solid/);
+  assert.match(css, /:focus-visible/);
+
+  assert.match(
+    css,
+    /\.page\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset:\s*0;[\s\S]*?overflow-x:\s*hidden;[\s\S]*?overflow-y:\s*auto/,
+  );
+  assert.match(css, /\.tableRegion\s*\{[\s\S]*?overflow-x:\s*auto/);
+  assert.equal(css.match(/overflow-x:\s*auto/g)?.length, 1);
+  assert.equal(source.match(/className=\{styles\.tableRegion\}/g)?.length, 2);
+
+  assert.match(source, /role="status"[\s\S]*?aria-live="polite"/);
+  assert.match(source, /role="alert"[\s\S]*?aria-live="assertive"/);
+  assert.equal(source.match(/role="region"/g)?.length, 2);
+  assert.equal(source.match(/tabIndex=\{0\}/g)?.length, 2);
+  assert.match(source, /aria-labelledby="invite-title"/);
+  assert.match(source, /aria-labelledby="user-title"/);
+  assert.equal(source.match(/<caption className=\{styles\.srOnly\}>/g)?.length, 2);
+});
+
 function session(userId: string): string {
   const body = Buffer.from(
     JSON.stringify({

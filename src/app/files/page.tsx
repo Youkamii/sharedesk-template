@@ -1,10 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
-import {
-  getUpdateWorkflowUrl,
-  resolveUpdateRepository,
-} from "@/lib/update-repository";
+import { isOwnerRegistryConfigured } from "@/lib/owner-registry";
 import FilesView from "./FilesView";
 
 export default async function FilesPage() {
@@ -20,18 +17,13 @@ export default async function FilesPage() {
           : "/",
     );
   }
-  const updateRepository = session.isAdmin
-    ? resolveUpdateRepository()
-    : null;
-  const updateWorkflowUrl = updateRepository?.repository
-    ? getUpdateWorkflowUrl(updateRepository.repository)
-    : null;
   return (
     <FilesView
       userName={session.name}
+      userEmail={session.email}
       isAdmin={session.isAdmin}
       isGuest={session.isGuest}
-      updateWorkflowUrl={updateWorkflowUrl}
+      canSendFeedback={!session.isGuest && isOwnerRegistryConfigured()}
     />
   );
 }

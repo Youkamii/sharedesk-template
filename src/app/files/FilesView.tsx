@@ -69,6 +69,12 @@ import {
   uploadWithProgress,
 } from "@/lib/client/transfer";
 import {
+  nextUpdateRunState,
+  UPDATE_RUN_POLL_MS,
+  type UpdateRunInfo,
+  type UpdateRunState,
+} from "@/lib/client/update-run";
+import {
   isEditableTextPreview,
   previewKindOf,
   type PreviewKind,
@@ -189,6 +195,24 @@ type PresenceState = {
   loading: boolean;
   error: string | null;
   open: boolean;
+};
+
+type UpdateStatusResponse = {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  repository: string | null;
+  workflowUrl: string | null;
+  configured: boolean;
+  canDispatch: boolean; // 저장소 + 토큰 모두 유효 → 원클릭 실행 가능
+  run: UpdateRunInfo | null;
+  error?: string;
+};
+
+type UpdatePanelState = {
+  loading: boolean;
+  status: UpdateStatusResponse | null;
+  loadError: string | null;
 };
 
 type TrashWindowState = {
@@ -544,14 +568,16 @@ function MenuButton({
 
 export default function FilesView({
   userName,
+  userEmail,
   isAdmin,
   isGuest,
-  updateWorkflowUrl,
+  canSendFeedback,
 }: {
   userName: string;
+  userEmail: string;
   isAdmin: boolean;
   isGuest: boolean;
-  updateWorkflowUrl: string | null;
+  canSendFeedback: boolean;
 }) {
   const router = useRouter();
   const viewport = useViewport();
@@ -567,6 +593,9 @@ export default function FilesView({
   const shareDialogOpenerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  const feedbackDialogRef = useRef<HTMLElement>(null);
+  const feedbackDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const feedbackRequestIdRef = useRef<string | null>(null);
   const previewRef = useRef<HTMLElement>(null);
   const previewOpenerRef = useRef<{
     element: HTMLElement;
@@ -591,6 +620,14 @@ export default function FilesView({
   const folderNoteWindowRef = useRef<FolderNoteWindowState | null>(null);
   const searchInstanceRef = useRef(0);
   const searchControllerRef = useRef<AbortController | null>(null);
+  const updateDialogRef = useRef<HTMLElement>(null);
+  const updateDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const updateControllerRef = useRef<AbortController | null>(null);
+  const updateRequestIdRef = useRef(0);
+  // 원클릭 실행 전용 — 패널 닫기(closeUpdatePanel)가 위 ref를 abort해도 진행 폴링은 살아야 한다.
+  const updateRunControllerRef = useRef<AbortController | null>(null);
+  const updateRunRequestIdRef = useRef(0);
+  const updateRunRef = useRef<UpdateRunState | null>(null);
   const presenceControllerRef = useRef<AbortController | null>(null);
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
@@ -653,6 +690,13 @@ export default function FilesView({
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState({
+    subject: "",
+    message: "",
+  });
   const [notice, setNotice] = useAutoDismissNotice();
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
   const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
@@ -675,6 +719,10 @@ export default function FilesView({
   const [folderSearchQueries, setFolderSearchQueries] = useState<
     Record<string, string>
   >({});
+  const [updateStatus, setUpdateStatus] =
+    useState<UpdateStatusResponse | null>(null);
+  const [updatePanel, setUpdatePanel] = useState<UpdatePanelState | null>(null);
+  const [updateRun, setUpdateRun] = useState<UpdateRunState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
   const [folderNoteWindow, setFolderNoteWindow] =
@@ -720,11 +768,21 @@ export default function FilesView({
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
   transientPositionsRef.current = transientPositions;
+  updateRunRef.current = updateRun;
   const rootDesktopLayout = useMemo(
     () => normalizeRootDesktopLayout(rootData.entries, rootData.positions),
     [rootData.entries, rootData.positions],
   );
   const dialogOpen = dialog !== null;
+  const updatePanelOpen = updatePanel !== null;
+  const updateAvailable = Boolean(updateStatus?.updateAvailable);
+  // 진행 폴링과 버튼 잠금이 함께 쓰는 "실행이 아직 달리는 중" 판정
+  const updateRunActive =
+    updateRun !== null &&
+    (updateRun.phase === "starting" ||
+      updateRun.phase === "running" ||
+      updateRun.phase === "deploying");
+
   const fetchFolder = useCallback(
     async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
       const listResponse = await fetch(
@@ -1240,6 +1298,8 @@ export default function FilesView({
       folderNoteLoadControllerRef.current?.abort();
       folderNoteSaveControllerRef.current?.abort();
       searchControllerRef.current?.abort();
+      updateControllerRef.current?.abort();
+      updateRunControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -1514,6 +1574,194 @@ export default function FilesView({
   }, [dialogOpen]);
 
   useEffect(() => {
+    if (!feedbackOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      feedbackDialogRef.current
+        ?.querySelector<HTMLElement>("[data-feedback-initial-focus]")
+        ?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      const opener = feedbackDialogOpenerRef.current;
+      feedbackDialogOpenerRef.current = null;
+      window.requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+  }, [feedbackOpen]);
+
+  useEffect(() => {
+    if (!updatePanelOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      updateDialogRef.current
+        ?.querySelector<HTMLElement>("[data-update-initial-focus]")
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [updatePanelOpen]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    updateControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = updateRequestIdRef.current + 1;
+    updateControllerRef.current = controller;
+    updateRequestIdRef.current = requestId;
+
+    void (async () => {
+      try {
+        const response = await fetch("/api/admin/update", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          router.replace("/");
+          return;
+        }
+        if (response.status === 403) {
+          setUpdateStatus(null);
+          router.refresh();
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.error ?? "업데이트 상태를 확인하지 못했습니다");
+        }
+        if (
+          updateRequestIdRef.current !== requestId ||
+          updateControllerRef.current !== controller
+        ) {
+          return;
+        }
+        setUpdateStatus(body as UpdateStatusResponse);
+      } catch {
+        // 자동 확인 실패는 조용히 두고, 관리자가 창을 열면 다시 확인한다.
+      } finally {
+        if (updateControllerRef.current === controller) {
+          updateControllerRef.current = null;
+        }
+      }
+    })();
+
+    return () => {
+      if (updateControllerRef.current === controller) {
+        updateRequestIdRef.current += 1;
+        controller.abort();
+        updateControllerRef.current = null;
+      }
+    };
+  }, [isAdmin, router]);
+
+  // 원클릭 업데이트 진행 폴링. 패널이 닫혀도 실행이 끝날 때까지 이어간다.
+  useEffect(() => {
+    if (!updateRunActive) return;
+
+    // 서버가 계속 오류(토큰 회수·권한 상실 등)를 주면 조용히 15분을 채우는 대신
+    // 원인 문구와 함께 실패로 표면화한다. 순간 장애를 흡수하도록 연속 3회 기준.
+    let consecutiveErrors = 0;
+    const poll = async () => {
+      updateRunControllerRef.current?.abort();
+      const controller = new AbortController();
+      const requestId = updateRunRequestIdRef.current + 1;
+      updateRunControllerRef.current = controller;
+      updateRunRequestIdRef.current = requestId;
+      try {
+        const response = await fetch("/api/admin/update?scope=run", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          router.replace("/");
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body) {
+          if (
+            updateRunRequestIdRef.current !== requestId ||
+            updateRunControllerRef.current !== controller
+          ) {
+            return;
+          }
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 3) {
+            const message =
+              typeof (body as { error?: unknown } | null)?.error === "string"
+                ? ((body as { error: string }).error)
+                : "업데이트 상태를 확인하지 못했습니다";
+            setUpdateRun((prev) =>
+              prev &&
+              (prev.phase === "starting" ||
+                prev.phase === "running" ||
+                prev.phase === "deploying")
+                ? { ...prev, phase: "failed", error: message }
+                : prev,
+            );
+          }
+          return;
+        }
+        consecutiveErrors = 0;
+        if (
+          updateRunRequestIdRef.current !== requestId ||
+          updateRunControllerRef.current !== controller
+        ) {
+          return;
+        }
+        const payload = body as {
+          currentVersion: string;
+          run: UpdateRunInfo | null;
+        };
+        const prevRun = updateRunRef.current;
+        if (!prevRun) return;
+        const nextRun = nextUpdateRunState(
+          prevRun,
+          payload.currentVersion,
+          payload.run,
+        );
+        const done = nextRun.phase === "done";
+        setUpdateRun(nextRun);
+        // 트레이 ★과 패널의 현재 버전 표시를 최신 배포 버전에 맞춘다.
+        setUpdateStatus((prev) =>
+          prev && (prev.currentVersion !== payload.currentVersion || done)
+            ? {
+                ...prev,
+                currentVersion: payload.currentVersion,
+                updateAvailable: done ? false : prev.updateAvailable,
+              }
+            : prev,
+        );
+        setUpdatePanel((prev) =>
+          prev?.status &&
+          (prev.status.currentVersion !== payload.currentVersion || done)
+            ? {
+                ...prev,
+                status: {
+                  ...prev.status,
+                  currentVersion: payload.currentVersion,
+                  updateAvailable: done
+                    ? false
+                    : prev.status.updateAvailable,
+                },
+              }
+            : prev,
+        );
+      } catch {
+        // 폴링 한 번의 실패는 다음 주기에 재시도한다.
+      } finally {
+        if (updateRunControllerRef.current === controller) {
+          updateRunControllerRef.current = null;
+        }
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), UPDATE_RUN_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [updateRunActive, router]);
+
+  useEffect(() => {
     if (!previewFocusRequest) return;
     const focusFrame = window.requestAnimationFrame(() => {
       previewRef.current
@@ -1530,6 +1778,9 @@ export default function FilesView({
       const error = new Error("세션이 만료되었습니다");
       Object.assign(error, { status: response.status });
       throw error;
+    }
+    if (response.status === 403) {
+      router.refresh();
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
@@ -5098,6 +5349,191 @@ export default function FilesView({
     });
   }
 
+  async function loadUpdateStatus() {
+    updateControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = updateRequestIdRef.current + 1;
+    updateControllerRef.current = controller;
+    updateRequestIdRef.current = requestId;
+    // 끝난 실행 기록은 재확인 때 지워서 다음 실행 버튼을 다시 무장한다.
+    setUpdateRun((prev) =>
+      prev &&
+      (prev.phase === "done" ||
+        prev.phase === "failed" ||
+        prev.phase === "stalled")
+        ? null
+        : prev,
+    );
+    setUpdatePanel({ loading: true, status: null, loadError: null });
+    try {
+      const status = await apiJson<UpdateStatusResponse>("/api/admin/update", {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (
+        updateRequestIdRef.current !== requestId ||
+        updateControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdateStatus(status);
+      setUpdatePanel({ loading: false, status, loadError: null });
+      // 다른 기기·이전 세션에서 시작한 실행이 달리는 중이면 진행 표시를 이어받는다.
+      const activeRun = status.run;
+      if (
+        status.canDispatch &&
+        activeRun &&
+        (activeRun.status === "queued" || activeRun.status === "in_progress")
+      ) {
+        // 정체(15분) 판정이 실행의 실제 경과 시간을 반영하도록 시작 시각은
+        // GitHub가 기록한 실행 생성 시각을 쓴다.
+        const createdAt = Date.parse(activeRun.createdAt);
+        setUpdateRun(
+          (prev) =>
+            prev ?? {
+              phase: "running",
+              startedVersion: status.currentVersion,
+              targetVersion: status.latestVersion,
+              error: null,
+              htmlUrl: activeRun.htmlUrl,
+              startedAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+            },
+        );
+      }
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        updateRequestIdRef.current !== requestId ||
+        updateControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdateStatus(null);
+      setUpdatePanel({
+        loading: false,
+        status: null,
+        loadError: errorMessage(error, "업데이트 상태를 확인하지 못했습니다"),
+      });
+    } finally {
+      if (updateControllerRef.current === controller) {
+        updateControllerRef.current = null;
+      }
+    }
+  }
+
+  // 원클릭 업데이트 시작: 서버가 GitHub 워크플로를 실행하고, 이후 진행은 폴링이 이어받는다.
+  async function startUpdate() {
+    const status = updatePanel?.status;
+    if (!status) return;
+    updateRunControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = updateRunRequestIdRef.current + 1;
+    updateRunControllerRef.current = controller;
+    updateRunRequestIdRef.current = requestId;
+    // 실행 버튼 연타를 막기 위해 응답을 기다리지 않고 바로 시작 상태로 바꾼다.
+    setUpdateRun({
+      phase: "starting",
+      startedVersion: status.currentVersion,
+      targetVersion: status.latestVersion,
+      error: null,
+      htmlUrl: null,
+      startedAt: Date.now(),
+    });
+    try {
+      await apiJson<{ ok: boolean; workflowUrl: string | null }>(
+        "/api/admin/update",
+        {
+          method: "POST",
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      );
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        updateRunRequestIdRef.current !== requestId ||
+        updateRunControllerRef.current !== controller
+      ) {
+        return;
+      }
+      // 이미 진행 중(409)이면 실패가 아니라 그 실행을 이어받아 표시한다.
+      if ((error as { status?: number }).status === 409) {
+        setUpdateRun(null);
+        void loadUpdateStatus();
+        return;
+      }
+      setUpdateRun({
+        phase: "failed",
+        startedVersion: status.currentVersion,
+        targetVersion: status.latestVersion,
+        error: errorMessage(error, "업데이트를 시작하지 못했습니다"),
+        htmlUrl: null,
+        startedAt: Date.now(),
+      });
+    } finally {
+      if (updateRunControllerRef.current === controller) {
+        updateRunControllerRef.current = null;
+      }
+    }
+  }
+
+  function openUpdatePanel(opener: HTMLElement) {
+    if (!isAdmin) return;
+    updateDialogOpenerRef.current = opener;
+    setContextMenu(null);
+    void loadUpdateStatus();
+  }
+
+  function closeUpdatePanel() {
+    updateRequestIdRef.current += 1;
+    updateControllerRef.current?.abort();
+    updateControllerRef.current = null;
+    setUpdatePanel(null);
+    const opener = updateDialogOpenerRef.current;
+    updateDialogOpenerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
+  function handleUpdateDialogKeyDown(
+    event: React.KeyboardEvent<HTMLElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeUpdatePanel();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function openDialog(nextDialog: DialogState, opener?: HTMLElement | null) {
     const activeElement =
       document.activeElement instanceof HTMLElement
@@ -5109,6 +5545,54 @@ export default function FilesView({
 
   function closeDialog() {
     setDialog(null);
+  }
+
+  function openFeedbackDialog(opener: HTMLElement) {
+    if (!canSendFeedback) return;
+    feedbackDialogOpenerRef.current = opener;
+    setFeedbackError(null);
+    setFeedbackOpen(true);
+  }
+
+  function closeFeedbackDialog() {
+    if (feedbackBusy) return;
+    setFeedbackOpen(false);
+  }
+
+  function handleFeedbackDialogKeyDown(
+    event: React.KeyboardEvent<HTMLElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFeedbackDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
@@ -5353,6 +5837,55 @@ export default function FilesView({
       void refreshScope(scopeId, true);
     } finally {
       finishScopedRequest(listRequestsRef.current, scopeId, request);
+    }
+  }
+
+  async function submitFeedback(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      !canSendFeedback ||
+      feedbackBusy ||
+      !feedbackDraft.subject.trim() ||
+      !feedbackDraft.message.trim()
+    ) {
+      return;
+    }
+    setFeedbackBusy(true);
+    setFeedbackError(null);
+    const submittedDraft = feedbackDraft;
+    const feedbackId =
+      feedbackRequestIdRef.current ?? window.crypto.randomUUID();
+    feedbackRequestIdRef.current = feedbackId;
+    try {
+      const result = await apiJson<{ ok?: boolean }>("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feedbackId,
+          subject: feedbackDraft.subject,
+          message: feedbackDraft.message,
+        }),
+      });
+      if (result.ok !== true) {
+        throw new Error("피드백을 보내지 못했습니다");
+      }
+      if (feedbackRequestIdRef.current === feedbackId) {
+        feedbackRequestIdRef.current = null;
+        setFeedbackDraft((current) =>
+          current.subject === submittedDraft.subject &&
+          current.message === submittedDraft.message
+            ? { subject: "", message: "" }
+            : current,
+        );
+        setFeedbackOpen(false);
+      }
+      setNotice("피드백을 보냈습니다");
+    } catch (error) {
+      if (feedbackRequestIdRef.current === feedbackId) {
+        setFeedbackError(errorMessage(error, "피드백을 보내지 못했습니다"));
+      }
+    } finally {
+      setFeedbackBusy(false);
     }
   }
 
@@ -6915,16 +7448,40 @@ export default function FilesView({
           <span>다운로드 우선</span>
         </label>
         <div className={styles.userTray}>
+          {canSendFeedback && (
+            <button
+              type="button"
+              className={`${styles.trayLink} ${styles.feedbackTrayButton}`}
+              aria-label="운영자에게 피드백 보내기"
+              aria-haspopup="dialog"
+              aria-expanded={feedbackOpen}
+              aria-controls="feedback-dialog"
+              title="피드백 보내기"
+              onClick={(event) => openFeedbackDialog(event.currentTarget)}
+            >
+              <span className={styles.feedbackMailIcon} aria-hidden="true" />
+            </button>
+          )}
           {isAdmin && (
             <>
-              <a
-                href={updateWorkflowUrl ?? UPDATE_GUIDE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
                 className={`${styles.trayLink} ${styles.updateTrayButton}`}
+                aria-haspopup="dialog"
+                aria-label={
+                  updateAvailable
+                    ? `업데이트, 새 버전 ${updateStatus?.latestVersion ?? ""} 있음`
+                    : "업데이트"
+                }
+                onClick={(event) => openUpdatePanel(event.currentTarget)}
               >
-                {updateWorkflowUrl ? "업데이트 하기" : "업데이트 연결"}
-              </a>
+                <span>업데이트</span>
+                {updateAvailable && (
+                  <span className={styles.updateStar} aria-hidden="true">
+                    ★
+                  </span>
+                )}
+              </button>
               <a href="/admin" className={styles.trayLink}>
                 사용자 관리
               </a>
@@ -7175,6 +7732,403 @@ export default function FilesView({
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
+      )}
+
+      {canSendFeedback && feedbackOpen && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !feedbackBusy) {
+              closeFeedbackDialog();
+            }
+          }}
+        >
+          <section
+            id="feedback-dialog"
+            ref={feedbackDialogRef}
+            className={`${styles.dialog} ${styles.feedbackDialog}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-dialog-title"
+            aria-describedby={
+              feedbackError ? "feedback-dialog-error" : undefined
+            }
+            onKeyDown={handleFeedbackDialogKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="feedback-dialog-title" className={styles.feedbackTitle}>
+                <span className={styles.feedbackMailIcon} aria-hidden="true" />
+                운영자에게 피드백 보내기
+              </strong>
+              <button
+                type="button"
+                aria-label="피드백 닫기"
+                disabled={feedbackBusy}
+                onClick={closeFeedbackDialog}
+              >
+                ×
+              </button>
+            </header>
+            <form
+              className={`${styles.dialogBody} ${styles.feedbackForm}`}
+              onSubmit={submitFeedback}
+            >
+              <p className={styles.feedbackSender}>
+                <span>보내는 사람</span>
+                <strong aria-label="보낸 사람 이메일">{userEmail}</strong>
+                <small>{userName}</small>
+              </p>
+              <label className={styles.feedbackField}>
+                <span>제목</span>
+                <input
+                  data-feedback-initial-focus
+                  value={feedbackDraft.subject}
+                  maxLength={120}
+                  required
+                  disabled={feedbackBusy}
+                  placeholder="예: 파일을 찾기 어려워요"
+                  onChange={(event) => {
+                    feedbackRequestIdRef.current = null;
+                    setFeedbackError(null);
+                    setFeedbackDraft((current) => ({
+                      ...current,
+                      subject: event.target.value,
+                    }));
+                  }}
+                />
+              </label>
+              <label className={styles.feedbackField}>
+                <span>내용</span>
+                <textarea
+                  className={styles.feedbackMessage}
+                  value={feedbackDraft.message}
+                  maxLength={4_000}
+                  required
+                  disabled={feedbackBusy}
+                  placeholder="불편했던 점이나 필요한 기능을 적어 주세요."
+                  onChange={(event) => {
+                    feedbackRequestIdRef.current = null;
+                    setFeedbackError(null);
+                    setFeedbackDraft((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }));
+                  }}
+                />
+              </label>
+              {feedbackError && (
+                <p
+                  id="feedback-dialog-error"
+                  className={styles.feedbackError}
+                  role="alert"
+                  aria-live="assertive"
+                >
+                  <span aria-hidden="true">!</span>
+                  {feedbackError}
+                </p>
+              )}
+              <div className={styles.feedbackFooter}>
+                <span className={styles.feedbackCounter}>
+                  {feedbackDraft.message.length.toLocaleString("ko-KR")} / 4,000
+                </span>
+                <div className={styles.dialogActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={feedbackBusy}
+                    onClick={closeFeedbackDialog}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className={styles.primaryButton}
+                    disabled={
+                      feedbackBusy ||
+                      !feedbackDraft.subject.trim() ||
+                      !feedbackDraft.message.trim()
+                    }
+                  >
+                    {feedbackBusy ? "보내는 중…" : "보내기"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isAdmin && updatePanel && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeUpdatePanel();
+          }}
+        >
+          <section
+            ref={updateDialogRef}
+            className={`${styles.dialog} ${styles.updateDialog}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="update-dialog-title"
+            aria-describedby="update-dialog-description"
+            aria-busy={updatePanel.loading}
+            onKeyDown={handleUpdateDialogKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="update-dialog-title">ShareDesk 업데이트</strong>
+              <button
+                type="button"
+                data-update-initial-focus
+                aria-label="업데이트 창 닫기"
+                onClick={closeUpdatePanel}
+              >
+                ×
+              </button>
+            </header>
+            <div className={styles.updateDialogBody}>
+              {updatePanel.loading ? (
+                <p id="update-dialog-description" role="status">
+                  현재 버전과 새 버전을 확인하는 중입니다…
+                </p>
+              ) : updatePanel.loadError ? (
+                <>
+                  <p
+                    id="update-dialog-description"
+                    className={styles.updateError}
+                    role="alert"
+                  >
+                    {updatePanel.loadError}
+                  </p>
+                  <div className={styles.dialogActions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      onClick={() => void loadUpdateStatus()}
+                    >
+                      다시 확인
+                    </button>
+                  </div>
+                </>
+              ) : updatePanel.status ? (
+                <>
+                  <p
+                    id="update-dialog-description"
+                    className={styles.updateSummary}
+                    role="status"
+                  >
+                    {!updatePanel.status.configured
+                      ? "설치 저장소 연결이 필요합니다."
+                      : updatePanel.status.latestVersion === null
+                        ? "최신 버전을 확인하지 못했습니다."
+                        : updatePanel.status.error
+                          ? "버전 상태를 완전히 확인하지 못했습니다."
+                          : updatePanel.status.updateAvailable
+                            ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
+                            : "최신 버전을 사용하고 있습니다."}
+                  </p>
+                  <dl className={styles.updateVersions}>
+                    <div>
+                      <dt>현재 버전</dt>
+                      <dd>{updatePanel.status.currentVersion}</dd>
+                    </div>
+                    <div>
+                      <dt>최신 버전</dt>
+                      <dd>{updatePanel.status.latestVersion ?? "확인 실패"}</dd>
+                    </div>
+                    <div>
+                      <dt>업데이트 상태</dt>
+                      <dd>
+                        {updatePanel.status.latestVersion === null
+                          ? "확인 실패"
+                          : updatePanel.status.error
+                            ? "버전 비교 실패"
+                            : updatePanel.status.updateAvailable
+                              ? "새 버전 있음"
+                              : "새 버전 없음"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>설치 저장소</dt>
+                      <dd>
+                        {updatePanel.status.repository ?? "연결되지 않음"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {!updatePanel.status.configured && (
+                    <div className={styles.updateSetup}>
+                      <strong>설치 저장소를 연결해 주세요.</strong>
+                      <span>
+                        설정 확인이나 기존 설치 전환 방법을 안내에서 확인한 뒤 다시 시도해 주세요.
+                      </span>
+                      <a
+                        href={UPDATE_GUIDE_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        설치 저장소 연결 안내 열기
+                      </a>
+                    </div>
+                  )}
+                  {/* 원클릭 경로: 토큰이 설정된 설치는 이 창 안에서 실행·진행·완료를 모두 처리한다 */}
+                  {updatePanel.status.canDispatch &&
+                    updatePanel.status.updateAvailable &&
+                    !updateRun && (
+                      <p className={styles.updateInstruction}>
+                        업데이트 하기를 누르면 ShareDesk가 업데이트를 시작하고
+                        이 창에 진행 상황을 보여 줍니다.
+                      </p>
+                    )}
+                  {updateRunActive && updateRun && (
+                    <p className={styles.updateProgress} role="status">
+                      <span>
+                        {updateRun.phase === "starting"
+                          ? "업데이트를 시작하고 있습니다"
+                          : updateRun.phase === "running"
+                            ? "업데이트를 적용하고 있습니다. 몇 분 걸릴 수 있습니다"
+                            : "새 버전을 배포하고 있습니다. 잠시 뒤 자동으로 확인됩니다"}
+                      </span>
+                      <span
+                        className={styles.loadingPixels}
+                        aria-hidden="true"
+                      >
+                        ···
+                      </span>
+                    </p>
+                  )}
+                  {updateRun?.phase === "done" && (
+                    <p className={styles.updateSummary} role="status">
+                      {updateRun.targetVersion
+                        ? `업데이트가 끝났습니다. 새로고침하면 새 버전 ${updateRun.targetVersion}이 적용됩니다.`
+                        : "업데이트가 끝났습니다. 새로고침하면 새 버전이 적용됩니다."}
+                    </p>
+                  )}
+                  {updateRun?.phase === "failed" && (
+                    <div className={styles.updateError} role="alert">
+                      <span>
+                        {updateRun.error ??
+                          "업데이트에 실패했습니다. 잠시 후 다시 시도해 주세요."}
+                      </span>{" "}
+                      {updateRun.htmlUrl && (
+                        <a
+                          href={updateRun.htmlUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          자세한 기록 보기
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {updateRun?.phase === "stalled" && (
+                    <p className={styles.updateError} role="status">
+                      반영 확인이 늦어지고 있습니다. 잠시 후 새로고침으로
+                      확인해 주세요.
+                    </p>
+                  )}
+                  {/* 폴백: 토큰이 없는 설치는 기존 GitHub Run workflow 경로를 안내한다 */}
+                  {!updatePanel.status.canDispatch &&
+                    updatePanel.status.configured &&
+                    updatePanel.status.updateAvailable &&
+                    updatePanel.status.workflowUrl && (
+                      <p className={styles.updateInstruction}>
+                        자동으로 적용되지는 않습니다. 아래 버튼을 누른 뒤 GitHub
+                        Actions 화면에서 <strong>Run workflow</strong>를 눌러야
+                        업데이트가 시작됩니다.
+                      </p>
+                    )}
+                  {!updatePanel.status.canDispatch &&
+                    updatePanel.status.configured &&
+                    updatePanel.status.updateAvailable && (
+                      <div className={styles.updateSetup}>
+                        <strong>원클릭 업데이트도 켤 수 있습니다.</strong>
+                        <span>
+                          Vercel 환경 변수에 SHAREDESK_GITHUB_TOKEN을 추가하면
+                          이 창에서 바로 업데이트할 수 있습니다.
+                        </span>
+                        <a
+                          href={UPDATE_GUIDE_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          원클릭 업데이트 설정 안내 열기
+                        </a>
+                      </div>
+                    )}
+                  {updatePanel.status.error && (
+                    <p className={styles.updateError} role="alert">
+                      {updatePanel.status.error}
+                    </p>
+                  )}
+                  <div className={styles.dialogActions}>
+                    <button
+                      type="button"
+                      className={styles.secondaryButton}
+                      disabled={updateRunActive}
+                      onClick={() => void loadUpdateStatus()}
+                    >
+                      다시 확인
+                    </button>
+                    {updatePanel.status.canDispatch &&
+                      updatePanel.status.updateAvailable &&
+                      !updateRun && (
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={() => void startUpdate()}
+                        >
+                          업데이트 하기
+                        </button>
+                      )}
+                    {updateRun?.phase === "failed" && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => {
+                          setUpdateRun(null);
+                          void startUpdate();
+                        }}
+                      >
+                        다시 시도
+                      </button>
+                    )}
+                    {/* 편집 초안 보호(beforeunload 가드) 때문에 자동 reload 대신 버튼으로만 새로고침한다 */}
+                    {(updateRun?.phase === "done" ||
+                      updateRun?.phase === "stalled") && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => window.location.reload()}
+                      >
+                        새로고침
+                      </button>
+                    )}
+                    {!updatePanel.status.canDispatch &&
+                      updatePanel.status.configured &&
+                      updatePanel.status.updateAvailable &&
+                      updatePanel.status.workflowUrl && (
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={() =>
+                            window.open(
+                              updatePanel.status!.workflowUrl!,
+                              "_blank",
+                              "noopener,noreferrer",
+                            )
+                          }
+                        >
+                          업데이트 하기
+                        </button>
+                      )}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          </section>
+        </div>
       )}
 
       {dialog && (
