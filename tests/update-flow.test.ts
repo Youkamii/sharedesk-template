@@ -25,9 +25,12 @@ import {
   selectStableRelease as selectBootstrapStableRelease,
 } from "../scripts/sharedesk-bootstrap.mjs";
 import {
-  getUpdateWorkflowUrl,
+  compareSemver,
+  fetchGitHubReleasePages as fetchStatusReleasePages,
+  getUpdateStatus,
   resolveUpdateRepository,
-} from "../src/lib/update-repository";
+  selectLatestStableVersion,
+} from "../src/lib/update-status";
 
 const execFileAsync = promisify(execFile);
 
@@ -412,7 +415,7 @@ test("bootstrap uses a matching legacy baseline and rejects committed customizat
   });
 });
 
-test("automatic updates replace executable core, preserve the workflow, and detect local core changes", async () => {
+test("manual managed updates replace executable core, preserve the workflow, and detect local core changes", async () => {
   const oldCore = {
     "scripts/sharedesk-bootstrap.mjs": "old bootstrap\n",
     "scripts/sharedesk-update.mjs": "old updater\n",
@@ -1149,10 +1152,74 @@ test("repository resolution is strict and explicit configuration takes precedenc
     assert.equal(result.configured, false, repository);
     assert.equal(result.repository, null, repository);
   }
+});
+
+test("stable release selection and semantic version comparison ignore drafts and prereleases", () => {
+  assert.equal(compareSemver("1.10.0", "1.9.9"), 1);
+  assert.equal(compareSemver("v2.0.0", "2.0.0"), 0);
+  assert.equal(compareSemver("2.0.0-rc.1", "2.0.0"), -1);
   assert.equal(
-    getUpdateWorkflowUrl("owner/installed-repo"),
-    "https://github.com/owner/installed-repo/actions/workflows/sharedesk-update.yml",
+    selectLatestStableVersion([
+      { tag_name: "v9.0.0", draft: true, prerelease: false },
+      { tag_name: "v8.0.0", draft: false, prerelease: true },
+      { tag_name: "v7.0.0-rc.1", draft: false, prerelease: false },
+      { tag_name: "v1.9.0", draft: false, prerelease: false },
+      { tag_name: "v1.10.0", draft: false, prerelease: false },
+    ]),
+    "1.10.0",
   );
+});
+
+test("update status reports the installed workflow and handles GitHub errors", async () => {
+  const status = await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: async () =>
+      Response.json([
+        { tag_name: "v1.1.0", draft: false, prerelease: false },
+      ]),
+  });
+  assert.deepEqual(status, {
+    currentVersion: "1.0.0",
+    latestVersion: "1.1.0",
+    updateAvailable: true,
+    repository: "acme/sharedesk",
+    workflowUrl:
+      "https://github.com/acme/sharedesk/actions/workflows/sharedesk-update.yml",
+    configured: true,
+  });
+
+  let requestedUrl = "";
+  await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: async (input) => {
+      requestedUrl = String(input);
+      return Response.json([
+        { tag_name: "v1.0.0", draft: false, prerelease: false },
+      ]);
+    },
+  });
+  assert.match(requestedUrl, /[?&]per_page=100(?:&|$)/);
+
+  const failed = await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env: {},
+    fetchImpl: async () => new Response("no", { status: 503 }),
+  });
+  assert.equal(failed.latestVersion, null);
+  assert.equal(failed.updateAvailable, false);
+  assert.equal(failed.configured, false);
+  assert.equal(failed.repository, null);
+  assert.equal(failed.workflowUrl, null);
+  assert.match(failed.error ?? "", /503/);
+
+  const route = await readFile(
+    new URL("../src/app/api/admin/update/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /requireAdmin\(\{ fresh: true \}\)/);
+  assert.match(route, /"Cache-Control": "no-store"/);
 });
 
 test("manual update workflow verifies without write credentials before a sealed push", async () => {
@@ -1161,6 +1228,10 @@ test("manual update workflow verifies without write credentials before a sealed 
     "utf8",
   );
   assert.match(workflow, /^on:\r?\n  workflow_dispatch:\s*$/m);
+  assert.match(
+    workflow,
+    /^on:\r?\n  workflow_dispatch:\r?\n\r?\npermissions:/m,
+  );
   assert.doesNotMatch(workflow, /\bschedule\s*:/);
   assert.doesNotMatch(workflow, /\bcron\s*:/);
   assert.match(workflow, /^permissions:\r?\n  contents: read$/m);
@@ -1282,12 +1353,28 @@ test("all release clients follow GitHub pagination to the 101st stable release",
     "v1.2.0",
   );
 
+  const statusFetch = paginatedReleaseFetch();
+  const statusReleases = await fetchStatusReleasePages(
+    initialUrl,
+    statusFetch.fetchImpl,
+  );
+  assert.equal(statusFetch.requested.length, 2);
+  assert.equal(selectLatestStableVersion(statusReleases), "1.2.0");
+
+  const status = await getUpdateStatus({
+    currentVersion: "1.1.0",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: paginatedReleaseFetch().fetchImpl,
+  });
+  assert.equal(status.latestVersion, "1.2.0");
+  assert.equal(status.updateAvailable, true);
 });
 
 test("all release clients inspect a full GitHub release page", async () => {
   for (const relativePath of [
     "../scripts/sharedesk-update.mjs",
     "../scripts/sharedesk-bootstrap.mjs",
+    "../src/lib/update-status.ts",
   ]) {
     const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(source, /releases\?per_page=100/, relativePath);
