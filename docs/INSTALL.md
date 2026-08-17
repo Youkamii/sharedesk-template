@@ -236,6 +236,7 @@ npm run dev
 | `DRIVE_ROOT_FOLDER_ID` | setup이 만든 ShareDesk 폴더 ID |
 | `DRIVE_STATE_FOLDER_ID` | setup이 만든 상태 폴더 ID |
 | `PUBLIC_BASE_URL` | 고정 Production origin. 예: `https://my-sharedesk.vercel.app` |
+| `SHAREDESK_GITHUB_TOKEN` | (선택) 원클릭 업데이트용 fine-grained PAT — [업데이트 안내](./UPDATE.md) 참고 |
 
 설치 실수를 줄이려면 Vercel Production에 `PUBLIC_BASE_URL=https://실제-운영-도메인`을 명시하세요. 이 값은 로컬 `.env.local`에는 넣지 않습니다. 로컬 앱 로그인은 `http://localhost:3000`으로 돌아와야 하기 때문입니다.
 
@@ -300,7 +301,7 @@ Vercel 프로젝트의 Firewall에서 아래 Rate Limit 규칙을 만들고 `Pub
 
 ## 설치 뒤 업데이트
 
-ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 새 버전이 확인되면 관리자 작업표시줄의 `업데이트`에 별을 표시합니다. 버튼을 누르면 ShareDesk 안에서 현재·최신 버전을 먼저 보여 주며, 관리자가 `업데이트 하기`를 누르고 GitHub Actions의 `Run workflow`까지 눌러야 적용을 시작합니다. 검사를 통과한 경우에만 `main`에 커밋하고, 연결된 Vercel이 다시 배포합니다.
+ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 새 버전이 확인되면 관리자 작업표시줄의 `업데이트`에 별을 표시합니다. 버튼을 누르면 ShareDesk 안에서 현재·최신 버전을 먼저 보여 줍니다. Vercel에 `SHAREDESK_GITHUB_TOKEN`을 넣어 둔 설치는 관리자가 `업데이트 하기`를 누르면 앱 안에서 바로 업데이트를 시작하고 진행 상황을 보여 줍니다. 토큰이 없는 설치는 기존처럼 GitHub Actions 화면이 열리며 `Run workflow`를 눌러 시작합니다. 어느 쪽이든 검사를 통과한 경우에만 `main`에 커밋하고, 연결된 Vercel이 다시 배포합니다.
 
 Drive 파일과 공유 상태, `.env.local`, Vercel 환경 변수는 코드 업데이트에 포함되지 않습니다. 업데이트 기능이 들어오기 전에 만든 설치본의 1회 전환과 충돌 해결은 [ShareDesk 업데이트](./UPDATE.md)를 따르세요.
 

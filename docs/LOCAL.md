@@ -40,7 +40,7 @@ npm run setup -- --prepare-env
 ```dotenv
 STORAGE_DRIVER=local
 LOCAL_STORAGE_ROOT=.devstorage
-SESSION_SECRET=로컬에서만-쓸-16자-이상의-긴-무작위-문자열
+SESSION_SECRET=로컬에서만-쓸-열여섯자-이상의-긴-무작위-문자열
 ACCESS_KEYS=내가-입력할-로컬-접속-키
 ```
 
@@ -179,6 +179,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive 운영 | setup이 받은 호스트 오프라인 토큰입니다. |
 | `DRIVE_ROOT_FOLDER_ID` | Drive 운영 | ShareDesk가 관리할 호스트 Drive 루트 ID입니다. |
 | `DRIVE_STATE_FOLDER_ID` | Drive 운영 | 루트 안의 `.sharedesk` 상태 폴더 ID입니다. |
+| `SHAREDESK_GITHUB_TOKEN` | 선택 | 원클릭 업데이트용 fine-grained PAT입니다. 로컬 `.env.local`에 넣으면 로컬에서도 원클릭 업데이트를 테스트할 수 있습니다. |
 | `SHAREDESK_SHARE_TEST_EMAIL` | 실제 검사 전용 | 공유 검사를 받을 별도 승인 Google 계정입니다. 운영 Vercel 환경에는 넣지 않습니다. |
 | `SHAREDESK_TRACE` | 개발 확인 | 비어 있지 않으면 일부 Drive 호출과 아이콘 배치 저장 시간을 서버 로그에 남깁니다. |
 

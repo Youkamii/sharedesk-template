@@ -1216,7 +1216,23 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.match(
     source,
-    /\{updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*업데이트 하기/,
+    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(\) => void startUpdate\(\)\}\s*>\s*업데이트 하기/,
+  );
+  assert.match(
+    source,
+    /\{!updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*업데이트 하기/,
+  );
+  assert.match(
+    source,
+    /updateRunActive && updateRun && \(\s*<p className=\{styles\.updateProgress\} role="status">/,
+  );
+  assert.match(
+    source,
+    /updateRun\?\.phase === "done"[\s\S]*?새로고침하면 새 버전이/,
+  );
+  assert.match(
+    source,
+    /updateRun\?\.phase === "failed"[\s\S]*?role="alert"/,
   );
   assert.match(
     source,
@@ -1232,6 +1248,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(css, /\.updateSetup \{/);
   assert.match(css, /\.updateInstruction \{/);
   assert.match(css, /\.updateError \{/);
+  assert.match(css, /\.updateProgress \{/);
 });
 
 test("desktop and folder icons keep keyboard focus and range selection wired", async () => {

@@ -191,6 +191,14 @@ type PresenceState = {
   open: boolean;
 };
 
+type UpdateRunInfo = {
+  id: number;
+  status: string; // "queued" | "in_progress" | "completed" 등 GitHub 원문
+  conclusion: string | null;
+  htmlUrl: string;
+  createdAt: string;
+};
+
 type UpdateStatusResponse = {
   currentVersion: string;
   latestVersion: string | null;
@@ -198,6 +206,8 @@ type UpdateStatusResponse = {
   repository: string | null;
   workflowUrl: string | null;
   configured: boolean;
+  canDispatch: boolean; // 저장소 + 토큰 모두 유효 → 원클릭 실행 가능
+  run: UpdateRunInfo | null;
   error?: string;
 };
 
@@ -206,6 +216,57 @@ type UpdatePanelState = {
   status: UpdateStatusResponse | null;
   loadError: string | null;
 };
+
+// 원클릭 업데이트 실행 추적 상태 (패널을 닫아도 유지).
+// starting: 디스패치 직후 GitHub run 생성 대기 / running: 워크플로 실행 중
+// deploying: 워크플로 성공 후 새 배포 반영 대기 / stalled: 오래 확인이 안 됨
+type UpdateRunState = {
+  phase: "starting" | "running" | "deploying" | "done" | "failed" | "stalled";
+  startedVersion: string;
+  targetVersion: string | null;
+  error: string | null;
+  htmlUrl: string | null;
+  startedAt: number;
+};
+
+// 폴링 결과로 실행 단계를 전이한다. 진행 단계가 아니면 손대지 않는다.
+function nextUpdateRunState(
+  prev: UpdateRunState,
+  currentVersion: string,
+  run: UpdateRunInfo | null,
+): UpdateRunState {
+  if (
+    prev.phase !== "starting" &&
+    prev.phase !== "running" &&
+    prev.phase !== "deploying"
+  ) {
+    return prev;
+  }
+  // 현재 버전이 바뀌었으면 배포까지 끝난 것이므로 어느 단계였든 완료다.
+  if (currentVersion !== prev.startedVersion) {
+    return { ...prev, phase: "done", htmlUrl: run?.htmlUrl ?? prev.htmlUrl };
+  }
+  if (run && run.status === "completed" && run.conclusion !== "success") {
+    return { ...prev, phase: "failed", htmlUrl: run.htmlUrl };
+  }
+  // 15분 넘게 완료를 못 보면 정체로 보고 수동 새로고침을 안내한다.
+  if (Date.now() - prev.startedAt > UPDATE_RUN_STALL_MS) {
+    return { ...prev, phase: "stalled", htmlUrl: run?.htmlUrl ?? prev.htmlUrl };
+  }
+  if (run && run.status === "completed") {
+    // 워크플로는 성공했지만 새 버전이 아직 반영 전 → Vercel 배포 대기
+    return prev.phase === "deploying" && prev.htmlUrl === run.htmlUrl
+      ? prev
+      : { ...prev, phase: "deploying", htmlUrl: run.htmlUrl };
+  }
+  if (run && (run.status === "queued" || run.status === "in_progress")) {
+    return prev.phase === "running" && prev.htmlUrl === run.htmlUrl
+      ? prev
+      : { ...prev, phase: "running", htmlUrl: run.htmlUrl };
+  }
+  // run이 아직 없으면 GitHub가 실행을 만드는 중 → starting 유지
+  return prev;
+}
 
 type TrashWindowState = {
   x: number;
@@ -320,6 +381,9 @@ const ROOT_DESKTOP_CORRECTION_RETRY_MS = 1_500;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
+const UPDATE_RUN_POLL_MS = 5_000;
+// 워크플로+배포가 이 시간 안에 끝나지 않으면 정체(stalled)로 안내한다.
+const UPDATE_RUN_STALL_MS = 15 * 60_000;
 const UPDATE_GUIDE_URL =
   "https://github.com/Youkamii/sharedesk-template/blob/main/docs/UPDATE.md";
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
@@ -609,6 +673,10 @@ export default function FilesView({
   const updateDialogOpenerRef = useRef<HTMLElement | null>(null);
   const updateControllerRef = useRef<AbortController | null>(null);
   const updateRequestIdRef = useRef(0);
+  // 원클릭 실행 전용 — 패널 닫기(closeUpdatePanel)가 위 ref를 abort해도 진행 폴링은 살아야 한다.
+  const updateRunControllerRef = useRef<AbortController | null>(null);
+  const updateRunRequestIdRef = useRef(0);
+  const updateRunRef = useRef<UpdateRunState | null>(null);
   const presenceControllerRef = useRef<AbortController | null>(null);
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
@@ -696,6 +764,7 @@ export default function FilesView({
   const [updateStatus, setUpdateStatus] =
     useState<UpdateStatusResponse | null>(null);
   const [updatePanel, setUpdatePanel] = useState<UpdatePanelState | null>(null);
+  const [updateRun, setUpdateRun] = useState<UpdateRunState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
   const [folderNoteWindow, setFolderNoteWindow] =
@@ -741,6 +810,7 @@ export default function FilesView({
   previewWindowRef.current = previewWindow;
   folderNoteWindowRef.current = folderNoteWindow;
   transientPositionsRef.current = transientPositions;
+  updateRunRef.current = updateRun;
   const rootDesktopLayout = useMemo(
     () => normalizeRootDesktopLayout(rootData.entries, rootData.positions),
     [rootData.entries, rootData.positions],
@@ -748,6 +818,12 @@ export default function FilesView({
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
   const updateAvailable = Boolean(updateStatus?.updateAvailable);
+  // 진행 폴링과 버튼 잠금이 함께 쓰는 "실행이 아직 달리는 중" 판정
+  const updateRunActive =
+    updateRun !== null &&
+    (updateRun.phase === "starting" ||
+      updateRun.phase === "running" ||
+      updateRun.phase === "deploying");
 
   const fetchFolder = useCallback(
     async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
@@ -1265,6 +1341,7 @@ export default function FilesView({
       folderNoteSaveControllerRef.current?.abort();
       searchControllerRef.current?.abort();
       updateControllerRef.current?.abort();
+      updateRunControllerRef.current?.abort();
       for (const node of saveQueueRef.current.values()) {
         node.controller?.abort();
       }
@@ -1601,6 +1678,87 @@ export default function FilesView({
       }
     };
   }, [isAdmin, router]);
+
+  // 원클릭 업데이트 진행 폴링. 패널이 닫혀도 실행이 끝날 때까지 이어간다.
+  useEffect(() => {
+    if (!updateRunActive) return;
+
+    const poll = async () => {
+      updateRunControllerRef.current?.abort();
+      const controller = new AbortController();
+      const requestId = updateRunRequestIdRef.current + 1;
+      updateRunControllerRef.current = controller;
+      updateRunRequestIdRef.current = requestId;
+      try {
+        const response = await fetch("/api/admin/update?scope=run", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          router.replace("/");
+          return;
+        }
+        // 403·일시 오류는 조용히 넘기고 다음 주기에 다시 확인한다.
+        const body = await response.json().catch(() => null);
+        if (!response.ok || !body) return;
+        if (
+          updateRunRequestIdRef.current !== requestId ||
+          updateRunControllerRef.current !== controller
+        ) {
+          return;
+        }
+        const payload = body as {
+          currentVersion: string;
+          run: UpdateRunInfo | null;
+        };
+        const prevRun = updateRunRef.current;
+        if (!prevRun) return;
+        const nextRun = nextUpdateRunState(
+          prevRun,
+          payload.currentVersion,
+          payload.run,
+        );
+        const done = nextRun.phase === "done";
+        setUpdateRun(nextRun);
+        // 트레이 ★과 패널의 현재 버전 표시를 최신 배포 버전에 맞춘다.
+        setUpdateStatus((prev) =>
+          prev && (prev.currentVersion !== payload.currentVersion || done)
+            ? {
+                ...prev,
+                currentVersion: payload.currentVersion,
+                updateAvailable: done ? false : prev.updateAvailable,
+              }
+            : prev,
+        );
+        setUpdatePanel((prev) =>
+          prev?.status &&
+          (prev.status.currentVersion !== payload.currentVersion || done)
+            ? {
+                ...prev,
+                status: {
+                  ...prev.status,
+                  currentVersion: payload.currentVersion,
+                  updateAvailable: done
+                    ? false
+                    : prev.status.updateAvailable,
+                },
+              }
+            : prev,
+        );
+      } catch {
+        // 폴링 한 번의 실패는 다음 주기에 재시도한다.
+      } finally {
+        if (updateRunControllerRef.current === controller) {
+          updateRunControllerRef.current = null;
+        }
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), UPDATE_RUN_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [updateRunActive, router]);
 
   useEffect(() => {
     if (!previewFocusRequest) return;
@@ -5211,6 +5369,25 @@ export default function FilesView({
       }
       setUpdateStatus(status);
       setUpdatePanel({ loading: false, status, loadError: null });
+      // 다른 기기·이전 세션에서 시작한 실행이 달리는 중이면 진행 표시를 이어받는다.
+      const activeRun = status.run;
+      if (
+        status.canDispatch &&
+        activeRun &&
+        (activeRun.status === "queued" || activeRun.status === "in_progress")
+      ) {
+        setUpdateRun(
+          (prev) =>
+            prev ?? {
+              phase: "running",
+              startedVersion: status.currentVersion,
+              targetVersion: status.latestVersion,
+              error: null,
+              htmlUrl: activeRun.htmlUrl,
+              startedAt: Date.now(),
+            },
+        );
+      }
     } catch (error) {
       if (
         controller.signal.aborted ||
@@ -5228,6 +5405,61 @@ export default function FilesView({
     } finally {
       if (updateControllerRef.current === controller) {
         updateControllerRef.current = null;
+      }
+    }
+  }
+
+  // 원클릭 업데이트 시작: 서버가 GitHub 워크플로를 실행하고, 이후 진행은 폴링이 이어받는다.
+  async function startUpdate() {
+    const status = updatePanel?.status ?? updateStatus;
+    if (!status) return;
+    updateRunControllerRef.current?.abort();
+    const controller = new AbortController();
+    const requestId = updateRunRequestIdRef.current + 1;
+    updateRunControllerRef.current = controller;
+    updateRunRequestIdRef.current = requestId;
+    try {
+      await apiJson<{ ok: boolean; workflowUrl: string | null }>(
+        "/api/admin/update",
+        {
+          method: "POST",
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      );
+      if (
+        updateRunRequestIdRef.current !== requestId ||
+        updateRunControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdateRun({
+        phase: "starting",
+        startedVersion: status.currentVersion,
+        targetVersion: status.latestVersion,
+        error: null,
+        htmlUrl: null,
+        startedAt: Date.now(),
+      });
+    } catch (error) {
+      if (
+        controller.signal.aborted ||
+        updateRunRequestIdRef.current !== requestId ||
+        updateRunControllerRef.current !== controller
+      ) {
+        return;
+      }
+      setUpdateRun({
+        phase: "failed",
+        startedVersion: status.currentVersion,
+        targetVersion: status.latestVersion,
+        error: errorMessage(error, "업데이트를 시작하지 못했습니다"),
+        htmlUrl: null,
+        startedAt: Date.now(),
+      });
+    } finally {
+      if (updateRunControllerRef.current === controller) {
+        updateRunControllerRef.current = null;
       }
     }
   }
@@ -7490,7 +7722,64 @@ export default function FilesView({
                       </a>
                     </div>
                   )}
-                  {updatePanel.status.configured &&
+                  {/* 원클릭 경로: 토큰이 설정된 설치는 이 창 안에서 실행·진행·완료를 모두 처리한다 */}
+                  {updatePanel.status.canDispatch &&
+                    updatePanel.status.updateAvailable &&
+                    !updateRun && (
+                      <p className={styles.updateInstruction}>
+                        업데이트 하기를 누르면 ShareDesk가 업데이트를 시작하고
+                        이 창에 진행 상황을 보여 줍니다.
+                      </p>
+                    )}
+                  {updateRunActive && updateRun && (
+                    <p className={styles.updateProgress} role="status">
+                      <span>
+                        {updateRun.phase === "starting"
+                          ? "업데이트를 시작하고 있습니다"
+                          : updateRun.phase === "running"
+                            ? "업데이트를 적용하고 있습니다. 몇 분 걸릴 수 있습니다"
+                            : "새 버전을 배포하고 있습니다. 잠시 뒤 자동으로 확인됩니다"}
+                      </span>
+                      <span
+                        className={styles.loadingPixels}
+                        aria-hidden="true"
+                      >
+                        ···
+                      </span>
+                    </p>
+                  )}
+                  {updateRun?.phase === "done" && (
+                    <p className={styles.updateSummary} role="status">
+                      업데이트가 끝났습니다. 새로고침하면 새 버전이
+                      적용됩니다.
+                    </p>
+                  )}
+                  {updateRun?.phase === "failed" && (
+                    <div className={styles.updateError} role="alert">
+                      <span>
+                        {updateRun.error ??
+                          "업데이트에 실패했습니다. 잠시 후 다시 시도해 주세요."}
+                      </span>{" "}
+                      {updateRun.htmlUrl && (
+                        <a
+                          href={updateRun.htmlUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          자세한 기록 보기
+                        </a>
+                      )}
+                    </div>
+                  )}
+                  {updateRun?.phase === "stalled" && (
+                    <p className={styles.updateError} role="status">
+                      반영 확인이 늦어지고 있습니다. 잠시 후 새로고침으로
+                      확인해 주세요.
+                    </p>
+                  )}
+                  {/* 폴백: 토큰이 없는 설치는 기존 GitHub Run workflow 경로를 안내한다 */}
+                  {!updatePanel.status.canDispatch &&
+                    updatePanel.status.configured &&
                     updatePanel.status.updateAvailable &&
                     updatePanel.status.workflowUrl && (
                       <p className={styles.updateInstruction}>
@@ -7499,7 +7788,26 @@ export default function FilesView({
                         업데이트가 시작됩니다.
                       </p>
                     )}
-                  {updatePanel.status.configured &&
+                  {!updatePanel.status.canDispatch &&
+                    updatePanel.status.configured &&
+                    updatePanel.status.updateAvailable && (
+                      <div className={styles.updateSetup}>
+                        <strong>원클릭 업데이트도 켤 수 있습니다.</strong>
+                        <span>
+                          Vercel 환경 변수에 SHAREDESK_GITHUB_TOKEN을 추가하면
+                          이 창에서 바로 업데이트할 수 있습니다.
+                        </span>
+                        <a
+                          href={UPDATE_GUIDE_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          원클릭 업데이트 설정 안내 열기
+                        </a>
+                      </div>
+                    )}
+                  {!updatePanel.status.canDispatch &&
+                    updatePanel.status.configured &&
                     updatePanel.status.updateAvailable &&
                     !updatePanel.status.workflowUrl && (
                       <p className={styles.updateError} role="alert">
@@ -7515,11 +7823,47 @@ export default function FilesView({
                     <button
                       type="button"
                       className={styles.secondaryButton}
+                      disabled={updateRunActive}
                       onClick={() => void loadUpdateStatus()}
                     >
                       다시 확인
                     </button>
-                    {updatePanel.status.configured &&
+                    {updatePanel.status.canDispatch &&
+                      updatePanel.status.updateAvailable &&
+                      !updateRun && (
+                        <button
+                          type="button"
+                          className={styles.primaryButton}
+                          onClick={() => void startUpdate()}
+                        >
+                          업데이트 하기
+                        </button>
+                      )}
+                    {updateRun?.phase === "failed" && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => {
+                          setUpdateRun(null);
+                          void startUpdate();
+                        }}
+                      >
+                        다시 시도
+                      </button>
+                    )}
+                    {/* 편집 초안 보호(beforeunload 가드) 때문에 자동 reload 대신 버튼으로만 새로고침한다 */}
+                    {(updateRun?.phase === "done" ||
+                      updateRun?.phase === "stalled") && (
+                      <button
+                        type="button"
+                        className={styles.primaryButton}
+                        onClick={() => window.location.reload()}
+                      >
+                        새로고침
+                      </button>
+                    )}
+                    {!updatePanel.status.canDispatch &&
+                      updatePanel.status.configured &&
                       updatePanel.status.updateAvailable &&
                       updatePanel.status.workflowUrl && (
                         <button

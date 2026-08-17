@@ -26,9 +26,12 @@ import {
 } from "../scripts/sharedesk-bootstrap.mjs";
 import {
   compareSemver,
+  dispatchUpdateWorkflow,
   fetchGitHubReleasePages as fetchStatusReleasePages,
+  fetchLatestUpdateRun,
   getUpdateStatus,
   resolveUpdateRepository,
+  resolveUpdateToken,
   selectLatestStableVersion,
 } from "../src/lib/update-status";
 
@@ -1187,6 +1190,8 @@ test("update status reports the installed workflow and handles GitHub errors", a
     workflowUrl:
       "https://github.com/acme/sharedesk/actions/workflows/sharedesk-update.yml",
     configured: true,
+    canDispatch: false,
+    run: null,
   });
 
   let requestedUrl = "";
@@ -1220,6 +1225,248 @@ test("update status reports the installed workflow and handles GitHub errors", a
   );
   assert.match(route, /requireAdmin\(\{ fresh: true \}\)/);
   assert.match(route, /"Cache-Control": "no-store"/);
+});
+
+test("update token resolution rejects missing and padded values", () => {
+  assert.deepEqual(resolveUpdateToken({}), {
+    token: null,
+    configured: false,
+    error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
+  });
+  assert.deepEqual(resolveUpdateToken({ SHAREDESK_GITHUB_TOKEN: "" }), {
+    token: null,
+    configured: false,
+    error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
+  });
+  assert.deepEqual(resolveUpdateToken({ SHAREDESK_GITHUB_TOKEN: " token " }), {
+    token: null,
+    configured: false,
+    error: "SHAREDESK_GITHUB_TOKEN 값이 올바르지 않습니다.",
+  });
+  assert.deepEqual(
+    resolveUpdateToken({ SHAREDESK_GITHUB_TOKEN: "github_pat_test" }),
+    { token: "github_pat_test", configured: true },
+  );
+});
+
+test("workflow dispatch sends one authenticated POST to the update workflow", async () => {
+  const requests: Array<{
+    url: string;
+    method?: string;
+    headers: Record<string, string>;
+    body?: string;
+  }> = [];
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      method: init?.method,
+      headers: { ...(init?.headers as Record<string, string>) },
+      body: typeof init?.body === "string" ? init.body : undefined,
+    });
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+
+  const result = await dispatchUpdateWorkflow({
+    env: {
+      SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+      SHAREDESK_GITHUB_TOKEN: "github_pat_test",
+    },
+    fetchImpl,
+  });
+  assert.deepEqual(result, {
+    ok: true,
+    repository: "acme/sharedesk",
+    workflowUrl:
+      "https://github.com/acme/sharedesk/actions/workflows/sharedesk-update.yml",
+  });
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://api.github.com/repos/acme/sharedesk/actions/workflows/sharedesk-update.yml/dispatches",
+  );
+  assert.equal(requests[0].method, "POST");
+  assert.equal(requests[0].headers.Authorization, "Bearer github_pat_test");
+  assert.equal(requests[0].body, '{"ref":"main"}');
+});
+
+test("workflow dispatch refuses to run without a token and never calls GitHub", async () => {
+  let fetched = false;
+  const fetchImpl = (async () => {
+    fetched = true;
+    return new Response(null, { status: 204 });
+  }) as typeof fetch;
+
+  const result = await dispatchUpdateWorkflow({
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl,
+  });
+  assert.deepEqual(result, {
+    ok: false,
+    status: 409,
+    error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
+  });
+  assert.equal(fetched, false);
+});
+
+test("workflow dispatch maps GitHub failures to Korean errors without leaking the token", async () => {
+  const token = "github_pat_secret_value";
+  const env = {
+    SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+    SHAREDESK_GITHUB_TOKEN: token,
+  };
+
+  const unauthorized = await dispatchUpdateWorkflow({
+    env,
+    fetchImpl: (async () =>
+      new Response("bad credentials", { status: 401 })) as typeof fetch,
+  });
+  assert.deepEqual(unauthorized, {
+    ok: false,
+    status: 502,
+    error:
+      "GitHub 토큰이 유효하지 않습니다. SHAREDESK_GITHUB_TOKEN을 확인해 주세요.",
+  });
+
+  const missing = await dispatchUpdateWorkflow({
+    env,
+    fetchImpl: (async () =>
+      new Response("not found", { status: 404 })) as typeof fetch,
+  });
+  assert.deepEqual(missing, {
+    ok: false,
+    status: 502,
+    error:
+      "워크플로를 찾을 수 없습니다. 저장소 설정 또는 토큰의 저장소 접근 권한을 확인해 주세요.",
+  });
+
+  assert.equal(JSON.stringify(unauthorized).includes(token), false);
+  assert.equal(JSON.stringify(missing).includes(token), false);
+});
+
+test("latest run lookup parses the newest dispatch run and treats an empty list as no run", async () => {
+  const env = {
+    SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+    SHAREDESK_GITHUB_TOKEN: "github_pat_test",
+  };
+  const requested: string[] = [];
+  const found = await fetchLatestUpdateRun({
+    env,
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      requested.push(String(input));
+      return Response.json({
+        workflow_runs: [
+          {
+            id: 42,
+            status: "in_progress",
+            conclusion: null,
+            html_url: "https://github.com/acme/sharedesk/actions/runs/42",
+            created_at: "2026-08-17T00:00:00Z",
+          },
+        ],
+      });
+    }) as typeof fetch,
+  });
+  assert.deepEqual(found, {
+    ok: true,
+    run: {
+      id: 42,
+      status: "in_progress",
+      conclusion: null,
+      htmlUrl: "https://github.com/acme/sharedesk/actions/runs/42",
+      createdAt: "2026-08-17T00:00:00Z",
+    },
+  });
+  assert.deepEqual(requested, [
+    "https://api.github.com/repos/acme/sharedesk/actions/workflows/sharedesk-update.yml/runs?event=workflow_dispatch&branch=main&per_page=1",
+  ]);
+
+  const empty = await fetchLatestUpdateRun({
+    env,
+    fetchImpl: (async () =>
+      Response.json({ workflow_runs: [] })) as typeof fetch,
+  });
+  assert.deepEqual(empty, { ok: true, run: null });
+});
+
+test("update status reports dispatch readiness and the latest run when a token is set", async () => {
+  const env = {
+    SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+    SHAREDESK_GITHUB_TOKEN: "github_pat_test",
+  };
+  const status = await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env,
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      if (String(input).includes("/actions/workflows/")) {
+        return Response.json({
+          workflow_runs: [
+            {
+              id: 7,
+              status: "completed",
+              conclusion: "success",
+              html_url: "https://github.com/acme/sharedesk/actions/runs/7",
+              created_at: "2026-08-17T00:00:00Z",
+            },
+          ],
+        });
+      }
+      return Response.json([
+        { tag_name: "v1.1.0", draft: false, prerelease: false },
+      ]);
+    }) as typeof fetch,
+  });
+  assert.equal(status.canDispatch, true);
+  assert.deepEqual(status.run, {
+    id: 7,
+    status: "completed",
+    conclusion: "success",
+    htmlUrl: "https://github.com/acme/sharedesk/actions/runs/7",
+    createdAt: "2026-08-17T00:00:00Z",
+  });
+  assert.equal(status.error, undefined);
+
+  const degraded = await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env,
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      if (String(input).includes("/actions/workflows/")) {
+        return new Response("boom", { status: 500 });
+      }
+      return Response.json([
+        { tag_name: "v1.1.0", draft: false, prerelease: false },
+      ]);
+    }) as typeof fetch,
+  });
+  assert.equal(degraded.canDispatch, true);
+  assert.equal(degraded.run, null);
+  assert.match(degraded.error ?? "", /GitHub 응답 500/);
+});
+
+test("the admin update route exposes a guarded dispatch POST and a run scope", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/admin/update/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /export async function POST/);
+  const postSource = route.slice(route.indexOf("export async function POST"));
+  assert.match(postSource, /requireAdmin\(\{ fresh: true \}\)/);
+  assert.match(route, /searchParams\.get\("scope"\) === "run"/);
+});
+
+test("the files view wires the one-click update flow", async () => {
+  const filesView = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  for (const pattern of [
+    /updateRunControllerRef/,
+    /startUpdate/,
+    /scope=run/,
+    /UPDATE_RUN_POLL_MS/,
+    /window\.location\.reload/,
+  ]) {
+    assert.match(filesView, pattern);
+  }
 });
 
 test("manual update workflow verifies without write credentials before a sealed push", async () => {
@@ -1368,6 +1615,8 @@ test("all release clients follow GitHub pagination to the 101st stable release",
   });
   assert.equal(status.latestVersion, "1.2.0");
   assert.equal(status.updateAvailable, true);
+  assert.equal(status.canDispatch, false);
+  assert.equal(status.run, null);
 });
 
 test("all release clients inspect a full GitHub release page", async () => {

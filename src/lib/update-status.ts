@@ -5,6 +5,14 @@ export const UPDATE_WORKFLOW_PATH = ".github/workflows/sharedesk-update.yml";
 
 type Environment = Record<string, string | undefined>;
 
+export interface UpdateRun {
+  id: number;
+  status: string;
+  conclusion: string | null;
+  htmlUrl: string;
+  createdAt: string;
+}
+
 export interface UpdateStatus {
   currentVersion: string;
   latestVersion: string | null;
@@ -12,6 +20,8 @@ export interface UpdateStatus {
   repository: string | null;
   workflowUrl: string | null;
   configured: boolean;
+  canDispatch: boolean;
+  run: UpdateRun | null;
   error?: string;
 }
 
@@ -139,6 +149,184 @@ export function getUpdateWorkflowUrl(repository: string): string {
   return `https://github.com/${repository}/actions/workflows/sharedesk-update.yml`;
 }
 
+export function resolveUpdateToken(env: Environment = process.env):
+  | { token: string; configured: true; error?: undefined }
+  | { token: null; configured: false; error: string } {
+  const value = env.SHAREDESK_GITHUB_TOKEN;
+  if (!value || !value.trim()) {
+    return {
+      token: null,
+      configured: false,
+      error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
+    };
+  }
+  if (value !== value.trim()) {
+    return {
+      token: null,
+      configured: false,
+      error: "SHAREDESK_GITHUB_TOKEN 값이 올바르지 않습니다.",
+    };
+  }
+  return { token: value, configured: true };
+}
+
+function workflowApiError(status: number): string {
+  if (status === 401) {
+    return "GitHub 토큰이 유효하지 않습니다. SHAREDESK_GITHUB_TOKEN을 확인해 주세요.";
+  }
+  if (status === 403) {
+    return "GitHub 토큰에 워크플로 실행 권한이 없습니다.";
+  }
+  if (status === 404) {
+    return "워크플로를 찾을 수 없습니다. 저장소 설정 또는 토큰의 저장소 접근 권한을 확인해 주세요.";
+  }
+  return `GitHub 응답 ${status}`;
+}
+
+export async function dispatchUpdateWorkflow(options?: {
+  env?: Environment;
+  fetchImpl?: typeof fetch;
+}): Promise<
+  | { ok: true; repository: string; workflowUrl: string }
+  | { ok: false; status: number; error: string }
+> {
+  const resolved = resolveUpdateRepository(options?.env);
+  if (!resolved.configured) {
+    return { ok: false, status: 409, error: resolved.error };
+  }
+  const token = resolveUpdateToken(options?.env);
+  if (!token.configured) {
+    return { ok: false, status: 409, error: token.error };
+  }
+
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `https://api.github.com/repos/${resolved.repository}/actions/workflows/sharedesk-update.yml/dispatches`,
+      {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          Authorization: `Bearer ${token.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ref: "main" }),
+      },
+    );
+  } catch {
+    return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
+  }
+  if (response.status !== 204) {
+    return { ok: false, status: 502, error: workflowApiError(response.status) };
+  }
+  return {
+    ok: true,
+    repository: resolved.repository,
+    workflowUrl: getUpdateWorkflowUrl(resolved.repository),
+  };
+}
+
+interface GitHubWorkflowRun {
+  id?: unknown;
+  status?: unknown;
+  conclusion?: unknown;
+  html_url?: unknown;
+  created_at?: unknown;
+}
+
+function parseUpdateRun(value: unknown): UpdateRun | null {
+  if (typeof value !== "object" || value === null) return null;
+  const run = value as GitHubWorkflowRun;
+  if (
+    typeof run.id !== "number" ||
+    typeof run.status !== "string" ||
+    typeof run.html_url !== "string" ||
+    typeof run.created_at !== "string" ||
+    !(run.conclusion == null || typeof run.conclusion === "string")
+  ) {
+    return null;
+  }
+  return {
+    id: run.id,
+    status: run.status,
+    conclusion: run.conclusion ?? null,
+    htmlUrl: run.html_url,
+    createdAt: run.created_at,
+  };
+}
+
+export async function fetchLatestUpdateRun(options?: {
+  env?: Environment;
+  fetchImpl?: typeof fetch;
+}): Promise<
+  | { ok: true; run: UpdateRun | null }
+  | { ok: false; status: number; error: string }
+> {
+  const resolved = resolveUpdateRepository(options?.env);
+  if (!resolved.configured) {
+    return { ok: false, status: 409, error: resolved.error };
+  }
+  const token = resolveUpdateToken(options?.env);
+  if (!token.configured) {
+    return { ok: false, status: 409, error: token.error };
+  }
+
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(
+      `https://api.github.com/repos/${resolved.repository}/actions/workflows/sharedesk-update.yml/runs?event=workflow_dispatch&branch=main&per_page=1`,
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          Authorization: `Bearer ${token.token}`,
+        },
+      },
+    );
+  } catch {
+    return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
+  }
+  if (!response.ok) {
+    return { ok: false, status: 502, error: workflowApiError(response.status) };
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    return {
+      ok: false,
+      status: 502,
+      error: "GitHub 워크플로 응답 형식이 올바르지 않습니다.",
+    };
+  }
+  const runs = (payload as { workflow_runs?: unknown } | null)?.workflow_runs;
+  if (!Array.isArray(runs)) {
+    return {
+      ok: false,
+      status: 502,
+      error: "GitHub 워크플로 응답 형식이 올바르지 않습니다.",
+    };
+  }
+  if (runs.length === 0) {
+    return { ok: true, run: null };
+  }
+  const run = parseUpdateRun(runs[0]);
+  if (!run) {
+    return {
+      ok: false,
+      status: 502,
+      error: "GitHub 워크플로 응답 형식이 올바르지 않습니다.",
+    };
+  }
+  return { ok: true, run };
+}
+
 export function selectLatestStableVersion(releases: unknown): string | null {
   if (!Array.isArray(releases)) return null;
 
@@ -211,6 +399,8 @@ export async function getUpdateStatus(options?: {
   const workflowUrl = resolved.repository
     ? getUpdateWorkflowUrl(resolved.repository)
     : null;
+  const canDispatch =
+    resolved.configured && resolveUpdateToken(options?.env).configured;
   const errors: string[] = [];
   if (resolved.error) errors.push(resolved.error);
 
@@ -250,6 +440,19 @@ export async function getUpdateStatus(options?: {
     }
   }
 
+  let run: UpdateRun | null = null;
+  if (canDispatch) {
+    const latestRun = await fetchLatestUpdateRun({
+      env: options?.env,
+      fetchImpl: options?.fetchImpl,
+    });
+    if (latestRun.ok) {
+      run = latestRun.run;
+    } else {
+      errors.push(latestRun.error);
+    }
+  }
+
   return {
     currentVersion,
     latestVersion,
@@ -257,6 +460,8 @@ export async function getUpdateStatus(options?: {
     repository: resolved.repository,
     workflowUrl,
     configured: resolved.configured,
+    canDispatch,
+    run,
     ...(errors.length > 0 ? { error: errors.join(" ") } : {}),
   };
 }

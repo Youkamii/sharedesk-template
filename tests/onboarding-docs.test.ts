@@ -120,6 +120,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
     "DRIVE_ROOT_FOLDER_ID",
     "DRIVE_STATE_FOLDER_ID",
     "PUBLIC_BASE_URL",
+    "SHAREDESK_GITHUB_TOKEN",
   ]);
   assert.match(productionSection, /LOCAL_STORAGE_ROOT.*운영 환경에 넣지 않습니다/);
   assert.match(productionSection, /SHAREDESK_SHARE_TEST_EMAIL.*운영 환경에 넣지 않습니다/);
