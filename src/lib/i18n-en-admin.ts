@@ -54,8 +54,10 @@ export const EN_ADMIN: Record<string, string> = {
 
   // 사용자 섹션
   "사용자": "Users",
-  "사용자 등록일, 상태, 로그인 기기와 관리 작업":
-    "User registration date, status, signed-in devices, and management actions",
+  "사용자 등록일, 상태, 역할, 로그인 기기와 관리 작업":
+    "User registration date, status, role, signed-in devices, and management actions",
+  // 역할 라벨("수정 가능" 등)과 "역할" 키는 공용 사전(en-common)에 있다.
+  "{이름} 역할 변경": "Change role for {이름}",
   "등록일": "Joined",
   "로그인 기기": "Signed-in devices",
   "아직 등록된 사용자가 없습니다": "No users registered yet",

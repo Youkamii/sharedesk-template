@@ -121,6 +121,9 @@ export const EN_FILES: Record<string, string> = {
   "메모장으로 편집": "Edit in Notepad",
   "ShareDesk에서 열기": "Open in ShareDesk",
   ".txt 파일만 여기에서 편집할 수 있습니다.": "Only .txt files can be edited here.",
+  // 역할 4단계(#80): 편집 권한이 없는 역할의 메모장·폴더 메모 읽기 전용 사유.
+  "저장 권한이 없어 읽기 전용입니다.":
+    "Read-only because you don't have permission to save.",
   "최신 버전 정보를 확인할 수 없어 읽기 전용입니다. 새로고침 후 다시 열어 주세요.":
     "Read-only because the latest version info is unavailable. Refresh and open it again.",
   "올바른 UTF-8 텍스트가 아니어서 글자가 손상될 수 있습니다. 이 화면에서는 저장할 수 없습니다.":

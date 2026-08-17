@@ -6,6 +6,7 @@
 // 그래서 만료는 길게 두고(90일), 끊는 책임은 명단 조회가 진다.
 
 import { randomUUID } from "node:crypto";
+import { resolveUserRole, type SessionRole } from "@/lib/roles";
 import { findUserById, isAdminEmail, type User } from "@/lib/users";
 import {
   Payload,
@@ -24,6 +25,9 @@ export interface SessionInfo {
   name: string;
   isAdmin: boolean;
   isGuest: boolean;
+  // 파일 권한 판정용 세션 역할 — ADMIN_EMAILS 사용자는 저장 역할과 무관하게
+  // "admin", 접속 키 손님은 "viewer", 그 외에는 users.json의 저장 역할.
+  role: SessionRole;
   presenceParticipantId: string;
   presenceLeaseId: string;
 }
@@ -102,14 +106,16 @@ export async function resolveSession(
     const user = await findUserById(claims.sub, opts);
     if (!user || user.status !== "approved") return null;
     if (!userClaimsAreCurrent(claims, user)) return null;
+    // 관리자 판정은 명단 파일이 아니라 환경변수를 진실 원천으로 삼는다.
+    // 저장소의 users.json이 어떤 이유로든 바뀌어도 권한이 따라 올라가지 않는다.
+    const isAdmin = isAdminEmail(user.email);
     return {
       userId: user.id,
       email: user.email,
       name: user.name,
-      // 관리자 판정은 명단 파일이 아니라 환경변수를 진실 원천으로 삼는다.
-      // 저장소의 users.json이 어떤 이유로든 바뀌어도 권한이 따라 올라가지 않는다.
-      isAdmin: isAdminEmail(user.email),
+      isAdmin,
       isGuest: false,
+      role: isAdmin ? "admin" : resolveUserRole(user.role),
       presenceParticipantId: `user:${user.id}`,
       presenceLeaseId:
         claims.sid ?? `legacy:${(await sha256Hex(token ?? "")).slice(0, 32)}`,
@@ -125,6 +131,7 @@ export async function resolveSession(
         name: "손님",
         isAdmin: false,
         isGuest: true,
+        role: "viewer",
         presenceParticipantId: `guest:${
           claims.sid ?? (await sha256Hex(token ?? "")).slice(0, 32)
         }`,

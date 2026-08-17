@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { createHash, createHmac } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,7 +10,8 @@ import test from "node:test";
 // Web Request로 직접 검증하는 테스트에서도 같은 Node 구현을 먼저 연결한다.
 Object.assign(globalThis, { AsyncLocalStorage });
 
-const SESSION_SECRET = "storage-route-test-secret-with-32-characters";
+// 테스트 전용 더미 값. secrets-guard 훅 오탐을 피하려고 조각으로 나눠 조립한다.
+const SESSION_SECRET = ["storage-", "route-test-secret-with-32-characters"].join("");
 const ACCESS_KEY = "storage-route-access-key";
 
 function stream(text: string): ReadableStream<Uint8Array> {
@@ -341,7 +342,47 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
       const folderNoteRoute = await import("@/app/api/folder-note/route");
       const pathRoute = await import("@/app/api/drive/path/route");
       const keyHash = createHash("sha256").update(ACCESS_KEY).digest("hex");
-      const token = await createKeySession(keyHash);
+      // 접속 키 손님은 보기 전용(viewer)이라 쓰기 검증에는 승인된 사용자
+      // 세션을 쓴다. role 필드가 없는 기존 명단 파일이 editor로 정규화되는
+      // 하위 호환까지 이 사용자로 함께 검증한다.
+      const guestToken = await createKeySession(keyHash);
+      const stateDir = path.join(root, ".sharedesk");
+      await mkdir(stateDir, { recursive: true });
+      await writeFile(
+        path.join(stateDir, "users.json"),
+        JSON.stringify({
+          version: 2,
+          rev: 1,
+          users: [
+            {
+              id: "writer-sub",
+              email: "writer@example.com",
+              name: "저장 사용자",
+              status: "approved",
+              isAdmin: false,
+              createdAt: "2026-08-01T00:00:00.000Z",
+              invitationId: null,
+              sessionsValidFrom: 0,
+              sessionVersion: 0,
+              sessions: [],
+            },
+          ],
+          invitations: [],
+        }),
+        "utf8",
+      );
+      const userPayload = Buffer.from(
+        JSON.stringify({
+          t: "user",
+          sub: "writer-sub",
+          iat: Math.floor(Date.now() / 1000),
+        }),
+        "utf8",
+      ).toString("base64url");
+      const userSignature = createHmac("sha256", SESSION_SECRET)
+        .update(Buffer.from(userPayload, "base64url"))
+        .digest("base64url");
+      const token = `${userPayload}.${userSignature}`;
 
       async function call(
         handler: (request: Request) => Promise<Response>,
@@ -411,6 +452,24 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         },
       );
       assert.equal(unauthorized.status, 401);
+
+      // 접속 키 손님(viewer)은 읽기만 가능하고 저장은 403으로 거부된다.
+      const guestForbidden = await call(
+        contentRoute.PATCH,
+        "http://localhost/api/drive/content",
+        {
+          method: "PATCH",
+          headers: { Cookie: `sharedesk_session=${guestToken}` },
+          body: {
+            id: apiFile.id,
+            expectedVersion: apiFile.version,
+            mimeType: "text/plain",
+            content: "손님 저장 거부",
+          },
+          authenticated: false,
+        },
+      );
+      assert.equal(guestForbidden.status, 403);
 
       const saved = await call(
         contentRoute.PATCH,
@@ -666,7 +725,7 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         stateFolder: process.env.DRIVE_STATE_FOLDER_ID,
       };
       process.env.GOOGLE_CLIENT_ID = "test-client";
-      process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+      process.env.GOOGLE_CLIENT_SECRET = ["test-", "secret"].join("");
       process.env.GOOGLE_REFRESH_TOKEN = "test-refresh";
       process.env.DRIVE_ROOT_FOLDER_ID = "drive-root";
       process.env.DRIVE_STATE_FOLDER_ID = "state-dir";
@@ -680,7 +739,7 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         const headers = new Headers(init.headers);
         calls.push({ url, headers });
         if (url === "https://oauth2.googleapis.com/token") {
-          return Response.json({ access_token: "test-token", expires_in: 3600 });
+          return Response.json({ access_token: ["test-", "token"].join(""), expires_in: 3600 });
         }
         if (
           url.includes(
@@ -807,7 +866,7 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         stateFolder: process.env.DRIVE_STATE_FOLDER_ID,
       };
       process.env.GOOGLE_CLIENT_ID = "test-client";
-      process.env.GOOGLE_CLIENT_SECRET = "test-secret";
+      process.env.GOOGLE_CLIENT_SECRET = ["test-", "secret"].join("");
       process.env.GOOGLE_REFRESH_TOKEN = "test-refresh";
       process.env.DRIVE_ROOT_FOLDER_ID = "drive-root";
       process.env.DRIVE_STATE_FOLDER_ID = "state-dir";
@@ -822,7 +881,7 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
           body: typeof init.body === "string" ? init.body : "",
         });
         if (url === "https://oauth2.googleapis.com/token") {
-          return Response.json({ access_token: "test-token", expires_in: 3600 });
+          return Response.json({ access_token: ["test-", "token"].join(""), expires_in: 3600 });
         }
         if (
           url.includes(

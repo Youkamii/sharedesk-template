@@ -26,6 +26,7 @@ export default async function FilesPage() {
       userEmail={session.email}
       isAdmin={session.isAdmin}
       isGuest={session.isGuest}
+      role={session.role}
       canSendFeedback={!session.isGuest && isOwnerRegistryConfigured()}
       locale={locale}
     />
