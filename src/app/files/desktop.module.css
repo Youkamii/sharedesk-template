@@ -1798,6 +1798,51 @@
   text-decoration: none;
 }
 
+.feedbackTrayButton {
+  width: 40px;
+  padding: 0;
+  background: #2d5c5b;
+  box-shadow: inset 2px 2px 0 #61b3a6, inset -2px -2px 0 #173837, 2px 2px 0 #070b16;
+}
+
+.feedbackTrayButton:hover,
+.feedbackTrayButton[aria-expanded="true"] {
+  background: #3d716d;
+}
+
+.feedbackMailIcon {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 14px;
+  flex: none;
+  background: #fff4d2;
+  border: 2px solid #0a1020;
+  box-shadow: 1px 1px 0 rgb(7 11 22 / 55%);
+}
+
+.feedbackMailIcon::before,
+.feedbackMailIcon::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  width: 8px;
+  height: 2px;
+  background: #0a1020;
+}
+
+.feedbackMailIcon::before {
+  left: 1px;
+  transform: rotate(35deg);
+  transform-origin: left center;
+}
+
+.feedbackMailIcon::after {
+  right: 1px;
+  transform: rotate(-35deg);
+  transform-origin: right center;
+}
+
 .updateTrayButton {
   gap: 4px;
   color: #fff4d2;
@@ -1944,6 +1989,103 @@
   border: 2px solid #4f4853;
   box-shadow: inset 2px 2px 0 #b9aa8e;
   user-select: text;
+}
+
+.feedbackDialog {
+  width: min(540px, 100%);
+}
+
+.feedbackTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedbackTitle .feedbackMailIcon {
+  width: 16px;
+  height: 12px;
+  background: #ffd27d;
+}
+
+.feedbackForm {
+  min-height: 0;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 13px;
+  padding: 18px;
+}
+
+.dialogBody .feedbackSender {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #214746;
+  background: #b9e1cf;
+  border: 2px solid #2d5c5b;
+  font-size: 11px;
+}
+
+.feedbackSender strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.feedbackSender small {
+  color: #315957;
+}
+
+.feedbackForm .feedbackField {
+  gap: 6px;
+  font-weight: 700;
+}
+
+.feedbackMessage {
+  width: 100%;
+  min-height: 150px;
+  padding: 9px 10px;
+  resize: none;
+  color: #1b1b2f;
+  background: #fff8e7;
+  border: 2px solid #4f4853;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #b9aa8e;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.dialogBody .feedbackError {
+  display: flex;
+  width: 100%;
+  flex-direction: row;
+  gap: 8px;
+  padding: 8px 10px;
+  color: #fff8e7;
+  background: #a53c46;
+  border: 2px solid #632439;
+}
+
+.feedbackFooter {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedbackCounter {
+  color: #666b78;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+
+.feedbackFooter .dialogActions {
+  width: auto;
+  margin-top: 0;
 }
 
 .dialogActions {

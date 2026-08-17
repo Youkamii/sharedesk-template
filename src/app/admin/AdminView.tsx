@@ -1,8 +1,15 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@/lib/users";
+import styles from "./admin.module.css";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
 type InvitationUsageMode = "once" | "unlimited";
@@ -26,6 +33,14 @@ type LastInvitationAccess = {
   code: string;
 };
 
+interface OwnerRegistryStatus {
+  enabled: boolean;
+  version: string;
+  site: string | null;
+  repository: string | null;
+  error: string | null;
+}
+
 const STATUS_LABEL: Record<User["status"], string> = {
   pending: "코드 입력 대기",
   approved: "승인됨",
@@ -33,10 +48,9 @@ const STATUS_LABEL: Record<User["status"], string> = {
 };
 
 const STATUS_STYLE: Record<User["status"], string> = {
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
-  approved:
-    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
-  blocked: "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300",
+  pending: styles.statusPending,
+  approved: styles.statusApproved,
+  blocked: styles.statusBlocked,
 };
 
 const INVITE_LABEL: Record<InvitationState, string> = {
@@ -47,11 +61,10 @@ const INVITE_LABEL: Record<InvitationState, string> = {
 };
 
 const INVITE_STYLE: Record<InvitationState, string> = {
-  active:
-    "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300",
-  inactive: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
-  used: "bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
-  expired: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
+  active: styles.statusApproved,
+  inactive: styles.statusInactive,
+  used: styles.statusUsed,
+  expired: styles.statusPending,
 };
 
 const USAGE_MODE_LABEL: Record<InvitationUsageMode, string> = {
@@ -86,6 +99,9 @@ export default function AdminView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [lastAccess, setLastAccess] = useState<LastInvitationAccess | null>(null);
+  const [ownerRegistry, setOwnerRegistry] =
+    useState<OwnerRegistryStatus | null>(null);
+  const [ownerRegistryBusy, setOwnerRegistryBusy] = useState(false);
   const [inviteForm, setInviteForm] = useState({
     expiresInMinutes: 1_440,
     usageMode: "once" as InvitationUsageMode,
@@ -145,6 +161,86 @@ export default function AdminView() {
     const initial = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(initial);
   }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void fetch("/api/admin/owner-registry", {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (response.status === 401 || response.status === 403) {
+            router.replace("/files");
+            return null;
+          }
+          const body = (await response.json().catch(() => null)) as
+            | OwnerRegistryStatus
+            | { error?: string }
+            | null;
+          if (!response.ok || !body || !("enabled" in body)) {
+            throw new Error(body?.error ?? "설치 등록부 상태를 확인하지 못했습니다");
+          }
+          return body;
+        })
+        .then((status) => {
+          if (status) setOwnerRegistry(status);
+        })
+        .catch((caught) => {
+          if (caught instanceof DOMException && caught.name === "AbortError") return;
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "설치 등록부 상태를 확인하지 못했습니다",
+          );
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [router]);
+
+  async function recordCurrentInstallation() {
+    if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
+    setOwnerRegistryBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/owner-registry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/files");
+        return;
+      }
+      const body = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        created?: boolean;
+        error?: string;
+        status?: OwnerRegistryStatus;
+      } | null;
+      if (!response.ok || body?.ok !== true) {
+        throw new Error(body?.error ?? "현재 설치 정보를 등록하지 못했습니다");
+      }
+      if (body.status) setOwnerRegistry(body.status);
+      setNotice(
+        body.created
+          ? `ShareDesk ${ownerRegistry.version} 설치 정보를 등록했습니다.`
+          : `ShareDesk ${ownerRegistry.version} 기록을 갱신했습니다.`,
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "현재 설치 정보를 등록하지 못했습니다",
+      );
+    } finally {
+      setOwnerRegistryBusy(false);
+    }
+  }
 
   function beginMutation(operationId: string): boolean {
     if (mutationInFlightRef.current) return false;
@@ -296,412 +392,466 @@ export default function AdminView() {
     }
   }
 
-  const buttonClass =
-    "whitespace-nowrap rounded px-2 py-1 text-xs text-zinc-600 hover:bg-black/5 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-white/10";
-  const inputClass =
-    "w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none focus:border-blue-500 dark:border-white/15";
+  const buttonClass = styles.pixelButton;
+  const inputClass = styles.select;
   const pending = users.filter((user) => user.status === "pending");
 
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-black/10 px-6 py-3 dark:border-white/15">
-        <h1 className="text-lg font-semibold tracking-tight">사용자 및 초대 관리</h1>
-        <a
-          href="/files"
-          className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-        >
-          파일로 돌아가기
-        </a>
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div className={styles.headingGroup}>
+          <span className={styles.brandMark} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <div>
+            <p className={styles.eyebrow}>SHAREDESK / ADMIN TOOL</p>
+            <h1 className={styles.pageTitle}>사용자 및 초대 관리</h1>
+          </div>
+        </div>
+        <div className={styles.headerActions}>
+          <span
+            className={styles.registryControl}
+            title={ownerRegistry?.error ?? undefined}
+          >
+            <span
+              className={`${styles.registryLamp} ${ownerRegistry?.enabled ? styles.registryLampOn : ""}`}
+              aria-hidden="true"
+            />
+            {ownerRegistry?.enabled ? (
+              <button
+                type="button"
+                className={styles.registryButton}
+                disabled={ownerRegistryBusy}
+                onClick={() => void recordCurrentInstallation()}
+              >
+                {ownerRegistryBusy ? "등록 중…" : "현재 설치 등록"}
+              </button>
+            ) : (
+              <span className={styles.registryLabel}>
+                {ownerRegistry?.error ?? "등록부 확인 중"}
+              </span>
+            )}
+          </span>
+          <a href="/files" className={styles.headerLink}>
+            <span aria-hidden="true">←</span>
+            파일로 돌아가기
+          </a>
+        </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl flex-1 space-y-8 px-6 py-6">
+      <main className={styles.main}>
         {pending.length > 0 && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <p
+            className={`${styles.message} ${styles.warningMessage}`}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span className={styles.messageMark} aria-hidden="true">!</span>
             초대 코드 입력을 기다리는 사용자가 {pending.length}명 있습니다.
           </p>
         )}
-        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        {error && (
+          <p
+            className={`${styles.message} ${styles.errorMessage}`}
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+          >
+            <span className={styles.messageMark} aria-hidden="true">×</span>
+            {error}
+          </p>
+        )}
         {notice && (
-          <p className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:bg-blue-950/30 dark:text-blue-200">
+          <p
+            className={`${styles.message} ${styles.noticeMessage}`}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span className={styles.messageMark} aria-hidden="true">✓</span>
             {notice}
           </p>
         )}
 
         <section aria-labelledby="invite-title">
-          <div className="mb-3">
-            <h2 id="invite-title" className="text-base font-semibold">
-              초대 코드
-            </h2>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <div className={styles.window}>
+            <header className={styles.windowTitlebar}>
+              <span className={styles.windowTitle}>
+                <span className={styles.inviteGlyph} aria-hidden="true" />
+                <h2 id="invite-title">초대 코드</h2>
+              </span>
+              <span className={styles.windowMeta} aria-hidden="true">INVITES</span>
+            </header>
+            <div className={styles.windowBody}>
+              <p id="invite-description" className={styles.description}>
               받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인
               사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면
               소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이
               함께 씁니다.
-            </p>
-          </div>
+              </p>
 
-          <form
-            onSubmit={createInvite}
-            className="flex flex-wrap items-end gap-3 rounded-xl border border-black/10 p-4 dark:border-white/15"
-          >
-            <label className="min-w-48 flex-1 space-y-1 text-xs text-zinc-500">
-              <span>유효 기간</span>
-              <select
-                value={inviteForm.expiresInMinutes}
-                onChange={(event) =>
-                  setInviteForm((current) => ({
-                    ...current,
-                    expiresInMinutes: Number(event.target.value),
-                  }))
-                }
-                className={inputClass}
-              >
-                <option value={60}>1시간</option>
-                <option value={1_440}>24시간 (기본)</option>
-                <option value={10_080}>7일</option>
-                <option value={43_200}>30일</option>
-              </select>
-            </label>
-            <label className="min-w-48 flex-1 space-y-1 text-xs text-zinc-500">
-              <span>사용 방식</span>
-              <select
-                value={inviteForm.usageMode}
-                onChange={(event) =>
-                  setInviteForm((current) => ({
-                    ...current,
-                    usageMode: event.target.value as InvitationUsageMode,
-                  }))
-                }
-                className={inputClass}
-              >
-                <option value="once">1회용</option>
-                <option value="unlimited">기간 내 무제한</option>
-              </select>
-            </label>
-            <button
-              type="submit"
-              disabled={busyId !== null}
-              className="rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-40"
-            >
-              {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
-            </button>
-          </form>
-
-          {lastAccess && (
-            <div className="mt-3 space-y-2 rounded-lg bg-black/5 p-3 dark:bg-white/5">
-              <div className="flex gap-2">
-                <input
-                  readOnly
-                  value={lastAccess.code}
-                  onFocus={(event) => event.currentTarget.select()}
-                  className="min-w-0 flex-1 bg-transparent font-mono text-xs outline-none"
-                  aria-label="생성된 초대 코드"
-                />
+              <form onSubmit={createInvite} className={styles.inviteForm}>
+                <label className={styles.field}>
+                  <span>유효 기간</span>
+                  <select
+                    value={inviteForm.expiresInMinutes}
+                    onChange={(event) =>
+                      setInviteForm((current) => ({
+                        ...current,
+                        expiresInMinutes: Number(event.target.value),
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    <option value={60}>1시간</option>
+                    <option value={1_440}>24시간 (기본)</option>
+                    <option value={10_080}>7일</option>
+                    <option value={43_200}>30일</option>
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>사용 방식</span>
+                  <select
+                    value={inviteForm.usageMode}
+                    onChange={(event) =>
+                      setInviteForm((current) => ({
+                        ...current,
+                        usageMode: event.target.value as InvitationUsageMode,
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    <option value="once">1회용</option>
+                    <option value="unlimited">기간 내 무제한</option>
+                  </select>
+                </label>
                 <button
-                  type="button"
+                  type="submit"
                   disabled={busyId !== null}
-                  onClick={() =>
-                    void copyInvitationValue(lastAccess.code, lastAccess)
-                  }
-                  className={buttonClass}
+                  className={`${styles.pixelButton} ${styles.primaryButton}`}
                 >
-                  코드 복사
+                  {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
                 </button>
-              </div>
-            </div>
-          )}
+              </form>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-black/10 dark:border-white/15">
-            <table className="w-full min-w-[940px] text-sm">
-              <thead>
-                <tr className="border-b border-black/10 text-left text-zinc-500 dark:border-white/15 dark:text-zinc-400">
-                  <th className="px-4 py-2.5 font-medium">초대 코드</th>
-                  <th className="px-4 py-2.5 font-medium">만료일</th>
-                  <th className="px-4 py-2.5 font-medium">사용 방식</th>
-                  <th className="px-4 py-2.5 font-medium">사용 기록</th>
-                  <th className="px-4 py-2.5 font-medium">생성 정보</th>
-                  <th className="px-4 py-2.5 font-medium">상태</th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
-                      불러오는 중…
-                    </td>
-                  </tr>
-                ) : invitations.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-zinc-400">
-                      아직 만든 초대가 없습니다
-                    </td>
-                  </tr>
-                ) : (
-                  invitations.map((invitation) => (
-                    <tr
-                      key={invitation.id}
-                      className="border-b border-black/5 last:border-b-0 dark:border-white/5"
+              {lastAccess && (
+                <div className={styles.codePanel}>
+                  <p className={styles.codeLabel}>지금 전달할 초대 코드</p>
+                  <div className={styles.codeRow}>
+                    <input
+                      readOnly
+                      value={lastAccess.code}
+                      onFocus={(event) => event.currentTarget.select()}
+                      className={styles.codeInput}
+                      aria-label="생성된 초대 코드"
+                    />
+                    <button
+                      type="button"
+                      disabled={busyId !== null}
+                      onClick={() =>
+                        void copyInvitationValue(lastAccess.code, lastAccess)
+                      }
+                      className={buttonClass}
                     >
-                      <td className="px-4 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-300">
-                        {invitation.code ?? "—"}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-zinc-500">
-                        <div>{formatDate(invitation.expiresAt)}</div>
-                        <div>{formatDuration(invitation.durationMinutes)}</div>
-                      </td>
-                      <td className="px-4 py-2 text-xs text-zinc-500">
-                        {USAGE_MODE_LABEL[invitation.usageMode]}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-zinc-500">
-                        <div>{invitation.usageCount}회</div>
-                        {invitation.lastUsedAt && (
-                          <div>
-                            {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt)}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-zinc-500">
-                        <div>{invitation.createdByEmail}</div>
-                        <div>{formatDate(invitation.createdAt)}</div>
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-xs ${INVITE_STYLE[invitation.state]}`}
-                        >
-                          {INVITE_LABEL[invitation.state]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {invitation.state !== "used" && (
-                          <span className="flex items-center justify-end gap-1">
-                            {invitation.state === "active" &&
-                              invitation.code && (
-                                <>
+                      코드 복사
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div
+                className={styles.tableRegion}
+                role="region"
+                aria-labelledby="invite-title"
+                aria-describedby="invite-description"
+                tabIndex={0}
+              >
+                <table className={`${styles.table} ${styles.inviteTable}`}>
+                  <caption className={styles.srOnly}>
+                    초대 코드의 만료일, 사용 기록, 상태와 관리 작업
+                  </caption>
+                  <thead>
+                    <tr className={styles.tableHeadRow}>
+                      <th>초대 코드</th>
+                      <th>만료일</th>
+                      <th>사용 방식</th>
+                      <th>사용 기록</th>
+                      <th>생성 정보</th>
+                      <th>상태</th>
+                      <th><span className={styles.srOnly}>관리 작업</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={7} className={styles.emptyCell}>
+                          불러오는 중…
+                        </td>
+                      </tr>
+                    ) : invitations.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className={styles.emptyCell}>
+                          아직 만든 초대가 없습니다
+                        </td>
+                      </tr>
+                    ) : (
+                      invitations.map((invitation) => (
+                        <tr key={invitation.id} className={styles.tableRow}>
+                          <td className={styles.codeCell}>
+                            {invitation.code ?? "—"}
+                          </td>
+                          <td className={styles.compactCell}>
+                            <div>{formatDate(invitation.expiresAt)}</div>
+                            <div>{formatDuration(invitation.durationMinutes)}</div>
+                          </td>
+                          <td className={styles.compactCell}>
+                            {USAGE_MODE_LABEL[invitation.usageMode]}
+                          </td>
+                          <td className={styles.compactCell}>
+                            <div>{invitation.usageCount}회</div>
+                            {invitation.lastUsedAt && (
+                              <div>
+                                {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt)}
+                              </div>
+                            )}
+                          </td>
+                          <td className={styles.compactCell}>
+                            <div>{invitation.createdByEmail}</div>
+                            <div>{formatDate(invitation.createdAt)}</div>
+                          </td>
+                          <td>
+                            <span className={`${styles.statusBadge} ${INVITE_STYLE[invitation.state]}`}>
+                              {INVITE_LABEL[invitation.state]}
+                            </span>
+                          </td>
+                          <td className={styles.actionsCell}>
+                            {invitation.state !== "used" && (
+                              <span className={styles.rowActions}>
+                                {invitation.state === "active" && invitation.code && (
                                   <button
                                     type="button"
                                     disabled={busyId !== null}
                                     onClick={() =>
-                                      void copyInvitationValue(
-                                        invitation.code!,
-                                        {
-                                          invitationId: invitation.id,
-                                          code: invitation.code!,
-                                        },
-                                      )
+                                      void copyInvitationValue(invitation.code!, {
+                                        invitationId: invitation.id,
+                                        code: invitation.code!,
+                                      })
                                     }
                                     className={buttonClass}
                                   >
                                     코드 복사
                                   </button>
-                                </>
-                              )}
-                            {invitation.state !== "expired" && (
-                              <button
-                                type="button"
-                                disabled={busyId !== null}
-                                onClick={() =>
-                                  void invitationAction(invitation, "toggle")
-                                }
-                                className={buttonClass}
-                              >
-                                {invitation.state === "active"
-                                  ? "비활성"
-                                  : "활성"}
-                              </button>
+                                )}
+                                {invitation.state !== "expired" && (
+                                  <button
+                                    type="button"
+                                    disabled={busyId !== null}
+                                    onClick={() =>
+                                      void invitationAction(invitation, "toggle")
+                                    }
+                                    className={buttonClass}
+                                  >
+                                    {invitation.state === "active" ? "비활성" : "활성"}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={busyId !== null}
+                                  onClick={() =>
+                                    void invitationAction(invitation, "rotate")
+                                  }
+                                  className={buttonClass}
+                                >
+                                  새 코드
+                                </button>
+                              </span>
                             )}
-                            <button
-                              type="button"
-                              disabled={busyId !== null}
-                              onClick={() =>
-                                void invitationAction(invitation, "rotate")
-                              }
-                              className={buttonClass}
-                            >
-                              새 코드
-                            </button>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
         <section aria-labelledby="user-title">
-          <h2 id="user-title" className="mb-3 text-base font-semibold">
-            사용자
-          </h2>
-          <div className="overflow-x-auto rounded-xl border border-black/10 dark:border-white/15">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-black/10 text-left text-zinc-500 dark:border-white/15 dark:text-zinc-400">
-                  <th className="px-4 py-2.5 font-medium">사용자</th>
-                  <th className="px-4 py-2.5 font-medium">등록일</th>
-                  <th className="w-24 px-4 py-2.5 font-medium">상태</th>
-                  <th className="min-w-56 px-4 py-2.5 font-medium">
-                    로그인 기기
-                  </th>
-                  <th className="px-4 py-2.5"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-zinc-400">
-                      불러오는 중…
-                    </td>
-                  </tr>
-                ) : users.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-zinc-400">
-                      아직 등록된 사용자가 없습니다
-                    </td>
-                  </tr>
-                ) : (
-                  users.map((user) => (
-                    <tr
-                      key={user.id}
-                      className="border-b border-black/5 last:border-b-0 dark:border-white/5"
-                    >
-                      <td className="px-4 py-2">
-                        <div className="font-medium">
-                          {user.name}
-                          {user.isAdmin && (
-                            <span className="ml-2 rounded bg-black/5 px-1.5 py-0.5 text-xs font-normal text-zinc-600 dark:bg-white/10 dark:text-zinc-300">
-                              관리자
+          <div className={styles.window}>
+            <header className={`${styles.windowTitlebar} ${styles.userTitlebar}`}>
+              <span className={styles.windowTitle}>
+                <span className={styles.userGlyph} aria-hidden="true" />
+                <h2 id="user-title">사용자</h2>
+              </span>
+              <span className={styles.windowMeta} aria-hidden="true">
+                {users.length.toString().padStart(2, "0")} USERS
+              </span>
+            </header>
+            <div className={styles.windowBody}>
+              <div
+                className={styles.tableRegion}
+                role="region"
+                aria-labelledby="user-title"
+                tabIndex={0}
+              >
+                <table className={`${styles.table} ${styles.userTable}`}>
+                  <caption className={styles.srOnly}>
+                    사용자 등록일, 상태, 로그인 기기와 관리 작업
+                  </caption>
+                  <thead>
+                    <tr className={styles.tableHeadRow}>
+                      <th>사용자</th>
+                      <th>등록일</th>
+                      <th>상태</th>
+                      <th>로그인 기기</th>
+                      <th><span className={styles.srOnly}>관리 작업</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={5} className={styles.emptyCell}>
+                          불러오는 중…
+                        </td>
+                      </tr>
+                    ) : users.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className={styles.emptyCell}>
+                          아직 등록된 사용자가 없습니다
+                        </td>
+                      </tr>
+                    ) : (
+                      users.map((user) => (
+                        <tr key={user.id} className={styles.tableRow}>
+                          <td>
+                            <div className={styles.userName}>
+                              {user.name}
+                              {user.isAdmin && (
+                                <span className={styles.adminBadge}>관리자</span>
+                              )}
+                            </div>
+                            <div className={styles.userEmail}>{user.email}</div>
+                          </td>
+                          <td className={styles.compactCell}>
+                            {formatDate(user.createdAt)}
+                          </td>
+                          <td>
+                            <span className={`${styles.statusBadge} ${STATUS_STYLE[user.status]}`}>
+                              {STATUS_LABEL[user.status]}
                             </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                          {user.email}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2 text-xs text-zinc-500">
-                        {formatDate(user.createdAt)}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-xs ${STATUS_STYLE[user.status]}`}
-                        >
-                          {STATUS_LABEL[user.status]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-2">
-                        {user.sessions.length === 0 ? (
-                          <span className="text-xs text-zinc-400">기록 없음</span>
-                        ) : (
-                          <ul className="space-y-1.5">
-                            {[...user.sessions].reverse().map((session) => (
-                              <li
-                                key={session.id}
-                                className="flex items-center justify-between gap-2"
-                              >
-                                <span className="min-w-0">
-                                  <span className="block truncate text-xs font-medium">
-                                    {session.deviceLabel}
-                                  </span>
-                                  <span className="block text-[11px] text-zinc-500 dark:text-zinc-400">
-                                    {formatDate(session.createdAt)}
-                                  </span>
-                                </span>
-                                {!user.isAdmin ? (
+                          </td>
+                          <td>
+                            {user.sessions.length === 0 ? (
+                              <span className={styles.muted}>기록 없음</span>
+                            ) : (
+                              <ul className={styles.sessionList}>
+                                {[...user.sessions].reverse().map((session) => (
+                                  <li key={session.id} className={styles.sessionRow}>
+                                    <span className={styles.sessionInfo}>
+                                      <span className={styles.sessionDevice}>
+                                        {session.deviceLabel}
+                                      </span>
+                                      <span className={styles.sessionDate}>
+                                        {formatDate(session.createdAt)}
+                                      </span>
+                                    </span>
+                                    {!user.isAdmin ? (
+                                      <button
+                                        disabled={busyId !== null}
+                                        onClick={() =>
+                                          void act(user.id, "revoke-session", session.id)
+                                        }
+                                        className={`${styles.pixelButton} ${styles.dangerButton}`}
+                                      >
+                                        이 로그인 끊기
+                                      </button>
+                                    ) : null}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </td>
+                          <td className={styles.actionsCell}>
+                            {user.isAdmin ? (
+                              <span className={styles.muted}>—</span>
+                            ) : confirmRemoveId === user.id ? (
+                              <span className={styles.rowActions}>
+                                <button
+                                  disabled={busyId !== null}
+                                  onClick={() => void act(user.id, "remove")}
+                                  className={`${styles.pixelButton} ${styles.dangerButton}`}
+                                >
+                                  삭제 확인
+                                </button>
+                                <button
+                                  onClick={() => setConfirmRemoveId(null)}
+                                  className={buttonClass}
+                                >
+                                  취소
+                                </button>
+                              </span>
+                            ) : (
+                              <span className={styles.rowActions}>
+                                {user.status === "approved" && (
+                                  <>
+                                    <button
+                                      disabled={busyId !== null}
+                                      onClick={() => void act(user.id, "revoke")}
+                                      className={buttonClass}
+                                      title="이 사람의 모든 기기에서 로그인을 끊습니다"
+                                    >
+                                      모든 로그인 끊기
+                                    </button>
+                                    <button
+                                      disabled={busyId !== null}
+                                      onClick={() => void act(user.id, "block")}
+                                      className={buttonClass}
+                                    >
+                                      차단
+                                    </button>
+                                  </>
+                                )}
+                                {user.status === "blocked" && (
                                   <button
                                     disabled={busyId !== null}
-                                    onClick={() =>
-                                      void act(
-                                        user.id,
-                                        "revoke-session",
-                                        session.id,
-                                      )
-                                    }
-                                    className="shrink-0 whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-40 dark:text-red-400 dark:hover:bg-red-950/30"
+                                    onClick={() => void act(user.id, "pending")}
+                                    className={buttonClass}
                                   >
-                                    이 로그인 끊기
+                                    대기로
                                   </button>
-                                ) : null}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {user.isAdmin ? (
-                          <span className="text-xs text-zinc-400">—</span>
-                        ) : confirmRemoveId === user.id ? (
-                          <span className="flex items-center justify-end gap-1">
-                            <button
-                              disabled={busyId !== null}
-                              onClick={() => void act(user.id, "remove")}
-                              className="whitespace-nowrap rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                            >
-                              삭제 확인
-                            </button>
-                            <button
-                              onClick={() => setConfirmRemoveId(null)}
-                              className={buttonClass}
-                            >
-                              취소
-                            </button>
-                          </span>
-                        ) : (
-                          <span className="flex items-center justify-end gap-1">
-                            {user.status === "approved" && (
-                              <>
+                                )}
                                 <button
-                                  disabled={busyId !== null}
-                                  onClick={() => void act(user.id, "revoke")}
-                                  className={buttonClass}
-                                  title="이 사람의 모든 기기에서 로그인을 끊습니다"
-                                >
-                                  모든 로그인 끊기
-                                </button>
-                                <button
-                                  disabled={busyId !== null}
-                                  onClick={() => void act(user.id, "block")}
+                                  onClick={() => setConfirmRemoveId(user.id)}
                                   className={buttonClass}
                                 >
-                                  차단
+                                  삭제
                                 </button>
-                              </>
+                              </span>
                             )}
-                            {user.status === "blocked" && (
-                              <button
-                                disabled={busyId !== null}
-                                onClick={() => void act(user.id, "pending")}
-                                className={buttonClass}
-                              >
-                                대기로
-                              </button>
-                            )}
-                            <button
-                              onClick={() => setConfirmRemoveId(user.id)}
-                              className={buttonClass}
-                            >
-                              삭제
-                            </button>
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <ul className={styles.helpList}>
+                <li>
+                  차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에
+                  끊깁니다.
+                </li>
+                <li>
+                  차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시
+                  가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.
+                </li>
+              </ul>
+            </div>
           </div>
-          <ul className="mt-4 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-            <li>
-              차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에
-              끊깁니다.
-            </li>
-            <li>
-              차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시
-              가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.
-            </li>
-          </ul>
         </section>
       </main>
     </div>

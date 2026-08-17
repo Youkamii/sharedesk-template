@@ -568,12 +568,16 @@ function MenuButton({
 
 export default function FilesView({
   userName,
+  userEmail,
   isAdmin,
   isGuest,
+  canSendFeedback,
 }: {
   userName: string;
+  userEmail: string;
   isAdmin: boolean;
   isGuest: boolean;
+  canSendFeedback: boolean;
 }) {
   const router = useRouter();
   const viewport = useViewport();
@@ -589,6 +593,9 @@ export default function FilesView({
   const shareDialogOpenerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
+  const feedbackDialogRef = useRef<HTMLElement>(null);
+  const feedbackDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const feedbackRequestIdRef = useRef<string | null>(null);
   const previewRef = useRef<HTMLElement>(null);
   const previewOpenerRef = useRef<{
     element: HTMLElement;
@@ -683,6 +690,13 @@ export default function FilesView({
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackDraft, setFeedbackDraft] = useState({
+    subject: "",
+    message: "",
+  });
   const [notice, setNotice] = useAutoDismissNotice();
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
   const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
@@ -1558,6 +1572,23 @@ export default function FilesView({
       });
     };
   }, [dialogOpen]);
+
+  useEffect(() => {
+    if (!feedbackOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      feedbackDialogRef.current
+        ?.querySelector<HTMLElement>("[data-feedback-initial-focus]")
+        ?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      const opener = feedbackDialogOpenerRef.current;
+      feedbackDialogOpenerRef.current = null;
+      window.requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+  }, [feedbackOpen]);
 
   useEffect(() => {
     if (!updatePanelOpen) return;
@@ -5516,6 +5547,54 @@ export default function FilesView({
     setDialog(null);
   }
 
+  function openFeedbackDialog(opener: HTMLElement) {
+    if (!canSendFeedback) return;
+    feedbackDialogOpenerRef.current = opener;
+    setFeedbackError(null);
+    setFeedbackOpen(true);
+  }
+
+  function closeFeedbackDialog() {
+    if (feedbackBusy) return;
+    setFeedbackOpen(false);
+  }
+
+  function handleFeedbackDialogKeyDown(
+    event: React.KeyboardEvent<HTMLElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeFeedbackDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function handleDialogKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -5758,6 +5837,55 @@ export default function FilesView({
       void refreshScope(scopeId, true);
     } finally {
       finishScopedRequest(listRequestsRef.current, scopeId, request);
+    }
+  }
+
+  async function submitFeedback(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      !canSendFeedback ||
+      feedbackBusy ||
+      !feedbackDraft.subject.trim() ||
+      !feedbackDraft.message.trim()
+    ) {
+      return;
+    }
+    setFeedbackBusy(true);
+    setFeedbackError(null);
+    const submittedDraft = feedbackDraft;
+    const feedbackId =
+      feedbackRequestIdRef.current ?? window.crypto.randomUUID();
+    feedbackRequestIdRef.current = feedbackId;
+    try {
+      const result = await apiJson<{ ok?: boolean }>("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feedbackId,
+          subject: feedbackDraft.subject,
+          message: feedbackDraft.message,
+        }),
+      });
+      if (result.ok !== true) {
+        throw new Error("피드백을 보내지 못했습니다");
+      }
+      if (feedbackRequestIdRef.current === feedbackId) {
+        feedbackRequestIdRef.current = null;
+        setFeedbackDraft((current) =>
+          current.subject === submittedDraft.subject &&
+          current.message === submittedDraft.message
+            ? { subject: "", message: "" }
+            : current,
+        );
+        setFeedbackOpen(false);
+      }
+      setNotice("피드백을 보냈습니다");
+    } catch (error) {
+      if (feedbackRequestIdRef.current === feedbackId) {
+        setFeedbackError(errorMessage(error, "피드백을 보내지 못했습니다"));
+      }
+    } finally {
+      setFeedbackBusy(false);
     }
   }
 
@@ -7320,6 +7448,20 @@ export default function FilesView({
           <span>다운로드 우선</span>
         </label>
         <div className={styles.userTray}>
+          {canSendFeedback && (
+            <button
+              type="button"
+              className={`${styles.trayLink} ${styles.feedbackTrayButton}`}
+              aria-label="운영자에게 피드백 보내기"
+              aria-haspopup="dialog"
+              aria-expanded={feedbackOpen}
+              aria-controls="feedback-dialog"
+              title="피드백 보내기"
+              onClick={(event) => openFeedbackDialog(event.currentTarget)}
+            >
+              <span className={styles.feedbackMailIcon} aria-hidden="true" />
+            </button>
+          )}
           {isAdmin && (
             <>
               <button
@@ -7590,6 +7732,131 @@ export default function FilesView({
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
+      )}
+
+      {canSendFeedback && feedbackOpen && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !feedbackBusy) {
+              closeFeedbackDialog();
+            }
+          }}
+        >
+          <section
+            id="feedback-dialog"
+            ref={feedbackDialogRef}
+            className={`${styles.dialog} ${styles.feedbackDialog}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-dialog-title"
+            aria-describedby={
+              feedbackError ? "feedback-dialog-error" : undefined
+            }
+            onKeyDown={handleFeedbackDialogKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="feedback-dialog-title" className={styles.feedbackTitle}>
+                <span className={styles.feedbackMailIcon} aria-hidden="true" />
+                운영자에게 피드백 보내기
+              </strong>
+              <button
+                type="button"
+                aria-label="피드백 닫기"
+                disabled={feedbackBusy}
+                onClick={closeFeedbackDialog}
+              >
+                ×
+              </button>
+            </header>
+            <form
+              className={`${styles.dialogBody} ${styles.feedbackForm}`}
+              onSubmit={submitFeedback}
+            >
+              <p className={styles.feedbackSender}>
+                <span>보내는 사람</span>
+                <strong aria-label="보낸 사람 이메일">{userEmail}</strong>
+                <small>{userName}</small>
+              </p>
+              <label className={styles.feedbackField}>
+                <span>제목</span>
+                <input
+                  data-feedback-initial-focus
+                  value={feedbackDraft.subject}
+                  maxLength={120}
+                  required
+                  disabled={feedbackBusy}
+                  placeholder="예: 파일을 찾기 어려워요"
+                  onChange={(event) => {
+                    feedbackRequestIdRef.current = null;
+                    setFeedbackError(null);
+                    setFeedbackDraft((current) => ({
+                      ...current,
+                      subject: event.target.value,
+                    }));
+                  }}
+                />
+              </label>
+              <label className={styles.feedbackField}>
+                <span>내용</span>
+                <textarea
+                  className={styles.feedbackMessage}
+                  value={feedbackDraft.message}
+                  maxLength={4_000}
+                  required
+                  disabled={feedbackBusy}
+                  placeholder="불편했던 점이나 필요한 기능을 적어 주세요."
+                  onChange={(event) => {
+                    feedbackRequestIdRef.current = null;
+                    setFeedbackError(null);
+                    setFeedbackDraft((current) => ({
+                      ...current,
+                      message: event.target.value,
+                    }));
+                  }}
+                />
+              </label>
+              {feedbackError && (
+                <p
+                  id="feedback-dialog-error"
+                  className={styles.feedbackError}
+                  role="alert"
+                  aria-live="assertive"
+                >
+                  <span aria-hidden="true">!</span>
+                  {feedbackError}
+                </p>
+              )}
+              <div className={styles.feedbackFooter}>
+                <span className={styles.feedbackCounter}>
+                  {feedbackDraft.message.length.toLocaleString("ko-KR")} / 4,000
+                </span>
+                <div className={styles.dialogActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={feedbackBusy}
+                    onClick={closeFeedbackDialog}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className={styles.primaryButton}
+                    disabled={
+                      feedbackBusy ||
+                      !feedbackDraft.subject.trim() ||
+                      !feedbackDraft.message.trim()
+                    }
+                  >
+                    {feedbackBusy ? "보내는 중…" : "보내기"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
       )}
 
       {isAdmin && updatePanel && (
