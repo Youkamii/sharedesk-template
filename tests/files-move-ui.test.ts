@@ -168,7 +168,7 @@ test("TXT 초안은 저장 완료 전 전환과 창 이탈·로그아웃·상위
   assert.match(source, /event\.preventDefault\(\);\s*event\.returnValue = ""/);
   assert.match(
     source,
-    /if \(reason === "saving"\) \{\s*setNotice\("텍스트 파일을 저장하는 중입니다\. 저장이 끝난 뒤 다시 시도해 주세요"\);\s*return false/,
+    /if \(reason === "saving"\) \{\s*setNotice\(t\("텍스트 파일을 저장하는 중입니다\. 저장이 끝난 뒤 다시 시도해 주세요"\)\);\s*return false/,
   );
   assert.match(
     source,
@@ -332,7 +332,7 @@ test("이름 변경은 미리보기 형식 전환 전에 초안을 확인하고 
   );
   assert.match(
     submitDialog,
-    /if \(!previewClosed\) setNotice\("이름을 바꿨습니다"\)/,
+    /if \(!previewClosed\) setNotice\(t\("이름을 바꿨습니다"\)\)/,
   );
 });
 
@@ -613,7 +613,7 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
 
   assert.ok(launcherIndex >= 0 && launcherIndex < taskbarStart);
   assert.doesNotMatch(source.slice(taskbarStart, taskbarEnd), /onClick=\{openTrash\}/);
-  assert.match(source, /aria-label="휴지통 열기"/);
+  assert.match(source, /aria-label=\{t\("휴지통 열기"\)\}/);
   assert.match(source, /function TrashCanIcon\(\)/);
   assert.match(source, /shapeRendering="crispEdges"/);
   assert.match(source, /viewBox="0 0 32 36"/);
@@ -659,7 +659,10 @@ test("휴지통 목록은 행 구성을 고정하고 목록만 스크롤하며 �
     /className=\{`\$\{styles\.windowStatus\} \$\{styles\.trashFooter\}`\}/,
   );
   assert.match(source, /className=\{styles\.trashSummary\}/);
-  assert.match(source, /className=\{styles\.trashDanger\}[\s\S]*?>\s*비우기…/);
+  assert.match(
+    source,
+    /className=\{styles\.trashDanger\}[\s\S]*?>\s*\{t\("비우기…"\)\}/,
+  );
   assert.match(
     css,
     /\.trashFooter \{[\s\S]*?justify-content: flex-end;[\s\S]*?\.trashSummary \{[\s\S]*?margin-right: auto;/,
@@ -842,7 +845,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
     /function openSearchResult\([\s\S]*?respectDownloadPreference = true[\s\S]*?fileActivationAction\([\s\S]*?result\.entry,[\s\S]*?respectDownloadPreference && downloadFirst[\s\S]*?action === "preview"[\s\S]*?openPreview\([\s\S]*?result\.entry,[\s\S]*?opener \? \{ element: opener, scopeId: ROOT_SCOPE \} : undefined/,
   );
   assert.match(source, /localStorage\.setItem\([\s\S]*?DOWNLOAD_FIRST_STORAGE_KEY/);
-  assert.match(source, />다운로드 우선</);
+  assert.match(source, />\{t\("다운로드 우선"\)\}</);
   assert.match(source, /checked=\{downloadFirst\}/);
   assert.match(source, /ShareDesk에서 열기/);
   assert.match(
@@ -924,7 +927,7 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
   assert.match(source, /data-folder-side-preview=\{item\.id\}/);
   assert.match(source, /event\.key === "ArrowLeft" \|\| event\.key === "ArrowRight"/);
   assert.match(source, /adjacentFolderImagePreviewKey\(/);
-  assert.match(source, /aria-label="폴더 미리보기 닫기"/);
+  assert.match(source, /aria-label=\{t\("폴더 미리보기 닫기"\)\}/);
   assert.match(
     source,
     /const sidePreviewOpened = syncFolderSidePreview\([\s\S]*?if \(sidePreviewOpened\) focusFolderSidePreview\(scopeId\);[\s\S]*?else event\.currentTarget\.focus\(\);/,
@@ -1028,7 +1031,10 @@ test("the root desktop plane owns arrow navigation before an icon has focus", as
   assert.match(canvas, /tabIndex=\{isRoot \? 0 : -1\}/);
   assert.match(canvas, /data-keyboard-canvas=\{isRoot \? "root" : undefined\}/);
   assert.match(canvas, /role=\{isRoot \? "group" : undefined\}/);
-  assert.match(canvas, /aria-label=\{isRoot \? "공유 바탕화면 아이콘" : undefined\}/);
+  assert.match(
+    canvas,
+    /aria-label=\{isRoot \? t\("공유 바탕화면 아이콘"\) : undefined\}/,
+  );
   assert.match(
     canvas,
     /onKeyDown=\{\(event\) => \{[\s\S]*?moveRootPlaneSelectionWithKeyboard\(event, data\.entries\)/,
@@ -1076,11 +1082,11 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   const searchIndex = taskbar.indexOf("className={styles.desktopSearch}");
   const deskSettingsIndex = taskbar.indexOf("책상 설정");
   assert.ok(searchIndex >= 0 && searchIndex < deskSettingsIndex);
-  assert.match(taskbar, /placeholder="전체 파일 검색"/);
+  assert.match(taskbar, /placeholder=\{t\("전체 파일 검색"\)\}/);
   assert.match(taskbar, /className=\{styles\.deskButton\}/);
 
   assert.match(source, /className={styles\.folderSearch}/);
-  assert.match(source, /placeholder="이 폴더 검색"/);
+  assert.match(source, /placeholder=\{t\("이 폴더 검색"\)\}/);
   assert.match(source, /\/api\/drive\/search\?\$\{params\}/);
   assert.match(source, /signal: controller\.signal/);
   assert.match(source, /searchInstanceRef\.current !== instanceId/);
@@ -1220,11 +1226,11 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.match(
     source,
-    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(\) => void startUpdate\(\)\}\s*>\s*업데이트 하기/,
+    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(\) => void startUpdate\(\)\}\s*>\s*\{t\("업데이트 하기"\)\}/,
   );
   assert.match(
     source,
-    /\{!updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*업데이트 하기/,
+    /\{!updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.configured &&\s*updatePanel\.status\.updateAvailable &&\s*updatePanel\.status\.workflowUrl && \(\s*<button[\s\S]*?window\.open\([\s\S]*?"_blank",[\s\S]*?"noopener,noreferrer"[\s\S]*?>\s*\{t\("업데이트 하기"\)\}/,
   );
   assert.match(
     source,
@@ -1302,7 +1308,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   );
   assert.match(
     userTray,
-    /\{canSendFeedback && \([\s\S]*?aria-label="운영자에게 피드백 보내기"[\s\S]*?aria-haspopup="dialog"[\s\S]*?className=\{styles\.feedbackMailIcon\}/,
+    /\{canSendFeedback && \([\s\S]*?aria-label=\{t\("운영자에게 피드백 보내기"\)\}[\s\S]*?aria-haspopup="dialog"[\s\S]*?className=\{styles\.feedbackMailIcon\}/,
   );
 
   const feedbackDialogStart = source.indexOf(
@@ -1316,7 +1322,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   assert.match(feedbackDialog, /aria-modal="true"/);
   assert.match(
     feedbackDialog,
-    /<strong aria-label="보낸 사람 이메일">\{userEmail\}<\/strong>/,
+    /<strong aria-label=\{t\("보낸 사람 이메일"\)\}>\{userEmail\}<\/strong>/,
   );
   assert.match(feedbackDialog, /maxLength=\{120\}/);
   assert.match(feedbackDialog, /maxLength=\{4_000\}/);
@@ -1327,7 +1333,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   );
   assert.match(
     feedbackDialog,
-    /aria-label="피드백 닫기"\s*disabled=\{feedbackBusy\}\s*onClick=\{closeFeedbackDialog\}/,
+    /aria-label=\{t\("피드백 닫기"\)\}\s*disabled=\{feedbackBusy\}\s*onClick=\{closeFeedbackDialog\}/,
   );
   assert.equal(feedbackDialog.match(/disabled=\{feedbackBusy\}/g)?.length, 4);
   assert.match(feedbackDialog, /onKeyDown=\{handleFeedbackDialogKeyDown\}/);
@@ -1351,7 +1357,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   assert.doesNotMatch(submitFeedback, /\b(?:sender|from|to):/i);
   assert.match(
     submitFeedback,
-    /feedbackRequestIdRef\.current === feedbackId[\s\S]*?current\.subject === submittedDraft\.subject[\s\S]*?current\.message === submittedDraft\.message[\s\S]*?setFeedbackOpen\(false\);[\s\S]*?setNotice\("피드백을 보냈습니다"\)/,
+    /feedbackRequestIdRef\.current === feedbackId[\s\S]*?current\.subject === submittedDraft\.subject[\s\S]*?current\.message === submittedDraft\.message[\s\S]*?setFeedbackOpen\(false\);[\s\S]*?setNotice\(t\("피드백을 보냈습니다"\)\)/,
   );
   assert.match(failureBranch, /setFeedbackError\(/);
   assert.doesNotMatch(failureBranch, /setFeedbackDraft|setFeedbackOpen\(false\)/);

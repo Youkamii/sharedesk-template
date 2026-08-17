@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
+import { LOCALE_COOKIE, resolveLocale, translate } from "@/lib/i18n";
+import LanguageToggle from "../LanguageToggle";
 import LogoutButton from "../LogoutButton";
 import JoinCodeForm from "./JoinCodeForm";
 
@@ -18,21 +20,30 @@ export default async function JoinPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  const me = await resolveIdentity((await cookies()).get(COOKIE_NAME)?.value);
+  const cookieStore = await cookies();
+  const me = await resolveIdentity(cookieStore.get(COOKIE_NAME)?.value);
   if (!me) redirect("/");
   if (me.status === "approved") redirect("/files");
   if (me.status === "blocked") redirect("/pending");
 
+  const locale = resolveLocale(cookieStore.get(LOCALE_COOKIE)?.value);
+  const t = (text: string, vars?: Record<string, string | number>) =>
+    translate(locale, text, vars);
+
   const { error } = await searchParams;
 
   return (
-    <main className="flex flex-1 items-center justify-center p-6">
+    <main className="relative flex flex-1 items-center justify-center p-6">
+      <LanguageToggle
+        locale={locale}
+        className="absolute right-4 top-4 rounded-lg border border-black/15 px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:bg-black/5 dark:border-white/20 dark:text-zinc-300 dark:hover:bg-white/10"
+      />
       <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
-        <h1 className="text-xl font-semibold tracking-tight">데스크 가입</h1>
+        <h1 className="text-xl font-semibold tracking-tight">{t("데스크 가입")}</h1>
         <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-          관리자에게 받은 기간제 초대 코드를 입력하세요. 1회용은 한 명이
-          가입하면 끝납니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지
-          여러 명이 함께 씁니다.
+          {t(
+            "관리자에게 받은 기간제 초대 코드를 입력하세요. 1회용은 한 명이 가입하면 끝납니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이 함께 씁니다.",
+          )}
         </p>
 
         <div className="mt-4 rounded-lg bg-black/5 px-3 py-2 dark:bg-white/5">
@@ -42,17 +53,17 @@ export default async function JoinPage({
 
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
-            {ERRORS[error] ?? "초대 코드를 확인하지 못했습니다."}
+            {t(ERRORS[error] ?? "초대 코드를 확인하지 못했습니다.")}
           </p>
         )}
 
-        <JoinCodeForm />
+        <JoinCodeForm locale={locale} />
 
         <div className="mt-5 border-t border-black/10 pt-5 text-center dark:border-white/15">
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            다른 Google 계정을 쓰려면 먼저 로그아웃하세요.
+            {t("다른 Google 계정을 쓰려면 먼저 로그아웃하세요.")}
           </p>
-          <LogoutButton />
+          <LogoutButton locale={locale} />
         </div>
       </div>
     </main>
