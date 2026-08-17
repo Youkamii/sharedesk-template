@@ -529,7 +529,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">×</span>
-            {error}
+            {/* 서버 오류 문구도 사전에 있으면 번역돼 나간다. */}
+            {t(error)}
           </p>
         )}
         {notice && (
@@ -540,7 +541,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">✓</span>
-            {notice}
+            {t(notice)}
           </p>
         )}
 

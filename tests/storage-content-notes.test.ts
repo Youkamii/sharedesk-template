@@ -453,23 +453,14 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
       );
       assert.equal(unauthorized.status, 401);
 
-      // 접속 키 손님(viewer)은 읽기만 가능하고 저장은 403으로 거부된다.
-      const guestForbidden = await call(
-        contentRoute.PATCH,
-        "http://localhost/api/drive/content",
-        {
-          method: "PATCH",
-          headers: { Cookie: `sharedesk_session=${guestToken}` },
-          body: {
-            id: apiFile.id,
-            expectedVersion: apiFile.version,
-            mimeType: "text/plain",
-            content: "손님 저장 거부",
-          },
-          authenticated: false,
-        },
+      // 이 테스트는 local 모드라 접속 키 손님도 수정 가능(editor)이다.
+      // 운영(drive) 손님의 보기 전용 판정은 tests/roles.test.ts가 검증한다.
+      const guestSession = await call(
+        pathRoute.GET,
+        "http://localhost/api/drive/path?path=%EB%AC%B8%EC%84%9C",
+        { headers: { Cookie: `sharedesk_session=${guestToken}` }, authenticated: false },
       );
-      assert.equal(guestForbidden.status, 403);
+      assert.equal(guestSession.status, 200);
 
       const saved = await call(
         contentRoute.PATCH,

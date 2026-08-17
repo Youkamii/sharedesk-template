@@ -249,11 +249,28 @@ test("역할 저장: 기본값 폴백·변경 저장·초대 role 적용·세션
       (await auth.resolveSession(await legacyStyleToken("uploader-sub"), { fresh: true }))?.role,
       "uploader",
     );
-    const guestSession = await auth.resolveSession(
-      await auth.createKeySession(await tokens.sha256Hex("roles-test-guest-key")),
+    // 접속 키 손님: 로컬 모드는 개인 사용이라 수정 가능, 운영(drive)은 보기 전용.
+    const guestToken = await auth.createKeySession(
+      await tokens.sha256Hex("roles-test-guest-key"),
     );
-    assert.equal(guestSession?.isGuest, true);
-    assert.equal(guestSession?.role, "viewer", "접속 키 손님은 항상 viewer다");
+    const localGuest = await auth.resolveSession(guestToken);
+    assert.equal(localGuest?.isGuest, true);
+    assert.equal(
+      localGuest?.role,
+      "editor",
+      "local 모드의 접속 키는 개인 사용이라 수정 가능이다",
+    );
+    process.env.STORAGE_DRIVER = "drive";
+    try {
+      const driveGuest = await auth.resolveSession(guestToken);
+      assert.equal(
+        driveGuest?.role,
+        "viewer",
+        "운영(drive)의 접속 키 손님은 보기 전용이다",
+      );
+    } finally {
+      process.env.STORAGE_DRIVER = "local";
+    }
 
     // 3) setUserRole: 변경·저장·없는 id·잘못된 값
     const changed = await users.setUserRole("legacy-sub", "viewer");

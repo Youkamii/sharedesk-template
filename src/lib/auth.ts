@@ -7,6 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { resolveUserRole, type SessionRole } from "@/lib/roles";
+import { resolveStorageDriver } from "@/lib/storage";
 import { findUserById, isAdminEmail, type User } from "@/lib/users";
 import {
   Payload,
@@ -131,7 +132,9 @@ export async function resolveSession(
         name: "손님",
         isAdmin: false,
         isGuest: true,
-        role: "viewer",
+        // 로컬 개인 사용은 접속 키가 곧 소유자라 수정 권한이 있어야 하고,
+        // 운영(drive)의 임시 손님 키는 보기 전용이 안전한 기본이다.
+        role: resolveStorageDriver() === "local" ? "editor" : "viewer",
         presenceParticipantId: `guest:${
           claims.sid ?? (await sha256Hex(token ?? "")).slice(0, 32)
         }`,

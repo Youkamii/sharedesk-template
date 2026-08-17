@@ -1415,9 +1415,14 @@ test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨�
     source,
     /async function uploadFiles\(files: FileList \| File\[\], scopeId: string\) \{\s*if \(!allowUpload\) return;/,
   );
+  // 새 메모장은 만들자마자 내용 저장이 필요하므로 편집 권한 기준이다.
   assert.match(
     source,
-    /async function createNotepad\(scopeId: string\) \{\s*if \(!allowUpload\) return;/,
+    /async function createNotepad\(scopeId: string\) \{[\s\S]{0,220}?if \(!allowEdit\) return;/,
+  );
+  assert.match(
+    source,
+    /\{allowEdit && \(\s*<MenuButton\s*onClick=\{\(\) => void createNotepad\(contextMenu\.scopeId\)\}/,
   );
   // 외부 파일 드래그 업로드(드롭존 표시 포함) 차단
   assert.match(source, /onDragOver=\{\(event\) => \{\s*if \(!allowUpload\) return;/);
@@ -1493,8 +1498,11 @@ test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨�
     /\{isAdmin && \(\s*<MenuButton\s*onClick=\{\(\) => openShareDialog\(contextMenu\.entry!\)\}/,
   );
   // 배경 변경은 localStorage 개인 설정이라 역할 게이트를 두지 않는다.
-  assert.match(
-    source,
-    /function selectWallpaper\(id: WallpaperId\) \{\s*setWallpaperId\(id\);\s*try \{\s*window\.localStorage\.setItem\(WALLPAPER_STORAGE_KEY, id\)/,
+  const wallpaperStart = source.indexOf("function selectWallpaper(");
+  const wallpaperEnd = source.indexOf("\n  }", wallpaperStart);
+  assert.ok(wallpaperStart >= 0 && wallpaperEnd > wallpaperStart);
+  assert.doesNotMatch(
+    source.slice(wallpaperStart, wallpaperEnd),
+    /allowUpload|allowEdit/,
   );
 });

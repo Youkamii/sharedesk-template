@@ -135,6 +135,12 @@ export async function PATCH(req: NextRequest) {
       if (!user) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }
+      console.info("[admin]", {
+        event: "role-changed",
+        targetUserId: user.id,
+        role: user.role,
+        actorUserId: auth.session.userId,
+      });
       return NextResponse.json({ user });
     }
   } catch (e) {

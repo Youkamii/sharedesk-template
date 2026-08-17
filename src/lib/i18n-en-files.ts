@@ -208,6 +208,17 @@ export const EN_FILES: Record<string, string> = {
   "‘{name}’ 항목의 이동 결과를 확인하지 못했습니다 — 새로고침해 주세요":
     "Couldn't confirm the move result for ‘{name}’ — please refresh",
 
+  // 다중 선택 일괄 이동·휴지통 알림
+  "{count}개 항목을 옮겼습니다": "Moved {count} items",
+  "{count}개 항목을 휴지통에 넣었습니다": "Moved {count} items to the trash",
+  "{count}개 항목을 옮기지 못했습니다": "Couldn't move {count} items",
+  "{count}개 항목을 휴지통에 넣지 못했습니다":
+    "Couldn't move {count} items to the trash",
+  "{ok}개 옮김, {fail}개 실패했습니다": "Moved {ok}, {fail} failed",
+  "{ok}개 휴지통 이동, {fail}개 실패했습니다":
+    "{ok} moved to trash, {fail} failed",
+  "{message} — 새로고침해 주세요": "{message} — please refresh",
+
   // 업로드 · 메모장 생성
   "드라이브 업로드에 실패했습니다": "Drive upload failed",
   "업로드에 실패했습니다": "Upload failed",
@@ -307,6 +318,50 @@ export const EN_FILES: Record<string, string> = {
   "이름을 바꿨습니다": "Renamed",
   "‘{name}’을 삭제했습니다": "Deleted ‘{name}’",
   "작업을 마치지 못했습니다": "Couldn't finish the operation",
+
+  // Google Drive 공유 다이얼로그 (ShareDialog)
+  "Google Drive로 공유": "Share via Google Drive",
+  "받는 사람의 Google Drive 공유 문서함에도 표시됩니다.":
+    "It also appears in the recipient's “Shared with me” in Google Drive.",
+  "ShareDesk 안의 공동 접근은 바뀌지 않습니다.":
+    "Shared access inside ShareDesk stays the same.",
+  "공유 정보를 불러오는 중입니다…": "Loading sharing info…",
+  "공유 정보를 불러오지 못했습니다": "Couldn't load sharing info",
+  "새 Google Drive 공유": "New Google Drive share",
+  "새로 공유": "New share",
+  "받는 사람": "Recipient",
+  "공유할 수 있는 새 사용자가 없습니다": "No new users to share with",
+  "권한": "Permission",
+  "보기": "View",
+  "편집": "Edit",
+  "Google 알림 이메일 보내기 (기본 꺼짐)":
+    "Send a Google notification email (off by default)",
+  "공유 중…": "Sharing…",
+  "공유하기": "Share",
+  "현재 직접 공유 권한": "Current direct permissions",
+  "ShareDesk에서 추가한 직접 권한이 없습니다.":
+    "No direct permissions added from ShareDesk.",
+  "회수 필요": "Needs removal",
+  "{name} 권한": "{name} permission",
+  "변경 중…": "Changing…",
+  "변경": "Change",
+  "해제 중…": "Removing…",
+  "공유 해제": "Remove access",
+  "Google Drive 공유 권한을 처리하는 중입니다…":
+    "Processing Google Drive sharing permissions…",
+  "‘{name}’의 Google Drive 공유를 추가했습니다":
+    "Added Google Drive sharing for ‘{name}’",
+  "공유는 반영됐지만 최신 권한 목록을 불러오지 못했습니다":
+    "The share was added, but the latest permission list couldn't be loaded",
+  "공유를 추가하지 못했습니다": "Couldn't add the share",
+  "{name}님의 권한을 변경했습니다": "Changed {name}'s permission",
+  "권한은 변경됐지만 최신 권한 목록을 불러오지 못했습니다":
+    "The permission was changed, but the latest permission list couldn't be loaded",
+  "권한을 변경하지 못했습니다": "Couldn't change the permission",
+  "{name}님의 공유 권한을 회수했습니다": "Removed {name}'s access",
+  "권한은 회수됐지만 최신 권한 목록을 불러오지 못했습니다":
+    "Access was removed, but the latest permission list couldn't be loaded",
+  "공유 권한을 회수하지 못했습니다": "Couldn't remove access",
 
   // 공용 오류
   "세션이 만료되었습니다": "Your session has expired",

@@ -546,10 +546,14 @@ function itemContextMenuHeight(
 function desktopContextMenuHeight(
   scopeId: string,
   allowUpload: boolean,
+  allowEdit: boolean,
 ) {
-  // 새 폴더·새 메모장·파일 업로드와 구분선은 업로드 권한이 있을 때만 나온다.
-  // 바탕화면(ROOT_SCOPE)에는 배경 4종 그룹이 추가된다.
-  return (allowUpload ? 194 : 79) + (scopeId === ROOT_SCOPE ? 136 : 0);
+  // 새 폴더·파일 업로드와 구분선은 업로드 권한, 새 메모장(내용 저장이 필요)은
+  // 편집 권한이 있을 때만 나온다. 바탕화면(ROOT_SCOPE)에는 배경 4종이 추가된다.
+  return (
+    (allowUpload ? (allowEdit ? 194 : 159) : 79) +
+    (scopeId === ROOT_SCOPE ? 136 : 0)
+  );
 }
 
 function previewTextReadOnlyReason(
@@ -1540,7 +1544,7 @@ export default function FilesView({
         ? searchContextMenuHeight(current.searchResult.entry)
         : current.entry
           ? itemContextMenuHeight(current.entry, isAdmin, hasParent, allowEdit)
-          : desktopContextMenuHeight(current.scopeId, allowUpload);
+          : desktopContextMenuHeight(current.scopeId, allowUpload, allowEdit);
       return {
         ...current,
         x: clamp(
@@ -4809,6 +4813,7 @@ export default function FilesView({
         entries.length,
         results.filter(Boolean).length,
         refreshed,
+        t,
       ),
     );
   }
@@ -4827,6 +4832,7 @@ export default function FilesView({
         entries.length,
         results.filter(Boolean).length,
         refreshed,
+        t,
       ),
     );
     if (trashWindow) {
@@ -5282,7 +5288,7 @@ export default function FilesView({
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
       ? entryContextMenuHeight(scopeId, entry)
-      : desktopContextMenuHeight(scopeId, allowUpload);
+      : desktopContextMenuHeight(scopeId, allowUpload, allowEdit);
     const target = event.target as HTMLElement;
     const activeElement =
       document.activeElement instanceof HTMLElement
@@ -5829,7 +5835,9 @@ export default function FilesView({
   }
 
   async function createNotepad(scopeId: string) {
-    if (!allowUpload) return;
+    // 만들자마자 내용을 저장해야 하는 기능이라 편집 권한 기준으로 연다.
+    // 올리기 가능 역할이 만들면 본인이 채우지도 지우지도 못하는 빈 파일이 남는다.
+    if (!allowEdit) return;
     const data = scopeData(scopeId);
     if (!data || data.loading) return;
     const name = nextNotepadName(data.entries.map((entry) => entry.name));
@@ -7520,7 +7528,7 @@ export default function FilesView({
               y: Math.max(
                 8,
                 logicalClientCoordinate(rect.top, uiScale) -
-                  (desktopContextMenuHeight(ROOT_SCOPE, allowUpload) + 8),
+                  (desktopContextMenuHeight(ROOT_SCOPE, allowUpload, allowEdit) + 8),
               ),
               scopeId: ROOT_SCOPE,
               opener: event.currentTarget,
@@ -7847,11 +7855,13 @@ export default function FilesView({
                   >
                     {t("새 폴더")} <kbd>⌘N</kbd>
                   </MenuButton>
-                  <MenuButton
-                    onClick={() => void createNotepad(contextMenu.scopeId)}
-                  >
-                    {t("새 메모장")}
-                  </MenuButton>
+                  {allowEdit && (
+                    <MenuButton
+                      onClick={() => void createNotepad(contextMenu.scopeId)}
+                    >
+                      {t("새 메모장")}
+                    </MenuButton>
+                  )}
                   <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
                     {t("파일 업로드…")}
                   </MenuButton>
@@ -7888,6 +7898,7 @@ export default function FilesView({
       {isAdmin && shareEntry && (
         <ShareDialog
           entry={shareEntry}
+          locale={locale}
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
@@ -8403,7 +8414,8 @@ export default function FilesView({
           onClick={() => setNotice(null)}
         >
           <span aria-hidden="true">◆</span>
-          {notice}
+          {/* 서버가 준 한국어 오류 문구도 사전에 있으면 번역돼 나간다. */}
+          {t(notice)}
         </button>
       )}
 
