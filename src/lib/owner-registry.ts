@@ -14,14 +14,19 @@ type RegistryConfig =
       installationId: string;
       sharedSecret: string;
       error: null;
+      unset?: undefined;
     }
   | {
       configured: false;
       error: string;
+      // 두 환경 변수 모두 비어 있는 "선택 기능 미사용" 상태.
+      // 값을 넣었는데 틀린 설정 오류와 구분해 화면 노출을 다르게 한다.
+      unset?: boolean;
     };
 
 export interface OwnerRegistryStatus {
   enabled: boolean;
+  unset: boolean;
   version: string;
   site: string | null;
   repository: string | null;
@@ -74,6 +79,7 @@ function resolveConfig(env: Environment): RegistryConfig {
   if (!endpointValue && !sharedSecret) {
     return {
       configured: false,
+      unset: true,
       error: "비공개 설치 등록부가 설정되지 않았습니다.",
     };
   }
@@ -135,7 +141,9 @@ export function isOwnerRegistryConfigured(
 function resolveMetadata(
   requestOrigin: string,
   env: Environment,
-): Omit<OwnerRegistryStatus, "enabled" | "error"> & { error: string | null } {
+): Omit<OwnerRegistryStatus, "enabled" | "error" | "unset"> & {
+  error: string | null;
+} {
   let site: string;
   try {
     site = resolvePublicOrigin(requestOrigin, env);
@@ -183,6 +191,7 @@ export function getOwnerRegistryStatus(
   const error = config.error ?? metadata.error;
   return {
     enabled: config.configured && metadata.error === null,
+    unset: config.unset === true,
     version: metadata.version,
     site: metadata.site,
     repository: metadata.repository,

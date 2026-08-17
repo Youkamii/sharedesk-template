@@ -37,6 +37,7 @@ type LastInvitationAccess = {
 
 interface OwnerRegistryStatus {
   enabled: boolean;
+  unset: boolean;
   version: string;
   site: string | null;
   repository: string | null;
@@ -443,29 +444,33 @@ export default function AdminView({ locale }: { locale: Locale }) {
         </div>
         <div className={styles.headerActions}>
           <LanguageToggle locale={locale} className={styles.languageToggle} />
-          <span
-            className={styles.registryControl}
-            title={ownerRegistry?.error ?? undefined}
-          >
+          {/* 선택 기능인 설치 등록부는 아예 설정하지 않은 설치에서는 숨긴다.
+              값을 넣었는데 틀린 설정 오류는 고칠 수 있도록 계속 보여 준다. */}
+          {ownerRegistry && !ownerRegistry.unset && (
             <span
-              className={`${styles.registryLamp} ${ownerRegistry?.enabled ? styles.registryLampOn : ""}`}
-              aria-hidden="true"
-            />
-            {ownerRegistry?.enabled ? (
-              <button
-                type="button"
-                className={styles.registryButton}
-                disabled={ownerRegistryBusy}
-                onClick={() => void recordCurrentInstallation()}
-              >
-                {ownerRegistryBusy ? t("등록 중…") : t("현재 설치 등록")}
-              </button>
-            ) : (
-              <span className={styles.registryLabel}>
-                {ownerRegistry?.error ?? t("등록부 확인 중")}
-              </span>
-            )}
-          </span>
+              className={styles.registryControl}
+              title={ownerRegistry.error ?? undefined}
+            >
+              <span
+                className={`${styles.registryLamp} ${ownerRegistry.enabled ? styles.registryLampOn : ""}`}
+                aria-hidden="true"
+              />
+              {ownerRegistry.enabled ? (
+                <button
+                  type="button"
+                  className={styles.registryButton}
+                  disabled={ownerRegistryBusy}
+                  onClick={() => void recordCurrentInstallation()}
+                >
+                  {ownerRegistryBusy ? t("등록 중…") : t("현재 설치 등록")}
+                </button>
+              ) : (
+                <span className={styles.registryLabel}>
+                  {ownerRegistry.error ?? t("등록부 확인 중")}
+                </span>
+              )}
+            </span>
+          )}
           <a href="/files" className={styles.headerLink}>
             <span aria-hidden="true">←</span>
             {t("파일로 돌아가기")}
