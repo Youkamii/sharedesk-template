@@ -10,6 +10,12 @@ import {
 import { useRouter } from "next/navigation";
 import LanguageToggle from "@/app/LanguageToggle";
 import { translate, type Locale } from "@/lib/i18n";
+import {
+  ROLE_LABELS,
+  USER_ROLES,
+  resolveUserRole,
+  type UserRole,
+} from "@/lib/roles";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
 
@@ -23,6 +29,7 @@ interface InvitationSummary {
   expiresAt: string;
   durationMinutes: number;
   usageMode: InvitationUsageMode;
+  role: UserRole;
   usageCount: number;
   lastUsedAt: string | null;
   lastUsedByEmail: string | null;
@@ -120,6 +127,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const [inviteForm, setInviteForm] = useState({
     expiresInMinutes: 1_440,
     usageMode: "once" as InvitationUsageMode,
+    role: "editor" as UserRole,
   });
 
   const load = useCallback(async () => {
@@ -305,6 +313,26 @@ export default function AdminView({ locale }: { locale: Locale }) {
     }
   }
 
+  async function changeRole(id: string, role: UserRole) {
+    if (!beginMutation(`user:${id}`)) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "role", role }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? t("처리하지 못했습니다"));
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t("처리하지 못했습니다"));
+    } finally {
+      finishMutation();
+    }
+  }
+
   async function createInvite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!beginMutation("invite:create")) return;
@@ -332,6 +360,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
       setInviteForm({
         expiresInMinutes: 1_440,
         usageMode: "once",
+        role: "editor",
       });
       setNotice(t("초대 코드를 만들었습니다. 아래 코드를 전달해 주세요."));
       await load();
@@ -500,7 +529,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">×</span>
-            {error}
+            {/* 서버 오류 문구도 사전에 있으면 번역돼 나간다. */}
+            {t(error)}
           </p>
         )}
         {notice && (
@@ -511,7 +541,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">✓</span>
-            {notice}
+            {t(notice)}
           </p>
         )}
 
@@ -564,6 +594,25 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   >
                     <option value="once">{t("1회용")}</option>
                     <option value="unlimited">{t("기간 내 무제한")}</option>
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>{t("역할")}</span>
+                  <select
+                    value={inviteForm.role}
+                    onChange={(event) =>
+                      setInviteForm((current) => ({
+                        ...current,
+                        role: resolveUserRole(event.target.value),
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    {USER_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {t(ROLE_LABELS[role])}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <button
@@ -648,7 +697,10 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             </div>
                           </td>
                           <td className={styles.compactCell}>
-                            {t(USAGE_MODE_LABEL[invitation.usageMode])}
+                            <div>{t(USAGE_MODE_LABEL[invitation.usageMode])}</div>
+                            <div>
+                              {t(ROLE_LABELS[resolveUserRole(invitation.role)])}
+                            </div>
                           </td>
                           <td className={styles.compactCell}>
                             <div>
@@ -744,13 +796,14 @@ export default function AdminView({ locale }: { locale: Locale }) {
               >
                 <table className={`${styles.table} ${styles.userTable}`}>
                   <caption className={styles.srOnly}>
-                    {t("사용자 등록일, 상태, 로그인 기기와 관리 작업")}
+                    {t("사용자 등록일, 상태, 역할, 로그인 기기와 관리 작업")}
                   </caption>
                   <thead>
                     <tr className={styles.tableHeadRow}>
                       <th>{t("사용자")}</th>
                       <th>{t("등록일")}</th>
                       <th>{t("상태")}</th>
+                      <th>{t("역할")}</th>
                       <th>{t("로그인 기기")}</th>
                       <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
                     </tr>
@@ -758,13 +811,13 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td colSpan={5} className={styles.emptyCell}>
+                        <td colSpan={6} className={styles.emptyCell}>
                           {t("불러오는 중…")}
                         </td>
                       </tr>
                     ) : users.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className={styles.emptyCell}>
+                        <td colSpan={6} className={styles.emptyCell}>
                           {t("아직 등록된 사용자가 없습니다")}
                         </td>
                       </tr>
@@ -789,6 +842,32 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             <span className={`${styles.statusBadge} ${STATUS_STYLE[user.status]}`}>
                               {t(STATUS_LABEL[user.status])}
                             </span>
+                          </td>
+                          <td>
+                            {user.isAdmin ? (
+                              <span className={styles.muted}>{t("관리자")}</span>
+                            ) : (
+                              <select
+                                value={resolveUserRole(user.role)}
+                                disabled={busyId !== null}
+                                onChange={(event) =>
+                                  void changeRole(
+                                    user.id,
+                                    resolveUserRole(event.target.value),
+                                  )
+                                }
+                                className={`${styles.select} ${styles.roleSelect}`}
+                                aria-label={t("{이름} 역할 변경", {
+                                  이름: user.name,
+                                })}
+                              >
+                                {USER_ROLES.map((role) => (
+                                  <option key={role} value={role}>
+                                    {t(ROLE_LABELS[role])}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td>
                             {user.sessions.length === 0 ? (

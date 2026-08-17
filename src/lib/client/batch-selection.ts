@@ -72,29 +72,50 @@ export function selectLayoutsInRectangle(
   return layoutKeys.length > 0 ? { scopeId, layoutKeys } : null;
 }
 
+export type NoticeTranslator = (
+  text: string,
+  vars?: Record<string, string | number>,
+) => string;
+
+// 기본 구현은 한국어 원문에 자리표시자만 채운다. 화면은 번역기를 주입해
+// 언어 설정에 맞는 문구를 받는다.
+const fillNotice: NoticeTranslator = (text, vars) => {
+  let out = text;
+  if (vars) {
+    for (const [key, value] of Object.entries(vars)) {
+      out = out.replaceAll(`{${key}}`, String(value));
+    }
+  }
+  return out;
+};
+
 export function batchMutationNotice(
   action: "move" | "trash",
   total: number,
   succeeded: number,
   refreshed: boolean,
+  t: NoticeTranslator = fillNotice,
 ) {
   const failed = total - succeeded;
   let message: string;
   if (failed === 0) {
     message =
       action === "move"
-        ? `${succeeded}개 항목을 옮겼습니다`
-        : `${succeeded}개 항목을 휴지통에 넣었습니다`;
+        ? t("{count}개 항목을 옮겼습니다", { count: succeeded })
+        : t("{count}개 항목을 휴지통에 넣었습니다", { count: succeeded });
   } else if (succeeded === 0) {
     message =
       action === "move"
-        ? `${failed}개 항목을 옮기지 못했습니다`
-        : `${failed}개 항목을 휴지통에 넣지 못했습니다`;
+        ? t("{count}개 항목을 옮기지 못했습니다", { count: failed })
+        : t("{count}개 항목을 휴지통에 넣지 못했습니다", { count: failed });
   } else {
     message =
       action === "move"
-        ? `${succeeded}개 옮김, ${failed}개 실패했습니다`
-        : `${succeeded}개 휴지통 이동, ${failed}개 실패했습니다`;
+        ? t("{ok}개 옮김, {fail}개 실패했습니다", { ok: succeeded, fail: failed })
+        : t("{ok}개 휴지통 이동, {fail}개 실패했습니다", {
+            ok: succeeded,
+            fail: failed,
+          });
   }
-  return refreshed ? message : `${message} — 새로고침해 주세요`;
+  return refreshed ? message : t("{message} — 새로고침해 주세요", { message });
 }

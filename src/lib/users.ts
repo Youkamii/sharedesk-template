@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { USER_ROLES, resolveUserRole, type UserRole } from "@/lib/roles";
 import { isValidSessionId } from "@/lib/session-token";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
@@ -31,6 +32,9 @@ export interface User {
   email: string;
   name: string;
   status: UserStatus;
+  // 파일 권한용 저장 역할. ADMIN_EMAILS 사용자의 세션 역할은 이 값보다 우선해
+  // "admin"이 된다(auth.ts) — 저장값은 관리자 여부와 별개로 유지된다.
+  role: UserRole;
   isAdmin: boolean;
   createdAt: string;
   invitationId: string | null;
@@ -48,6 +52,8 @@ export interface Invitation {
   tokenVersion: number;
   usageMode: InvitationUsageMode;
   usageCount: number;
+  // 이 초대로 가입한 사용자가 받는 저장 역할.
+  role: UserRole;
   durationMinutes: number;
   expiresAt: string;
   createdAt: string;
@@ -62,6 +68,8 @@ export interface Invitation {
 export interface InvitationInput {
   expiresInMinutes?: number;
   usageMode: InvitationUsageMode;
+  // 생략하면 "editor" — 역할 도입 전과 같은 권한이다.
+  role?: UserRole;
 }
 
 export interface InvitationTokenRef {
@@ -251,6 +259,8 @@ function normalize(raw: unknown): UserFile {
       status: (u.status === "approved" || u.status === "blocked"
         ? u.status
         : "pending") as UserStatus,
+      // 역할 도입 전 파일에는 role이 없다 — 기존 사용자는 editor로 읽는다.
+      role: resolveUserRole(u.role),
       isAdmin: u.isAdmin === true,
       createdAt: isoOrEpoch(u.createdAt),
       invitationId:
@@ -330,6 +340,7 @@ function normalize(raw: unknown): UserFile {
         tokenVersion,
         usageMode,
         usageCount,
+        role: resolveUserRole(invitation.role),
         durationMinutes,
         expiresAt,
         createdAt: isoOrEpoch(invitation.createdAt),
@@ -543,12 +554,16 @@ export async function createInvitation(
   if (input.usageMode !== "once" && input.usageMode !== "unlimited") {
     throw new Error("초대 사용 방식을 확인해 주세요");
   }
+  if (input.role !== undefined && !USER_ROLES.includes(input.role)) {
+    throw new Error("역할 값을 확인해 주세요");
+  }
   const invitation: Invitation = {
     id: randomUUID(),
     active: true,
     tokenVersion: 1,
     usageMode: input.usageMode,
     usageCount: 0,
+    role: input.role ?? "editor",
     durationMinutes,
     expiresAt: expiresAtFrom(now, durationMinutes),
     createdAt: now,
@@ -616,6 +631,7 @@ function upsertProfile(
       email,
       name: profile.name || email,
       status,
+      role: "editor",
       isAdmin: admin,
       createdAt: new Date().toISOString(),
       invitationId,
@@ -733,6 +749,8 @@ export async function redeemInvitationForUser(
     invitation.lastUsedByEmail = user.email;
     invitation.updatedAt = now;
     user.status = "approved";
+    // 초대에 지정된 역할이 가입자의 저장 역할이 된다.
+    user.role = invitation.role;
     if (!user.invitationId) user.invitationId = invitation.id;
     return { ok: true, user } as const;
   }, (result) => result.ok);
@@ -754,6 +772,23 @@ export async function setStatus(
       user.sessionVersion = nextSessionVersion(user.sessionVersion);
       user.sessions = [];
     }
+    return user;
+  });
+}
+
+export async function setUserRole(
+  id: string,
+  role: UserRole,
+): Promise<User | null> {
+  if (!USER_ROLES.includes(role)) {
+    throw new Error("역할 값을 확인해 주세요");
+  }
+  return mutate((file) => {
+    const user = file.users.find((item) => item.id === id);
+    if (!user) return null;
+    // 관리자 이메일 계정도 저장값은 바꿀 수 있다 — 세션 역할은 어차피
+    // ADMIN_EMAILS가 우선하므로(auth.ts) 실권한은 변하지 않는다.
+    user.role = role;
     return user;
   });
 }

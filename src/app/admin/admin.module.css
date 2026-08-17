@@ -373,7 +373,7 @@
 .inviteForm {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
   margin-top: 16px;
@@ -412,6 +412,19 @@
     inset 2px 2px 0 #b7a98e,
     inset -2px -2px 0 #fffdf2;
   font-size: 11px;
+}
+
+.select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* 사용자 표 안의 역할 선택 — .select 픽셀 톤을 그대로 쓰되 행 높이에 맞춘다. */
+.roleSelect {
+  width: auto;
+  min-width: 132px;
+  height: 34px;
+  padding-block: 5px;
 }
 
 .pixelButton {
@@ -530,7 +543,7 @@
 }
 
 .inviteTable { min-width: 940px; }
-.userTable { min-width: 850px; }
+.userTable { min-width: 980px; }
 
 .table th,
 .table td {

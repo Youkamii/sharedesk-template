@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
 import { revokeDrivePermissionsForTargetUser } from "@/lib/drive-shares";
+import { USER_ROLES, type UserRole } from "@/lib/roles";
 import {
   UserStatus,
   isAdminEmail,
@@ -9,6 +10,7 @@ import {
   revokeDeviceSession,
   revokeSessions,
   setStatus,
+  setUserRole,
 } from "@/lib/users";
 
 async function revokeManagedShares(id: string): Promise<string | null> {
@@ -99,6 +101,47 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }
       return NextResponse.json({ ok: true });
+    }
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "처리하지 못했습니다" },
+      { status: 400 },
+    );
+  }
+  return NextResponse.json({ error: "알 수 없는 동작입니다" }, { status: 400 });
+}
+
+export async function PATCH(req: NextRequest) {
+  const auth = await requireAdmin({ fresh: true });
+  if ("response" in auth) return auth.response;
+
+  const body = await req.json().catch(() => null);
+  const id = typeof body?.id === "string" ? body.id : "";
+  const action = typeof body?.action === "string" ? body.action : "";
+  if (!id || !action) {
+    return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
+  }
+
+  try {
+    if (action === "role") {
+      const role = typeof body?.role === "string" ? body.role : "";
+      if (!(USER_ROLES as readonly string[]).includes(role)) {
+        return NextResponse.json(
+          { error: "역할 값을 확인해 주세요" },
+          { status: 400 },
+        );
+      }
+      const user = await setUserRole(id, role as UserRole);
+      if (!user) {
+        return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
+      }
+      console.info("[admin]", {
+        event: "role-changed",
+        targetUserId: user.id,
+        role: user.role,
+        actorUserId: auth.session.userId,
+      });
+      return NextResponse.json({ user });
     }
   } catch (e) {
     return NextResponse.json(

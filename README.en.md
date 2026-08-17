@@ -17,10 +17,12 @@ ShareDesk is **a shared file space where several people use one person's Google 
 ## What you can do
 
 - Arrange files and folders like desktop icons, and open folders as windows to organize them together.
-- Upload, download, and rename files, move them between folders, and restore them from the trash.
+- Depending on your role, upload, download, and rename files, move them between folders, and restore them from the trash.
 - View photos, videos, audio, PDFs, and text right away, and edit `.txt` files together.
 - Leave a shared memo on every folder.
 - Bring people in with invite codes and see who is currently online.
+- Give each person one of four roles — Admin, Can edit, Can upload, View only — and change it anytime from the admin screen.
+- Switch between Korean and English with the EN·한 button; the choice is saved in each person's browser, and Korean is the default.
 - Pick whichever of the four wallpapers suits your mood; the choice is saved in each person's browser.
 
 ## How is it shared?

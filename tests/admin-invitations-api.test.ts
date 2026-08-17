@@ -77,6 +77,64 @@ test("관리자 화면은 도트 도구 스타일과 접근 가능한 스크롤 
   assert.equal(source.match(/<caption className=\{styles\.srOnly\}>/g)?.length, 2);
 });
 
+test("관리자 화면은 역할 열과 역할 변경 PATCH를 제공한다", async () => {
+  const [source, routeSource] = await Promise.all([
+    readFile(
+      new URL("../src/app/admin/AdminView.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/api/admin/users/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  // 역할 이름·라벨은 하드코딩하지 않고 계약 모듈(@/lib/roles)에서 가져온다.
+  assert.match(
+    source,
+    /import \{[\s\S]*?ROLE_LABELS[\s\S]*?\} from "@\/lib\/roles"/,
+  );
+
+  const inviteSection = source.match(
+    /<section aria-labelledby="invite-title">([\s\S]*?)<section aria-labelledby="user-title">/,
+  )?.[1];
+  const userSection = source.match(
+    /<section aria-labelledby="user-title">([\s\S]*)$/,
+  )?.[1];
+  assert.ok(inviteSection);
+  assert.ok(userSection);
+
+  // 초대 폼: 역할 선택(기본 editor)과 초대 표의 부여 역할 표시
+  assert.match(inviteSection, /<span>\{t\("역할"\)\}<\/span>/);
+  assert.match(source, /role: "editor" as UserRole/);
+  assert.match(
+    inviteSection,
+    /ROLE_LABELS\[resolveUserRole\(invitation\.role\)\]/,
+  );
+
+  // 사용자 표: 역할 열 + 관리자는 고정 표기, 그 외에는 select
+  assert.match(userSection, /<th>\{t\("역할"\)\}<\/th>/);
+  assert.match(
+    userSection,
+    /<span className=\{styles\.muted\}>\{t\("관리자"\)\}<\/span>/,
+  );
+  assert.match(userSection, /USER_ROLES\.map\(\(role\)/);
+  assert.match(userSection, /\{t\(ROLE_LABELS\[role\]\)\}/);
+  assert.match(userSection, /changeRole\(\s*user\.id/);
+
+  // 역할 변경은 admin/users PATCH action=role 로 보내고 busy 처리를 같이 쓴다
+  assert.match(source, /fetch\("\/api\/admin\/users", \{\s*method: "PATCH"/);
+  assert.match(source, /action: "role"/);
+  assert.match(source, /if \(!beginMutation\(`user:\$\{id\}`\)\) return;/);
+
+  // 라우트: PATCH가 역할 값을 검증하고 setUserRole을 호출한다
+  assert.match(routeSource, /export async function PATCH/);
+  assert.match(routeSource, /action === "role"/);
+  assert.match(routeSource, /역할 값을 확인해 주세요/);
+  assert.match(routeSource, /setUserRole\(/);
+  assert.match(routeSource, /from "@\/lib\/roles"/);
+});
+
 function session(userId: string): string {
   const body = Buffer.from(
     JSON.stringify({
@@ -348,12 +406,89 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
   assert.equal(listedUsers.status, 200);
   const listedMember = (
     (await listedUsers.json()) as {
-      users: Array<{ id: string; sessions: Array<{ id: string }> }>;
+      users: Array<{
+        id: string;
+        role?: string;
+        sessions: Array<{ id: string }>;
+      }>;
     }
   ).users.find((user) => user.id === "member-sub");
   assert.equal(
     listedMember?.sessions[0]?.id,
     "member-device-session-0000000000000001",
+  );
+  assert.equal(
+    listedMember?.role,
+    "editor",
+    "role 필드가 없던 기존 사용자는 editor로 정규화되어 내려온다",
+  );
+
+  const unauthorizedRoleChange = await fetch(`${origin}/api/admin/users`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: "member-sub", action: "role", role: "viewer" }),
+  });
+  assert.equal(unauthorizedRoleChange.status, 401);
+
+  const forbiddenRoleChange = await fetch(`${origin}/api/admin/users`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `sharedesk_session=${session("member-sub")}`,
+    },
+    body: JSON.stringify({ id: "member-sub", action: "role", role: "viewer" }),
+  });
+  assert.equal(forbiddenRoleChange.status, 403);
+
+  const invalidRoleChange = await fetch(`${origin}/api/admin/users`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({ id: "member-sub", action: "role", role: "owner" }),
+  });
+  assert.equal(invalidRoleChange.status, 400);
+  assert.match(
+    ((await invalidRoleChange.json()) as { error: string }).error,
+    /역할 값을 확인해 주세요/,
+  );
+
+  const missingUserRoleChange = await fetch(`${origin}/api/admin/users`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({ id: "ghost-sub", action: "role", role: "viewer" }),
+  });
+  assert.equal(missingUserRoleChange.status, 404);
+
+  const roleChanged = await fetch(`${origin}/api/admin/users`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: adminCookie,
+    },
+    body: JSON.stringify({ id: "member-sub", action: "role", role: "viewer" }),
+  });
+  assert.equal(roleChanged.status, 200);
+  assert.equal(
+    ((await roleChanged.json()) as { user: { role: string } }).user.role,
+    "viewer",
+  );
+
+  const usersAfterRoleChange = await fetch(`${origin}/api/admin/users`, {
+    headers: { Cookie: adminCookie },
+  });
+  assert.equal(usersAfterRoleChange.status, 200);
+  assert.equal(
+    (
+      (await usersAfterRoleChange.json()) as {
+        users: Array<{ id: string; role?: string }>;
+      }
+    ).users.find((user) => user.id === "member-sub")?.role,
+    "viewer",
   );
 
   const manualApproval = await fetch(`${origin}/api/admin/users`, {

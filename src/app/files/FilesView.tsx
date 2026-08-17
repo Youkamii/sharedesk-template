@@ -80,6 +80,7 @@ import {
   type PreviewKind,
 } from "@/lib/preview";
 import { translate, type Locale } from "@/lib/i18n";
+import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageToggle from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
@@ -334,6 +335,8 @@ const UPDATE_GUIDE_URL =
   "https://github.com/Youkamii/sharedesk-template/blob/main/docs/UPDATE.md";
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
 const TEXT_EDIT_LIMIT = 1024 * 1024;
+// 역할 4단계(#80): 편집 권한이 없는 역할에게 편집 화면을 읽기 전용으로 보여 줄 때의 사유.
+const ROLE_READONLY_REASON = "저장 권한이 없어 읽기 전용입니다.";
 
 function TrashCanIcon() {
   return (
@@ -530,13 +533,34 @@ function itemContextMenuHeight(
   entry: Entry,
   isAdmin: boolean,
   hasParent: boolean,
+  allowEdit: boolean,
 ) {
-  const fullHeight = (isAdmin ? 250 : 205) + (hasParent ? 45 : 0);
+  // 편집 권한이 없으면 열기·새 탭·다운로드만 남는다 (구분선·편집 그룹 제거).
+  const fullHeight = allowEdit
+    ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
+    : 125;
   if (!previewKindOf(entry)) return fullHeight - 70;
   return canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35;
 }
 
-function previewTextReadOnlyReason(preview: PreviewWindowState) {
+function desktopContextMenuHeight(
+  scopeId: string,
+  allowUpload: boolean,
+  allowEdit: boolean,
+) {
+  // 새 폴더·파일 업로드와 구분선은 업로드 권한, 새 메모장(내용 저장이 필요)은
+  // 편집 권한이 있을 때만 나온다. 바탕화면(ROOT_SCOPE)에는 배경 4종이 추가된다.
+  return (
+    (allowUpload ? (allowEdit ? 194 : 159) : 79) +
+    (scopeId === ROOT_SCOPE ? 136 : 0)
+  );
+}
+
+function previewTextReadOnlyReason(
+  preview: PreviewWindowState,
+  allowEdit: boolean,
+) {
+  if (!allowEdit) return ROLE_READONLY_REASON;
   if (preview.textReadOnlyReason) return preview.textReadOnlyReason;
   if (!isEditableTextEntry(preview.entry)) {
     return ".txt 파일만 여기에서 편집할 수 있습니다.";
@@ -573,6 +597,7 @@ export default function FilesView({
   userEmail,
   isAdmin,
   isGuest,
+  role,
   canSendFeedback,
   locale,
 }: {
@@ -580,6 +605,7 @@ export default function FilesView({
   userEmail: string;
   isAdmin: boolean;
   isGuest: boolean;
+  role: SessionRole;
   canSendFeedback: boolean;
   locale: Locale;
 }) {
@@ -594,6 +620,10 @@ export default function FilesView({
     [],
   );
   const dateLocale: "ko-KR" | "en-US" = locale === "en" ? "en-US" : "ko-KR";
+  // 역할 4단계(#80): 권한이 없는 조작 UI는 조용히 숨긴다(비활성보다 숨김).
+  // 게스트는 서버가 viewer로 내려 주므로 별도 게스트 분기가 필요 없다.
+  const allowUpload = canUpload(role);
+  const allowEdit = canEdit(role);
   const viewport = useViewport();
   const uiScale = uiScaleForViewport(viewport.width, viewport.height);
   const logicalViewport = logicalViewportFor(
@@ -1360,6 +1390,9 @@ export default function FilesView({
   }, []);
 
   useEffect(() => {
+    // 배치 저장 권한이 없으면 자동 보정 저장을 시도하지 않는다(서버가 403을 준다).
+    // 보정은 권한 있는 사용자의 화면이 대신 저장한다.
+    if (!allowUpload) return;
     if (
       rootData.loading ||
       !rootData.folderIdentity ||
@@ -1404,6 +1437,7 @@ export default function FilesView({
       rootDesktopCorrectionAttemptRef.current = correctionToken;
     }
   }, [
+    allowUpload,
     rootData.folderIdentity,
     rootData.entries,
     rootData.loading,
@@ -1509,10 +1543,8 @@ export default function FilesView({
       const height = current.searchResult
         ? searchContextMenuHeight(current.searchResult.entry)
         : current.entry
-          ? itemContextMenuHeight(current.entry, isAdmin, hasParent)
-        : current.scopeId === ROOT_SCOPE
-          ? 330
-          : 194;
+          ? itemContextMenuHeight(current.entry, isAdmin, hasParent, allowEdit)
+          : desktopContextMenuHeight(current.scopeId, allowUpload, allowEdit);
       return {
         ...current,
         x: clamp(
@@ -1527,7 +1559,7 @@ export default function FilesView({
         ),
       };
     });
-  }, [isAdmin, logicalViewport.height, logicalViewport.width]);
+  }, [isAdmin, allowEdit, allowUpload, logicalViewport.height, logicalViewport.width]);
 
   function selectWallpaper(id: WallpaperId) {
     setWallpaperId(id);
@@ -1988,6 +2020,7 @@ export default function FilesView({
       entry,
       isAdmin,
       Boolean(scopeParentFolderId(scopeId)),
+      allowEdit,
     );
   }
 
@@ -2946,7 +2979,7 @@ export default function FilesView({
   async function savePreviewText() {
     const preview = previewWindow;
     const readOnlyReason = preview
-      ? previewTextReadOnlyReason(preview)
+      ? previewTextReadOnlyReason(preview, allowEdit)
       : null;
     if (
       !preview ||
@@ -3673,6 +3706,7 @@ export default function FilesView({
   }
 
   async function saveFolderNote() {
+    if (!allowEdit) return;
     const note = folderNoteWindow;
     if (!note || note.loading || note.saving) return;
     setFolderNoteWindow((current) =>
@@ -4509,6 +4543,7 @@ export default function FilesView({
     targetFolderId: string,
     announce = true,
   ) {
+    if (!allowEdit) return false;
     if (
       entry.isFolder &&
       !confirmPreviewLifecycleChange(entry)
@@ -4674,6 +4709,7 @@ export default function FilesView({
     entry: Entry,
     announce = true,
   ) {
+    if (!allowEdit) return false;
     if (
       !confirmPreviewLifecycleChange(entry)
     ) {
@@ -4777,6 +4813,7 @@ export default function FilesView({
         entries.length,
         results.filter(Boolean).length,
         refreshed,
+        t,
       ),
     );
   }
@@ -4795,6 +4832,7 @@ export default function FilesView({
         entries.length,
         results.filter(Boolean).length,
         refreshed,
+        t,
       ),
     );
     if (trashWindow) {
@@ -4876,6 +4914,7 @@ export default function FilesView({
     id?: string,
     version?: string,
   ) {
+    if (!allowEdit) return;
     const busyId = id ?? "__empty__";
     setTrashWindow((current) =>
       current ? { ...current, busyId, confirmId: null } : current,
@@ -5051,6 +5090,8 @@ export default function FilesView({
     index: number,
   ) {
     if (event.button !== 0) return;
+    // 배치 저장(레이아웃 PATCH) 권한이 없으면 드래그 시작 자체를 막는다.
+    if (!allowUpload) return;
     const canvas = scopeCanvas(scopeId);
     if (!canvas) return;
     const data = scopeData(scopeId);
@@ -5128,13 +5169,16 @@ export default function FilesView({
         clientX: next.clientX,
         clientY: next.clientY,
       });
-      moveTarget = findMoveTarget(
-        next.clientX,
-        next.clientY,
-        scopeId,
-        folderId,
-        dragEntries,
-      );
+      // 폴더로 이동·휴지통 넣기는 편집 권한이 필요하다 — 배치만 저장한다.
+      moveTarget = allowEdit
+        ? findMoveTarget(
+            next.clientX,
+            next.clientY,
+            scopeId,
+            folderId,
+            dragEntries,
+          )
+        : null;
       setDropTargetKey(moveTarget?.highlightKey ?? null);
     };
     const cleanup = () => {
@@ -5244,9 +5288,7 @@ export default function FilesView({
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
       ? entryContextMenuHeight(scopeId, entry)
-      : scopeId === ROOT_SCOPE
-        ? 330
-        : 194;
+      : desktopContextMenuHeight(scopeId, allowUpload, allowEdit);
     const target = event.target as HTMLElement;
     const activeElement =
       document.activeElement instanceof HTMLElement
@@ -5563,6 +5605,8 @@ export default function FilesView({
   }
 
   function openDialog(nextDialog: DialogState, opener?: HTMLElement | null) {
+    // 새 폴더는 업로드 권한, 이름 바꾸기·삭제는 편집 권한이 필요하다.
+    if (nextDialog.kind === "create" ? !allowUpload : !allowEdit) return;
     const activeElement =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -5696,6 +5740,7 @@ export default function FilesView({
   }
 
   function requestUpload(scopeId: string) {
+    if (!allowUpload) return;
     uploadScopeRef.current = scopeId;
     setContextMenu(null);
     fileInputRef.current?.click();
@@ -5766,6 +5811,7 @@ export default function FilesView({
   }
 
   async function uploadFiles(files: FileList | File[], scopeId: string) {
+    if (!allowUpload) return;
     const list = Array.from(files);
     if (!list.length) return;
     const folderId = scopeFolderId(scopeId);
@@ -5789,6 +5835,9 @@ export default function FilesView({
   }
 
   async function createNotepad(scopeId: string) {
+    // 만들자마자 내용을 저장해야 하는 기능이라 편집 권한 기준으로 연다.
+    // 올리기 가능 역할이 만들면 본인이 채우지도 지우지도 못하는 빈 파일이 남는다.
+    if (!allowEdit) return;
     const data = scopeData(scopeId);
     if (!data || data.loading) return;
     const name = nextNotepadName(data.entries.map((entry) => entry.name));
@@ -5927,6 +5976,7 @@ export default function FilesView({
 
   async function submitDialog() {
     if (!dialog || dialogBusy) return;
+    if (dialog.kind === "create" ? !allowUpload : !allowEdit) return;
     if (
       dialog.kind !== "create" &&
       (dialog.kind === "delete" || dialog.entry.isFolder) &&
@@ -6096,6 +6146,7 @@ export default function FilesView({
         }}
         onContextMenu={(event) => openContextMenu(event, scopeId)}
         onDragOver={(event) => {
+          if (!allowUpload) return;
           if (!event.dataTransfer.types.includes("Files")) return;
           event.preventDefault();
           setDragOverScope(scopeId);
@@ -6106,7 +6157,7 @@ export default function FilesView({
           }
         }}
         onDrop={(event) => {
-          if (data.loading || !event.dataTransfer.files.length) return;
+          if (!allowUpload || data.loading || !event.dataTransfer.files.length) return;
           event.preventDefault();
           setDragOverScope(null);
           void uploadFiles(event.dataTransfer.files, scopeId);
@@ -6223,7 +6274,7 @@ export default function FilesView({
                     event.preventDefault();
                     activateEntry(entry, scopeId, event.currentTarget);
                   }
-                  if (event.key === "F2") {
+                  if (allowEdit && event.key === "F2") {
                     event.preventDefault();
                     openDialog(
                       {
@@ -6235,7 +6286,7 @@ export default function FilesView({
                       event.currentTarget,
                     );
                   }
-                  if (event.key === "Delete") {
+                  if (allowEdit && event.key === "Delete") {
                     event.preventDefault();
                     openDialog(
                       { kind: "delete", scopeId, entry },
@@ -6329,7 +6380,7 @@ export default function FilesView({
       ) ?? [])
     : [];
   const previewReadOnlyReason = previewWindow
-    ? previewTextReadOnlyReason(previewWindow)
+    ? previewTextReadOnlyReason(previewWindow, allowEdit)
     : null;
   const topManagedWindowZ = Math.max(
     0,
@@ -6645,19 +6696,21 @@ export default function FilesView({
                 />
                 <button type="submit">{t("검색")}</button>
               </form>
-              <button
-                type="button"
-                className={styles.toolbarAction}
-                disabled={item.data.loading}
-                onClick={(event) =>
-                  openDialog(
-                    { kind: "create", scopeId: item.id, value: "" },
-                    event.currentTarget,
-                  )
-                }
-              >
-                {t("+ 폴더")}
-              </button>
+              {allowUpload && (
+                <button
+                  type="button"
+                  className={styles.toolbarAction}
+                  disabled={item.data.loading}
+                  onClick={(event) =>
+                    openDialog(
+                      { kind: "create", scopeId: item.id, value: "" },
+                      event.currentTarget,
+                    )
+                  }
+                >
+                  {t("+ 폴더")}
+                </button>
+              )}
               <button
                 type="button"
                 className={`${styles.toolbarAction} ${styles.folderNoteButton}`}
@@ -7041,7 +7094,7 @@ export default function FilesView({
                         : t("휴지통 보관 중")}
                     </span>
                   </div>
-                  {trashWindow.confirmId === entry.id ? (
+                  {allowEdit && trashWindow.confirmId === entry.id ? (
                     <span className={styles.trashActions}>
                       <button
                         type="button"
@@ -7065,7 +7118,7 @@ export default function FilesView({
                         {t("취소")}
                       </button>
                     </span>
-                  ) : (
+                  ) : allowEdit ? (
                     <span className={styles.trashActions}>
                       <button
                         type="button"
@@ -7089,7 +7142,7 @@ export default function FilesView({
                         {t("완전 삭제")}
                       </button>
                     </span>
-                  )}
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -7103,7 +7156,8 @@ export default function FilesView({
                 count: trashWindow.entries.length,
               })}
             </span>
-            {trashWindow.entries.length > 0 &&
+            {allowEdit &&
+              trashWindow.entries.length > 0 &&
               (trashWindow.confirmId === "__empty__" ? (
                 <span className={styles.trashActions}>
                   <button
@@ -7357,9 +7411,15 @@ export default function FilesView({
               </p>
             ) : (
               <>
+                {!allowEdit && (
+                  <p className={styles.editorWarning} role="status">
+                    {t(ROLE_READONLY_REASON)}
+                  </p>
+                )}
                 <textarea
                   value={folderNoteWindow.content}
                   aria-label={t("폴더 메모 내용")}
+                  readOnly={!allowEdit}
                   onChange={(event) =>
                     setFolderNoteWindow((current) =>
                       current
@@ -7387,35 +7447,39 @@ export default function FilesView({
                 ? t("저장됨")
                 : t("저장하지 않은 변경 있음")}
             </span>
-            <button
-              type="button"
-              className={styles.editorSave}
-              disabled={
-                folderNoteWindow.loading ||
-                folderNoteWindow.saving ||
-                !!(folderNoteWindow.error && !folderNoteWindow.conflict) ||
-                folderNoteWindow.content === folderNoteWindow.originalContent
-              }
-              onClick={() => void saveFolderNote()}
-            >
-              {folderNoteWindow.saving ? t("저장 중…") : t("저장")}
-            </button>
+            {allowEdit && (
+              <button
+                type="button"
+                className={styles.editorSave}
+                disabled={
+                  folderNoteWindow.loading ||
+                  folderNoteWindow.saving ||
+                  !!(folderNoteWindow.error && !folderNoteWindow.conflict) ||
+                  folderNoteWindow.content === folderNoteWindow.originalContent
+                }
+                onClick={() => void saveFolderNote()}
+              >
+                {folderNoteWindow.saving ? t("저장 중…") : t("저장")}
+              </button>
+            )}
           </footer>
         </section>
       )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className={styles.hiddenInput}
-        onChange={(event) => {
-          if (event.target.files) {
-            void uploadFiles(event.target.files, uploadScopeRef.current);
-          }
-          event.target.value = "";
-        }}
-      />
+      {allowUpload && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className={styles.hiddenInput}
+          onChange={(event) => {
+            if (event.target.files) {
+              void uploadFiles(event.target.files, uploadScopeRef.current);
+            }
+            event.target.value = "";
+          }}
+        />
+      )}
 
       <button
         type="button"
@@ -7463,7 +7527,8 @@ export default function FilesView({
               x: logicalClientCoordinate(rect.left, uiScale),
               y: Math.max(
                 8,
-                logicalClientCoordinate(rect.top, uiScale) - 338,
+                logicalClientCoordinate(rect.top, uiScale) -
+                  (desktopContextMenuHeight(ROOT_SCOPE, allowUpload, allowEdit) + 8),
               ),
               scopeId: ROOT_SCOPE,
               opener: event.currentTarget,
@@ -7709,8 +7774,8 @@ export default function FilesView({
                     {t("다운로드")}
                   </MenuButton>
                 )}
-              <div className={styles.menuSeparator} />
-              {scopeParentFolderId(contextMenu.scopeId) && (
+              {allowEdit && <div className={styles.menuSeparator} />}
+              {allowEdit && scopeParentFolderId(contextMenu.scopeId) && (
                 <MenuButton
                   onClick={() => {
                     const sourceScopeId = contextMenu.scopeId;
@@ -7727,22 +7792,24 @@ export default function FilesView({
                   {t("상위 폴더로 이동")}
                 </MenuButton>
               )}
-              <MenuButton
-                onClick={() => {
-                  openDialog(
-                    {
-                      kind: "rename",
-                      scopeId: contextMenu.scopeId,
-                      entry: contextMenu.entry!,
-                      value: contextMenu.entry!.name,
-                    },
-                    contextMenu.opener,
-                  );
-                  setContextMenu(null);
-                }}
-              >
-                {t("이름 바꾸기")} <kbd>F2</kbd>
-              </MenuButton>
+              {allowEdit && (
+                <MenuButton
+                  onClick={() => {
+                    openDialog(
+                      {
+                        kind: "rename",
+                        scopeId: contextMenu.scopeId,
+                        entry: contextMenu.entry!,
+                        value: contextMenu.entry!.name,
+                      },
+                      contextMenu.opener,
+                    );
+                    setContextMenu(null);
+                  }}
+                >
+                  {t("이름 바꾸기")} <kbd>F2</kbd>
+                </MenuButton>
+              )}
               {isAdmin && (
                 <MenuButton
                   onClick={() => openShareDialog(contextMenu.entry!)}
@@ -7750,49 +7817,57 @@ export default function FilesView({
                   {t("Google Drive로 공유…")}
                 </MenuButton>
               )}
-              <MenuButton
-                danger
-                onClick={() => {
-                  openDialog(
-                    {
-                      kind: "delete",
-                      scopeId: contextMenu.scopeId,
-                      entry: contextMenu.entry!,
-                    },
-                    contextMenu.opener,
-                  );
-                  setContextMenu(null);
-                }}
-              >
-                {t("삭제…")} <kbd>Del</kbd>
-              </MenuButton>
+              {allowEdit && (
+                <MenuButton
+                  danger
+                  onClick={() => {
+                    openDialog(
+                      {
+                        kind: "delete",
+                        scopeId: contextMenu.scopeId,
+                        entry: contextMenu.entry!,
+                      },
+                      contextMenu.opener,
+                    );
+                    setContextMenu(null);
+                  }}
+                >
+                  {t("삭제…")} <kbd>Del</kbd>
+                </MenuButton>
+              )}
             </>
           ) : (
             <>
-              <MenuButton
-                onClick={() => {
-                  openDialog(
-                    {
-                      kind: "create",
-                      scopeId: contextMenu.scopeId,
-                      value: "",
-                    },
-                    contextMenu.opener,
-                  );
-                  setContextMenu(null);
-                }}
-              >
-                {t("새 폴더")} <kbd>⌘N</kbd>
-              </MenuButton>
-              <MenuButton
-                onClick={() => void createNotepad(contextMenu.scopeId)}
-              >
-                {t("새 메모장")}
-              </MenuButton>
-              <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
-                {t("파일 업로드…")}
-              </MenuButton>
-              <div className={styles.menuSeparator} />
+              {allowUpload && (
+                <>
+                  <MenuButton
+                    onClick={() => {
+                      openDialog(
+                        {
+                          kind: "create",
+                          scopeId: contextMenu.scopeId,
+                          value: "",
+                        },
+                        contextMenu.opener,
+                      );
+                      setContextMenu(null);
+                    }}
+                  >
+                    {t("새 폴더")} <kbd>⌘N</kbd>
+                  </MenuButton>
+                  {allowEdit && (
+                    <MenuButton
+                      onClick={() => void createNotepad(contextMenu.scopeId)}
+                    >
+                      {t("새 메모장")}
+                    </MenuButton>
+                  )}
+                  <MenuButton onClick={() => requestUpload(contextMenu.scopeId)}>
+                    {t("파일 업로드…")}
+                  </MenuButton>
+                  <div className={styles.menuSeparator} />
+                </>
+              )}
               <MenuButton
                 onClick={() => {
                   void refreshScope(contextMenu.scopeId);
@@ -7823,6 +7898,7 @@ export default function FilesView({
       {isAdmin && shareEntry && (
         <ShareDialog
           entry={shareEntry}
+          locale={locale}
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
@@ -8338,7 +8414,8 @@ export default function FilesView({
           onClick={() => setNotice(null)}
         >
           <span aria-hidden="true">◆</span>
-          {notice}
+          {/* 서버가 준 한국어 오류 문구도 사전에 있으면 번역돼 나간다. */}
+          {t(notice)}
         </button>
       )}
 

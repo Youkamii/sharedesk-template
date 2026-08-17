@@ -1,6 +1,6 @@
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
-import { errorResponse, requireSession } from "@/lib/api";
+import { errorResponse, requireEditRights } from "@/lib/api";
 
 const MAX_TEXT_BYTES = 1024 * 1024;
 const JSON_OVERHEAD_BYTES = 4 * 1024;
@@ -55,7 +55,7 @@ async function readJsonBody(req: Request): Promise<unknown> {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await requireSession({ fresh: true });
+  const auth = await requireEditRights({ fresh: true });
   if ("response" in auth) return auth.response;
 
   try {

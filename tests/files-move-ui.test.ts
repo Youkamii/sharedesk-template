@@ -1383,3 +1383,126 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   assert.match(css, /\.feedbackError \{/);
   assert.match(css, /\.feedbackMessage \{[\s\S]*?resize: none;/);
 });
+
+test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨기고 동작도 함께 차단한다", async () => {
+  const [source, page] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // 계약: 세션 역할을 prop으로 받아 두 게이트를 파생한다.
+  assert.match(page, /role=\{session\.role\}/);
+  assert.match(
+    source,
+    /import \{ canEdit, canUpload, type SessionRole \} from "@\/lib\/roles"/,
+  );
+  assert.match(source, /role: SessionRole;/);
+  assert.match(source, /const allowUpload = canUpload\(role\);/);
+  assert.match(source, /const allowEdit = canEdit\(role\);/);
+
+  // allowUpload=false — 만들기·올리기 UI를 렌더하지 않고 함수도 앞에서 끊는다.
+  assert.match(
+    source,
+    /\{allowUpload && \(\s*<>\s*<MenuButton[\s\S]*?새 폴더[\s\S]*?새 메모장[\s\S]*?파일 업로드…[\s\S]*?<\/>\s*\)\}/,
+  );
+  assert.match(source, /\{allowUpload && \(\s*<input\s*ref=\{fileInputRef\}/);
+  assert.match(source, /\{allowUpload && \(\s*<button[\s\S]{0,600}?\+ 폴더/);
+  assert.match(
+    source,
+    /function requestUpload\(scopeId: string\) \{\s*if \(!allowUpload\) return;/,
+  );
+  assert.match(
+    source,
+    /async function uploadFiles\(files: FileList \| File\[\], scopeId: string\) \{\s*if \(!allowUpload\) return;/,
+  );
+  // 새 메모장은 만들자마자 내용 저장이 필요하므로 편집 권한 기준이다.
+  assert.match(
+    source,
+    /async function createNotepad\(scopeId: string\) \{[\s\S]{0,220}?if \(!allowEdit\) return;/,
+  );
+  assert.match(
+    source,
+    /\{allowEdit && \(\s*<MenuButton\s*onClick=\{\(\) => void createNotepad\(contextMenu\.scopeId\)\}/,
+  );
+  // 외부 파일 드래그 업로드(드롭존 표시 포함) 차단
+  assert.match(source, /onDragOver=\{\(event\) => \{\s*if \(!allowUpload\) return;/);
+  assert.match(
+    source,
+    /if \(!allowUpload \|\| data\.loading \|\| !event\.dataTransfer\.files\.length\) return;/,
+  );
+  // 아이콘 배치 드래그는 시작 자체를 차단하고, 자동 배치 보정 저장도 건너뛴다.
+  assert.match(
+    source,
+    /if \(event\.button !== 0\) return;[\s\S]{0,140}?if \(!allowUpload\) return;/,
+  );
+  assert.match(source, /if \(!allowUpload\) return;\s*if \(\s*rootData\.loading/);
+
+  // allowEdit=false — 이름 바꾸기·삭제·이동·휴지통 조작·저장을 렌더하지 않고 차단한다.
+  assert.match(source, /\{allowEdit && <div className=\{styles\.menuSeparator\} \/>\}/);
+  assert.match(
+    source,
+    /\{allowEdit && scopeParentFolderId\(contextMenu\.scopeId\) && \(/,
+  );
+  assert.match(
+    source,
+    /\{allowEdit && \(\s*<MenuButton\s*onClick=\{\(\) => \{\s*openDialog\(\s*\{\s*kind: "rename",/,
+  );
+  assert.match(
+    source,
+    /\{allowEdit && \(\s*<MenuButton\s*danger\s*onClick=\{\(\) => \{\s*openDialog\(\s*\{\s*kind: "delete",/,
+  );
+  assert.match(
+    source,
+    /if \(nextDialog\.kind === "create" \? !allowUpload : !allowEdit\) return;/,
+  );
+  assert.match(
+    source,
+    /if \(dialog\.kind === "create" \? !allowUpload : !allowEdit\) return;/,
+  );
+  assert.match(source, /allowEdit && event\.key === "F2"/);
+  assert.match(source, /allowEdit && event\.key === "Delete"/);
+  assert.match(source, /moveTarget = allowEdit\s*\? findMoveTarget\(/);
+  assert.match(
+    source,
+    /async function moveEntry\([\s\S]{0,200}?\) \{\s*if \(!allowEdit\) return false;/,
+  );
+  assert.match(
+    source,
+    /async function trashDraggedEntry\([\s\S]{0,140}?\) \{\s*if \(!allowEdit\) return false;/,
+  );
+  assert.match(
+    source,
+    /async function trashAction\([\s\S]{0,160}?\) \{\s*if \(!allowEdit\) return;/,
+  );
+  assert.match(source, /\{allowEdit && trashWindow\.confirmId === entry\.id \? \(/);
+  assert.match(source, /\) : allowEdit \? \(/);
+  assert.match(source, /\{allowEdit &&\s*trashWindow\.entries\.length > 0/);
+  assert.match(
+    source,
+    /async function saveFolderNote\(\) \{\s*if \(!allowEdit\) return;/,
+  );
+
+  // 읽기 전용 표시 — 메모장은 기존 사유 메커니즘 재사용, 폴더 메모는 배너+readOnly.
+  assert.match(
+    source,
+    /function previewTextReadOnlyReason\(\s*preview: PreviewWindowState,\s*allowEdit: boolean,\s*\) \{\s*if \(!allowEdit\) return ROLE_READONLY_REASON;/,
+  );
+  assert.match(source, /previewTextReadOnlyReason\(previewWindow, allowEdit\)/);
+  assert.match(source, /previewTextReadOnlyReason\(preview, allowEdit\)/);
+  assert.match(source, /readOnly=\{!allowEdit\}/);
+  assert.match(source, /\{t\(ROLE_READONLY_REASON\)\}/);
+
+  // Google Drive 공유는 기존 관리자 게이트를 그대로 둔다.
+  assert.match(
+    source,
+    /\{isAdmin && \(\s*<MenuButton\s*onClick=\{\(\) => openShareDialog\(contextMenu\.entry!\)\}/,
+  );
+  // 배경 변경은 localStorage 개인 설정이라 역할 게이트를 두지 않는다.
+  const wallpaperStart = source.indexOf("function selectWallpaper(");
+  const wallpaperEnd = source.indexOf("\n  }", wallpaperStart);
+  assert.ok(wallpaperStart >= 0 && wallpaperEnd > wallpaperStart);
+  assert.doesNotMatch(
+    source.slice(wallpaperStart, wallpaperEnd),
+    /allowUpload|allowEdit/,
+  );
+});

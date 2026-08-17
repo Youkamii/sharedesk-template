@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
 import { createInvitationCode } from "@/lib/invite-token";
+import { USER_ROLES, type UserRole } from "@/lib/roles";
 import {
   Invitation,
   createInvitation,
@@ -28,6 +29,7 @@ function toSummary(invitation: Invitation) {
     durationMinutes: invitation.durationMinutes,
     usageMode: invitation.usageMode,
     usageCount: invitation.usageCount,
+    role: invitation.role,
     lastUsedAt: invitation.lastUsedAt,
     lastUsedByEmail: invitation.lastUsedByEmail,
     state: used
@@ -67,11 +69,25 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  // role은 선택 입력 — 생략하면 역할 도입 전과 같은 "editor"다.
+  const role: UserRole | null =
+    body?.role === undefined
+      ? "editor"
+      : USER_ROLES.includes(body.role as UserRole)
+        ? (body.role as UserRole)
+        : null;
+  if (role === null) {
+    return NextResponse.json(
+      { error: "역할 값을 확인해 주세요" },
+      { status: 400 },
+    );
+  }
   try {
     const invitation = await createInvitation(
       {
         expiresInMinutes: body.expiresInMinutes,
         usageMode: body.usageMode,
+        role,
       },
       {
         userId: auth.session.userId,

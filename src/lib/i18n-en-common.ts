@@ -71,6 +71,15 @@ export const EN_COMMON: Record<string, string> = {
   "관리자가 이 계정의 접근을 막았습니다.":
     "The admin has blocked access for this account.",
 
+  // 역할·권한 (공용 — 관리자·파일 화면과 API 403 본문이 함께 쓰는 문구.
+  // en-admin/en-files에는 넣지 않는다. tests/i18n.test.ts가 충돌을 잡는다.)
+  "수정 가능": "Can edit",
+  "올리기 가능": "Can upload",
+  "보기 전용": "View only",
+  "역할": "Role",
+  "이 작업을 할 권한이 없습니다": "You don't have permission to do this",
+  "역할 값을 확인해 주세요": "Please check the role value",
+
   // 공용
   "로그아웃": "Sign out",
 };
