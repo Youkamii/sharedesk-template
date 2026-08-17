@@ -34,6 +34,11 @@ import {
   resolveUpdateToken,
   selectLatestStableVersion,
 } from "../src/lib/update-status";
+import {
+  nextUpdateRunState,
+  UPDATE_RUN_STALL_MS,
+  type UpdateRunState,
+} from "../src/lib/client/update-run";
 
 const execFileAsync = promisify(execFile);
 
@@ -1231,16 +1236,19 @@ test("update token resolution rejects missing and padded values", () => {
   assert.deepEqual(resolveUpdateToken({}), {
     token: null,
     configured: false,
+    reason: "missing",
     error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
   });
   assert.deepEqual(resolveUpdateToken({ SHAREDESK_GITHUB_TOKEN: "" }), {
     token: null,
     configured: false,
+    reason: "missing",
     error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
   });
   assert.deepEqual(resolveUpdateToken({ SHAREDESK_GITHUB_TOKEN: " token " }), {
     token: null,
     configured: false,
+    reason: "invalid",
     error: "SHAREDESK_GITHUB_TOKEN 값이 올바르지 않습니다.",
   });
   assert.deepEqual(
@@ -1451,6 +1459,152 @@ test("the admin update route exposes a guarded dispatch POST and a run scope", a
   const postSource = route.slice(route.indexOf("export async function POST"));
   assert.match(postSource, /requireAdmin\(\{ fresh: true \}\)/);
   assert.match(route, /searchParams\.get\("scope"\) === "run"/);
+  assert.match(postSource, /이미 업데이트가 진행 중입니다/);
+  assert.match(postSource, /status: 409/);
+});
+
+function runState(overrides: Partial<UpdateRunState> = {}): UpdateRunState {
+  return {
+    phase: "starting",
+    startedVersion: "1.0.0",
+    targetVersion: "1.1.0",
+    error: null,
+    htmlUrl: null,
+    startedAt: Date.parse("2026-08-17T12:00:00Z"),
+    ...overrides,
+  };
+}
+
+test("one-click run tracking ignores stale completed runs right after dispatch", () => {
+  const started = runState();
+  const now = started.startedAt + 5_000;
+  const staleFailure = {
+    id: 1,
+    status: "completed",
+    conclusion: "failure",
+    htmlUrl: "https://github.com/acme/sharedesk/actions/runs/1",
+    createdAt: "2026-08-17T11:00:00Z",
+  };
+  const staleSuccess = { ...staleFailure, id: 2, conclusion: "success" };
+
+  // 직전 실행의 실패·성공 기록은 이번 실행으로 오인하지 않는다.
+  assert.equal(nextUpdateRunState(started, "1.0.0", staleFailure, now), started);
+  assert.equal(nextUpdateRunState(started, "1.0.0", staleSuccess, now), started);
+
+  // 이번에 새로 생긴 실행은 시각과 무관하게 추적을 시작한다.
+  const fresh = {
+    id: 3,
+    status: "queued",
+    conclusion: null,
+    htmlUrl: "https://github.com/acme/sharedesk/actions/runs/3",
+    createdAt: "2026-08-17T12:00:03Z",
+  };
+  assert.equal(nextUpdateRunState(started, "1.0.0", fresh, now).phase, "running");
+
+  const freshDone = {
+    ...fresh,
+    id: 4,
+    status: "completed",
+    conclusion: "success",
+  };
+  assert.equal(
+    nextUpdateRunState(started, "1.0.0", freshDone, now).phase,
+    "deploying",
+  );
+});
+
+test("one-click run tracking resolves completion, failure, and stalls", () => {
+  const running = runState({ phase: "running", htmlUrl: "https://github.com/r/4" });
+  const now = running.startedAt + 60_000;
+  const doneRun = {
+    id: 4,
+    status: "completed",
+    conclusion: "success",
+    htmlUrl: "https://github.com/r/4",
+    createdAt: "2026-08-17T11:00:00Z",
+  };
+
+  // 이어받은(running) 실행은 생성 시각이 과거여도 완료 판정이 정상 동작한다.
+  assert.equal(
+    nextUpdateRunState(running, "1.0.0", doneRun, now).phase,
+    "deploying",
+  );
+  assert.equal(nextUpdateRunState(running, "1.1.0", doneRun, now).phase, "done");
+  assert.equal(
+    nextUpdateRunState(running, "1.0.0", { ...doneRun, conclusion: "failure" }, now)
+      .phase,
+    "failed",
+  );
+  assert.equal(
+    nextUpdateRunState(
+      running,
+      "1.0.0",
+      null,
+      running.startedAt + UPDATE_RUN_STALL_MS + 1,
+    ).phase,
+    "stalled",
+  );
+
+  // 끝난 상태는 폴링 결과가 무엇이든 다시 움직이지 않는다.
+  const finished = runState({ phase: "done" });
+  assert.equal(nextUpdateRunState(finished, "1.0.0", doneRun, now), finished);
+});
+
+test("run lookup rejects a run whose page address is not GitHub", async () => {
+  const result = await fetchLatestUpdateRun({
+    env: {
+      SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+      SHAREDESK_GITHUB_TOKEN: "github_pat_test",
+    },
+    fetchImpl: (async () =>
+      Response.json({
+        workflow_runs: [
+          {
+            id: 9,
+            status: "completed",
+            conclusion: "success",
+            html_url: "javascript:alert(1)",
+            created_at: "2026-08-17T00:00:00Z",
+          },
+        ],
+      })) as typeof fetch,
+  });
+  assert.equal(result.ok, false);
+  assert.match(
+    (result as { error: string }).error,
+    /형식이 올바르지 않습니다/,
+  );
+});
+
+test("release pagination refuses to follow links outside the GitHub API", async () => {
+  await assert.rejects(
+    fetchStatusReleasePages(
+      "https://api.github.com/repos/Youkamii/sharedesk-template/releases?per_page=100",
+      (async () =>
+        Response.json([], {
+          headers: {
+            Link: '<https://evil.example/steal>; rel="next"',
+          },
+        })) as typeof fetch,
+    ),
+    /형식이 올바르지 않습니다/,
+  );
+});
+
+test("update status surfaces a malformed token instead of hiding one-click silently", async () => {
+  const status = await getUpdateStatus({
+    currentVersion: "1.0.0",
+    env: {
+      SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk",
+      SHAREDESK_GITHUB_TOKEN: " padded-token-1234567890 ",
+    },
+    fetchImpl: (async () =>
+      Response.json([
+        { tag_name: "v1.1.0", draft: false, prerelease: false },
+      ])) as typeof fetch,
+  });
+  assert.equal(status.canDispatch, false);
+  assert.match(status.error ?? "", /SHAREDESK_GITHUB_TOKEN 값이 올바르지 않습니다/);
 });
 
 test("the files view wires the one-click update flow", async () => {

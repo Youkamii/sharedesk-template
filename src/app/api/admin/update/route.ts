@@ -38,6 +38,20 @@ export async function POST() {
   const auth = await requireAdmin({ fresh: true });
   if ("response" in auth) return auth.response;
 
+  // 실행이 이미 달리는 중이면 중복 디스패치 대신 그 실행을 알려 준다.
+  // 조회가 실패하면 디스패치 쪽이 같은 원인의 정확한 오류를 돌려준다.
+  const current = await fetchLatestUpdateRun();
+  if (
+    current.ok &&
+    current.run &&
+    (current.run.status === "queued" || current.run.status === "in_progress")
+  ) {
+    return NextResponse.json(
+      { error: "이미 업데이트가 진행 중입니다.", run: current.run },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const result = await dispatchUpdateWorkflow();
   if (!result.ok) {
     return NextResponse.json(

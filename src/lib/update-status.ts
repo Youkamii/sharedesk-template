@@ -2,6 +2,8 @@ import packageJson from "../../package.json";
 
 export const UPDATE_SOURCE_REPOSITORY = "Youkamii/sharedesk-template";
 export const UPDATE_WORKFLOW_PATH = ".github/workflows/sharedesk-update.yml";
+// GitHub Actions API는 workflow를 파일 이름으로 지정한다.
+const UPDATE_WORKFLOW_FILE = UPDATE_WORKFLOW_PATH.split("/").at(-1)!;
 
 type Environment = Record<string, string | undefined>;
 
@@ -146,17 +148,18 @@ export function resolveUpdateRepository(env: Environment = process.env):
 }
 
 export function getUpdateWorkflowUrl(repository: string): string {
-  return `https://github.com/${repository}/actions/workflows/sharedesk-update.yml`;
+  return `https://github.com/${repository}/actions/workflows/${UPDATE_WORKFLOW_FILE}`;
 }
 
 export function resolveUpdateToken(env: Environment = process.env):
-  | { token: string; configured: true; error?: undefined }
-  | { token: null; configured: false; error: string } {
+  | { token: string; configured: true; error?: undefined; reason?: undefined }
+  | { token: null; configured: false; error: string; reason: "missing" | "invalid" } {
   const value = env.SHAREDESK_GITHUB_TOKEN;
   if (!value || !value.trim()) {
     return {
       token: null,
       configured: false,
+      reason: "missing",
       error: "SHAREDESK_GITHUB_TOKEN이 설정되지 않았습니다.",
     };
   }
@@ -164,6 +167,7 @@ export function resolveUpdateToken(env: Environment = process.env):
     return {
       token: null,
       configured: false,
+      reason: "invalid",
       error: "SHAREDESK_GITHUB_TOKEN 값이 올바르지 않습니다.",
     };
   }
@@ -203,7 +207,7 @@ export async function dispatchUpdateWorkflow(options?: {
   let response: Response;
   try {
     response = await fetchImpl(
-      `https://api.github.com/repos/${resolved.repository}/actions/workflows/sharedesk-update.yml/dispatches`,
+      `https://api.github.com/repos/${resolved.repository}/actions/workflows/${UPDATE_WORKFLOW_FILE}/dispatches`,
       {
         method: "POST",
         cache: "no-store",
@@ -244,6 +248,8 @@ function parseUpdateRun(value: unknown): UpdateRun | null {
     typeof run.id !== "number" ||
     typeof run.status !== "string" ||
     typeof run.html_url !== "string" ||
+    // 관리자 화면이 이 주소를 링크로 그대로 열므로 GitHub 주소만 신뢰한다.
+    !run.html_url.startsWith("https://github.com/") ||
     typeof run.created_at !== "string" ||
     !(run.conclusion == null || typeof run.conclusion === "string")
   ) {
@@ -278,7 +284,7 @@ export async function fetchLatestUpdateRun(options?: {
   let response: Response;
   try {
     response = await fetchImpl(
-      `https://api.github.com/repos/${resolved.repository}/actions/workflows/sharedesk-update.yml/runs?event=workflow_dispatch&branch=main&per_page=1`,
+      `https://api.github.com/repos/${resolved.repository}/actions/workflows/${UPDATE_WORKFLOW_FILE}/runs?event=workflow_dispatch&branch=main&per_page=1`,
       {
         cache: "no-store",
         headers: {
@@ -384,7 +390,12 @@ export async function fetchGitHubReleasePages(
       throw new Error("GitHub 릴리스 응답 형식이 올바르지 않습니다.");
     }
     releases.push(...page);
-    url = nextPageUrl(response.headers.get("link"));
+    const next = nextPageUrl(response.headers.get("link"));
+    // 다음 페이지는 응답이 지정한 주소를 따라가므로 GitHub API 밖으로는 나가지 않는다.
+    if (next && !next.startsWith("https://api.github.com/")) {
+      throw new Error("GitHub 릴리스 응답 형식이 올바르지 않습니다.");
+    }
+    url = next;
   }
   return releases;
 }
@@ -399,10 +410,15 @@ export async function getUpdateStatus(options?: {
   const workflowUrl = resolved.repository
     ? getUpdateWorkflowUrl(resolved.repository)
     : null;
-  const canDispatch =
-    resolved.configured && resolveUpdateToken(options?.env).configured;
+  const token = resolveUpdateToken(options?.env);
+  const canDispatch = resolved.configured && token.configured;
   const errors: string[] = [];
   if (resolved.error) errors.push(resolved.error);
+  // 토큰이 없는 것은 선택 기능 미사용이지만, 넣었는데 형식이 틀린 것은
+  // 관리자가 고쳐야 알 수 있는 문제이므로 상태 창에 드러낸다.
+  if (!token.configured && token.reason === "invalid") {
+    errors.push(token.error);
+  }
 
   let latestVersion: string | null = null;
   try {
