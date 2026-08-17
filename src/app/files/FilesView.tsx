@@ -7921,13 +7921,9 @@ export default function FilesView({
                   >
                     {!updatePanel.status.configured
                       ? "설치 저장소 연결이 필요합니다."
-                      : updatePanel.status.latestVersion === null
-                        ? "최신 버전을 확인하지 못했습니다."
-                        : updatePanel.status.error
-                          ? "버전 상태를 완전히 확인하지 못했습니다."
-                          : updatePanel.status.updateAvailable
-                            ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
-                            : "최신 버전을 사용하고 있습니다."}
+                      : updatePanel.status.updateAvailable
+                        ? `새 버전 ${updatePanel.status.latestVersion ?? ""}을 사용할 수 있습니다.`
+                        : "최신 버전을 사용하고 있습니다."}
                   </p>
                   <dl className={styles.updateVersions}>
                     <div>
@@ -7936,18 +7932,19 @@ export default function FilesView({
                     </div>
                     <div>
                       <dt>최신 버전</dt>
-                      <dd>{updatePanel.status.latestVersion ?? "확인 실패"}</dd>
+                      {/* 새 버전 확인이 안 되는 동안에는 오류 대신 현재 버전을
+                          최신으로 취급한다. 확인은 창을 열 때마다 다시 한다. */}
+                      <dd>
+                        {updatePanel.status.latestVersion ??
+                          updatePanel.status.currentVersion}
+                      </dd>
                     </div>
                     <div>
                       <dt>업데이트 상태</dt>
                       <dd>
-                        {updatePanel.status.latestVersion === null
-                          ? "확인 실패"
-                          : updatePanel.status.error
-                            ? "버전 비교 실패"
-                            : updatePanel.status.updateAvailable
-                              ? "새 버전 있음"
-                              : "새 버전 없음"}
+                        {updatePanel.status.updateAvailable
+                          ? "새 버전 있음"
+                          : "새 버전 없음"}
                       </dd>
                     </div>
                     <div>
@@ -8057,11 +8054,15 @@ export default function FilesView({
                         </a>
                       </div>
                     )}
-                  {updatePanel.status.error && (
-                    <p className={styles.updateError} role="alert">
-                      {updatePanel.status.error}
-                    </p>
-                  )}
+                  {/* 새 버전 조회 실패(GitHub 장애 등)는 관리자가 할 일이 없는
+                      일시 상태라 표시하지 않는다. 조회가 성공했는데 남은 오류
+                      (토큰 형식 등 설정 문제)만 보여 준다. */}
+                  {updatePanel.status.error &&
+                    updatePanel.status.latestVersion !== null && (
+                      <p className={styles.updateError} role="alert">
+                        {updatePanel.status.error}
+                      </p>
+                    )}
                   <div className={styles.dialogActions}>
                     <button
                       type="button"

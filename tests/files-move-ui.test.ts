@@ -1200,13 +1200,17 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(source, /현재 버전[\s\S]*?currentVersion/);
   assert.match(source, /최신 버전[\s\S]*?latestVersion/);
   assert.match(source, /최신 버전을 사용하고 있습니다/);
+  // 새 버전 확인 실패는 오류가 아니라 조용한 "새 버전 없음"으로 표시한다.
+  assert.doesNotMatch(source, /"확인 실패"/);
+  assert.doesNotMatch(source, /"버전 비교 실패"/);
+  assert.doesNotMatch(source, /최신 버전을 확인하지 못했습니다/);
   assert.match(
     source,
-    /status\.latestVersion === null[\s\S]*?"확인 실패"[\s\S]*?status\.updateAvailable/,
+    /\{updatePanel\.status\.latestVersion \?\?\s*updatePanel\.status\.currentVersion\}/,
   );
   assert.match(
     source,
-    /status\.latestVersion === null[\s\S]*?status\.error[\s\S]*?"버전 비교 실패"/,
+    /updatePanel\.status\.error &&\s*updatePanel\.status\.latestVersion !== null && \(/,
   );
   assert.match(source, /설치 저장소를 연결해 주세요/);
   assert.match(source, /status\.error/);
