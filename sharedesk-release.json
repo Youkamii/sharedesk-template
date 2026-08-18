@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.6.3",
+  "version": "0.6.4",
   "files": [
     {
       "path": ".env.example",
@@ -231,16 +231,16 @@
     },
     {
       "path": "package-lock.json",
-      "sha256": "c6cfba8c65e6b8ac3a61d334df223cd9b51307a99ffd8898a5d60687c88c345f",
+      "sha256": "a4002a1e6e179e7e8820a5ee2e65e689cdead562088a571534f2311714bc4866",
       "acceptedSha256": [
-        "c92879f79039dd945c9e0e9e99f16e9a00d9d31b3e64ab41b35e2202bdeb6043"
+        "c26c17278dac2ccfd818302eed4b2a94f4b2eb379a63909eb439ae48d3b44678"
       ]
     },
     {
       "path": "package.json",
-      "sha256": "8f2438743f7bc89c9d5d815d3dfa04a9c4271b749452525d47df7f4c37207876",
+      "sha256": "94205feef9b7fbe6ed33502ccdfb9fcd536c24097d65128c925f94e49b8d7110",
       "acceptedSha256": [
-        "c30bfd7f3fc070e1e9671064e1c462efaa59f1e2c7692858423d8f5a38627706"
+        "6b22bd438b6e44f303d125b7b3e1cb4aad36ccffebf84f9e8164a37f400b98ce"
       ]
     },
     {
@@ -334,9 +334,9 @@
     },
     {
       "path": "scripts/setup.mjs",
-      "sha256": "77c91a76f77e48d33a1db748e2b257cf7821847c854f23449f5f052f5bfba021",
+      "sha256": "6850950365df95eeac25e8ac9c1e57b8b7299b7f88e1149dec2a53821f0a287d",
       "acceptedSha256": [
-        "ceeaaa3176bacd8ff0a3a54da704aec7553c8f5e8f2d7f36f1b65ec64ebc8cde"
+        "9cdfa40d3c7125f60ffa4acd9790611f320ee002d534d6d88615efaf7cf6097c"
       ]
     },
     {
@@ -7146,7 +7146,7 @@
     },
     {
       "schemaVersion": 1,
-      "version": "0.6.2",
+      "version": "0.6.3",
       "files": [
         {
           "path": ".env.example",
@@ -7377,16 +7377,16 @@
         },
         {
           "path": "package-lock.json",
-          "sha256": "cb599dcb37df9ad44d502e719e89db6e391d6652d5d14205bd3ce17e5d2ad353",
+          "sha256": "c6cfba8c65e6b8ac3a61d334df223cd9b51307a99ffd8898a5d60687c88c345f",
           "acceptedSha256": [
-            "ac7ca2f0527f7c8c23042be2883d499abb05df87d93a0a71ff1202d6d548f713"
+            "c92879f79039dd945c9e0e9e99f16e9a00d9d31b3e64ab41b35e2202bdeb6043"
           ]
         },
         {
           "path": "package.json",
-          "sha256": "20bc34c34f651985a2414d765fd578725f994122507bc25116d82bb2d52e24da",
+          "sha256": "8f2438743f7bc89c9d5d815d3dfa04a9c4271b749452525d47df7f4c37207876",
           "acceptedSha256": [
-            "f366dc5a819051fc8cb7265fb5e923183ec9d031a04933d9db0456f3bece8d24"
+            "c30bfd7f3fc070e1e9671064e1c462efaa59f1e2c7692858423d8f5a38627706"
           ]
         },
         {
@@ -7564,9 +7564,9 @@
         },
         {
           "path": "src/app/api/admin/update/route.ts",
-          "sha256": "ece16d27c5ec319d3572a6d9b61250a1a90c1d341731eb28d1c40fe9a9cc41b4",
+          "sha256": "4dce49138e364dacb5dbaccd8cbb837018119b1410a7ef1a564f6acfa83223fd",
           "acceptedSha256": [
-            "51e78508cc1e2ceb6cefcbc3ab2eed8838d960079c5c49f51a1afef76218d9d0"
+            "e80b5f8be55bee7238f98aa6150ba974c46d7cdf1a8b0449cec5a64eefc77cdf"
           ]
         },
         {
