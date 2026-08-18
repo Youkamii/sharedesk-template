@@ -70,13 +70,11 @@ jobs:
           starred="false"
           for page in $(seq 1 30); do
             names="$(curl -sS --max-time 20 "${auth[@]}" "https://api.github.com/repos/Youkamii/sharedesk-template/stargazers?per_page=100&page=$page" | jq -r '.[].login' 2>/dev/null)"
-            if printf '%s
-' "$names" | grep -qix "$owner"; then
+            if grep -qix "$owner" <<< "$names"; then
               starred="true"
               break
             fi
-            count="$(printf '%s
-' "$names" | grep -c . || true)"
+            count="$(grep -c . <<< "$names" || true)"
             if [[ "$count" -lt 100 ]]; then
               break
             fi
