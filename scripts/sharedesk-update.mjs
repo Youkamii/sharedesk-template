@@ -22,17 +22,17 @@ export const UPDATE_SOURCE_REPOSITORY = "Youkamii/sharedesk-template";
 export const UPDATE_WORKFLOW_PATH = ".github/workflows/sharedesk-update.yml";
 export const AUTO_UPDATE_WORKFLOW_PATH =
   ".github/workflows/sharedesk-auto-update.yml";
+// 매니페스트의 bootstrapFiles 계약이다. 배포된 구버전 업데이터가 이 목록과
+// 길이가 다른 매니페스트를 거부하므로, 여기 새 항목을 더하면 기존 설치의
+// 업데이트가 전부 깨진다 — 새 core 파일은 부트스트랩의 선택 설치 경로
+// (OPTIONAL_BOOTSTRAP_PATHS)로만 더한다.
 export const BOOTSTRAP_CORE_PATHS = [
   "scripts/sharedesk-bootstrap.mjs",
   "scripts/sharedesk-update.mjs",
   UPDATE_WORKFLOW_PATH,
-  AUTO_UPDATE_WORKFLOW_PATH,
 ];
-// 워크플로는 자동 업데이트로 바꿀 수 없다(봉인 단계가 거부한다) —
-// 새 설치의 부트스트랩만 설치하고, 기존 설치는 문서의 1회 절차를 따른다.
 export const AUTOMATIC_CORE_PATHS = BOOTSTRAP_CORE_PATHS.filter(
-  (corePath) =>
-    corePath !== UPDATE_WORKFLOW_PATH && corePath !== AUTO_UPDATE_WORKFLOW_PATH,
+  (corePath) => corePath !== UPDATE_WORKFLOW_PATH,
 );
 
 const SEMVER_PATTERN =
@@ -111,6 +111,8 @@ export function isProtectedPath(filePath) {
     BOOTSTRAP_CORE_PATHS.some(
       (corePath) => normalized === corePath.toLowerCase(),
     ) ||
+    // 워크플로 주입 차단 — .github 아래는 어떤 경로도 관리 대상이 될 수 없다.
+    parts[0] === ".github" ||
     parts.some(
       (part, index) =>
         (part.startsWith(".env") &&

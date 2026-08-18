@@ -2,7 +2,14 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -16,6 +23,11 @@ const CORE_PATHS = [
   "scripts/sharedesk-bootstrap.mjs",
   UPDATER_PATH,
   ".github/workflows/sharedesk-update.yml",
+];
+// 매니페스트 계약(bootstrapFiles)에 없는 추가 core 파일. 구버전 업데이터의
+// 매니페스트 검증을 깨지 않으면서 새 설치에만 넣는다 — 받기에 실패해도
+// 부트스트랩 전체는 계속된다(예전 릴리스에는 이 파일이 없다).
+const OPTIONAL_BOOTSTRAP_PATHS = [
   ".github/workflows/sharedesk-auto-update.yml",
 ];
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
@@ -195,13 +207,40 @@ export async function bootstrapRelease({
     if (typeof apply !== "function") {
       throw new Error("Release updater does not support bootstrapping.");
     }
-    return await apply({
+    const result = await apply({
       rootDir: absoluteRoot,
       manifest: validatedManifest,
       fetchFile,
     });
+    await installOptionalBootstrapFiles(absoluteRoot, fetchFile);
+    return result;
   } finally {
     await updater?.dispose();
+  }
+}
+
+async function installOptionalBootstrapFiles(rootDir, fetchFile) {
+  for (const optionalPath of OPTIONAL_BOOTSTRAP_PATHS) {
+    const target = path.join(rootDir, optionalPath);
+    try {
+      // 이미 있으면 덮어쓰지 않는다 — 워크플로는 업데이트로 바뀌지 않는 영역이다.
+      await access(target);
+      continue;
+    } catch {
+      // 없음 — 새로 설치한다.
+    }
+    try {
+      const bytes = await fetchFile(optionalPath);
+      const content =
+        bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      await mkdir(path.dirname(target), { recursive: true });
+      await writeFile(target, content);
+      console.log(`선택 구성 요소를 설치했습니다: ${optionalPath}`);
+    } catch {
+      console.log(
+        `선택 구성 요소를 건너뜁니다(이 릴리스에는 없습니다): ${optionalPath}`,
+      );
+    }
   }
 }
 
