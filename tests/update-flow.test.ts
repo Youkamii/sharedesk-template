@@ -677,6 +677,10 @@ test("manifest generator captures the current snapshot, bootstrap core, legacy d
       path.join(rootDir, ".github/workflows/sharedesk-update.yml"),
       "on:\r\n  workflow_dispatch:\r\n",
     );
+    await writeFile(
+      path.join(rootDir, ".github/workflows/sharedesk-auto-update.yml"),
+      "on:\r\n  schedule:\r\n",
+    );
     await writeFile(path.join(rootDir, ".env.local"), "SECRET=preserve");
     await writeFile(path.join(rootDir, ".vercel/project.json"), "preserve");
     await execFileAsync("git", ["add", "-A"], { cwd: rootDir, windowsHide: true });
