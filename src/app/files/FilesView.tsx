@@ -818,9 +818,6 @@ export default function FilesView({
   const [starConsent, setStarConsent] = useState<{ starPageUrl: string } | null>(
     null,
   );
-  // "★ 누르고 자동 업데이트" 버튼 상태 — 성공하면 서버 재렌더로 창이 닫힌다.
-  const [autoUpdateBusy, setAutoUpdateBusy] = useState(false);
-  const [autoUpdateError, setAutoUpdateError] = useState<string | null>(null);
   const [updateRun, setUpdateRun] = useState<UpdateRunState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
@@ -5847,49 +5844,6 @@ export default function FilesView({
     void startUpdate();
   }
 
-  // 업데이트 창의 "★ 누르고 자동 업데이트" — 버튼을 누르는 것이 곧 별
-  // 동의다. 켠 브라우저의 시간대가 자정 기준으로 저장되고, 성공하면
-  // 서버 재렌더로 업데이트 버튼이 사라진다.
-  async function enableAutoUpdate() {
-    if (autoUpdateBusy) return;
-    setAutoUpdateBusy(true);
-    setAutoUpdateError(null);
-    try {
-      const response = await fetch("/api/admin/desk-settings", {
-        method: "PATCH",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          autoUpdate: true,
-          autoUpdateTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          star: true,
-        }),
-      });
-      if (response.status === 401 || response.status === 403) {
-        router.replace("/");
-        return;
-      }
-      const body = (await response.json().catch(() => null)) as {
-        autoUpdate?: unknown;
-        error?: string;
-      } | null;
-      if (!response.ok || body?.autoUpdate !== true) {
-        throw new Error(
-          body?.error ?? t("자동 업데이트를 켜지 못했습니다"),
-        );
-      }
-      setUpdatePanel(null);
-      setNotice(t("이제 자정에 자동으로 업데이트됩니다."));
-      router.refresh();
-    } catch (error) {
-      setAutoUpdateError(
-        errorMessage(error, "자동 업데이트를 켜지 못했습니다"),
-      );
-    } finally {
-      setAutoUpdateBusy(false);
-    }
-  }
-
   function closeStarConsent() {
     setStarConsent(null);
     const opener = starConsentOpenerRef.current;
@@ -8660,11 +8614,6 @@ export default function FilesView({
                         {updatePanel.status.error}
                       </p>
                     )}
-                  {autoUpdateError && (
-                    <p className={styles.updateError} role="alert">
-                      {t(autoUpdateError)}
-                    </p>
-                  )}
                   <div className={styles.dialogActions}>
                     <button
                       type="button"
@@ -8674,20 +8623,6 @@ export default function FilesView({
                     >
                       {t("다시 확인")}
                     </button>
-                    {/* 버튼 하나가 별 동의 + 켜기다. 켜면 이 창과 업데이트
-                        버튼이 사라지고, 멈추기는 관리자 설정에 있다. */}
-                    {updatePanel.status.canDispatch && !updateRunActive && (
-                      <button
-                        type="button"
-                        className={styles.secondaryButton}
-                        disabled={autoUpdateBusy}
-                        onClick={() => void enableAutoUpdate()}
-                      >
-                        {autoUpdateBusy
-                          ? t("켜는 중…")
-                          : t("★ 누르고 자동 업데이트")}
-                      </button>
-                    )}
                     {updatePanel.status.canDispatch &&
                       updatePanel.status.updateAvailable &&
                       !updateRun && (
