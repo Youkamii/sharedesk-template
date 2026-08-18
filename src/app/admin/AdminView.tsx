@@ -9,6 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
+  LOCALE_BCP47,
   LOCALE_LABELS,
   LOCALES,
   parseLocale,
@@ -111,7 +112,7 @@ function formatDate(value: string | null, locale: Locale): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isFinite(date.getTime())
-    ? date.toLocaleString(locale === "en" ? "en-US" : "ko-KR", {
+    ? date.toLocaleString(LOCALE_BCP47[locale], {
         dateStyle: "medium",
         timeStyle: "short",
       })

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
-import { getDeskSettings } from "@/lib/users";
+import { getDeskSettingsOrDefault } from "@/lib/users";
 import LogoutButton from "../LogoutButton";
 
 export default async function PendingPage() {
@@ -13,7 +13,7 @@ export default async function PendingPage() {
   if (me.status === "pending") redirect("/join");
 
   const locale = resolveEffectiveLocale(
-    await getDeskSettings(),
+    await getDeskSettingsOrDefault(),
     cookieStore.get(LOCALE_COOKIE)?.value,
   );
   const t = (text: string, vars?: Record<string, string | number>) =>

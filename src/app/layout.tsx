@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
-import { getDeskSettings } from "@/lib/users";
+import { getDeskSettingsOrDefault } from "@/lib/users";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
   const locale = resolveEffectiveLocale(
-    await getDeskSettings(),
+    await getDeskSettingsOrDefault(),
     (await cookies()).get(LOCALE_COOKIE)?.value,
   );
   return (

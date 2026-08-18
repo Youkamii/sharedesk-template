@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
-import { getDeskSettings } from "@/lib/users";
+import { getDeskSettingsOrDefault } from "@/lib/users";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
 
@@ -50,7 +50,7 @@ export default async function Home({
   if (identity?.status === "blocked") redirect("/pending");
 
   const locale = resolveEffectiveLocale(
-    await getDeskSettings(),
+    await getDeskSettingsOrDefault(),
     cookieStore.get(LOCALE_COOKIE)?.value,
   );
   const t = (text: string, vars?: Record<string, string | number>) =>

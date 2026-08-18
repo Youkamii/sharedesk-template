@@ -46,6 +46,10 @@ export async function PATCH(req: NextRequest) {
     patch.allowMemberLocale = allow;
   }
 
+  if (patch.locale === undefined && patch.allowMemberLocale === undefined) {
+    return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
+  }
+
   try {
     const settings = await setDeskSettings(patch);
     console.info("[admin]", {

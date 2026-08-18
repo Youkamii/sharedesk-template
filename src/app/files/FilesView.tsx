@@ -79,7 +79,8 @@ import {
   previewKindOf,
   type PreviewKind,
 } from "@/lib/preview";
-import { translate, type Locale } from "@/lib/i18n";
+import { translate, type Locale, LOCALE_BCP47,
+} from "@/lib/i18n";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
@@ -490,7 +491,7 @@ function formatSize(bytes: number | null) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-function formatDate(iso: string | null, dateLocale: "ko-KR" | "en-US") {
+function formatDate(iso: string | null, dateLocale: string) {
   if (!iso) return "수정일 없음";
   return new Date(iso).toLocaleString(dateLocale, {
     dateStyle: "short",
@@ -621,7 +622,7 @@ export default function FilesView({
       translate(localeRef.current, text, vars),
     [],
   );
-  const dateLocale: "ko-KR" | "en-US" = locale === "en" ? "en-US" : "ko-KR";
+  const dateLocale = LOCALE_BCP47[locale];
   // 역할 4단계(#80): 권한이 없는 조작 UI는 조용히 숨긴다(비활성보다 숨김).
   // 게스트는 서버가 viewer로 내려 주므로 별도 게스트 분기가 필요 없다.
   const allowUpload = canUpload(role);

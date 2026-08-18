@@ -810,6 +810,18 @@ export async function getDeskSettings(opts?: {
   return { ...data.deskSettings };
 }
 
+// 화면 언어 결정용. 스토리지 장애가 로그인 화면까지 500으로 번지면 안
+// 되므로, 읽기에 실패하면 기본 설정으로 그린다 (관리자 설정 API는
+// 원인 파악을 위해 오류를 그대로 내는 getDeskSettings를 쓴다).
+export async function getDeskSettingsOrDefault(): Promise<DeskSettings> {
+  try {
+    return await getDeskSettings();
+  } catch (error) {
+    console.error("[desk-settings]", error);
+    return defaultDeskSettings();
+  }
+}
+
 export async function setDeskSettings(
   patch: Partial<DeskSettings>,
 ): Promise<DeskSettings> {

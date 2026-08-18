@@ -34,6 +34,16 @@ const DICTIONARIES: Partial<Record<Locale, Record<string, string>>> = {
   zh: ZH,
 };
 
+
+// 날짜·시각 서식용 BCP47 로케일. 화면 언어와 짝을 맞춘다.
+export const LOCALE_BCP47: Record<Locale, string> = {
+  en: "en-US",
+  ko: "ko-KR",
+  ja: "ja-JP",
+  hi: "hi-IN",
+  zh: "zh-CN",
+};
+
 export function parseLocale(value: unknown): Locale | null {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value)
     ? (value as Locale)
