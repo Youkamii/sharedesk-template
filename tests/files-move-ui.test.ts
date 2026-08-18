@@ -1273,7 +1273,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(css, /\.updateError \{/);
   // 업데이트는 GitHub 별 동의를 거쳐야 시작한다(#97).
   assert.match(source, /function requestUpdate\(/);
-  assert.match(source, /status\.starred === false/);
+  assert.match(source, /status\.starred !== true/);
   assert.match(source, /startUpdate\(true\)/);
   assert.match(source, /body: JSON\.stringify\(\{ star: /);
   assert.match(css, /\.updateProgress \{/);
@@ -1531,11 +1531,15 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
   assert.match(filesView, /\{!autoUpdate && \(\s*<button[\s\S]*?updateTrayButton/);
   assert.match(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
   assert.match(filesPage, /autoUpdate=\{deskSettings\.autoUpdate\}/);
-  // 설정 화면: 체크는 브라우저 시간대를 함께 저장하고, 별 동의 상자를 지원하며,
-  // 켜져 있는 동안 버전·릴리스 내용을 보여 준다.
-  assert.match(adminView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)[\s\S]{0,40}\.timeZone/);
-  assert.match(adminView, /starRequired === true/);
-  assert.match(adminView, /별 남기고 켜기/);
+  // 켜기는 업데이트 창의 단일 버튼(별 동의 포함 + 브라우저 시간대 저장),
+  // 끄기는 관리자 설정의 멈추기 버튼이다.
+  assert.match(filesView, /★ 누르고 자동 업데이트/);
+  assert.match(filesView, /star: true/);
+  assert.match(filesView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
+  // 별이 "확인"된 경우에만 동의 창 없이 실행한다.
+  assert.match(filesView, /status\.starred !== true/);
+  assert.match(adminView, /자동 업데이트 멈추기/);
+  assert.doesNotMatch(adminView, /id="auto-update"[\s\S]{0,80}type="checkbox"/);
   assert.match(adminView, /releases\/latest/);
   assert.match(adminView, /releaseNotes/);
 });

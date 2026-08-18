@@ -101,17 +101,17 @@ export async function addStar(options?: {
 }
 
 // 별 게이트 공용 판정 — 수동 업데이트와 자동 업데이트 켜기가 같은 정책을
-// 쓰도록 한 곳에 둔다. 아직 별을 안 눌렀는데 동의가 없으면 allowed:false
-// (호출부가 409 동의 창을 연다), 동의했으면 별을 남기고 통과한다.
-// 별 남기기 실패·확인 불가는 통과다 — 사용자가 손쓸 수 없는 사정으로
-// 작업이 막히면 안 된다.
+// 쓰도록 한 곳에 둔다. "별을 눌렀다"고 확인된 경우에만 동의 창 없이
+// 통과하고, 그 외(안 누름·토큰 없음·권한 부족으로 확인 불가)에는 모두
+// 동의를 요구한다. 동의하면 별 남기기를 시도하되 실패해도 진행한다 —
+// 막히는 건 동의 없는 진행뿐, 사용자가 손쓸 수 없는 실패가 아니다.
 export async function passStarGate(input: {
   agreed: boolean;
   actorUserId: string;
 }): Promise<{ allowed: boolean }> {
   const token = resolveStarToken();
   const starCheck = await checkStarred({ token });
-  if (!(starCheck.ok && !starCheck.starred)) return { allowed: true };
+  if (starCheck.ok && starCheck.starred) return { allowed: true };
   if (!input.agreed) return { allowed: false };
   const starred = await addStar({ token });
   console.info("[admin]", {
