@@ -17,6 +17,7 @@ import {
   selectStableRelease as selectUpdaterStableRelease,
   sha256,
   validateManifest,
+  BOOTSTRAP_CORE_PATHS,
 } from "../scripts/sharedesk-update.mjs";
 import {
   assertCleanGitRepository,
@@ -233,10 +234,6 @@ test("manifest rejects bootstrap core duplicated in the managed file list", () =
             path: ".github/workflows/sharedesk-update.yml",
             sha256: "b".repeat(64),
           },
-          {
-            path: ".github/workflows/sharedesk-auto-update.yml",
-            sha256: "c".repeat(64),
-          },
         ],
       }),
     /cannot also be managed/,
@@ -289,7 +286,6 @@ test("one-command bootstrap adds and changes core/app files, deletes only old ma
       "scripts/sharedesk-bootstrap.mjs": bootstrapSource,
       "scripts/sharedesk-update.mjs": updaterSource,
       ".github/workflows/sharedesk-update.yml": "name: current updater\n",
-      ".github/workflows/sharedesk-auto-update.yml": "auto name: current updater\n",
     };
     const previous = manifest("1.0.0", {
       "src/change.txt": "old",
@@ -344,7 +340,6 @@ test("bootstrap accepts stable versions with build metadata", async () => {
       "scripts/sharedesk-bootstrap.mjs": "bootstrap\n",
       "scripts/sharedesk-update.mjs": "updater\n",
       ".github/workflows/sharedesk-update.yml": "workflow\n",
-      ".github/workflows/sharedesk-auto-update.yml": "auto workflow\n",
     };
     const next = manifest("1.1.0+build.7", { "src/app.txt": "app\n" }, core);
     let appliedVersion = "";
@@ -375,7 +370,6 @@ test("bootstrap uses a matching legacy baseline and rejects committed customizat
     "scripts/sharedesk-bootstrap.mjs": bootstrapSource,
     "scripts/sharedesk-update.mjs": updaterSource,
     ".github/workflows/sharedesk-update.yml": "name: updater\n",
-    ".github/workflows/sharedesk-auto-update.yml": "auto name: updater\n",
   };
   const oldPackage = '{"version":"v1.0.0"}\n';
   const newPackage = '{"version":"1.1.0"}\n';
@@ -442,13 +436,11 @@ test("manual managed updates replace executable core, preserve the workflow, and
     "scripts/sharedesk-bootstrap.mjs": "old bootstrap\n",
     "scripts/sharedesk-update.mjs": "old updater\n",
     ".github/workflows/sharedesk-update.yml": "name: old workflow\n",
-    ".github/workflows/sharedesk-auto-update.yml": "auto name: old workflow\n",
   };
   const newCore = {
     "scripts/sharedesk-bootstrap.mjs": "new bootstrap\n",
     "scripts/sharedesk-update.mjs": "new updater\n",
     ".github/workflows/sharedesk-update.yml": "name: old workflow\n",
-    ".github/workflows/sharedesk-auto-update.yml": "auto name: old workflow\n",
   };
   const previous = manifest("1.0.0", { "src/app.txt": "old app\n" }, oldCore);
   const nextFiles = { "src/app.txt": "new app\n" };
@@ -520,7 +512,6 @@ test("manual managed updates replace executable core, preserve the workflow, and
     const workflowChangedCore = {
       ...newCore,
       ".github/workflows/sharedesk-update.yml": "name: changed workflow\n",
-      ".github/workflows/sharedesk-auto-update.yml": "auto name: changed workflow\n",
     };
     await assert.rejects(
       applyAutomaticRelease({
@@ -2132,4 +2123,22 @@ test("external share links are scoped, expiring, and revocable", async () => {
   const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");
   assert.match(proxy, /\/api\/drive\/:path\*/);
   assert.ok(!publicRoute.includes("api/drive/"));
+});
+
+test("the manifest contract never grows and new core files stay optional", async () => {
+  // 배포된 구버전 업데이터는 bootstrapFiles 길이가 자기 목록과 다르면
+  // 매니페스트 전체를 거부한다. 여기 항목을 더하는 순간 기존 설치의
+  // 업데이트가 전부 깨진다 — 새 core 파일은 부트스트랩의 선택 설치로만.
+  assert.equal(BOOTSTRAP_CORE_PATHS.length, 3);
+  const bootstrap = await readFile(
+    new URL("../scripts/sharedesk-bootstrap.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(bootstrap, /OPTIONAL_BOOTSTRAP_PATHS = \[\s*"\.github\/workflows\/sharedesk-auto-update\.yml",/);
+  // 선택 파일은 실패해도 부트스트랩을 막지 않고, 기존 파일을 덮지 않는다.
+  assert.match(bootstrap, /installOptionalBootstrapFiles/);
+  const optional = bootstrap.slice(
+    bootstrap.indexOf("async function installOptionalBootstrapFiles"),
+  );
+  assert.match(optional.slice(0, optional.indexOf("function nextPageUrl")), /continue;/);
 });
