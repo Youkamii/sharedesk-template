@@ -1,14 +1,12 @@
 # ShareDesk
 
+### Languages
+
+**English** · [한국어](./README.ko.md) · [日本語](./README.ja.md) · [हिन्दी](./README.hi.md) · [中文](./README.zh.md)
+
 ShareDesk is **a shared file space where several people use one person's Google Drive storage with their own Google accounts**. Only the host installs it, once. Participants simply sign in at the same address, enter an invite code, and share the same files and folders.
 
 ![ShareDesk demo](./docs/sharedesk-demo.gif)
-
-## Languages
-
-This page comes in five languages, and so does the app itself. The admin picks the desk language in **Settings**, and can let each member choose their own.
-
-**English** · [한국어](./README.ko.md) · [日本語](./README.ja.md) · [हिन्दी](./README.hi.md) · [中文](./README.zh.md)
 
 ## Four wallpapers
 
