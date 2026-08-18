@@ -100,6 +100,48 @@ export async function addStar(options?: {
   return { ok: false, status: 502, error: starApiError(response.status) };
 }
 
+// 설치 저장소 주인이 템플릿 저장소에 별을 눌렀는지 "공개 스타 목록"으로
+// 확인한다 — 토큰 권한이 없어도 검증할 수 있는 유일한 방법이다. 토큰이
+// 있으면 시간당 요청 한도를 위해 붙여 쓴다.
+const STARGAZER_PAGE_LIMIT = 30;
+
+export async function checkOwnerStarred(
+  owner: string,
+  options?: { token?: string | null; fetchImpl?: typeof fetch },
+): Promise<StarCheck> {
+  if (!owner) return { ok: false, status: 409, error: "설치 저장소 정보가 없습니다." };
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  const headers: Record<string, string> = { ...GITHUB_HEADERS };
+  if (options?.token) headers.Authorization = `Bearer ${options.token}`;
+  const target = owner.toLowerCase();
+  for (let page = 1; page <= STARGAZER_PAGE_LIMIT; page += 1) {
+    let response: Response;
+    try {
+      response = await fetchImpl(
+        `https://api.github.com/repos/${STAR_REPOSITORY}/stargazers?per_page=100&page=${page}`,
+        { cache: "no-store", headers },
+      );
+    } catch {
+      return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
+    }
+    if (!response.ok) {
+      return { ok: false, status: 502, error: starApiError(response.status) };
+    }
+    const body = (await response.json().catch(() => null)) as Array<{
+      login?: string;
+    }> | null;
+    if (!Array.isArray(body)) {
+      return { ok: false, status: 502, error: "GitHub 응답을 읽지 못했습니다." };
+    }
+    if (body.some((user) => user?.login?.toLowerCase() === target)) {
+      return { ok: true, starred: true };
+    }
+    if (body.length < 100) return { ok: true, starred: false };
+  }
+  // 목록이 검사 한도를 넘겼는데 못 찾았다 — 못 확인한 것으로 처리한다.
+  return { ok: false, status: 502, error: "별 목록이 너무 깁니다." };
+}
+
 // 별 게이트 공용 판정 — 수동 업데이트와 자동 업데이트 켜기가 같은 정책을
 // 쓰도록 한 곳에 둔다. "별을 눌렀다"고 확인된 경우에만 동의 창 없이
 // 통과하고, 그 외(안 누름·토큰 없음·권한 부족으로 확인 불가)에는 모두

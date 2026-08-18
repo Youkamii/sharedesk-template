@@ -2006,6 +2006,9 @@ test("automatic updates run at midnight without a key and stay sealed", async ()
   assert.match(workflow, /A verified update cannot change GitHub workflows/);
   // 배포되지 않는 템플릿 저장소에서는 돌지 않는다.
   assert.match(workflow, /github\.repository != 'Youkamii\/sharedesk-template'/);
+  // 별이 실제로 있어야 돈다 — 공개 스타 목록에서 주인을 확인한다.
+  assert.match(workflow, /stargazers\?per_page=100/);
+  assert.match(workflow, /has not starred/);
 });
 
 test("the public update policy exposes only what the scheduler needs", async () => {
@@ -2030,8 +2033,9 @@ test("turning on automatic updates passes the same star gate and fails open", as
     "utf8",
   );
   const gate = route.slice(route.indexOf("patch.autoUpdate === true"));
-  // 수동 업데이트와 같은 공용 별 게이트를 쓴다.
-  assert.match(gate, /passStarGate\(/);
+  // 자동 업데이트는 주인의 별이 "검증"돼야만 켜진다(공개 스타 목록).
+  assert.match(gate, /checkOwnerStarred\(owner/);
+  assert.match(gate, /verified\.ok && verified\.starred/);
   assert.match(gate, /starRequired: true/);
   assert.match(gate, /status: 409/);
   // 예전 설치(워크플로 없음)에서는 켜기를 거부해 무음 실패를 막는다.
@@ -2161,4 +2165,49 @@ test("the manual update workflow file must never change casually", async () => {
     workflow,
     /sharedesk-update\.yml \.github\/workflows\/sharedesk-auto-update\.yml/,
   );
+});
+
+test("setup stars automatically through the local gh login like tokscale", async () => {
+  const { autoStarViaGh } = await import("../scripts/setup.mjs");
+  const calls: string[][] = [];
+  // gh가 있으면 조용히 PUT 한 번으로 끝난다.
+  const ok = await autoStarViaGh(
+    ((command: string, args: string[], _options: unknown, callback: (error: Error | null) => void) => {
+      calls.push([command, ...args]);
+      callback(null);
+    }) as never,
+  );
+  assert.equal(ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "gh");
+  assert.ok(calls[0].includes("PUT"));
+  assert.ok(calls[0].includes("user/starred/Youkamii/sharedesk-template"));
+  // gh가 없거나 로그인이 없으면 조용히 물러난다 — 설치를 막지 않는다.
+  const fail = await autoStarViaGh(
+    ((_c: string, _a: string[], _o: unknown, callback: (error: Error | null) => void) => {
+      callback(new Error("ENOENT"));
+    }) as never,
+  );
+  assert.equal(fail, false);
+});
+
+test("owner star verification pages through the public stargazer list", async () => {
+  const { checkOwnerStarred } = await import("../src/lib/github-star");
+  const page1 = Array.from({ length: 100 }, (_, i) => ({ login: `user${i}` }));
+  const page2 = [{ login: "SomeoneElse" }, { login: "Youkamii" }];
+  const fetchImpl = (async (url: string) => ({
+    ok: true,
+    json: async () => (url.endsWith("page=1") ? page1 : page2),
+  })) as unknown as typeof fetch;
+  const found = await checkOwnerStarred("youkamii", { fetchImpl });
+  assert.deepEqual(found, { ok: true, starred: true });
+  const missing = await checkOwnerStarred("nobody-here", { fetchImpl });
+  assert.deepEqual(missing, { ok: true, starred: false });
+  // 연결 실패는 확인 실패로 끝난다 — 켜기를 허용하지 않는다.
+  const down = await checkOwnerStarred("youkamii", {
+    fetchImpl: (async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch,
+  });
+  assert.equal(down.ok, false);
 });
