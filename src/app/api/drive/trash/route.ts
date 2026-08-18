@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, requireEditRights, requireSession } from "@/lib/api";
 import { pruneDrivePermissionsForFiles } from "@/lib/drive-shares";
@@ -74,13 +75,25 @@ export async function POST(req: NextRequest) {
     const adapter = getAdapter();
     if (action === "restore") {
       const entry = await adapter.restore(body.id);
+      recordActivityAfter(auth.session, "restore", entry.name);
       return NextResponse.json({ entry });
     }
     if (action === "purge") {
+      // 이름은 기록용 — 휴지통 목록에서 찾아 두고, 못 찾아도 삭제는 계속한다.
+      const purgedName = await adapter
+        .listTrash()
+        .then((entries) => entries.find((entry) => entry.id === body.id)?.name)
+        .catch(() => undefined);
       const fileId = await adapter.purge(body.id, body.version);
+      recordActivityAfter(auth.session, "purge", purgedName ?? "");
       return NextResponse.json({ ok: true, ...(await cleanupShares([fileId])) });
     }
     const result = await adapter.emptyTrash(body.targets);
+    recordActivityAfter(
+      auth.session,
+      "empty-trash",
+      String(result.fileIds.length),
+    );
     const cleanup = await cleanupShares(result.fileIds);
     const operationWarnings = [
       result.skipped > 0

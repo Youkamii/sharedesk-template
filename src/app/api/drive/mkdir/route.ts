@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import { errorResponse, requireUploadRights } from "@/lib/api";
@@ -14,6 +15,7 @@ export async function POST(req: NextRequest) {
     typeof body.parentId === "string" ? body.parentId : ROOT_ID;
   try {
     const entry = await getAdapter().createFolder(parentId, body.name);
+    recordActivityAfter(auth.session, "mkdir", entry.name);
     return NextResponse.json({ entry }, { status: 201 });
   } catch (e) {
     return errorResponse(e);

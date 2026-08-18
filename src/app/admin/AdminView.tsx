@@ -25,6 +25,7 @@ import {
 } from "@/lib/roles";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
+import type { ActivityAction, ActivityEntry } from "@/lib/activity";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
 type InvitationUsageMode = "once" | "unlimited";
@@ -59,7 +60,21 @@ interface OwnerRegistryStatus {
 }
 
 // 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마·바탕화면).
-type AdminTab = "users" | "settings";
+type AdminTab = "users" | "settings" | "activity";
+
+// 활동 종류별 표시 문구 — 서버의 ActivityAction 값과 1:1. 타입을 좁혀
+// 서버에 액션이 늘면 컴파일러가 라벨 누락을 잡는다.
+const ACTIVITY_LABELS: Record<ActivityAction, string> = {
+  upload: "업로드",
+  trash: "휴지통으로 이동",
+  restore: "복원",
+  purge: "완전 삭제",
+  "empty-trash": "휴지통 비우기",
+  rename: "이름 변경",
+  move: "이동",
+  mkdir: "새 폴더",
+  edit: "내용 수정",
+};
 
 // 테마는 화면 전체의 UI·질감이고 바탕화면은 그 위에 까는 그림이다 — 서로 다른 설정.
 // 지금 쓰는 도트 화면이 기본 테마이며, 테마가 늘어나면 이 목록에 추가한다.
@@ -158,6 +173,10 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const [deskSettings, setDeskSettings] = useState<
     (DeskLocaleSettings & { autoUpdate: boolean }) | null
+  >(null);
+  // 활동 탭 — 열 때마다 최근 활동을 새로 불러온다.
+  const [activity, setActivity] = useState<
+    { entries: ActivityEntry[] } | { error: string } | null
   >(null);
   // 자동 업데이트를 켜기 전에 별 동의가 필요할 때 여는 안내 상자.
   const [starConsent, setStarConsent] = useState<{
@@ -389,6 +408,43 @@ export default function AdminView({ locale }: { locale: Locale }) {
       controller.abort();
     };
   }, [autoUpdateOn]);
+
+  useEffect(() => {
+    if (activeTab !== "activity") return;
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void fetch("/api/admin/activity", {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (response.status === 401 || response.status === 403) {
+            router.replace("/files");
+            return;
+          }
+          const body = (await response.json().catch(() => null)) as {
+            entries?: unknown;
+            error?: string;
+          } | null;
+          if (!response.ok || !Array.isArray(body?.entries)) {
+            setActivity({
+              error: body?.error ?? t("활동을 불러오지 못했습니다"),
+            });
+            return;
+          }
+          setActivity({ entries: body.entries as ActivityEntry[] });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setActivity({ error: t("활동을 불러오지 못했습니다") });
+          }
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [activeTab, router, t]);
 
   async function recordCurrentInstallation() {
     if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
@@ -822,6 +878,17 @@ export default function AdminView({ locale }: { locale: Locale }) {
               onClick={() => setActiveTab("settings")}
             >
               {t("설정")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tab-activity"
+              aria-selected={activeTab === "activity"}
+              aria-controls="panel-activity"
+              className={`${styles.tabButton} ${activeTab === "activity" ? styles.tabButtonActive : ""}`}
+              onClick={() => setActiveTab("activity")}
+            >
+              {t("활동")}
             </button>
           </div>
 
@@ -1559,6 +1626,66 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div
+            role="tabpanel"
+            id="panel-activity"
+            aria-labelledby="tab-activity"
+            hidden={activeTab !== "activity"}
+            className={styles.tabPanel}
+          >
+            <section aria-labelledby="activity-title">
+              <div className={styles.window}>
+                <header className={styles.windowTitlebar}>
+                  <span className={styles.windowTitle}>
+                    <h2 id="activity-title">{t("활동")}</h2>
+                  </span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "참여자들이 데스크에서 한 일이 최근 것부터 보입니다. 업로드, 삭제, 이름 변경 같은 변화만 기록합니다.",
+                    )}
+                  </p>
+                  {activity === null ? (
+                    <p className={styles.description}>{t("불러오는 중…")}</p>
+                  ) : "error" in activity ? (
+                    <p className={styles.description} role="alert">
+                      {activity.error}
+                    </p>
+                  ) : activity.entries.length === 0 ? (
+                    <p className={styles.description}>
+                      {t("아직 기록된 활동이 없습니다.")}
+                    </p>
+                  ) : (
+                    <ul className={styles.activityList}>
+                      {activity.entries.map((entry, index) => (
+                        <li
+                          key={`${entry.at}-${index}`}
+                          className={styles.activityItem}
+                        >
+                          <span className={styles.activityTime}>
+                            {formatDate(entry.at, locale)}
+                          </span>
+                          <span className={styles.activityActor}>
+                            {entry.actorName}
+                          </span>
+                          <span>
+                            {t(ACTIVITY_LABELS[entry.action])}
+                            {entry.action === "empty-trash"
+                              ? ` · ${t("{count}개 항목", { count: entry.name })}`
+                              : entry.name
+                                ? ` · ${entry.name}`
+                                : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             </section>

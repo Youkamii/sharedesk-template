@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, requireEditRights } from "@/lib/api";
 
@@ -20,6 +21,7 @@ export async function POST(req: NextRequest) {
       body.name,
       body.expectedVersion,
     );
+    recordActivityAfter(auth.session, "rename", entry.name);
     return NextResponse.json({ entry });
   } catch (e) {
     return errorResponse(e);

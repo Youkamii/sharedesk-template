@@ -1,3 +1,4 @@
+import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 import { errorResponse, requireEditRights } from "@/lib/api";
@@ -92,6 +93,7 @@ export async function PATCH(req: Request) {
       "text/plain",
       new Response(encoded).body as ReadableStream<Uint8Array>,
     );
+    recordActivityAfter(auth.session, "edit", entry.name);
     return Response.json({ entry });
   } catch (error) {
     return errorResponse(error);

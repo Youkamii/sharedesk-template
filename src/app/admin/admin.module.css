@@ -442,6 +442,36 @@
   line-height: 1.65;
 }
 
+/* 활동 탭 목록 — 시각·행위자·내용을 한 줄씩. */
+.activityList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  max-width: 840px;
+}
+
+.activityItem {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dotted #d5d9e2;
+  font-size: 13px;
+  color: #3d4350;
+  overflow-wrap: anywhere;
+}
+
+.activityTime {
+  flex: none;
+  color: #8a8f9c;
+  font-size: 12px;
+}
+
+.activityActor {
+  flex: none;
+  font-weight: 700;
+}
+
 /* 자동 업데이트를 켜기 전 별 동의 상자. */
 .starConsent {
   max-width: 840px;
