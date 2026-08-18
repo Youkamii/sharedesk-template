@@ -1432,9 +1432,9 @@ export default function AdminView({ locale }: { locale: Locale }) {
                 </header>
                 <div className={styles.windowBody}>
                   <p className={styles.description}>
-                    {t(
-                      "자동 업데이트를 누르면 GitHub 저장소에 별이 남고 자동 업데이트가 켜집니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 작업표시줄의 업데이트 버튼은 숨겨집니다. 멈추면 업데이트 버튼이 다시 나타나고 별은 그대로 남습니다.",
-                    )}
+                    {autoUpdateOn
+                      ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
+                      : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
                   </p>
                   {autoUpdateOn && updateInfo && (
                     <div className={styles.description}>
