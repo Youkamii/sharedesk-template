@@ -61,17 +61,14 @@ export async function POST(request: NextRequest) {
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
+    // 별을 남기지 못해도(토큰 권한 부족 등) 업데이트를 막지 않는다.
+    // 관리자가 손쓸 수 없는 사정으로 업데이트가 멈추는 편이 더 나쁘다.
     const starred = await addStar({ token });
-    if (!starred.ok) {
-      return NextResponse.json(
-        { error: starred.error, starRequired: true, starPageUrl: starPageUrl() },
-        { status: starred.status, headers: { "Cache-Control": "no-store" } },
-      );
-    }
     console.info("[admin]", {
-      event: "star-added",
+      event: starred.ok ? "star-added" : "star-skipped",
       repository: starPageUrl(),
       actorUserId: auth.session.userId,
+      ...(starred.ok ? {} : { status: starred.status }),
     });
   }
 
