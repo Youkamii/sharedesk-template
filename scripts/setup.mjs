@@ -143,7 +143,9 @@ export function browserOpenCommand(
   if (platform === "win32") {
     const windowsRoot = environment.SystemRoot || environment.windir || "C:\\Windows";
     return {
-      executable: path.join(windowsRoot, "System32", "rundll32.exe"),
+      // Windows 경로는 실행 플랫폼과 무관하게 역슬래시로 만든다.
+      // path.join은 Linux(업데이트 검증 러너)에서 슬래시를 섞는다.
+      executable: path.win32.join(windowsRoot, "System32", "rundll32.exe"),
       args: ["url.dll,FileProtocolHandler", url],
     };
   }
