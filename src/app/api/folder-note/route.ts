@@ -1,4 +1,4 @@
-import { errorResponse, requireSession } from "@/lib/api";
+import { errorResponse, requireEditRights, requireSession } from "@/lib/api";
 import {
   getFolderNote,
   MAX_FOLDER_NOTE_BYTES,
@@ -69,7 +69,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await requireSession({ fresh: true });
+  const auth = await requireEditRights({ fresh: true });
   if ("response" in auth) return auth.response;
   try {
     const body = await readJsonBody(req);

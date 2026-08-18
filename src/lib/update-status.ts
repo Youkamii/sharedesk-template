@@ -400,6 +400,31 @@ export async function fetchGitHubReleasePages(
   return releases;
 }
 
+// GitHub 릴리스 목록 API는 인덱스 지연·장애로 방금 만든 릴리스는 물론 기존
+// 릴리스까지 비어 보일 수 있다. 그때는 전용 latest 엔드포인트로 한 번 더
+// 확인해 상태 화면이 "확인 실패"로 끝나지 않게 한다.
+export async function fetchLatestStableReleaseFallback(
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  const response = await fetchImpl(
+    `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases/latest`,
+    {
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    },
+  );
+  // 릴리스가 하나도 없는 저장소는 404를 준다 — 오류가 아니라 "없음"이다.
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`GitHub 응답 ${response.status}`);
+  }
+  const payload: unknown = await response.json();
+  return selectLatestStableVersion([payload]);
+}
+
 export async function getUpdateStatus(options?: {
   env?: Environment;
   fetchImpl?: typeof fetch;
@@ -423,11 +448,23 @@ export async function getUpdateStatus(options?: {
   let latestVersion: string | null = null;
   try {
     const fetchImpl = options?.fetchImpl ?? fetch;
-    const releases = await fetchGitHubReleasePages(
-      `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=100`,
-      fetchImpl,
-    );
-    latestVersion = selectLatestStableVersion(releases);
+    try {
+      const releases = await fetchGitHubReleasePages(
+        `https://api.github.com/repos/${UPDATE_SOURCE_REPOSITORY}/releases?per_page=100`,
+        fetchImpl,
+      );
+      latestVersion = selectLatestStableVersion(releases);
+    } catch (listError) {
+      // 목록 조회가 막혀도 latest 단건이 살아 있으면 이어 가고,
+      // 폴백까지 실패하면 진단에 유리한 원래 목록 오류를 보고한다.
+      latestVersion = await fetchLatestStableReleaseFallback(fetchImpl).catch(
+        () => null,
+      );
+      if (!latestVersion) throw listError;
+    }
+    if (!latestVersion) {
+      latestVersion = await fetchLatestStableReleaseFallback(fetchImpl);
+    }
     if (!latestVersion) {
       throw new Error(
         "안정 릴리스를 찾을 수 없습니다.",

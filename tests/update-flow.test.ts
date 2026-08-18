@@ -28,6 +28,7 @@ import {
   compareSemver,
   dispatchUpdateWorkflow,
   fetchGitHubReleasePages as fetchStatusReleasePages,
+  fetchLatestStableReleaseFallback,
   fetchLatestUpdateRun,
   getUpdateStatus,
   resolveUpdateRepository,
@@ -1588,6 +1589,93 @@ test("release pagination refuses to follow links outside the GitHub API", async 
         })) as typeof fetch,
     ),
     /형식이 올바르지 않습니다/,
+  );
+});
+
+test("update status falls back to the latest release when the list API is empty or failing", async () => {
+  const latestPayload = {
+    tag_name: "v0.4.0",
+    draft: false,
+    prerelease: false,
+  };
+
+  // GitHub 목록 인덱스 지연: 목록은 200 + 빈 배열, latest 단건은 정상 (실제 관측 상황)
+  const requestedWhenEmpty: string[] = [];
+  const emptyList = await getUpdateStatus({
+    currentVersion: "0.4.0",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedWhenEmpty.push(url);
+      if (url.endsWith("/releases/latest")) return Response.json(latestPayload);
+      return Response.json([]);
+    }) as typeof fetch,
+  });
+  assert.equal(emptyList.latestVersion, "0.4.0");
+  assert.equal(emptyList.updateAvailable, false);
+  assert.equal(emptyList.error, undefined);
+  assert.ok(
+    requestedWhenEmpty.some((url) => url.endsWith("/releases/latest")),
+  );
+
+  // 목록 조회 자체가 실패해도 latest가 살아 있으면 이어 간다.
+  const failingList = await getUpdateStatus({
+    currentVersion: "0.3.2",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      if (String(input).endsWith("/releases/latest")) {
+        return Response.json(latestPayload);
+      }
+      return new Response("rate limited", { status: 403 });
+    }) as typeof fetch,
+  });
+  assert.equal(failingList.latestVersion, "0.4.0");
+  assert.equal(failingList.updateAvailable, true);
+  assert.equal(failingList.error, undefined);
+
+  // 폴백까지 실패하면 진단에 유리한 원래 목록 오류를 보고한다.
+  const bothFailing = await getUpdateStatus({
+    currentVersion: "0.3.2",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: (async (input: RequestInfo | URL) =>
+      new Response("down", {
+        status: String(input).endsWith("/releases/latest") ? 500 : 403,
+      })) as typeof fetch,
+  });
+  assert.equal(bothFailing.latestVersion, null);
+  assert.match(bothFailing.error ?? "", /GitHub 응답 403/);
+
+  // 릴리스가 하나도 없는 저장소(latest 404)는 오류가 아니라 "없음"이다.
+  assert.equal(
+    await fetchLatestStableReleaseFallback((async () =>
+      new Response("missing", { status: 404 })) as typeof fetch),
+    null,
+  );
+  // latest가 prerelease면 안정 릴리스로 채택하지 않는다 (선택기 재사용).
+  assert.equal(
+    await fetchLatestStableReleaseFallback((async () =>
+      Response.json({
+        tag_name: "v0.5.0-rc.1",
+        draft: false,
+        prerelease: true,
+      })) as typeof fetch),
+    null,
+  );
+  // 목록이 정상이면 폴백을 호출하지 않는다.
+  const requestedWhenHealthy: string[] = [];
+  await getUpdateStatus({
+    currentVersion: "0.3.2",
+    env: { SHAREDESK_GITHUB_REPOSITORY: "acme/sharedesk" },
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      requestedWhenHealthy.push(String(input));
+      return Response.json([
+        { tag_name: "v0.4.0", draft: false, prerelease: false },
+      ]);
+    }) as typeof fetch,
+  });
+  assert.equal(
+    requestedWhenHealthy.some((url) => url.endsWith("/releases/latest")),
+    false,
   );
 });
 

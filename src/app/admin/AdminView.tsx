@@ -8,6 +8,14 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import LanguageToggle from "@/app/LanguageToggle";
+import { translate, type Locale } from "@/lib/i18n";
+import {
+  ROLE_LABELS,
+  USER_ROLES,
+  resolveUserRole,
+  type UserRole,
+} from "@/lib/roles";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
 
@@ -21,6 +29,7 @@ interface InvitationSummary {
   expiresAt: string;
   durationMinutes: number;
   usageMode: InvitationUsageMode;
+  role: UserRole;
   usageCount: number;
   lastUsedAt: string | null;
   lastUsedByEmail: string | null;
@@ -35,6 +44,7 @@ type LastInvitationAccess = {
 
 interface OwnerRegistryStatus {
   enabled: boolean;
+  unset: boolean;
   version: string;
   site: string | null;
   repository: string | null;
@@ -72,24 +82,36 @@ const USAGE_MODE_LABEL: Record<InvitationUsageMode, string> = {
   unlimited: "기간 내 무제한",
 };
 
-function formatDate(value: string | null): string {
+type Translator = (
+  text: string,
+  vars?: Record<string, string | number>,
+) => string;
+
+function formatDate(value: string | null, locale: Locale): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isFinite(date.getTime())
-    ? date.toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })
+    ? date.toLocaleString(locale === "en" ? "en-US" : "ko-KR", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
     : "—";
 }
 
-function formatDuration(minutes: number): string {
-  if (minutes === 60) return "1시간";
-  if (minutes === 1_440) return "24시간";
-  if (minutes === 10_080) return "7일";
-  if (minutes === 43_200) return "30일";
-  return `${minutes}분`;
+function formatDuration(minutes: number, t: Translator): string {
+  if (minutes === 60) return t("1시간");
+  if (minutes === 1_440) return t("24시간");
+  if (minutes === 10_080) return t("7일");
+  if (minutes === 43_200) return t("30일");
+  return t("{분}분", { 분: minutes });
 }
 
-export default function AdminView() {
+export default function AdminView({ locale }: { locale: Locale }) {
   const router = useRouter();
+  const t = useCallback<Translator>(
+    (text, vars) => translate(locale, text, vars),
+    [locale],
+  );
   const mutationInFlightRef = useRef(false);
   const [users, setUsers] = useState<User[]>([]);
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
@@ -105,6 +127,7 @@ export default function AdminView() {
   const [inviteForm, setInviteForm] = useState({
     expiresInMinutes: 1_440,
     usageMode: "once" as InvitationUsageMode,
+    role: "editor" as UserRole,
   });
 
   const load = useCallback(async () => {
@@ -129,10 +152,10 @@ export default function AdminView() {
         inviteResponse.json().catch(() => null),
       ]);
       if (!userResponse.ok) {
-        throw new Error(userBody?.error ?? "사용자 목록을 불러오지 못했습니다");
+        throw new Error(userBody?.error ?? t("사용자 목록을 불러오지 못했습니다"));
       }
       if (!inviteResponse.ok) {
-        throw new Error(inviteBody?.error ?? "초대 목록을 불러오지 못했습니다");
+        throw new Error(inviteBody?.error ?? t("초대 목록을 불러오지 못했습니다"));
       }
       setUsers(userBody.users);
       setInvitations(inviteBody.invitations);
@@ -150,12 +173,14 @@ export default function AdminView() {
       });
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "관리 정보를 불러오지 못했습니다",
+        caught instanceof Error
+          ? caught.message
+          : t("관리 정보를 불러오지 못했습니다"),
       );
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, t]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -179,7 +204,9 @@ export default function AdminView() {
             | { error?: string }
             | null;
           if (!response.ok || !body || !("enabled" in body)) {
-            throw new Error(body?.error ?? "설치 등록부 상태를 확인하지 못했습니다");
+            throw new Error(
+              body?.error ?? t("설치 등록부 상태를 확인하지 못했습니다"),
+            );
           }
           return body;
         })
@@ -191,7 +218,7 @@ export default function AdminView() {
           setError(
             caught instanceof Error
               ? caught.message
-              : "설치 등록부 상태를 확인하지 못했습니다",
+              : t("설치 등록부 상태를 확인하지 못했습니다"),
           );
         });
     }, 0);
@@ -199,7 +226,7 @@ export default function AdminView() {
       window.clearTimeout(initial);
       controller.abort();
     };
-  }, [router]);
+  }, [router, t]);
 
   async function recordCurrentInstallation() {
     if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
@@ -223,19 +250,23 @@ export default function AdminView() {
         status?: OwnerRegistryStatus;
       } | null;
       if (!response.ok || body?.ok !== true) {
-        throw new Error(body?.error ?? "현재 설치 정보를 등록하지 못했습니다");
+        throw new Error(body?.error ?? t("현재 설치 정보를 등록하지 못했습니다"));
       }
       if (body.status) setOwnerRegistry(body.status);
       setNotice(
         body.created
-          ? `ShareDesk ${ownerRegistry.version} 설치 정보를 등록했습니다.`
-          : `ShareDesk ${ownerRegistry.version} 기록을 갱신했습니다.`,
+          ? t("ShareDesk {버전} 설치 정보를 등록했습니다.", {
+              버전: ownerRegistry.version,
+            })
+          : t("ShareDesk {버전} 기록을 갱신했습니다.", {
+              버전: ownerRegistry.version,
+            }),
       );
     } catch (caught) {
       setError(
         caught instanceof Error
           ? caught.message
-          : "현재 설치 정보를 등록하지 못했습니다",
+          : t("현재 설치 정보를 등록하지 못했습니다"),
       );
     } finally {
       setOwnerRegistryBusy(false);
@@ -268,15 +299,35 @@ export default function AdminView() {
         body: JSON.stringify({ id, action, sessionId }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "처리하지 못했습니다");
+      if (!response.ok) throw new Error(body?.error ?? t("처리하지 못했습니다"));
       if (body?.warning) setNotice(body.warning);
       else if (action === "revoke-session") {
-        setNotice("선택한 로그인을 끊었습니다");
+        setNotice(t("선택한 로그인을 끊었습니다"));
       }
       setConfirmRemoveId(null);
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "처리하지 못했습니다");
+      setError(caught instanceof Error ? caught.message : t("처리하지 못했습니다"));
+    } finally {
+      finishMutation();
+    }
+  }
+
+  async function changeRole(id: string, role: UserRole) {
+    if (!beginMutation(`user:${id}`)) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "role", role }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? t("처리하지 못했습니다"));
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : t("처리하지 못했습니다"));
     } finally {
       finishMutation();
     }
@@ -295,7 +346,7 @@ export default function AdminView() {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "초대 코드를 만들지 못했습니다");
+        throw new Error(body?.error ?? t("초대 코드를 만들지 못했습니다"));
       }
       setLastAccess(
         body.invitation.state === "active" &&
@@ -309,12 +360,15 @@ export default function AdminView() {
       setInviteForm({
         expiresInMinutes: 1_440,
         usageMode: "once",
+        role: "editor",
       });
-      setNotice("초대 코드를 만들었습니다. 아래 코드를 전달해 주세요.");
+      setNotice(t("초대 코드를 만들었습니다. 아래 코드를 전달해 주세요."));
       await load();
     } catch (caught) {
       setError(
-        caught instanceof Error ? caught.message : "초대 코드를 만들지 못했습니다",
+        caught instanceof Error
+          ? caught.message
+          : t("초대 코드를 만들지 못했습니다"),
       );
     } finally {
       finishMutation();
@@ -343,7 +397,9 @@ export default function AdminView() {
         ),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "초대를 바꾸지 못했습니다");
+      if (!response.ok) {
+        throw new Error(body?.error ?? t("초대를 바꾸지 못했습니다"));
+      }
       if (action === "rotate") {
         setLastAccess(
           body.invitation.code
@@ -354,7 +410,9 @@ export default function AdminView() {
             : null,
         );
         setNotice(
-          "예전 코드를 무효화하고 같은 사용 기간의 새 코드를 만들었습니다. 사용 횟수와 마지막 사용 기록은 유지됩니다.",
+          t(
+            "예전 코드를 무효화하고 같은 사용 기간의 새 코드를 만들었습니다. 사용 횟수와 마지막 사용 기록은 유지됩니다.",
+          ),
         );
       } else if (
         body.invitation.state === "active" &&
@@ -371,7 +429,9 @@ export default function AdminView() {
       }
       await load();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "초대를 바꾸지 못했습니다");
+      setError(
+        caught instanceof Error ? caught.message : t("초대를 바꾸지 못했습니다"),
+      );
     } finally {
       finishMutation();
     }
@@ -385,10 +445,10 @@ export default function AdminView() {
     setError(null);
     try {
       await navigator.clipboard.writeText(value);
-      setNotice("초대 코드를 복사했습니다.");
+      setNotice(t("초대 코드를 복사했습니다."));
     } catch {
       setLastAccess(invitation);
-      setNotice("아래 코드를 직접 선택해 복사해 주세요.");
+      setNotice(t("아래 코드를 직접 선택해 복사해 주세요."));
     }
   }
 
@@ -408,36 +468,41 @@ export default function AdminView() {
           </span>
           <div>
             <p className={styles.eyebrow}>SHAREDESK / ADMIN TOOL</p>
-            <h1 className={styles.pageTitle}>사용자 및 초대 관리</h1>
+            <h1 className={styles.pageTitle}>{t("사용자 및 초대 관리")}</h1>
           </div>
         </div>
         <div className={styles.headerActions}>
-          <span
-            className={styles.registryControl}
-            title={ownerRegistry?.error ?? undefined}
-          >
+          <LanguageToggle locale={locale} className={styles.languageToggle} />
+          {/* 선택 기능인 설치 등록부는 아예 설정하지 않은 설치에서는 숨긴다.
+              값을 넣었는데 틀린 설정 오류는 고칠 수 있도록 계속 보여 준다. */}
+          {ownerRegistry && !ownerRegistry.unset && (
             <span
-              className={`${styles.registryLamp} ${ownerRegistry?.enabled ? styles.registryLampOn : ""}`}
-              aria-hidden="true"
-            />
-            {ownerRegistry?.enabled ? (
-              <button
-                type="button"
-                className={styles.registryButton}
-                disabled={ownerRegistryBusy}
-                onClick={() => void recordCurrentInstallation()}
-              >
-                {ownerRegistryBusy ? "등록 중…" : "현재 설치 등록"}
-              </button>
-            ) : (
-              <span className={styles.registryLabel}>
-                {ownerRegistry?.error ?? "등록부 확인 중"}
-              </span>
-            )}
-          </span>
+              className={styles.registryControl}
+              title={ownerRegistry.error ?? undefined}
+            >
+              <span
+                className={`${styles.registryLamp} ${ownerRegistry.enabled ? styles.registryLampOn : ""}`}
+                aria-hidden="true"
+              />
+              {ownerRegistry.enabled ? (
+                <button
+                  type="button"
+                  className={styles.registryButton}
+                  disabled={ownerRegistryBusy}
+                  onClick={() => void recordCurrentInstallation()}
+                >
+                  {ownerRegistryBusy ? t("등록 중…") : t("현재 설치 등록")}
+                </button>
+              ) : (
+                <span className={styles.registryLabel}>
+                  {ownerRegistry.error ?? t("등록부 확인 중")}
+                </span>
+              )}
+            </span>
+          )}
           <a href="/files" className={styles.headerLink}>
             <span aria-hidden="true">←</span>
-            파일로 돌아가기
+            {t("파일로 돌아가기")}
           </a>
         </div>
       </header>
@@ -451,7 +516,9 @@ export default function AdminView() {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">!</span>
-            초대 코드 입력을 기다리는 사용자가 {pending.length}명 있습니다.
+            {t("초대 코드 입력을 기다리는 사용자가 {인원}명 있습니다.", {
+              인원: pending.length,
+            })}
           </p>
         )}
         {error && (
@@ -462,7 +529,8 @@ export default function AdminView() {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">×</span>
-            {error}
+            {/* 서버 오류 문구도 사전에 있으면 번역돼 나간다. */}
+            {t(error)}
           </p>
         )}
         {notice && (
@@ -473,7 +541,7 @@ export default function AdminView() {
             aria-atomic="true"
           >
             <span className={styles.messageMark} aria-hidden="true">✓</span>
-            {notice}
+            {t(notice)}
           </p>
         )}
 
@@ -482,21 +550,20 @@ export default function AdminView() {
             <header className={styles.windowTitlebar}>
               <span className={styles.windowTitle}>
                 <span className={styles.inviteGlyph} aria-hidden="true" />
-                <h2 id="invite-title">초대 코드</h2>
+                <h2 id="invite-title">{t("초대 코드")}</h2>
               </span>
               <span className={styles.windowMeta} aria-hidden="true">INVITES</span>
             </header>
             <div className={styles.windowBody}>
               <p id="invite-description" className={styles.description}>
-              받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인
-              사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면
-              소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이
-              함께 씁니다.
+                {t(
+                  "받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인 사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면 소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이 함께 씁니다.",
+                )}
               </p>
 
               <form onSubmit={createInvite} className={styles.inviteForm}>
                 <label className={styles.field}>
-                  <span>유효 기간</span>
+                  <span>{t("유효 기간")}</span>
                   <select
                     value={inviteForm.expiresInMinutes}
                     onChange={(event) =>
@@ -507,14 +574,14 @@ export default function AdminView() {
                     }
                     className={inputClass}
                   >
-                    <option value={60}>1시간</option>
-                    <option value={1_440}>24시간 (기본)</option>
-                    <option value={10_080}>7일</option>
-                    <option value={43_200}>30일</option>
+                    <option value={60}>{t("1시간")}</option>
+                    <option value={1_440}>{t("24시간 (기본)")}</option>
+                    <option value={10_080}>{t("7일")}</option>
+                    <option value={43_200}>{t("30일")}</option>
                   </select>
                 </label>
                 <label className={styles.field}>
-                  <span>사용 방식</span>
+                  <span>{t("사용 방식")}</span>
                   <select
                     value={inviteForm.usageMode}
                     onChange={(event) =>
@@ -525,8 +592,27 @@ export default function AdminView() {
                     }
                     className={inputClass}
                   >
-                    <option value="once">1회용</option>
-                    <option value="unlimited">기간 내 무제한</option>
+                    <option value="once">{t("1회용")}</option>
+                    <option value="unlimited">{t("기간 내 무제한")}</option>
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span>{t("역할")}</span>
+                  <select
+                    value={inviteForm.role}
+                    onChange={(event) =>
+                      setInviteForm((current) => ({
+                        ...current,
+                        role: resolveUserRole(event.target.value),
+                      }))
+                    }
+                    className={inputClass}
+                  >
+                    {USER_ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {t(ROLE_LABELS[role])}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <button
@@ -534,20 +620,20 @@ export default function AdminView() {
                   disabled={busyId !== null}
                   className={`${styles.pixelButton} ${styles.primaryButton}`}
                 >
-                  {busyId === "invite:create" ? "생성 중…" : "초대 코드 생성"}
+                  {busyId === "invite:create" ? t("생성 중…") : t("초대 코드 생성")}
                 </button>
               </form>
 
               {lastAccess && (
                 <div className={styles.codePanel}>
-                  <p className={styles.codeLabel}>지금 전달할 초대 코드</p>
+                  <p className={styles.codeLabel}>{t("지금 전달할 초대 코드")}</p>
                   <div className={styles.codeRow}>
                     <input
                       readOnly
                       value={lastAccess.code}
                       onFocus={(event) => event.currentTarget.select()}
                       className={styles.codeInput}
-                      aria-label="생성된 초대 코드"
+                      aria-label={t("생성된 초대 코드")}
                     />
                     <button
                       type="button"
@@ -557,7 +643,7 @@ export default function AdminView() {
                       }
                       className={buttonClass}
                     >
-                      코드 복사
+                      {t("코드 복사")}
                     </button>
                   </div>
                 </div>
@@ -572,30 +658,30 @@ export default function AdminView() {
               >
                 <table className={`${styles.table} ${styles.inviteTable}`}>
                   <caption className={styles.srOnly}>
-                    초대 코드의 만료일, 사용 기록, 상태와 관리 작업
+                    {t("초대 코드의 만료일, 사용 기록, 상태와 관리 작업")}
                   </caption>
                   <thead>
                     <tr className={styles.tableHeadRow}>
-                      <th>초대 코드</th>
-                      <th>만료일</th>
-                      <th>사용 방식</th>
-                      <th>사용 기록</th>
-                      <th>생성 정보</th>
-                      <th>상태</th>
-                      <th><span className={styles.srOnly}>관리 작업</span></th>
+                      <th>{t("초대 코드")}</th>
+                      <th>{t("만료일")}</th>
+                      <th>{t("사용 방식")}</th>
+                      <th>{t("사용 기록")}</th>
+                      <th>{t("생성 정보")}</th>
+                      <th>{t("상태")}</th>
+                      <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {loading ? (
                       <tr>
                         <td colSpan={7} className={styles.emptyCell}>
-                          불러오는 중…
+                          {t("불러오는 중…")}
                         </td>
                       </tr>
                     ) : invitations.length === 0 ? (
                       <tr>
                         <td colSpan={7} className={styles.emptyCell}>
-                          아직 만든 초대가 없습니다
+                          {t("아직 만든 초대가 없습니다")}
                         </td>
                       </tr>
                     ) : (
@@ -605,27 +691,34 @@ export default function AdminView() {
                             {invitation.code ?? "—"}
                           </td>
                           <td className={styles.compactCell}>
-                            <div>{formatDate(invitation.expiresAt)}</div>
-                            <div>{formatDuration(invitation.durationMinutes)}</div>
+                            <div>{formatDate(invitation.expiresAt, locale)}</div>
+                            <div>
+                              {formatDuration(invitation.durationMinutes, t)}
+                            </div>
                           </td>
                           <td className={styles.compactCell}>
-                            {USAGE_MODE_LABEL[invitation.usageMode]}
+                            <div>{t(USAGE_MODE_LABEL[invitation.usageMode])}</div>
+                            <div>
+                              {t(ROLE_LABELS[resolveUserRole(invitation.role)])}
+                            </div>
                           </td>
                           <td className={styles.compactCell}>
-                            <div>{invitation.usageCount}회</div>
+                            <div>
+                              {t("{횟수}회", { 횟수: invitation.usageCount })}
+                            </div>
                             {invitation.lastUsedAt && (
                               <div>
-                                {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt)}
+                                {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt, locale)}
                               </div>
                             )}
                           </td>
                           <td className={styles.compactCell}>
                             <div>{invitation.createdByEmail}</div>
-                            <div>{formatDate(invitation.createdAt)}</div>
+                            <div>{formatDate(invitation.createdAt, locale)}</div>
                           </td>
                           <td>
                             <span className={`${styles.statusBadge} ${INVITE_STYLE[invitation.state]}`}>
-                              {INVITE_LABEL[invitation.state]}
+                              {t(INVITE_LABEL[invitation.state])}
                             </span>
                           </td>
                           <td className={styles.actionsCell}>
@@ -643,7 +736,7 @@ export default function AdminView() {
                                     }
                                     className={buttonClass}
                                   >
-                                    코드 복사
+                                    {t("코드 복사")}
                                   </button>
                                 )}
                                 {invitation.state !== "expired" && (
@@ -655,7 +748,9 @@ export default function AdminView() {
                                     }
                                     className={buttonClass}
                                   >
-                                    {invitation.state === "active" ? "비활성" : "활성"}
+                                    {invitation.state === "active"
+                                      ? t("비활성")
+                                      : t("활성")}
                                   </button>
                                 )}
                                 <button
@@ -666,7 +761,7 @@ export default function AdminView() {
                                   }
                                   className={buttonClass}
                                 >
-                                  새 코드
+                                  {t("새 코드")}
                                 </button>
                               </span>
                             )}
@@ -686,7 +781,7 @@ export default function AdminView() {
             <header className={`${styles.windowTitlebar} ${styles.userTitlebar}`}>
               <span className={styles.windowTitle}>
                 <span className={styles.userGlyph} aria-hidden="true" />
-                <h2 id="user-title">사용자</h2>
+                <h2 id="user-title">{t("사용자")}</h2>
               </span>
               <span className={styles.windowMeta} aria-hidden="true">
                 {users.length.toString().padStart(2, "0")} USERS
@@ -701,28 +796,29 @@ export default function AdminView() {
               >
                 <table className={`${styles.table} ${styles.userTable}`}>
                   <caption className={styles.srOnly}>
-                    사용자 등록일, 상태, 로그인 기기와 관리 작업
+                    {t("사용자 등록일, 상태, 역할, 로그인 기기와 관리 작업")}
                   </caption>
                   <thead>
                     <tr className={styles.tableHeadRow}>
-                      <th>사용자</th>
-                      <th>등록일</th>
-                      <th>상태</th>
-                      <th>로그인 기기</th>
-                      <th><span className={styles.srOnly}>관리 작업</span></th>
+                      <th>{t("사용자")}</th>
+                      <th>{t("등록일")}</th>
+                      <th>{t("상태")}</th>
+                      <th>{t("역할")}</th>
+                      <th>{t("로그인 기기")}</th>
+                      <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {loading ? (
                       <tr>
-                        <td colSpan={5} className={styles.emptyCell}>
-                          불러오는 중…
+                        <td colSpan={6} className={styles.emptyCell}>
+                          {t("불러오는 중…")}
                         </td>
                       </tr>
                     ) : users.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className={styles.emptyCell}>
-                          아직 등록된 사용자가 없습니다
+                        <td colSpan={6} className={styles.emptyCell}>
+                          {t("아직 등록된 사용자가 없습니다")}
                         </td>
                       </tr>
                     ) : (
@@ -732,22 +828,50 @@ export default function AdminView() {
                             <div className={styles.userName}>
                               {user.name}
                               {user.isAdmin && (
-                                <span className={styles.adminBadge}>관리자</span>
+                                <span className={styles.adminBadge}>
+                                  {t("관리자")}
+                                </span>
                               )}
                             </div>
                             <div className={styles.userEmail}>{user.email}</div>
                           </td>
                           <td className={styles.compactCell}>
-                            {formatDate(user.createdAt)}
+                            {formatDate(user.createdAt, locale)}
                           </td>
                           <td>
                             <span className={`${styles.statusBadge} ${STATUS_STYLE[user.status]}`}>
-                              {STATUS_LABEL[user.status]}
+                              {t(STATUS_LABEL[user.status])}
                             </span>
                           </td>
                           <td>
+                            {user.isAdmin ? (
+                              <span className={styles.muted}>{t("관리자")}</span>
+                            ) : (
+                              <select
+                                value={resolveUserRole(user.role)}
+                                disabled={busyId !== null}
+                                onChange={(event) =>
+                                  void changeRole(
+                                    user.id,
+                                    resolveUserRole(event.target.value),
+                                  )
+                                }
+                                className={`${styles.select} ${styles.roleSelect}`}
+                                aria-label={t("{이름} 역할 변경", {
+                                  이름: user.name,
+                                })}
+                              >
+                                {USER_ROLES.map((role) => (
+                                  <option key={role} value={role}>
+                                    {t(ROLE_LABELS[role])}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </td>
+                          <td>
                             {user.sessions.length === 0 ? (
-                              <span className={styles.muted}>기록 없음</span>
+                              <span className={styles.muted}>{t("기록 없음")}</span>
                             ) : (
                               <ul className={styles.sessionList}>
                                 {[...user.sessions].reverse().map((session) => (
@@ -757,7 +881,7 @@ export default function AdminView() {
                                         {session.deviceLabel}
                                       </span>
                                       <span className={styles.sessionDate}>
-                                        {formatDate(session.createdAt)}
+                                        {formatDate(session.createdAt, locale)}
                                       </span>
                                     </span>
                                     {!user.isAdmin ? (
@@ -768,7 +892,7 @@ export default function AdminView() {
                                         }
                                         className={`${styles.pixelButton} ${styles.dangerButton}`}
                                       >
-                                        이 로그인 끊기
+                                        {t("이 로그인 끊기")}
                                       </button>
                                     ) : null}
                                   </li>
@@ -786,13 +910,13 @@ export default function AdminView() {
                                   onClick={() => void act(user.id, "remove")}
                                   className={`${styles.pixelButton} ${styles.dangerButton}`}
                                 >
-                                  삭제 확인
+                                  {t("삭제 확인")}
                                 </button>
                                 <button
                                   onClick={() => setConfirmRemoveId(null)}
                                   className={buttonClass}
                                 >
-                                  취소
+                                  {t("취소")}
                                 </button>
                               </span>
                             ) : (
@@ -803,16 +927,18 @@ export default function AdminView() {
                                       disabled={busyId !== null}
                                       onClick={() => void act(user.id, "revoke")}
                                       className={buttonClass}
-                                      title="이 사람의 모든 기기에서 로그인을 끊습니다"
+                                      title={t(
+                                        "이 사람의 모든 기기에서 로그인을 끊습니다",
+                                      )}
                                     >
-                                      모든 로그인 끊기
+                                      {t("모든 로그인 끊기")}
                                     </button>
                                     <button
                                       disabled={busyId !== null}
                                       onClick={() => void act(user.id, "block")}
                                       className={buttonClass}
                                     >
-                                      차단
+                                      {t("차단")}
                                     </button>
                                   </>
                                 )}
@@ -822,14 +948,14 @@ export default function AdminView() {
                                     onClick={() => void act(user.id, "pending")}
                                     className={buttonClass}
                                   >
-                                    대기로
+                                    {t("대기로")}
                                   </button>
                                 )}
                                 <button
                                   onClick={() => setConfirmRemoveId(user.id)}
                                   className={buttonClass}
                                 >
-                                  삭제
+                                  {t("삭제")}
                                 </button>
                               </span>
                             )}
@@ -842,12 +968,14 @@ export default function AdminView() {
               </div>
               <ul className={styles.helpList}>
                 <li>
-                  차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에
-                  끊깁니다.
+                  {t(
+                    "차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에 끊깁니다.",
+                  )}
                 </li>
                 <li>
-                  차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시
-                  가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.
+                  {t(
+                    "차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시 가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.",
+                  )}
                 </li>
               </ul>
             </div>

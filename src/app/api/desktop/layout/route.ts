@@ -4,7 +4,7 @@ import {
   getLayoutSnapshot,
   updateLayout,
 } from "@/lib/desktop-layout";
-import { errorResponse, requireSession } from "@/lib/api";
+import { errorResponse, requireSession, requireUploadRights } from "@/lib/api";
 import { ROOT_ID } from "@/lib/storage/types";
 
 function badRequest() {
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const auth = await requireSession({ fresh: true });
+  const auth = await requireUploadRights({ fresh: true });
   if ("response" in auth) return auth.response;
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body)) {

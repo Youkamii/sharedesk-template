@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
+import { translate, type Locale } from "@/lib/i18n";
 import styles from "./desktop.module.css";
 
 type ShareRole = "reader" | "writer";
@@ -42,6 +43,7 @@ type ShareDialogProps = {
     name: string;
     isFolder: boolean;
   };
+  locale: Locale;
   onClose: () => void;
   onNotice: (message: string) => void;
 };
@@ -114,10 +116,13 @@ function isAbortError(value: unknown) {
 
 export default function ShareDialog({
   entry,
+  locale,
   onClose,
   onNotice,
 }: ShareDialogProps) {
   const router = useRouter();
+  const t = (text: string, vars?: Record<string, string | number>) =>
+    translate(locale, text, vars);
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement>(null);
@@ -264,8 +269,10 @@ export default function ShareDialog({
       if (!controller.signal.aborted) {
         onNotice(
           refreshed
-            ? `‘${entry.name}’의 Google Drive 공유를 추가했습니다`
-            : "공유는 반영됐지만 최신 권한 목록을 불러오지 못했습니다",
+            ? t("‘{name}’의 Google Drive 공유를 추가했습니다", {
+                name: entry.name,
+              })
+            : t("공유는 반영됐지만 최신 권한 목록을 불러오지 못했습니다"),
         );
       }
     } catch (mutationError) {
@@ -302,8 +309,10 @@ export default function ShareDialog({
       if (!controller.signal.aborted) {
         onNotice(
           refreshed
-            ? `${permission.name || permission.email}님의 권한을 변경했습니다`
-            : "권한은 변경됐지만 최신 권한 목록을 불러오지 못했습니다",
+            ? t("{name}님의 권한을 변경했습니다", {
+                name: permission.name || permission.email,
+              })
+            : t("권한은 변경됐지만 최신 권한 목록을 불러오지 못했습니다"),
         );
       }
     } catch (mutationError) {
@@ -338,8 +347,10 @@ export default function ShareDialog({
       if (!controller.signal.aborted) {
         onNotice(
           refreshed
-            ? `${permission.name || permission.email}님의 공유 권한을 회수했습니다`
-            : "권한은 회수됐지만 최신 권한 목록을 불러오지 못했습니다",
+            ? t("{name}님의 공유 권한을 회수했습니다", {
+                name: permission.name || permission.email,
+              })
+            : t("권한은 회수됐지만 최신 권한 목록을 불러오지 못했습니다"),
         );
       }
     } catch (mutationError) {
@@ -413,10 +424,10 @@ export default function ShareDialog({
         onKeyDown={handleDialogKeyDown}
       >
         <header className={styles.dialogTitlebar}>
-          <strong id={titleId}>Google Drive로 공유</strong>
+          <strong id={titleId}>{t("Google Drive로 공유")}</strong>
           <button
             type="button"
-            aria-label="닫기"
+            aria-label={t("닫기")}
             onClick={closeDialog}
           >
             ×
@@ -443,7 +454,7 @@ export default function ShareDialog({
           >
             <strong style={{ overflowWrap: "anywhere" }}>‘{entry.name}’</strong>
             <span style={{ flex: "0 0 auto", color: "#666b78" }}>
-              {entry.isFolder ? "폴더" : "파일"}
+              {entry.isFolder ? t("폴더") : t("파일")}
             </span>
           </div>
 
@@ -458,28 +469,28 @@ export default function ShareDialog({
             }}
           >
             <span>
-              받는 사람의 Google Drive 공유 문서함에도 표시됩니다.
+              {t("받는 사람의 Google Drive 공유 문서함에도 표시됩니다.")}
             </span>
-            <small>ShareDesk 안의 공동 접근은 바뀌지 않습니다.</small>
+            <small>{t("ShareDesk 안의 공동 접근은 바뀌지 않습니다.")}</small>
           </p>
 
           {loading ? (
             <p role="status" style={{ width: "100%", paddingBlock: 18 }}>
-              공유 정보를 불러오는 중입니다…
+              {t("공유 정보를 불러오는 중입니다…")}
             </p>
           ) : (
             <>
               <form
                 style={panelStyle}
-                aria-label="새 Google Drive 공유"
+                aria-label={t("새 Google Drive 공유")}
                 onSubmit={(event) => {
                   event.preventDefault();
                   void createPermission();
                 }}
               >
-                <strong>새로 공유</strong>
+                <strong>{t("새로 공유")}</strong>
                 <label>
-                  <span>받는 사람</span>
+                  <span>{t("받는 사람")}</span>
                   <select
                     style={fieldStyle}
                     value={targetUserId}
@@ -487,7 +498,7 @@ export default function ShareDialog({
                     onChange={(event) => setTargetUserId(event.target.value)}
                   >
                     {availableUsers.length === 0 ? (
-                      <option value="">공유할 수 있는 새 사용자가 없습니다</option>
+                      <option value="">{t("공유할 수 있는 새 사용자가 없습니다")}</option>
                     ) : (
                       availableUsers.map((user) => (
                         <option key={user.id} value={user.id}>
@@ -498,7 +509,7 @@ export default function ShareDialog({
                   </select>
                 </label>
                 <label>
-                  <span>권한</span>
+                  <span>{t("권한")}</span>
                   <select
                     style={fieldStyle}
                     value={newRole}
@@ -507,8 +518,8 @@ export default function ShareDialog({
                       setNewRole(event.target.value as ShareRole)
                     }
                   >
-                    <option value="reader">보기</option>
-                    <option value="writer">편집</option>
+                    <option value="reader">{t("보기")}</option>
+                    <option value="writer">{t("편집")}</option>
                   </select>
                 </label>
                 <label
@@ -537,7 +548,7 @@ export default function ShareDialog({
                       setSendNotificationEmail(event.target.checked)
                     }
                   />
-                  <span>Google 알림 이메일 보내기 (기본 꺼짐)</span>
+                  <span>{t("Google 알림 이메일 보내기 (기본 꺼짐)")}</span>
                 </label>
                 <button
                   type="submit"
@@ -545,15 +556,17 @@ export default function ShareDialog({
                   style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
                   disabled={busy || stale || !targetUserId}
                 >
-                  {busyKey === "create" ? "공유 중…" : "공유하기"}
+                  {busyKey === "create" ? t("공유 중…") : t("공유하기")}
                 </button>
               </form>
 
               <section style={panelStyle} aria-labelledby={`${titleId}-current`}>
-                <strong id={`${titleId}-current`}>현재 직접 공유 권한</strong>
+                <strong id={`${titleId}-current`}>
+                  {t("현재 직접 공유 권한")}
+                </strong>
                 {permissions.length === 0 ? (
                   <span style={{ color: "#666b78", lineHeight: 1.5 }}>
-                    ShareDesk에서 추가한 직접 권한이 없습니다.
+                    {t("ShareDesk에서 추가한 직접 권한이 없습니다.")}
                   </span>
                 ) : (
                   <ul
@@ -604,7 +617,7 @@ export default function ShareDialog({
                                   border: "1px solid #a53c46",
                                 }}
                               >
-                                회수 필요
+                                {t("회수 필요")}
                               </small>
                             )}
                             <small style={{ color: "#666b78" }}>
@@ -623,7 +636,9 @@ export default function ShareDialog({
                           >
                             <select
                               style={{ ...fieldStyle, width: "auto", flex: "1 1 92px" }}
-                              aria-label={`${permission.name || permission.email} 권한`}
+                              aria-label={t("{name} 권한", {
+                                name: permission.name || permission.email,
+                              })}
                               value={draftRole}
                               disabled={busy || stale || needsRecovery}
                               onChange={(event) =>
@@ -634,8 +649,8 @@ export default function ShareDialog({
                                 }))
                               }
                             >
-                              <option value="reader">보기</option>
-                              <option value="writer">편집</option>
+                              <option value="reader">{t("보기")}</option>
+                              <option value="writer">{t("편집")}</option>
                             </select>
                             <button
                               type="button"
@@ -650,8 +665,8 @@ export default function ShareDialog({
                               onClick={() => void updatePermission(permission)}
                             >
                               {busyKey === `update:${permission.permissionId}`
-                                ? "변경 중…"
-                                : "변경"}
+                                ? t("변경 중…")
+                                : t("변경")}
                             </button>
                             <button
                               type="button"
@@ -661,8 +676,8 @@ export default function ShareDialog({
                               onClick={() => void revokePermission(permission)}
                             >
                               {busyKey === `delete:${permission.permissionId}`
-                                ? "해제 중…"
-                                : "공유 해제"}
+                                ? t("해제 중…")
+                                : t("공유 해제")}
                             </button>
                           </span>
                         </li>
@@ -685,7 +700,7 @@ export default function ShareDialog({
                 border: "2px solid #a53c46",
               }}
             >
-              <span>{error}</span>
+              <span>{t(error)}</span>
               {!loading && stale && (
                 <button
                   type="button"
@@ -694,7 +709,7 @@ export default function ShareDialog({
                   disabled={busy}
                   onClick={() => void loadShares()}
                 >
-                  다시 시도
+                  {t("다시 시도")}
                 </button>
               )}
             </p>
@@ -702,7 +717,7 @@ export default function ShareDialog({
 
           {busy && (
             <span role="status" aria-live="polite" style={{ width: "100%" }}>
-              Google Drive 공유 권한을 처리하는 중입니다…
+              {t("Google Drive 공유 권한을 처리하는 중입니다…")}
             </span>
           )}
 
@@ -712,7 +727,7 @@ export default function ShareDialog({
               className={styles.secondaryButton}
               onClick={closeDialog}
             >
-              닫기
+              {t("닫기")}
             </button>
           </div>
         </div>

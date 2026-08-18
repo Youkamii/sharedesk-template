@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, SessionInfo, resolveSession } from "@/lib/auth";
+import { canEdit, canUpload } from "@/lib/roles";
 import { StorageError, StorageErrorCode } from "@/lib/storage/types";
 
 const STATUS: Record<StorageErrorCode, number> = {
@@ -48,6 +49,37 @@ export async function requireSession(options?: SessionOptions): Promise<
     };
   }
   return { session };
+}
+
+function forbiddenResponse(): { response: NextResponse } {
+  return {
+    response: NextResponse.json(
+      { error: "이 작업을 할 권한이 없습니다" },
+      { status: 403 },
+    ),
+  };
+}
+
+// 새 항목을 만드는 쓰기(업로드·새 폴더·바탕 배치 저장)의 가드.
+// admin·editor·uploader만 통과한다.
+export async function requireUploadRights(options?: SessionOptions): Promise<
+  { session: SessionInfo } | { response: NextResponse }
+> {
+  const result = await requireSession(options);
+  if ("response" in result) return result;
+  if (!canUpload(result.session.role)) return forbiddenResponse();
+  return result;
+}
+
+// 기존 항목을 바꾸는 쓰기(편집·이름 변경·이동·삭제·휴지통 조작)의 가드.
+// admin·editor만 통과한다.
+export async function requireEditRights(options?: SessionOptions): Promise<
+  { session: SessionInfo } | { response: NextResponse }
+> {
+  const result = await requireSession(options);
+  if ("response" in result) return result;
+  if (!canEdit(result.session.role)) return forbiddenResponse();
+  return result;
 }
 
 export async function requireAdmin(options?: SessionOptions): Promise<

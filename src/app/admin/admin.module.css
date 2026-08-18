@@ -175,6 +175,33 @@
   color: #9da9c2;
 }
 
+.languageToggle {
+  display: inline-flex;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 8px;
+  color: var(--admin-cream);
+  background: #0b1122;
+  border: 2px solid #070b16;
+  box-shadow:
+    inset 1px 1px 0 #2a365d,
+    3px 3px 0 #070b16;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.languageToggle:hover {
+  color: var(--admin-amber);
+}
+
+.languageToggle:active {
+  transform: translate(2px, 2px);
+  box-shadow: inset 1px 1px 0 #2a365d;
+}
+
 .headerLink {
   display: inline-flex;
   min-height: 36px;
@@ -346,7 +373,7 @@
 .inviteForm {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
   align-items: end;
   gap: 12px;
   margin-top: 16px;
@@ -385,6 +412,19 @@
     inset 2px 2px 0 #b7a98e,
     inset -2px -2px 0 #fffdf2;
   font-size: 11px;
+}
+
+.select:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+/* 사용자 표 안의 역할 선택 — .select 픽셀 톤을 그대로 쓰되 행 높이에 맞춘다. */
+.roleSelect {
+  width: auto;
+  min-width: 132px;
+  height: 34px;
+  padding-block: 5px;
 }
 
 .pixelButton {
@@ -503,7 +543,7 @@
 }
 
 .inviteTable { min-width: 940px; }
-.userTable { min-width: 850px; }
+.userTable { min-width: 980px; }
 
 .table th,
 .table td {

@@ -65,6 +65,8 @@ npm run dev
 
 브라우저에서 `http://localhost:3000`을 열고 `.env.local`에 적은 `ACCESS_KEYS` 값 중 하나를 입력합니다.
 
+local 모드의 접속 키는 `수정 가능` 권한으로 들어가므로 개인 사용에 필요한 파일 만들기와 수정을 그대로 쓸 수 있습니다.
+
 이 모드에서는 Google 로그인, 초대 코드 가입, 실제 Drive 공유를 확인할 수 없습니다.
 
 다음 항목까지 확인하면 로컬 실행이 된 것입니다.
@@ -169,7 +171,7 @@ npx tsc --noEmit --incremental false
 | 변수 | 쓰는 곳 | 설명 |
 |---|---|---|
 | `ADMIN_EMAILS` | Drive 운영 | 관리자 Google 이메일입니다. 여러 명이면 쉼표로 나눕니다. setup이 호스트 이메일을 넣습니다. |
-| `ACCESS_KEYS` | 선택, local 권장 | 쉼표로 나눈 임시 손님용 접속 키입니다. local 개인 사용은 이 키로 들어갑니다. |
+| `ACCESS_KEYS` | 선택, local 권장 | 쉼표로 나눈 임시 손님용 접속 키입니다. local 개인 사용은 이 키로 `수정 가능` 권한으로 들어가고, 운영(drive)에서 접속 키로 들어온 손님은 `보기 전용`입니다. |
 | `SESSION_SECRET` | 필수 | 로그인 쿠키 서명 비밀입니다. 16자 이상이어야 합니다. |
 | `STORAGE_DRIVER` | 필수 권장 | `local` 또는 `drive`입니다. 비우면 refresh token 유무로 정하지만 명시해서 쓰는 편이 안전합니다. |
 | `LOCAL_STORAGE_ROOT` | local 전용 | 로컬 파일과 상태를 저장할 경로입니다. 기본값은 `.devstorage`입니다. |
