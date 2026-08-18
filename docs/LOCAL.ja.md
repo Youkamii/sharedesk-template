@@ -173,7 +173,7 @@ npx tsc --noEmit --incremental false
 | 変数 | 使う場所 | 説明 |
 |---|---|---|
 | `ADMIN_EMAILS` | Drive本番 | 管理者のGoogleメールです。複数人ならカンマで区切ります。setupがホストのメールを入れます。 |
-| `ACCESS_KEYS` | 任意、localで推奨 | カンマで区切った一時的なゲスト用のアクセスキーです。localの個人利用ではこのキーで`編集可能`の権限で入り、本番（drive）でアクセスキーから入ったゲストは`閲覧のみ`です。 |
+| `ACCESS_KEYS` | 任意、localで推奨 | カンマで区切った一時的なゲスト用のアクセスキーです。localの個人利用ではこのキーで`編集可能`の権限で入り、本番（drive）でアクセスキーで入ったゲストは`閲覧のみ`です。 |
 | `SESSION_SECRET` | 必須 | ログインのcookieの署名に使う秘密です。16文字以上である必要があります。 |
 | `STORAGE_DRIVER` | 必須推奨 | `local`または`drive`です。空にするとrefresh tokenの有無で決まりますが、明示して使うほうが安全です。 |
 | `LOCAL_STORAGE_ROOT` | local専用 | ローカルのファイルと状態を保存するパスです。既定値は`.devstorage`です。 |
@@ -185,7 +185,7 @@ npx tsc --noEmit --incremental false
 | `DRIVE_STATE_FOLDER_ID` | Drive本番 | ルート内の`.sharedesk`状態フォルダのIDです。 |
 | `SHAREDESK_GITHUB_TOKEN` | 任意 | ワンクリックアップデート用のfine-grained PATです。ローカルでワンクリックアップデートをテストするには、`SHAREDESK_GITHUB_REPOSITORY`（下記）も一緒に入れる必要があります。 |
 | `SHAREDESK_GITHUB_REPOSITORY` | 任意 | アップデート対象のインストールリポジトリ（`owner/repository`）です。Vercelの外（ローカル）にはリポジトリの情報がないため、ワンクリックのテスト時にご自身で指定します。 |
-| `SHAREDESK_SHARE_TEST_EMAIL` | 実機テスト専用 | 共有テストを受ける、別の承認済みGoogleアカウントです。本番のVercel環境には入れません。 |
+| `SHAREDESK_SHARE_TEST_EMAIL` | 実際のDriveテスト専用 | 共有テストを受ける、別の承認済みGoogleアカウントです。本番のVercel環境には入れません。 |
 | `SHAREDESK_TRACE` | 開発時の確認 | 空でなければ、一部のDrive呼び出しとアイコン配置の保存時間をサーバーログに残します。 |
 
 Vercelの既定のドメインを使いながら`PUBLIC_BASE_URL`を空にすると、アプリはVercelが提供する`VERCEL_PROJECT_PRODUCTION_URL`を使います。ご自身で入れる値ではなく、Vercelのシステム環境変数です。本番に必要な値とcallbackのアドレスは、[本番インストールガイド](./INSTALL.ja.md)にまとめてあります。

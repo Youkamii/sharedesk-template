@@ -67,7 +67,7 @@ npm run dev
 
 Open `http://localhost:3000` in your browser and enter one of the `ACCESS_KEYS` values you wrote in `.env.local`.
 
-An access key in local mode comes in with `Can edit` permission, so you can create and edit the files you need for personal use.
+An access key in local mode grants `Can edit` permission, so you can create and edit the files you need for personal use.
 
 In this mode you cannot check Google sign-in, joining with an invitation code, or real Drive sharing.
 
@@ -101,7 +101,7 @@ If `LOCAL_STORAGE_ROOT` is a relative path, it is resolved from the project fold
     └── trash and local sharing state
 ```
 
-`.sharedesk` is an internal folder ShareDesk uses, so it does not appear on the files screen. If you back up only part of it, you can lose state such as notes, icon positions, and the trash, so **back up the whole `LOCAL_STORAGE_ROOT`**.
+`.sharedesk` is an internal folder ShareDesk uses, so it does not appear on the files screen. If you back up only part of that folder, you can lose state such as notes, icon positions, and the trash, so **back up the whole `LOCAL_STORAGE_ROOT`**.
 
 The backup order is as follows.
 
@@ -126,9 +126,9 @@ When restoring, stop the server first as well, put the whole backed-up folder in
 - PDF conversion previews for Google Docs, Sheets, Slides, and Drawings are unavailable.
 - Formats that can run scripts, such as HTML and SVG, are not opened directly but offered as a safe download.
 - Creating or renaming an item to a name that already exists in the same folder is rejected instead of overwriting.
-- Trash items are deleted completely the next time the trash is opened, once 30 days have passed.
+- Trash items older than 30 days are deleted completely the next time the trash is opened.
 - Paths outside `LOCAL_STORAGE_ROOT` and the internal `.sharedesk` folder cannot be opened from the files screen.
-- Do not use local mode for a Vercel production deployment. Configure a production environment that several people share using `STORAGE_DRIVER=drive`.
+- Do not use local mode for a Vercel production deployment. Use `STORAGE_DRIVER=drive` to configure a production environment that several people share.
 
 ## Troubleshooting
 
@@ -173,7 +173,7 @@ npx tsc --noEmit --incremental false
 | Variable | Where it is used | Description |
 |---|---|---|
 | `ADMIN_EMAILS` | Drive production | Admin Google emails. Separate several with commas. Setup puts the host email in. |
-| `ACCESS_KEYS` | Optional, recommended for local | Comma-separated access keys for temporary guests. In local personal use this key comes in with `Can edit` permission, while a guest who uses an access key in production (drive) is `View only`. |
+| `ACCESS_KEYS` | Optional, recommended for local | Comma-separated access keys for temporary guests. In local personal use this key grants `Can edit` permission, while a guest who uses an access key in production (drive) is `View only`. |
 | `SESSION_SECRET` | Required | The secret that signs the sign-in cookie. It has to be 16 characters or longer. |
 | `STORAGE_DRIVER` | Required in practice | `local` or `drive`. If left empty, it is decided by whether a refresh token exists, but stating it explicitly is safer. |
 | `LOCAL_STORAGE_ROOT` | local only | The path where local files and state are stored. The default is `.devstorage`. |
@@ -200,7 +200,7 @@ This checks the basic file operations.
 npm run test:drive-operations
 ```
 
-The check covers creating a folder, uploading through the server, downloading whole files, renaming, moving between folders, direct-from-browser upload, and trash delete, restore, and permanent delete, then cleans up the items it created. If cleanup fails, check the `sharedesk-operations-test-*` folders in Drive yourself.
+The check covers creating a folder, uploading through the server, downloading whole files, renaming, moving between folders, uploading directly from the browser, and moving to the trash, restoring, and deleting permanently. It then cleans up the items it created. If cleanup fails, check the `sharedesk-operations-test-*` folders in Drive yourself.
 
 This checks previews.
 
@@ -208,7 +208,7 @@ This checks previews.
 npm run test:drive-preview
 ```
 
-The check confirms that Google Docs, Sheets, Slides, and Drawings come down as PDF and that a partial video request works as HTTP 206, then cleans up the Drive items it used.
+The check confirms that Google Docs, Sheets, Slides, and Drawings download as PDF and that a partial video request returns HTTP 206, then cleans up the Drive items it used.
 
 To check sharing permissions, first approve a separate Google account through a ShareDesk invitation and put that email in `.env.local`.
 
@@ -220,7 +220,7 @@ SHAREDESK_SHARE_TEST_EMAIL=recipient@example.com
 npm run test:drive-sharing
 ```
 
-The sharing check confirms creating view permission, changing it to edit permission, revoking it, and the update of the ShareDesk sharing ledger, then cleans up the files and permissions it used.
+The sharing check confirms creating view permission, changing it to edit permission, revoking it, and updating the ShareDesk sharing ledger, then cleans up the files and permissions it used.
 
 Even when the automated checks pass, you still have to confirm with a separate account whether the item really shows up in the recipient's `Shared with me` in Google Drive, and whether editing is refused with view permission and allowed with edit permission.
 
@@ -228,7 +228,7 @@ Even when the automated checks pass, you still have to confirm with a separate a
 
 Drive mode stores users and invitations, presence state, the Drive sharing ledger, folder notes, icon layout, and trash state in `ShareDesk/.sharedesk/`, and local mode in `LOCAL_STORAGE_ROOT/.sharedesk/`. The folder is hidden from the normal file list and cannot be opened directly.
 
-For changes where the last version seen matters, such as state files and folder moves, the first save at the same moment is kept. The later request ends as a conflict and reads the latest state again.
+For changes where the last version seen matters, such as state files and folder moves, the first of two simultaneous saves is kept. The later request ends as a conflict and reads the latest state again.
 
 ### Current limits
 

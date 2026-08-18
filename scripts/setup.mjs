@@ -62,6 +62,29 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
   "작동을 확인하면 /admin에서 초대 코드를 만들어 한 사람을 초대하고, 두 계정에서 같은 파일이 보이는지 확인하세요.",
   "Vercel Firewall은 기능 확인이 끝난 뒤 초대 코드 요청을 보호하는 운영 단계에서 설정합니다.",
 ].join("\n");
+// 구축을 마친 사람에게 원본 저장소 별을 한 번 권한다. 여기에는 GitHub 토큰이
+// 없어 대신 눌러 줄 수 없으므로, 동의하면 저장소 페이지를 열어 준다.
+export const STAR_REPOSITORY_URL = "https://github.com/Youkamii/sharedesk-template";
+
+export async function askToStar(ask, open = openBrowser) {
+  const answer = (
+    await ask("ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ")
+  )
+    .trim()
+    .toLowerCase();
+  if (answer !== "y" && answer !== "yes") {
+    console.log(`나중에 별을 남기려면 ${STAR_REPOSITORY_URL} 를 열어 주세요.`);
+    return false;
+  }
+  const opened = await open(STAR_REPOSITORY_URL);
+  console.log(
+    opened
+      ? "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요."
+      : `브라우저를 열지 못했습니다. ${STAR_REPOSITORY_URL} 에서 Star를 눌러 주세요.`,
+  );
+  return true;
+}
+
 const FOLDER_MIME = "application/vnd.google-apps.folder";
 const STATE_DIR = ".sharedesk";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
@@ -973,6 +996,18 @@ async function main() {
   console.log(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)");
   console.log("루트 폴더 ID:", rootId);
   console.log("\n" + SETUP_COMPLETION_NEXT_STEPS);
+
+  const starPrompt = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    await askToStar((question) => starPrompt.question(question));
+  } catch {
+    console.log(`별은 ${STAR_REPOSITORY_URL} 에서 언제든 남길 수 있습니다.`);
+  } finally {
+    starPrompt.close();
+  }
 }
 
 const invokedDirectly =

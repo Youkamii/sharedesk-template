@@ -1,4 +1,5 @@
 import packageJson from "../../package.json";
+import { checkStarred } from "@/lib/github-star";
 
 export const UPDATE_SOURCE_REPOSITORY = "Youkamii/sharedesk-template";
 export const UPDATE_WORKFLOW_PATH = ".github/workflows/sharedesk-update.yml";
@@ -24,6 +25,8 @@ export interface UpdateStatus {
   configured: boolean;
   canDispatch: boolean;
   run: UpdateRun | null;
+  // 원본 저장소에 별을 눌렀는지. 토큰이 없어 확인할 수 없으면 null.
+  starred: boolean | null;
   error?: string;
 }
 
@@ -493,6 +496,15 @@ export async function getUpdateStatus(options?: {
     }
   }
 
+  let starred: boolean | null = null;
+  if (token.configured) {
+    const check = await checkStarred({
+      token: token.token,
+      fetchImpl: options?.fetchImpl,
+    });
+    if (check.ok) starred = check.starred;
+  }
+
   let run: UpdateRun | null = null;
   if (canDispatch) {
     const latestRun = await fetchLatestUpdateRun({
@@ -514,6 +526,7 @@ export async function getUpdateStatus(options?: {
     workflowUrl,
     configured: resolved.configured,
     canDispatch,
+    starred,
     run,
     ...(errors.length > 0 ? { error: errors.join(" ") } : {}),
   };

@@ -28,15 +28,16 @@ ShareDesk 不会自动应用新版本。以管理员身份登录后，它会检�
 4. 给令牌起一个方便辨认的名字。例如 `sharedesk-update`
 5. 设置 `Expiration`（有效期）。过期后一键更新会停止，只剩下备用方式，所以请选一个较长的有效期，并记住到期时间；到期后按本步骤重新创建令牌。
 6. 在 `Repository access` 中选择 `Only select repositories`，并且**只选你的那一个 ShareDesk 安装仓库**。
-7. 在 `Permissions` → `Repository permissions` 中把 `Actions` 改为 `Read and write`。其他权限不要改动。
-8. 点击 `Generate token`，复制生成的令牌值。离开这个页面后就再也看不到这个值了。
-9. 在 Vercel 项目的 `Settings` → `Environment Variables` 中，为 `Production` 环境添加下面的值。
+7. 在 `Permissions` → `Repository permissions` 中把 `Actions` 改为 `Read and write`。
+8. 在同一页面的 `Account permissions` 中把 `Starring` 改为 `Read and write`。开始更新时用它给 ShareDesk 仓库加星标。其他权限不要改动。
+9. 点击 `Generate token`，复制生成的令牌值。离开这个页面后就再也看不到这个值了。
+10. 在 Vercel 项目的 `Settings` → `Environment Variables` 中，为 `Production` 环境添加下面的值。
 
 ```dotenv
-SHAREDESK_GITHUB_TOKEN=复制到的令牌值
+SHAREDESK_GITHUB_TOKEN=复制好的令牌值
 ```
 
-10. 重新部署 Production。环境变量的改动不会自动反映到已有的部署。
+11. 重新部署 Production。环境变量的改动不会自动反映到已有的部署。
 
 令牌是机密值。不要粘贴到公开仓库、聊天、issue 或截图里。
 
@@ -90,7 +91,7 @@ node "$sharedesk_bootstrap" --apply
 rm -f "$sharedesk_bootstrap"
 ```
 
-脚本会先校验发行版的文件哈希，再把应用代码和更新文件应用到本地工作目录。`.env.local`、`.vercel`、`.git` 以及不由 ShareDesk 管理的文件都不会被改动。如果现有代码与官方 0.1.0 不同，脚本不会擅自覆盖，而是显示冲突的路径。
+脚本会先校验发布版本的文件哈希，再把应用代码和更新文件应用到本地工作目录。`.env.local`、`.vercel`、`.git` 以及不由 ShareDesk 管理的文件都不会被改动。如果现有代码与官方 0.1.0 不同，脚本不会擅自覆盖，而是显示冲突的路径。
 
 应用之后请运行下面的命令。
 
@@ -127,4 +128,4 @@ git status --short
 node scripts/sharedesk-update.mjs --check
 ```
 
-实际应用时，请先确认 Git 工作目录是干净的，再运行 `node scripts/sharedesk-update.mjs --apply`，然后重新执行上面那些检查命令。本地文件保存在 `LOCAL_STORAGE_ROOT` 中，请与代码更新分开，单独备份整个该文件夹。
+实际应用时，请先确认 Git 工作目录是干净的，再运行 `node scripts/sharedesk-update.mjs --apply`，然后重新执行上面那些检查命令。本地文件保存在 `LOCAL_STORAGE_ROOT` 中，请与代码更新分开，单独备份整个文件夹。

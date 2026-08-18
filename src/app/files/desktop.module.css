@@ -2242,6 +2242,17 @@
   box-shadow: inset 2px 2px 0 #fff8e7;
 }
 
+/* 별 남기기 동의 창은 업데이트 패널 위에 겹쳐 뜬다. */
+.starConsentBackdrop {
+  z-index: 4010;
+}
+
+.starConsentLink {
+  align-self: flex-start;
+  color: #243a67;
+  font-weight: 700;
+}
+
 .toast {
   position: fixed;
   left: 50%;

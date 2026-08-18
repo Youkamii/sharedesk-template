@@ -301,6 +301,12 @@ export const EN_FILES: Record<string, string> = {
     "Add SHAREDESK_GITHUB_TOKEN to your Vercel environment variables to update right from this window.",
   "원클릭 업데이트 설정 안내 열기": "Open the one-click update setup guide",
   "업데이트 하기": "Update now",
+  "GitHub에 별 남기기": "Star on GitHub",
+  "별 남기기 창 닫기": "Close the star window",
+  "ShareDesk는 GitHub 저장소의 별로 응원을 받습니다. 업데이트를 시작하려면 별 남기기에 동의해 주세요. 관리자 GitHub 계정으로 별이 추가됩니다.":
+    "ShareDesk is supported by stars on its GitHub repository. Please agree to leave a star to start the update. The star is added with the administrator's GitHub account.",
+  "저장소 열기": "Open the repository",
+  "별 남기고 업데이트": "Star and update",
   "업데이트 상태를 확인하지 못했습니다": "Couldn't check the update status",
   "업데이트를 시작하지 못했습니다": "Couldn't start the update",
 
