@@ -120,14 +120,19 @@ jobs:
             echo "It is ${hour}:xx in ${tz}; waiting for the midnight window."
             exit 0
           fi
-          # 별이 실제로 박혀 있어야만 돈다 — 설치 저장소 주인이 템플릿
-          # 저장소의 공개 스타 목록에 있는지 확인하고, 없으면 건너뛴다.
-          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+          # 별이 실제로 박혀 있어야만 돈다 — 저장소 주인이 스타한 저장소
+          # 목록(공개)에 템플릿이 있는지 확인한다. 토큰 조회가 거부되면
+          # 익명으로 다시 시도한다.
           owner="${REPOSITORY%%/*}"
           starred="false"
-          for page in $(seq 1 30); do
-            names="$(curl -sS --max-time 20 "${auth[@]}" "https://api.github.com/repos/Youkamii/sharedesk-template/stargazers?per_page=100&page=$page" | jq -r '.[].login' 2>/dev/null)"
-            if grep -qix "$owner" <<< "$names"; then
+          for page in $(seq 1 10); do
+            body="$(curl -sS --max-time 20 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/users/$owner/starred?per_page=100&page=$page" || true)"
+            names="$(jq -r '.[].full_name' <<< "$body" 2>/dev/null)"
+            if [[ -z "$names" ]]; then
+              body="$(curl -sS --max-time 20 -H "Accept: application/vnd.github+json" "https://api.github.com/users/$owner/starred?per_page=100&page=$page" || true)"
+              names="$(jq -r '.[].full_name' <<< "$body" 2>/dev/null)"
+            fi
+            if grep -qix "Youkamii/sharedesk-template" <<< "$names"; then
               starred="true"
               break
             fi

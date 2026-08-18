@@ -100,46 +100,60 @@ export async function addStar(options?: {
   return { ok: false, status: 502, error: starApiError(response.status) };
 }
 
-// 설치 저장소 주인이 템플릿 저장소에 별을 눌렀는지 "공개 스타 목록"으로
-// 확인한다 — 토큰 권한이 없어도 검증할 수 있는 유일한 방법이다. 토큰이
-// 있으면 시간당 요청 한도를 위해 붙여 쓴다.
-const STARGAZER_PAGE_LIMIT = 30;
+// 설치 저장소 주인이 템플릿 저장소에 별을 눌렀는지 "그 사용자가 스타한
+// 저장소 목록"(공개, 익명 조회 가능)으로 확인한다. 저장소의 스타 목록
+// 쪽 API는 이제 인증을 요구해 쓸 수 없다. 토큰이 있으면 요청 한도를
+// 위해 먼저 붙여 보고, 설치 저장소 전용 토큰이라 거부되면 익명으로
+// 다시 시도한다.
+const STARRED_PAGE_LIMIT = 10;
 
 export async function checkOwnerStarred(
   owner: string,
   options?: { token?: string | null; fetchImpl?: typeof fetch },
 ): Promise<StarCheck> {
-  if (!owner) return { ok: false, status: 409, error: "설치 저장소 정보가 없습니다." };
+  if (!owner) {
+    return { ok: false, status: 409, error: "설치 저장소 정보가 없습니다." };
+  }
   const fetchImpl = options?.fetchImpl ?? fetch;
-  const headers: Record<string, string> = { ...GITHUB_HEADERS };
-  if (options?.token) headers.Authorization = `Bearer ${options.token}`;
-  const target = owner.toLowerCase();
-  for (let page = 1; page <= STARGAZER_PAGE_LIMIT; page += 1) {
+  const target = STAR_REPOSITORY.toLowerCase();
+  let useToken = Boolean(options?.token);
+  for (let page = 1; page <= STARRED_PAGE_LIMIT; page += 1) {
     let response: Response;
-    try {
-      response = await fetchImpl(
-        `https://api.github.com/repos/${STAR_REPOSITORY}/stargazers?per_page=100&page=${page}`,
-        { cache: "no-store", headers },
-      );
-    } catch {
-      return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
+    for (;;) {
+      const headers: Record<string, string> = { ...GITHUB_HEADERS };
+      if (useToken && options?.token) {
+        headers.Authorization = `Bearer ${options.token}`;
+      }
+      try {
+        response = await fetchImpl(
+          `https://api.github.com/users/${encodeURIComponent(owner)}/starred?per_page=100&page=${page}`,
+          { cache: "no-store", headers },
+        );
+      } catch {
+        return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
+      }
+      if (!response.ok && useToken) {
+        useToken = false;
+        continue;
+      }
+      break;
     }
     if (!response.ok) {
       return { ok: false, status: 502, error: starApiError(response.status) };
     }
     const body = (await response.json().catch(() => null)) as Array<{
-      login?: string;
+      full_name?: string;
     }> | null;
     if (!Array.isArray(body)) {
       return { ok: false, status: 502, error: "GitHub 응답을 읽지 못했습니다." };
     }
-    if (body.some((user) => user?.login?.toLowerCase() === target)) {
+    if (body.some((repo) => repo?.full_name?.toLowerCase() === target)) {
       return { ok: true, starred: true };
     }
     if (body.length < 100) return { ok: true, starred: false };
   }
-  // 목록이 검사 한도를 넘겼는데 못 찾았다 — 못 확인한 것으로 처리한다.
-  return { ok: false, status: 502, error: "별 목록이 너무 깁니다." };
+  // 스타가 검사 한도(1000개)보다 많은 계정 — 못 확인한 것으로 처리한다.
+  return { ok: false, status: 502, error: "스타 목록이 너무 깁니다." };
 }
 
 // 별 게이트 공용 판정 — 수동 업데이트와 자동 업데이트 켜기가 같은 정책을
