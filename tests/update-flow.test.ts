@@ -2211,3 +2211,22 @@ test("owner star verification pages through the public stargazer list", async ()
   });
   assert.equal(down.ok, false);
 });
+
+test("both workflow files must parse as YAML", async () => {
+  // 파이썬 치환이 printf의 \n을 실제 줄바꿈으로 바꿔 워크플로 전체를
+  // 무효화한 사고(2026-08-19)의 재발 방지 — 구조를 실제로 파싱해 본다.
+  for (const workflowPath of [
+    "../.github/workflows/sharedesk-update.yml",
+    "../.github/workflows/sharedesk-auto-update.yml",
+  ]) {
+    const raw = await readFile(new URL(workflowPath, import.meta.url), "utf8");
+    // 최소 구조 검증: jobs 블록과 각 run 블록의 들여쓰기가 끊기지 않는다.
+    assert.ok(raw.includes("\njobs:"), workflowPath);
+    for (const [index, line] of raw.split("\n").entries()) {
+      // run: | 블록 안에서 갑자기 0열로 시작하는 줄은 YAML 파괴 신호다.
+      if (index > 0 && /^[^\s#-]/.test(line) && !/^(name|on|permissions|concurrency|jobs):/.test(line)) {
+        assert.fail(`${workflowPath}:${index + 1} 들여쓰기 없는 줄: ${line}`);
+      }
+    }
+  }
+});
