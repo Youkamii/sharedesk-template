@@ -5,72 +5,121 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 
 test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 나눈다", async () => {
-  const readme = await readFile(new URL("README.md", root), "utf8");
-
-  assert.match(
-    readme,
-    /한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 공유 파일 공간/,
-  );
-  assert.match(readme, /호스트만 처음에 한 번 설치/);
-  assert.match(readme, /참여자는 어떤 설치도 하지 않습니다/);
-  assert.match(readme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
-  assert.match(readme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
-  assert.match(readme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
-  assert.match(readme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
-  assert.ok(
-    readme.length < 4_500,
-    "README는 상세 사용 설명서가 아니라 사람이 빠르게 읽는 제품 소개여야 합니다.",
-  );
-
-  for (const movedDetail of [
-    "npm run",
-    "GOOGLE_CLIENT_ID",
-    "Deploy with Vercel",
-    "Google Auth Platform",
-    "문제 해결",
-    "환경 변수",
-  ]) {
-    assert.doesNotMatch(readme, new RegExp(movedDetail));
-  }
-});
-
-test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
-  const screenshotNames = [
-    "sharedesk-desktop.png",
-    "sharedesk-wallpaper-dusk.png",
-    "sharedesk-wallpaper-night.png",
-    "sharedesk-wallpaper-dawn.png",
-    "sharedesk-wallpaper-tide.png",
-  ];
-  const [readme, design, ...screenshots] = await Promise.all([
+  const [readme, koReadme] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
-    readFile(new URL("DESIGN.md", root), "utf8"),
-    ...screenshotNames.map((name) =>
-      readFile(new URL(`docs/${name}`, root)),
-    ),
+    readFile(new URL("README.ko.md", root), "utf8"),
   ]);
 
   assert.match(
     readme,
-    /!\[ShareDesk 공유 바탕화면\]\(\.\/docs\/sharedesk-desktop\.png\)/,
+    /a shared file space where several people use one person's Google Drive storage with their own Google accounts/,
   );
+  assert.match(readme, /Only the host installs it, once/);
+  assert.match(readme, /Invited participants install nothing/);
+  assert.match(readme, /\[Let AI build it for you\]\(\.\/docs\/AI_INSTALL\.md\)/);
+  assert.match(readme, /\[Detailed install guide\]\(\.\/docs\/INSTALL\.md\)/);
+  assert.match(readme, /\[Local personal use\]\(\.\/docs\/LOCAL\.md\)/);
+  assert.match(readme, /\[Update guide\]\(\.\/docs\/UPDATE\.md\)/);
+
+  assert.match(
+    koReadme,
+    /한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 공유 파일 공간/,
+  );
+  assert.match(koReadme, /호스트만 처음에 한 번 설치/);
+  assert.match(koReadme, /참여자는 어떤 설치도 하지 않습니다/);
+  assert.match(koReadme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
+  assert.match(koReadme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
+  assert.match(koReadme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+
+  for (const [name, text] of [
+    ["README.md", readme],
+    ["README.ko.md", koReadme],
+  ] as const) {
+    assert.ok(
+      text.length < 4_500,
+      `${name}는 상세 사용 설명서가 아니라 사람이 빠르게 읽는 제품 소개여야 합니다.`,
+    );
+
+    for (const movedDetail of [
+      "npm run",
+      "GOOGLE_CLIENT_ID",
+      "Deploy with Vercel",
+      "Google Auth Platform",
+      "문제 해결",
+      "환경 변수",
+    ]) {
+      assert.doesNotMatch(text, new RegExp(movedDetail));
+    }
+  }
+});
+
+test("README는 영어 메인과 언어판이 같은 구조를 공유한다", async () => {
+  const locales = [
+    "README.md",
+    "README.ko.md",
+    "README.ja.md",
+    "README.hi.md",
+    "README.zh.md",
+  ];
+  const texts = await Promise.all(
+    locales.map((name) => readFile(new URL(name, root), "utf8")),
+  );
+
+  for (const [index, text] of texts.entries()) {
+    for (const [otherIndex, other] of locales.entries()) {
+      if (otherIndex === index) continue;
+      assert.ok(
+        text.includes(`(./${other})`),
+        `${locales[index]}에는 ${other}로 가는 언어 링크가 있어야 합니다.`,
+      );
+    }
+    assert.doesNotMatch(text, /README\.en\.md/);
+    assert.match(text, /!\[[^\]]+\]\(\.\/docs\/sharedesk-demo\.gif\)/);
+    assert.match(
+      text,
+      /<sub>Licensed under the <a href="LICENSE">MIT License<\/a> · Galmuri font under the <a href="public\/fonts\/Galmuri-LICENSE\.txt">SIL OFL 1\.1<\/a><\/sub>/,
+    );
+  }
+});
+
+test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
+  const wallpaperNames = ["dusk", "night", "dawn", "tide"];
+  const [readme, koReadme, design, demo, ...wallpapers] = await Promise.all([
+    readFile(new URL("README.md", root), "utf8"),
+    readFile(new URL("README.ko.md", root), "utf8"),
+    readFile(new URL("DESIGN.md", root), "utf8"),
+    readFile(new URL("docs/sharedesk-demo.gif", root)),
+    ...wallpaperNames.map((name) =>
+      readFile(new URL(`docs/sharedesk-wallpaper-${name}.png`, root)),
+    ),
+  ]);
+
   assert.match(design, /화면 오른쪽 아래에 고정하고 작업표시줄에는 넣지 않는다/);
   assert.match(design, /작업표시줄에는 휴지통 버튼을 두지 않는다/);
-  for (const [index, wallpaper] of ["dusk", "night", "dawn", "tide"].entries()) {
-    assert.match(
-      readme,
-      new RegExp(`!\\[[^\\]]+\\]\\(\\.\\/docs\\/sharedesk-wallpaper-${wallpaper}\\.png\\)`),
-    );
-    assert.ok(screenshots[index + 1], `${wallpaper} 화면 이미지가 있어야 합니다.`);
+  for (const text of [readme, koReadme]) {
+    assert.match(text, /!\[[^\]]+\]\(\.\/docs\/sharedesk-demo\.gif\)/);
+    for (const wallpaper of wallpaperNames) {
+      assert.match(
+        text,
+        new RegExp(`!\\[[^\\]]+\\]\\(\\.\\/docs\\/sharedesk-wallpaper-${wallpaper}\\.png\\)`),
+      );
+    }
   }
 
-  for (const screenshot of screenshots) {
+  assert.match(
+    demo.subarray(0, 6).toString("latin1"),
+    /^GIF8[79]a$/,
+    "데모 GIF는 실제 GIF 파일이어야 합니다.",
+  );
+
+  for (const wallpaper of wallpapers) {
     assert.deepEqual(
-      [...screenshot.subarray(0, 8)],
+      [...wallpaper.subarray(0, 8)],
       [137, 80, 78, 71, 13, 10, 26, 10],
     );
-    assert.equal(screenshot.readUInt32BE(16), 1_280);
-    assert.equal(screenshot.readUInt32BE(20), 720);
+    assert.equal(wallpaper.readUInt32BE(16), 1_280);
+    assert.equal(wallpaper.readUInt32BE(20), 720);
   }
 });
 
@@ -202,8 +251,9 @@ test("설치 문서의 초대 안내는 코드 방식과 별도 데스크 설치
 });
 
 test("AI 구축 문서와 로컬 개인 사용 문서는 서로 다른 독자를 안내한다", async () => {
-  const [readme, install, aiGuide, localGuide] = await Promise.all([
+  const [readme, koReadme, install, aiGuide, localGuide] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
+    readFile(new URL("README.ko.md", root), "utf8"),
     readFile(new URL("docs/INSTALL.md", root), "utf8"),
     readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
     readFile(new URL("docs/LOCAL.md", root), "utf8"),
@@ -222,6 +272,7 @@ test("AI 구축 문서와 로컬 개인 사용 문서는 서로 다른 독자를
   assert.match(localGuide, /Google 로그인[\s\S]*확인할 수 없습니다/);
   assert.match(localGuide, /## 개발자 참고/);
   assert.doesNotMatch(readme, /npm run/);
+  assert.doesNotMatch(koReadme, /npm run/);
 });
 
 test("환경 변수 예시는 현재 초대 코드 용어를 사용한다", async () => {
@@ -231,9 +282,10 @@ test("환경 변수 예시는 현재 초대 코드 용어를 사용한다", asyn
 });
 
 test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름을 구분한다", async () => {
-  const [readme, install, aiGuide, localGuide, updateGuide, example] =
+  const [readme, koReadme, install, aiGuide, localGuide, updateGuide, example] =
     await Promise.all([
       readFile(new URL("README.md", root), "utf8"),
+      readFile(new URL("README.ko.md", root), "utf8"),
       readFile(new URL("docs/INSTALL.md", root), "utf8"),
       readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
       readFile(new URL("docs/LOCAL.md", root), "utf8"),
@@ -241,7 +293,8 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
       readFile(new URL(".env.example", root), "utf8"),
     ]);
 
-  assert.match(readme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(readme, /\[Update guide\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
   assert.match(install, /관리자 화면의 `업데이트` 버튼/);
   assert.match(aiGuide, /ShareDesk 업데이트 안내/);
   assert.match(localGuide, /업데이트 안내/);

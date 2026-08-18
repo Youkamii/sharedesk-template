@@ -1,8 +1,7 @@
 // 관리자 화면(AdminView)의 영어 번역. 키는 한국어 원문 그대로.
 // {이름} 꼴 자리표시자는 번역에도 그대로 유지해야 한다.
 export const EN_ADMIN: Record<string, string> = {
-  // 헤더
-  "사용자 및 초대 관리": "User & Invitation Management",
+  // 헤더 — 페이지 제목은 아래 "관리자" 키를 그대로 쓴다.
   "등록 중…": "Registering…",
   "현재 설치 등록": "Register this install",
   "등록부 확인 중": "Checking registry",
@@ -102,4 +101,28 @@ export const EN_ADMIN: Record<string, string> = {
   "초대 코드를 복사했습니다.": "Invitation code copied.",
   "아래 코드를 직접 선택해 복사해 주세요.":
     "Select and copy the code below manually.",
+
+  // 좌측 탭 (사용자/설정) — "사용자"는 위, "언어"는 공용 사전(en-common)에 있다.
+  "관리 메뉴": "Admin menu",
+  "설정": "Settings",
+
+  // 설정 탭 — 언어
+  "데스크 언어": "Desk language",
+  "개별 언어 허용": "Allow personal language",
+  "데스크 언어는 모든 참여자 화면에 함께 적용됩니다. 개별 언어 허용을 켜면 참여자가 자기 화면 언어를 따로 고를 수 있습니다.":
+    "The desk language applies to every member's screen. Turn on personal language to let each member pick their own display language.",
+  "데스크 설정을 불러오지 못했습니다": "Couldn't load the desk settings",
+  "데스크 설정을 저장하지 못했습니다": "Couldn't save the desk settings",
+  "데스크 언어를 바꿨습니다.": "Desk language updated.",
+  "이제 참여자가 자기 화면 언어를 따로 고를 수 있습니다.":
+    "Members can now pick their own display language.",
+  "이제 모든 참여자 화면에 데스크 언어가 적용됩니다.":
+    "The desk language now applies to every member's screen.",
+
+  // 설정 탭 — 테마 (바탕화면 이름 4종은 파일 사전(en-files)에 있다)
+  "테마": "Theme",
+  "바탕화면": "Wallpaper",
+  "바탕화면은 이 기기의 내 화면에만 적용되는 개인 설정입니다. 파일 화면을 다음에 열 때 반영됩니다.":
+    "The wallpaper is a personal setting that only applies to your screen on this device. It takes effect the next time the files screen loads.",
+  "현재 선택": "Selected",
 };

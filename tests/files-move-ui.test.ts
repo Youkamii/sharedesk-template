@@ -623,7 +623,7 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
   );
   assert.match(launcherStyle, /position: fixed;/);
   assert.match(launcherStyle, /right: max\(18px, env\(safe-area-inset-right\)\);/);
-  assert.match(launcherStyle, /bottom: 76px;/);
+  assert.match(launcherStyle, /bottom: 66px;/);
   assert.match(launcherStyle, /z-index: 10;/);
   assert.doesNotMatch(css, /inset: 50px 6px 72px !important/);
 });
@@ -1144,7 +1144,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   const trayEnd = source.indexOf("</div>", trayStart);
   const userTray = source.slice(trayStart, trayEnd);
   const updateIndex = userTray.indexOf("업데이트");
-  const userManagementIndex = userTray.indexOf("사용자 관리");
+  const userManagementIndex = userTray.indexOf("관리자");
   const updateButtonStart = userTray.indexOf(
     'className={`${styles.trayLink} ${styles.updateTrayButton}`}',
   );
@@ -1156,7 +1156,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.ok(updateButtonStart >= 0 && updateButtonEnd > updateButtonStart);
   assert.match(
     userTray,
-    /\{isAdmin && \([\s\S]*?업데이트[\s\S]*?사용자 관리/,
+    /\{isAdmin && \([\s\S]*?업데이트[\s\S]*?관리자/,
   );
   assert.match(userTray, /aria-haspopup="dialog"/);
   assert.doesNotMatch(updateButton, /href=|window\.open/);

@@ -82,4 +82,8 @@ export const EN_COMMON: Record<string, string> = {
 
   // 공용
   "로그아웃": "Sign out",
+  // 서버 공용 오류 문구 (여러 API가 함께 쓴다)
+  "잘못된 요청입니다": "Invalid request",
+  "언어 값을 확인해 주세요": "Please check the language value",
+
 };

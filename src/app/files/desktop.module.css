@@ -122,7 +122,7 @@
   display: flex;
   min-width: 136px;
   max-width: 250px;
-  height: 40px;
+  height: 38px;
   flex: 0 1 250px;
   overflow: hidden;
   user-select: text;
@@ -162,6 +162,13 @@
 .presenceArea {
   position: relative;
   flex: none;
+}
+
+/* 참여자 언어 메뉴 — 상단 바에서 접속자 버튼 왼쪽에 놓인다. */
+.languageArea {
+  position: relative;
+  flex: none;
+  margin-right: 6px;
 }
 
 .connection:hover,
@@ -310,7 +317,7 @@
 }
 
 .rootCanvas {
-  inset: 34px 0 58px;
+  inset: 34px 0 48px;
   z-index: 1;
   overflow: hidden;
 }
@@ -1588,10 +1595,10 @@
   inset: auto 0 0;
   z-index: 1100;
   display: flex;
-  height: 58px;
+  height: 48px;
   align-items: center;
   gap: 6px;
-  padding: 7px 9px;
+  padding: 4px 9px;
   color: #fff8e7;
   background: #10172b;
   border-top: 2px solid #51658d;
@@ -1601,7 +1608,7 @@
 .trashLauncher {
   position: fixed;
   right: max(18px, env(safe-area-inset-right));
-  bottom: 76px;
+  bottom: 66px;
   z-index: 10;
   display: flex;
   width: 72px;
@@ -1651,7 +1658,7 @@
 .deskButton,
 .taskButton,
 .trayLink {
-  height: 40px;
+  height: 38px;
   padding: 0 11px;
   color: #fff8e7;
   background: #26385d;
@@ -1716,7 +1723,7 @@
 .uploadChip {
   display: flex;
   max-width: 220px;
-  height: 40px;
+  height: 38px;
   align-items: center;
   gap: 7px;
   padding: 0 10px;
@@ -1733,7 +1740,7 @@
 .downloadPreference {
   position: relative;
   display: inline-flex;
-  height: 40px;
+  height: 38px;
   align-items: center;
   gap: 6px;
   padding: 0 9px;
@@ -1799,7 +1806,7 @@
 }
 
 .feedbackTrayButton {
-  width: 40px;
+  width: 38px;
   padding: 0;
   background: #2d5c5b;
   box-shadow: inset 2px 2px 0 #61b3a6, inset -2px -2px 0 #173837, 2px 2px 0 #070b16;
@@ -1921,6 +1928,22 @@
 .menuDanger { color: #a53c46; }
 .menuDanger:hover { color: #fff8e7; background: #a53c46; }
 .menuSeparator { height: 2px; margin: 4px 3px; background: #9c8c78; box-shadow: 0 1px 0 #fff8e7; }
+
+/* 언어 선택 팝업 — contextMenu 모양을 그대로 쓰되 상단 바 아래에 붙인다.
+   contextMenu보다 뒤에 있어야 position/width 재정의가 이긴다. */
+.languageMenu {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  z-index: 1300;
+  width: 150px;
+}
+
+.languageMenu kbd {
+  color: #2d5c5b;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
 
 .dialogBackdrop {
   position: fixed;
@@ -2222,7 +2245,7 @@
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 72px;
+  bottom: 62px;
   z-index: 5000;
   display: flex;
   max-width: min(620px, calc(100% - 28px));
@@ -2243,7 +2266,7 @@
 .selectionHint {
   position: fixed;
   right: 100px;
-  bottom: 66px;
+  bottom: 56px;
   z-index: 900;
   max-width: 300px;
   overflow: hidden;

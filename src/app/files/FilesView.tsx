@@ -79,9 +79,10 @@ import {
   previewKindOf,
   type PreviewKind,
 } from "@/lib/preview";
-import { translate, type Locale } from "@/lib/i18n";
+import { translate, type Locale, LOCALE_BCP47,
+} from "@/lib/i18n";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
-import LanguageToggle from "../LanguageToggle";
+import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
@@ -316,7 +317,7 @@ const WALLPAPERS = [
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 const TOP_BAR = 34;
-const TASK_BAR = 58;
+const TASK_BAR = 48;
 const ICON_WIDTH = 88;
 const ICON_HEIGHT = 94;
 const ICON_COLUMN_WIDTH = 96;
@@ -490,7 +491,7 @@ function formatSize(bytes: number | null) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
-function formatDate(iso: string | null, dateLocale: "ko-KR" | "en-US") {
+function formatDate(iso: string | null, dateLocale: string) {
   if (!iso) return "수정일 없음";
   return new Date(iso).toLocaleString(dateLocale, {
     dateStyle: "short",
@@ -600,6 +601,7 @@ export default function FilesView({
   role,
   canSendFeedback,
   locale,
+  allowMemberLocale,
 }: {
   userName: string;
   userEmail: string;
@@ -608,6 +610,7 @@ export default function FilesView({
   role: SessionRole;
   canSendFeedback: boolean;
   locale: Locale;
+  allowMemberLocale: boolean;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -619,7 +622,7 @@ export default function FilesView({
       translate(localeRef.current, text, vars),
     [],
   );
-  const dateLocale: "ko-KR" | "en-US" = locale === "en" ? "en-US" : "ko-KR";
+  const dateLocale = LOCALE_BCP47[locale];
   // 역할 4단계(#80): 권한이 없는 조작 UI는 조용히 숨긴다(비활성보다 숨김).
   // 게스트는 서버가 viewer로 내려 주므로 별도 게스트 분기가 필요 없다.
   const allowUpload = canUpload(role);
@@ -6427,6 +6430,15 @@ export default function FilesView({
           <strong>ShareDesk</strong>
           <span className={styles.desktopLabel}>{t("공유 바탕화면")}</span>
         </div>
+        {allowMemberLocale && (
+          <LanguageMenu
+            locale={locale}
+            wrapperClassName={styles.languageArea}
+            className={styles.connection}
+            menuClassName={`${styles.contextMenu} ${styles.languageMenu}`}
+            itemClassName={styles.menuItem}
+          />
+        )}
         <div className={styles.presenceArea}>
           <button
             type="button"
@@ -6448,7 +6460,7 @@ export default function FilesView({
               {presence.error
                 ? t("접속 확인 실패")
                 : presence.count > 0
-                  ? t("함께 쓰는 중 · {count}명", { count: presence.count })
+                  ? t("접속자 · {count}명", { count: presence.count })
                   : presence.loading
                     ? t("접속 인원 확인 중")
                     : t("현재 접속자 없음")}
@@ -7633,11 +7645,10 @@ export default function FilesView({
                 )}
               </button>
               <a href="/admin" className={styles.trayLink}>
-                {t("사용자 관리")}
+                {t("관리자")}
               </a>
             </>
           )}
-          <LanguageToggle locale={locale} className={styles.trayLink} />
           <span className={styles.userName} title={userName}>
             {userName}
             {isGuest ? ` · ${t("손님")}` : ""}
