@@ -64,6 +64,27 @@ jobs:
             echo "Not the midnight window yet; waiting."
             exit 0
           fi
+          # 별이 실제로 박혀 있어야만 돈다 — 설치 저장소 주인이 템플릿
+          # 저장소의 공개 스타 목록에 있는지 확인하고, 없으면 건너뛴다.
+          owner="${REPOSITORY%%/*}"
+          starred="false"
+          for page in $(seq 1 30); do
+            names="$(curl -sS --max-time 20 "${auth[@]}" "https://api.github.com/repos/Youkamii/sharedesk-template/stargazers?per_page=100&page=$page" | jq -r '.[].login' 2>/dev/null)"
+            if printf '%s
+' "$names" | grep -qix "$owner"; then
+              starred="true"
+              break
+            fi
+            count="$(printf '%s
+' "$names" | grep -c . || true)"
+            if [[ "$count" -lt 100 ]]; then
+              break
+            fi
+          done
+          if [[ "$starred" != "true" ]]; then
+            echo "The repository owner has not starred the ShareDesk repository; skipping."
+            exit 0
+          fi
           echo "proceed=true" >> "$GITHUB_OUTPUT"
 
   prepare:

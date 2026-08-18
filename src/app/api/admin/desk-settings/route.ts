@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
-import { passStarGate, starPageUrl } from "@/lib/github-star";
+import {
+  addStar,
+  checkOwnerStarred,
+  resolveStarToken,
+  starPageUrl,
+} from "@/lib/github-star";
 import { parseLocale, type Locale } from "@/lib/i18n";
-import { hasAutoUpdateWorkflow } from "@/lib/update-status";
+import {
+  hasAutoUpdateWorkflow,
+  resolveUpdateRepository,
+} from "@/lib/update-status";
 import { getDeskSettings, parseTimezone, setDeskSettings } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -96,21 +104,36 @@ export async function PATCH(req: NextRequest) {
         { status: 409, headers: { "Cache-Control": "no-store" } },
       );
     }
-    // 자동 업데이트도 수동 업데이트와 같은 별 게이트를 지난다.
-    const gate = await passStarGate({
-      agreed: (body as { star?: unknown } | null)?.star === true,
-      actorUserId: auth.session.userId,
-    });
-    if (!gate.allowed) {
-      return NextResponse.json(
-        {
-          error:
-            "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 눌러 주세요.",
-          starRequired: true,
-          starPageUrl: starPageUrl(),
-        },
-        { status: 409, headers: { "Cache-Control": "no-store" } },
-      );
+    // 자동 업데이트는 별이 실제로 박혀 있어야만 켜진다. 설치 저장소
+    // 주인이 템플릿 저장소에 별을 눌렀는지 공개 스타 목록으로 검증한다
+    // — 토큰 권한과 무관하게 확인되는 진짜 게이트다. 토큰이 별을 남길
+    // 수 있으면 먼저 남겨 두고(최선 노력) 검증한다.
+    const repository = resolveUpdateRepository();
+    if (repository.configured) {
+      const owner = repository.repository.split("/")[0];
+      const token = resolveStarToken();
+      let verified = await checkOwnerStarred(owner, { token });
+      if (verified.ok && !verified.starred) {
+        const added = await addStar({ token });
+        console.info("[admin]", {
+          event: added.ok ? "star-added" : "star-skipped",
+          repository: starPageUrl(),
+          actorUserId: auth.session.userId,
+        });
+        if (added.ok) verified = await checkOwnerStarred(owner, { token });
+      }
+      if (!(verified.ok && verified.starred)) {
+        return NextResponse.json(
+          {
+            error: verified.ok
+              ? "저장소에 아직 별이 없습니다. GitHub에서 별을 누른 뒤 다시 시도해 주세요."
+              : verified.error,
+            starRequired: true,
+            starPageUrl: starPageUrl(),
+          },
+          { status: 409, headers: { "Cache-Control": "no-store" } },
+        );
+      }
     }
   }
 

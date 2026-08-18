@@ -66,7 +66,34 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
 // 없어 대신 눌러 줄 수 없으므로, 동의하면 저장소 페이지를 열어 준다.
 export const STAR_REPOSITORY_URL = "https://github.com/Youkamii/sharedesk-template";
 
+// 이 컴퓨터의 GitHub CLI(gh) 로그인을 빌려 조용히 별을 남긴다.
+// gh가 없거나 로그인돼 있지 않으면 false — 호출부가 묻는 흐름으로 넘어간다.
+export async function autoStarViaGh(execFileImpl = execFile) {
+  try {
+    await new Promise((resolve, reject) => {
+      execFileImpl(
+        "gh",
+        [
+          "api",
+          "--method",
+          "PUT",
+          "--silent",
+          "user/starred/Youkamii/sharedesk-template",
+        ],
+        { windowsHide: true, timeout: 15_000 },
+        (error) => (error ? reject(error) : resolve(undefined)),
+      );
+    });
+    console.log("GitHub 저장소에 별을 남겼습니다. 고맙습니다!");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function askToStar(ask, open = openBrowser) {
+  // 먼저 자동으로 시도한다 — 성공하면 물어볼 것이 없다.
+  if (await autoStarViaGh()) return true;
   const answer = (
     await ask("ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ")
   )

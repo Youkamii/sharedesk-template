@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.7.5",
+  "version": "0.7.6",
   "files": [
     {
       "path": ".env.example",
@@ -231,16 +231,16 @@
     },
     {
       "path": "package-lock.json",
-      "sha256": "53065a13dabbb8a3dd55df8d3659a1a1e0567e14f15b5504084b641a05fb3b09",
+      "sha256": "74d756744d703e09f33fda0f023d0c04c1c46ce5ba6ad6edfdfde58b179d2a71",
       "acceptedSha256": [
-        "7832469c2c5548192e2232ace1d9e91c27a90a0f886c441fbc6f77e43b63c56e"
+        "b0a5b899a1bb866e13dafc92d66205f9a02b9be153351e2f5943b7ef8e52130d"
       ]
     },
     {
       "path": "package.json",
-      "sha256": "c5f93282c6f8cbae76a9bf5cbf2aabf39948cbd5a20d067df35a13e0f3a19030",
+      "sha256": "4d84df615b669de059bd3fb4c3eb581aa45372d4caecdb68731c1e59212c9c20",
       "acceptedSha256": [
-        "19e7dce609ef38375a199fab89531176a70c57f2433cfec8b24ee03bc4fb4316"
+        "d5c026b8cf420ec2c0cdc0fb080814e245621b2ebe3db4949c2251ebcc43bb35"
       ]
     },
     {
@@ -334,9 +334,9 @@
     },
     {
       "path": "scripts/setup.mjs",
-      "sha256": "6850950365df95eeac25e8ac9c1e57b8b7299b7f88e1149dec2a53821f0a287d",
+      "sha256": "02ae960953ce3c4eabe80d0716d9bd93ce98324b47246e0c6da077aeb342cc7e",
       "acceptedSha256": [
-        "9cdfa40d3c7125f60ffa4acd9790611f320ee002d534d6d88615efaf7cf6097c"
+        "0b4ca081386c26a433cb9f83f58d5d9762d91a7ebfae12cd049779fdef86fb45"
       ]
     },
     {
@@ -404,9 +404,9 @@
     },
     {
       "path": "src/app/api/admin/desk-settings/route.ts",
-      "sha256": "7fb9b80dde4c597f80fa3e8fdbe566ea39b8eb4903a4bed5e876b8d3abddd92f",
+      "sha256": "02ffd119bae9d7df25e61bddba098212bbd5df1d1fdcd6346f82f1c6f7e5a874",
       "acceptedSha256": [
-        "587a64dc7d6db058b0c4a05dc645e037801cf9398fffdc817ab5756b9719e480"
+        "ec6ef69b5b348f3d10bf7294633a25cb617a65afa86edd6dba89b88b3519d9ab"
       ]
     },
     {
@@ -856,9 +856,9 @@
     },
     {
       "path": "src/lib/github-star.ts",
-      "sha256": "610c259fedec5d29883cc52d371a18caee724e4b0874fc26e93a28788d4f3d06",
+      "sha256": "b315bd23ece1ab3fe77e850cdabe06a191ef91dfbf137fc3bb1017f6c1d1b532",
       "acceptedSha256": [
-        "7d67d41b8867c3ade6bdb41297d6799461f3e9304689bcafb65d22929df26e9b"
+        "5cf7a212afe361544c52de01c80d8980cb1cf58402c6236194767c2232fe7cc8"
       ]
     },
     {
@@ -1185,9 +1185,9 @@
     },
     {
       "path": "tests/update-flow.test.ts",
-      "sha256": "89fbce52da6d8d54ebb0b06521f278811a7dd72fd57d9bf02de88da846c7e531",
+      "sha256": "a2a840f4d47b3d9ab6cfa160def7960d48572ae49fa5002349afbd3b9c8230cc",
       "acceptedSha256": [
-        "66ac129f8b931537bf68a18c9a28f8215d0c4c0c92085a79ea461b37534ac55f"
+        "4b94f96aa3d9964d7603db804ab647c9599af614fae38b9c239c20fe0536401e"
       ]
     },
     {
@@ -10797,7 +10797,7 @@
     },
     {
       "schemaVersion": 1,
-      "version": "0.7.4",
+      "version": "0.7.5",
       "files": [
         {
           "path": ".env.example",
@@ -11028,16 +11028,16 @@
         },
         {
           "path": "package-lock.json",
-          "sha256": "e438661c5c889680ce5d13fba2ab72faad19158139981259d4009a90ff851c54",
+          "sha256": "53065a13dabbb8a3dd55df8d3659a1a1e0567e14f15b5504084b641a05fb3b09",
           "acceptedSha256": [
-            "91c0b1d84a27ded95bdc898677b17185f851c99607cef674130b3ff56285c3b5"
+            "7832469c2c5548192e2232ace1d9e91c27a90a0f886c441fbc6f77e43b63c56e"
           ]
         },
         {
           "path": "package.json",
-          "sha256": "15eb89a27d173548110b38150873de2a18fa9ede57a67f0eb7c94ac84ed93f72",
+          "sha256": "c5f93282c6f8cbae76a9bf5cbf2aabf39948cbd5a20d067df35a13e0f3a19030",
           "acceptedSha256": [
-            "2934902c9c31905305f7f0d05a8939fe6d40d04147c805ba46e684ff6ba30acc"
+            "19e7dce609ef38375a199fab89531176a70c57f2433cfec8b24ee03bc4fb4316"
           ]
         },
         {
@@ -11173,16 +11173,16 @@
         },
         {
           "path": "src/app/admin/admin.module.css",
-          "sha256": "c881248ddeb81141afe97adb8d1caa01563ecd896a54aedcc7b9e848a3f246be",
+          "sha256": "736a88d14224770f1845adaaed9d891d7d328810e973f36e32e86a4cc8c31d9e",
           "acceptedSha256": [
-            "823159b831a20a53b9601c12c34781abf1e93463311423ad6ed155946f614ffe"
+            "126b6dc004a69b9b957c4246986f5d54d8f1b984a2506e9e0f37524def08317f"
           ]
         },
         {
           "path": "src/app/admin/AdminView.tsx",
-          "sha256": "114b169b1587c9f448e88eda468f5078310066ff60355bc9a18a414279331b7a",
+          "sha256": "afb86eff09bf890b02614751e0e6393fd8acc21cd2c0509761ec77ca93805439",
           "acceptedSha256": [
-            "eb8c9805fcdaaec1bdde21100983042382189e5824902e98e5db28c4b221fbbe"
+            "dc51136eca3d80667cc275ad6cd478be6f8b3f80a7807e7ad9bd2bf17c911447"
           ]
         },
         {
