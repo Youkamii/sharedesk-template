@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { parseLocale, type Locale } from "@/lib/i18n";
 import { USER_ROLES, resolveUserRole, type UserRole } from "@/lib/roles";
 import { isValidSessionId } from "@/lib/session-token";
 import { getAdapter } from "@/lib/storage";
@@ -119,11 +120,23 @@ export type InvitationRedemptionResult =
   | { ok: true; user: User }
   | { ok: false; reason: LoginFailureReason };
 
+// 데스크 전체에 적용되는 공유 설정. 언어는 관리자가 정하고, 개별 언어
+// 허용을 켠 데스크에서만 참여자가 자기 언어를 고를 수 있다.
+export interface DeskSettings {
+  locale: Locale;
+  allowMemberLocale: boolean;
+}
+
+export function defaultDeskSettings(): DeskSettings {
+  return { locale: "en", allowMemberLocale: false };
+}
+
 interface UserFile {
   version: 2;
   rev: number;
   users: User[];
   invitations: Invitation[];
+  deskSettings: DeskSettings;
 }
 
 interface LoadedFile {
@@ -139,7 +152,13 @@ let generation = 0;
 let writeChain: Promise<unknown> = Promise.resolve();
 
 function emptyFile(): UserFile {
-  return { version: 2, rev: 0, users: [], invitations: [] };
+  return {
+    version: 2,
+    rev: 0,
+    users: [],
+    invitations: [],
+    deskSettings: defaultDeskSettings(),
+  };
 }
 
 function isoOrEpoch(value: unknown): string {
@@ -368,11 +387,19 @@ function normalize(raw: unknown): UserFile {
               : null,
       };
     });
+  const rawSettings = (
+    file as { deskSettings?: { locale?: unknown; allowMemberLocale?: unknown } }
+  ).deskSettings;
   return {
     version: 2,
     rev: typeof file.rev === "number" ? file.rev : 0,
     users,
     invitations,
+    // 설정 도입 전 파일에는 deskSettings가 없다 — 기본은 영어·개별 언어 비허용.
+    deskSettings: {
+      locale: parseLocale(rawSettings?.locale) ?? "en",
+      allowMemberLocale: rawSettings?.allowMemberLocale === true,
+    },
   };
 }
 
@@ -774,6 +801,31 @@ export async function setStatus(
     }
     return user;
   });
+}
+
+export async function getDeskSettings(opts?: {
+  fresh?: boolean;
+}): Promise<DeskSettings> {
+  const { data } = await loadState(opts?.fresh === true);
+  return { ...data.deskSettings };
+}
+
+export async function setDeskSettings(
+  patch: Partial<DeskSettings>,
+): Promise<DeskSettings> {
+  if (patch.locale !== undefined && parseLocale(patch.locale) === null) {
+    throw new Error("언어 값을 확인해 주세요");
+  }
+  const updated = await mutate((file) => {
+    if (patch.locale !== undefined) {
+      file.deskSettings.locale = patch.locale;
+    }
+    if (patch.allowMemberLocale !== undefined) {
+      file.deskSettings.allowMemberLocale = patch.allowMemberLocale === true;
+    }
+    return { ...file.deskSettings };
+  });
+  return updated;
 }
 
 export async function setUserRole(

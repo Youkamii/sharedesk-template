@@ -81,7 +81,7 @@ import {
 } from "@/lib/preview";
 import { translate, type Locale } from "@/lib/i18n";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
-import LanguageToggle from "../LanguageToggle";
+import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import styles from "./desktop.module.css";
@@ -316,7 +316,7 @@ const WALLPAPERS = [
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 const TOP_BAR = 34;
-const TASK_BAR = 58;
+const TASK_BAR = 48;
 const ICON_WIDTH = 88;
 const ICON_HEIGHT = 94;
 const ICON_COLUMN_WIDTH = 96;
@@ -600,6 +600,7 @@ export default function FilesView({
   role,
   canSendFeedback,
   locale,
+  allowMemberLocale,
 }: {
   userName: string;
   userEmail: string;
@@ -608,6 +609,7 @@ export default function FilesView({
   role: SessionRole;
   canSendFeedback: boolean;
   locale: Locale;
+  allowMemberLocale: boolean;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -6427,6 +6429,15 @@ export default function FilesView({
           <strong>ShareDesk</strong>
           <span className={styles.desktopLabel}>{t("공유 바탕화면")}</span>
         </div>
+        {allowMemberLocale && (
+          <LanguageMenu
+            locale={locale}
+            wrapperClassName={styles.languageArea}
+            className={styles.connection}
+            menuClassName={`${styles.contextMenu} ${styles.languageMenu}`}
+            itemClassName={styles.menuItem}
+          />
+        )}
         <div className={styles.presenceArea}>
           <button
             type="button"
@@ -6448,7 +6459,7 @@ export default function FilesView({
               {presence.error
                 ? t("접속 확인 실패")
                 : presence.count > 0
-                  ? t("함께 쓰는 중 · {count}명", { count: presence.count })
+                  ? t("접속자 · {count}명", { count: presence.count })
                   : presence.loading
                     ? t("접속 인원 확인 중")
                     : t("현재 접속자 없음")}
@@ -7633,11 +7644,10 @@ export default function FilesView({
                 )}
               </button>
               <a href="/admin" className={styles.trayLink}>
-                {t("사용자 관리")}
+                {t("관리자")}
               </a>
             </>
           )}
-          <LanguageToggle locale={locale} className={styles.trayLink} />
           <span className={styles.userName} title={userName}>
             {userName}
             {isGuest ? ` · ${t("손님")}` : ""}

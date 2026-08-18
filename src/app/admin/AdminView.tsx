@@ -8,8 +8,14 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import LanguageToggle from "@/app/LanguageToggle";
-import { translate, type Locale } from "@/lib/i18n";
+import {
+  LOCALE_LABELS,
+  LOCALES,
+  parseLocale,
+  translate,
+  type DeskLocaleSettings,
+  type Locale,
+} from "@/lib/i18n";
 import {
   ROLE_LABELS,
   USER_ROLES,
@@ -50,6 +56,20 @@ interface OwnerRegistryStatus {
   repository: string | null;
   error: string | null;
 }
+
+// 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마).
+type AdminTab = "users" | "settings";
+
+// 바탕화면은 개인 취향이라 FilesView와 같은 localStorage 키에 저장한다.
+// 파일 화면이 다음 로드 때 이 값을 읽어 반영한다 (FilesView.tsx와 리터럴 일치).
+const WALLPAPER_STORAGE_KEY = "sharedesk.wallpaper";
+const WALLPAPERS = [
+  { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
+  { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
+  { id: "dawn", name: "여명", src: "/art/wall-dawn.png" },
+  { id: "tide", name: "밤바다", src: "/art/wall-tide.png" },
+] as const;
+type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 
 const STATUS_LABEL: Record<User["status"], string> = {
   pending: "코드 입력 대기",
@@ -129,6 +149,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
     usageMode: "once" as InvitationUsageMode,
     role: "editor" as UserRole,
   });
+  const [activeTab, setActiveTab] = useState<AdminTab>("users");
+  const [deskSettings, setDeskSettings] = useState<DeskLocaleSettings | null>(
+    null,
+  );
+  const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -227,6 +252,70 @@ export default function AdminView({ locale }: { locale: Locale }) {
       controller.abort();
     };
   }, [router, t]);
+
+  // 설정 탭의 데스크 언어 값 — 마운트 때 한 번 현재값을 불러온다.
+  useEffect(() => {
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void fetch("/api/admin/desk-settings", {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (response.status === 401 || response.status === 403) {
+            router.replace("/files");
+            return null;
+          }
+          const body = (await response.json().catch(() => null)) as {
+            locale?: unknown;
+            allowMemberLocale?: unknown;
+            error?: string;
+          } | null;
+          const deskLocale = parseLocale(body?.locale);
+          if (
+            !response.ok ||
+            !body ||
+            !deskLocale ||
+            typeof body.allowMemberLocale !== "boolean"
+          ) {
+            throw new Error(
+              body?.error ?? t("데스크 설정을 불러오지 못했습니다"),
+            );
+          }
+          return {
+            locale: deskLocale,
+            allowMemberLocale: body.allowMemberLocale,
+          };
+        })
+        .then((settings) => {
+          if (settings) setDeskSettings(settings);
+        })
+        .catch((caught) => {
+          if (caught instanceof DOMException && caught.name === "AbortError") return;
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : t("데스크 설정을 불러오지 못했습니다"),
+          );
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [router, t]);
+
+  // 바탕화면 선택은 개인 설정 — FilesView와 같은 키의 localStorage에서 읽는다.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
+      if (saved && WALLPAPERS.some((wallpaper) => wallpaper.id === saved)) {
+        setWallpaperId(saved as WallpaperId);
+      }
+    } catch {
+      // 저장소 접근이 막힌 브라우저에서는 기본값을 보여 준다.
+    }
+  }, []);
 
   async function recordCurrentInstallation() {
     if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
@@ -452,6 +541,66 @@ export default function AdminView({ locale }: { locale: Locale }) {
     }
   }
 
+  // 데스크 언어·개별 언어 허용을 부분 갱신한다. 알림 문구는 한국어 원문으로
+  // 저장해 두면 router.refresh()로 언어가 바뀐 뒤에도 그 언어로 번역돼 나온다.
+  async function updateDeskSettings(
+    patch: { locale?: Locale; allowMemberLocale?: boolean },
+    successNotice: string,
+  ) {
+    if (!beginMutation("desk-settings")) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/desk-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/files");
+        return;
+      }
+      const body = (await response.json().catch(() => null)) as {
+        locale?: unknown;
+        allowMemberLocale?: unknown;
+        error?: string;
+      } | null;
+      const savedLocale = parseLocale(body?.locale);
+      if (
+        !response.ok ||
+        !body ||
+        !savedLocale ||
+        typeof body.allowMemberLocale !== "boolean"
+      ) {
+        throw new Error(body?.error ?? t("데스크 설정을 저장하지 못했습니다"));
+      }
+      setDeskSettings({
+        locale: savedLocale,
+        allowMemberLocale: body.allowMemberLocale,
+      });
+      setNotice(successNotice);
+      // 데스크 언어·개별 언어 허용 둘 다 지금 보이는 화면 언어를 바꿀 수 있다.
+      router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : t("데스크 설정을 저장하지 못했습니다"),
+      );
+    } finally {
+      finishMutation();
+    }
+  }
+
+  function selectWallpaper(id: WallpaperId) {
+    setWallpaperId(id);
+    try {
+      window.localStorage.setItem(WALLPAPER_STORAGE_KEY, id);
+    } catch {
+      // 시크릿 모드 등에서 저장이 막혀도 이 화면의 선택 표시는 유지된다.
+    }
+  }
+
   const buttonClass = styles.pixelButton;
   const inputClass = styles.select;
   const pending = users.filter((user) => user.status === "pending");
@@ -468,11 +617,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
           </span>
           <div>
             <p className={styles.eyebrow}>SHAREDESK / ADMIN TOOL</p>
-            <h1 className={styles.pageTitle}>{t("사용자 및 초대 관리")}</h1>
+            <h1 className={styles.pageTitle}>{t("관리자")}</h1>
           </div>
         </div>
         <div className={styles.headerActions}>
-          <LanguageToggle locale={locale} className={styles.languageToggle} />
+          {/* 언어 변경은 설정 탭 안으로 옮겼다 — 헤더에는 토글을 두지 않는다. */}
           {/* 선택 기능인 설치 등록부는 아예 설정하지 않은 설치에서는 숨긴다.
               값을 넣었는데 틀린 설정 오류는 고칠 수 있도록 계속 보여 준다. */}
           {ownerRegistry && !ownerRegistry.unset && (
@@ -545,442 +694,606 @@ export default function AdminView({ locale }: { locale: Locale }) {
           </p>
         )}
 
-        <section aria-labelledby="invite-title">
-          <div className={styles.window}>
-            <header className={styles.windowTitlebar}>
-              <span className={styles.windowTitle}>
-                <span className={styles.inviteGlyph} aria-hidden="true" />
-                <h2 id="invite-title">{t("초대 코드")}</h2>
-              </span>
-              <span className={styles.windowMeta} aria-hidden="true">INVITES</span>
-            </header>
-            <div className={styles.windowBody}>
-              <p id="invite-description" className={styles.description}>
-                {t(
-                  "받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인 사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면 소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이 함께 씁니다.",
-                )}
-              </p>
-
-              <form onSubmit={createInvite} className={styles.inviteForm}>
-                <label className={styles.field}>
-                  <span>{t("유효 기간")}</span>
-                  <select
-                    value={inviteForm.expiresInMinutes}
-                    onChange={(event) =>
-                      setInviteForm((current) => ({
-                        ...current,
-                        expiresInMinutes: Number(event.target.value),
-                      }))
-                    }
-                    className={inputClass}
-                  >
-                    <option value={60}>{t("1시간")}</option>
-                    <option value={1_440}>{t("24시간 (기본)")}</option>
-                    <option value={10_080}>{t("7일")}</option>
-                    <option value={43_200}>{t("30일")}</option>
-                  </select>
-                </label>
-                <label className={styles.field}>
-                  <span>{t("사용 방식")}</span>
-                  <select
-                    value={inviteForm.usageMode}
-                    onChange={(event) =>
-                      setInviteForm((current) => ({
-                        ...current,
-                        usageMode: event.target.value as InvitationUsageMode,
-                      }))
-                    }
-                    className={inputClass}
-                  >
-                    <option value="once">{t("1회용")}</option>
-                    <option value="unlimited">{t("기간 내 무제한")}</option>
-                  </select>
-                </label>
-                <label className={styles.field}>
-                  <span>{t("역할")}</span>
-                  <select
-                    value={inviteForm.role}
-                    onChange={(event) =>
-                      setInviteForm((current) => ({
-                        ...current,
-                        role: resolveUserRole(event.target.value),
-                      }))
-                    }
-                    className={inputClass}
-                  >
-                    {USER_ROLES.map((role) => (
-                      <option key={role} value={role}>
-                        {t(ROLE_LABELS[role])}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  disabled={busyId !== null}
-                  className={`${styles.pixelButton} ${styles.primaryButton}`}
-                >
-                  {busyId === "invite:create" ? t("생성 중…") : t("초대 코드 생성")}
-                </button>
-              </form>
-
-              {lastAccess && (
-                <div className={styles.codePanel}>
-                  <p className={styles.codeLabel}>{t("지금 전달할 초대 코드")}</p>
-                  <div className={styles.codeRow}>
-                    <input
-                      readOnly
-                      value={lastAccess.code}
-                      onFocus={(event) => event.currentTarget.select()}
-                      className={styles.codeInput}
-                      aria-label={t("생성된 초대 코드")}
-                    />
-                    <button
-                      type="button"
-                      disabled={busyId !== null}
-                      onClick={() =>
-                        void copyInvitationValue(lastAccess.code, lastAccess)
-                      }
-                      className={buttonClass}
-                    >
-                      {t("코드 복사")}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div
-                className={styles.tableRegion}
-                role="region"
-                aria-labelledby="invite-title"
-                aria-describedby="invite-description"
-                tabIndex={0}
-              >
-                <table className={`${styles.table} ${styles.inviteTable}`}>
-                  <caption className={styles.srOnly}>
-                    {t("초대 코드의 만료일, 사용 기록, 상태와 관리 작업")}
-                  </caption>
-                  <thead>
-                    <tr className={styles.tableHeadRow}>
-                      <th>{t("초대 코드")}</th>
-                      <th>{t("만료일")}</th>
-                      <th>{t("사용 방식")}</th>
-                      <th>{t("사용 기록")}</th>
-                      <th>{t("생성 정보")}</th>
-                      <th>{t("상태")}</th>
-                      <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan={7} className={styles.emptyCell}>
-                          {t("불러오는 중…")}
-                        </td>
-                      </tr>
-                    ) : invitations.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className={styles.emptyCell}>
-                          {t("아직 만든 초대가 없습니다")}
-                        </td>
-                      </tr>
-                    ) : (
-                      invitations.map((invitation) => (
-                        <tr key={invitation.id} className={styles.tableRow}>
-                          <td className={styles.codeCell}>
-                            {invitation.code ?? "—"}
-                          </td>
-                          <td className={styles.compactCell}>
-                            <div>{formatDate(invitation.expiresAt, locale)}</div>
-                            <div>
-                              {formatDuration(invitation.durationMinutes, t)}
-                            </div>
-                          </td>
-                          <td className={styles.compactCell}>
-                            <div>{t(USAGE_MODE_LABEL[invitation.usageMode])}</div>
-                            <div>
-                              {t(ROLE_LABELS[resolveUserRole(invitation.role)])}
-                            </div>
-                          </td>
-                          <td className={styles.compactCell}>
-                            <div>
-                              {t("{횟수}회", { 횟수: invitation.usageCount })}
-                            </div>
-                            {invitation.lastUsedAt && (
-                              <div>
-                                {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt, locale)}
-                              </div>
-                            )}
-                          </td>
-                          <td className={styles.compactCell}>
-                            <div>{invitation.createdByEmail}</div>
-                            <div>{formatDate(invitation.createdAt, locale)}</div>
-                          </td>
-                          <td>
-                            <span className={`${styles.statusBadge} ${INVITE_STYLE[invitation.state]}`}>
-                              {t(INVITE_LABEL[invitation.state])}
-                            </span>
-                          </td>
-                          <td className={styles.actionsCell}>
-                            {invitation.state !== "used" && (
-                              <span className={styles.rowActions}>
-                                {invitation.state === "active" && invitation.code && (
-                                  <button
-                                    type="button"
-                                    disabled={busyId !== null}
-                                    onClick={() =>
-                                      void copyInvitationValue(invitation.code!, {
-                                        invitationId: invitation.id,
-                                        code: invitation.code!,
-                                      })
-                                    }
-                                    className={buttonClass}
-                                  >
-                                    {t("코드 복사")}
-                                  </button>
-                                )}
-                                {invitation.state !== "expired" && (
-                                  <button
-                                    type="button"
-                                    disabled={busyId !== null}
-                                    onClick={() =>
-                                      void invitationAction(invitation, "toggle")
-                                    }
-                                    className={buttonClass}
-                                  >
-                                    {invitation.state === "active"
-                                      ? t("비활성")
-                                      : t("활성")}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  disabled={busyId !== null}
-                                  onClick={() =>
-                                    void invitationAction(invitation, "rotate")
-                                  }
-                                  className={buttonClass}
-                                >
-                                  {t("새 코드")}
-                                </button>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+        <div className={styles.layout}>
+          <div
+            role="tablist"
+            aria-label={t("관리 메뉴")}
+            aria-orientation="vertical"
+            className={styles.tabRail}
+          >
+            <button
+              type="button"
+              role="tab"
+              id="tab-users"
+              aria-selected={activeTab === "users"}
+              aria-controls="panel-users"
+              className={`${styles.tabButton} ${activeTab === "users" ? styles.tabButtonActive : ""}`}
+              onClick={() => setActiveTab("users")}
+            >
+              {t("사용자")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tab-settings"
+              aria-selected={activeTab === "settings"}
+              aria-controls="panel-settings"
+              className={`${styles.tabButton} ${activeTab === "settings" ? styles.tabButtonActive : ""}`}
+              onClick={() => setActiveTab("settings")}
+            >
+              {t("설정")}
+            </button>
           </div>
-        </section>
 
-        <section aria-labelledby="user-title">
-          <div className={styles.window}>
-            <header className={`${styles.windowTitlebar} ${styles.userTitlebar}`}>
-              <span className={styles.windowTitle}>
-                <span className={styles.userGlyph} aria-hidden="true" />
-                <h2 id="user-title">{t("사용자")}</h2>
-              </span>
-              <span className={styles.windowMeta} aria-hidden="true">
-                {users.length.toString().padStart(2, "0")} USERS
-              </span>
-            </header>
-            <div className={styles.windowBody}>
-              <div
-                className={styles.tableRegion}
-                role="region"
-                aria-labelledby="user-title"
-                tabIndex={0}
-              >
-                <table className={`${styles.table} ${styles.userTable}`}>
-                  <caption className={styles.srOnly}>
-                    {t("사용자 등록일, 상태, 역할, 로그인 기기와 관리 작업")}
-                  </caption>
-                  <thead>
-                    <tr className={styles.tableHeadRow}>
-                      <th>{t("사용자")}</th>
-                      <th>{t("등록일")}</th>
-                      <th>{t("상태")}</th>
-                      <th>{t("역할")}</th>
-                      <th>{t("로그인 기기")}</th>
-                      <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {loading ? (
-                      <tr>
-                        <td colSpan={6} className={styles.emptyCell}>
-                          {t("불러오는 중…")}
-                        </td>
-                      </tr>
-                    ) : users.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className={styles.emptyCell}>
-                          {t("아직 등록된 사용자가 없습니다")}
-                        </td>
-                      </tr>
-                    ) : (
-                      users.map((user) => (
-                        <tr key={user.id} className={styles.tableRow}>
-                          <td>
-                            <div className={styles.userName}>
-                              {user.name}
-                              {user.isAdmin && (
-                                <span className={styles.adminBadge}>
-                                  {t("관리자")}
+          <div
+            role="tabpanel"
+            id="panel-users"
+            aria-labelledby="tab-users"
+            hidden={activeTab !== "users"}
+            className={styles.tabPanel}
+          >
+            <section aria-labelledby="invite-title">
+              <div className={styles.window}>
+                <header className={styles.windowTitlebar}>
+                  <span className={styles.windowTitle}>
+                    <span className={styles.inviteGlyph} aria-hidden="true" />
+                    <h2 id="invite-title">{t("초대 코드")}</h2>
+                  </span>
+                  <span className={styles.windowMeta} aria-hidden="true">INVITES</span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p id="invite-description" className={styles.description}>
+                    {t(
+                      "받는 사람을 미리 지정하지 않습니다. Google 로그인 후 가입 대기 중인 사용자가 코드를 입력해 가입합니다. 1회용은 한 명이 가입하면 소진됩니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이 함께 씁니다.",
+                    )}
+                  </p>
+
+                  <form onSubmit={createInvite} className={styles.inviteForm}>
+                    <label className={styles.field}>
+                      <span>{t("유효 기간")}</span>
+                      <select
+                        value={inviteForm.expiresInMinutes}
+                        onChange={(event) =>
+                          setInviteForm((current) => ({
+                            ...current,
+                            expiresInMinutes: Number(event.target.value),
+                          }))
+                        }
+                        className={inputClass}
+                      >
+                        <option value={60}>{t("1시간")}</option>
+                        <option value={1_440}>{t("24시간 (기본)")}</option>
+                        <option value={10_080}>{t("7일")}</option>
+                        <option value={43_200}>{t("30일")}</option>
+                      </select>
+                    </label>
+                    <label className={styles.field}>
+                      <span>{t("사용 방식")}</span>
+                      <select
+                        value={inviteForm.usageMode}
+                        onChange={(event) =>
+                          setInviteForm((current) => ({
+                            ...current,
+                            usageMode: event.target.value as InvitationUsageMode,
+                          }))
+                        }
+                        className={inputClass}
+                      >
+                        <option value="once">{t("1회용")}</option>
+                        <option value="unlimited">{t("기간 내 무제한")}</option>
+                      </select>
+                    </label>
+                    <label className={styles.field}>
+                      <span>{t("역할")}</span>
+                      <select
+                        value={inviteForm.role}
+                        onChange={(event) =>
+                          setInviteForm((current) => ({
+                            ...current,
+                            role: resolveUserRole(event.target.value),
+                          }))
+                        }
+                        className={inputClass}
+                      >
+                        {USER_ROLES.map((role) => (
+                          <option key={role} value={role}>
+                            {t(ROLE_LABELS[role])}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={busyId !== null}
+                      className={`${styles.pixelButton} ${styles.primaryButton}`}
+                    >
+                      {busyId === "invite:create" ? t("생성 중…") : t("초대 코드 생성")}
+                    </button>
+                  </form>
+
+                  {lastAccess && (
+                    <div className={styles.codePanel}>
+                      <p className={styles.codeLabel}>{t("지금 전달할 초대 코드")}</p>
+                      <div className={styles.codeRow}>
+                        <input
+                          readOnly
+                          value={lastAccess.code}
+                          onFocus={(event) => event.currentTarget.select()}
+                          className={styles.codeInput}
+                          aria-label={t("생성된 초대 코드")}
+                        />
+                        <button
+                          type="button"
+                          disabled={busyId !== null}
+                          onClick={() =>
+                            void copyInvitationValue(lastAccess.code, lastAccess)
+                          }
+                          className={buttonClass}
+                        >
+                          {t("코드 복사")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    className={styles.tableRegion}
+                    role="region"
+                    aria-labelledby="invite-title"
+                    aria-describedby="invite-description"
+                    tabIndex={0}
+                  >
+                    <table className={`${styles.table} ${styles.inviteTable}`}>
+                      <caption className={styles.srOnly}>
+                        {t("초대 코드의 만료일, 사용 기록, 상태와 관리 작업")}
+                      </caption>
+                      <thead>
+                        <tr className={styles.tableHeadRow}>
+                          <th>{t("초대 코드")}</th>
+                          <th>{t("만료일")}</th>
+                          <th>{t("사용 방식")}</th>
+                          <th>{t("사용 기록")}</th>
+                          <th>{t("생성 정보")}</th>
+                          <th>{t("상태")}</th>
+                          <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <tr>
+                            <td colSpan={7} className={styles.emptyCell}>
+                              {t("불러오는 중…")}
+                            </td>
+                          </tr>
+                        ) : invitations.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className={styles.emptyCell}>
+                              {t("아직 만든 초대가 없습니다")}
+                            </td>
+                          </tr>
+                        ) : (
+                          invitations.map((invitation) => (
+                            <tr key={invitation.id} className={styles.tableRow}>
+                              <td className={styles.codeCell}>
+                                {invitation.code ?? "—"}
+                              </td>
+                              <td className={styles.compactCell}>
+                                <div>{formatDate(invitation.expiresAt, locale)}</div>
+                                <div>
+                                  {formatDuration(invitation.durationMinutes, t)}
+                                </div>
+                              </td>
+                              <td className={styles.compactCell}>
+                                <div>{t(USAGE_MODE_LABEL[invitation.usageMode])}</div>
+                                <div>
+                                  {t(ROLE_LABELS[resolveUserRole(invitation.role)])}
+                                </div>
+                              </td>
+                              <td className={styles.compactCell}>
+                                <div>
+                                  {t("{횟수}회", { 횟수: invitation.usageCount })}
+                                </div>
+                                {invitation.lastUsedAt && (
+                                  <div>
+                                    {invitation.lastUsedByEmail} · {formatDate(invitation.lastUsedAt, locale)}
+                                  </div>
+                                )}
+                              </td>
+                              <td className={styles.compactCell}>
+                                <div>{invitation.createdByEmail}</div>
+                                <div>{formatDate(invitation.createdAt, locale)}</div>
+                              </td>
+                              <td>
+                                <span className={`${styles.statusBadge} ${INVITE_STYLE[invitation.state]}`}>
+                                  {t(INVITE_LABEL[invitation.state])}
                                 </span>
-                              )}
-                            </div>
-                            <div className={styles.userEmail}>{user.email}</div>
-                          </td>
-                          <td className={styles.compactCell}>
-                            {formatDate(user.createdAt, locale)}
-                          </td>
-                          <td>
-                            <span className={`${styles.statusBadge} ${STATUS_STYLE[user.status]}`}>
-                              {t(STATUS_LABEL[user.status])}
-                            </span>
-                          </td>
-                          <td>
-                            {user.isAdmin ? (
-                              <span className={styles.muted}>{t("관리자")}</span>
-                            ) : (
-                              <select
-                                value={resolveUserRole(user.role)}
-                                disabled={busyId !== null}
-                                onChange={(event) =>
-                                  void changeRole(
-                                    user.id,
-                                    resolveUserRole(event.target.value),
-                                  )
-                                }
-                                className={`${styles.select} ${styles.roleSelect}`}
-                                aria-label={t("{이름} 역할 변경", {
-                                  이름: user.name,
-                                })}
-                              >
-                                {USER_ROLES.map((role) => (
-                                  <option key={role} value={role}>
-                                    {t(ROLE_LABELS[role])}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                          </td>
-                          <td>
-                            {user.sessions.length === 0 ? (
-                              <span className={styles.muted}>{t("기록 없음")}</span>
-                            ) : (
-                              <ul className={styles.sessionList}>
-                                {[...user.sessions].reverse().map((session) => (
-                                  <li key={session.id} className={styles.sessionRow}>
-                                    <span className={styles.sessionInfo}>
-                                      <span className={styles.sessionDevice}>
-                                        {session.deviceLabel}
-                                      </span>
-                                      <span className={styles.sessionDate}>
-                                        {formatDate(session.createdAt, locale)}
-                                      </span>
-                                    </span>
-                                    {!user.isAdmin ? (
+                              </td>
+                              <td className={styles.actionsCell}>
+                                {invitation.state !== "used" && (
+                                  <span className={styles.rowActions}>
+                                    {invitation.state === "active" && invitation.code && (
                                       <button
+                                        type="button"
                                         disabled={busyId !== null}
                                         onClick={() =>
-                                          void act(user.id, "revoke-session", session.id)
+                                          void copyInvitationValue(invitation.code!, {
+                                            invitationId: invitation.id,
+                                            code: invitation.code!,
+                                          })
                                         }
-                                        className={`${styles.pixelButton} ${styles.dangerButton}`}
+                                        className={buttonClass}
                                       >
-                                        {t("이 로그인 끊기")}
+                                        {t("코드 복사")}
                                       </button>
-                                    ) : null}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </td>
-                          <td className={styles.actionsCell}>
-                            {user.isAdmin ? (
-                              <span className={styles.muted}>—</span>
-                            ) : confirmRemoveId === user.id ? (
-                              <span className={styles.rowActions}>
-                                <button
-                                  disabled={busyId !== null}
-                                  onClick={() => void act(user.id, "remove")}
-                                  className={`${styles.pixelButton} ${styles.dangerButton}`}
-                                >
-                                  {t("삭제 확인")}
-                                </button>
-                                <button
-                                  onClick={() => setConfirmRemoveId(null)}
-                                  className={buttonClass}
-                                >
-                                  {t("취소")}
-                                </button>
-                              </span>
-                            ) : (
-                              <span className={styles.rowActions}>
-                                {user.status === "approved" && (
-                                  <>
+                                    )}
+                                    {invitation.state !== "expired" && (
+                                      <button
+                                        type="button"
+                                        disabled={busyId !== null}
+                                        onClick={() =>
+                                          void invitationAction(invitation, "toggle")
+                                        }
+                                        className={buttonClass}
+                                      >
+                                        {invitation.state === "active"
+                                          ? t("비활성")
+                                          : t("활성")}
+                                      </button>
+                                    )}
                                     <button
+                                      type="button"
                                       disabled={busyId !== null}
-                                      onClick={() => void act(user.id, "revoke")}
-                                      className={buttonClass}
-                                      title={t(
-                                        "이 사람의 모든 기기에서 로그인을 끊습니다",
-                                      )}
-                                    >
-                                      {t("모든 로그인 끊기")}
-                                    </button>
-                                    <button
-                                      disabled={busyId !== null}
-                                      onClick={() => void act(user.id, "block")}
+                                      onClick={() =>
+                                        void invitationAction(invitation, "rotate")
+                                      }
                                       className={buttonClass}
                                     >
-                                      {t("차단")}
+                                      {t("새 코드")}
                                     </button>
-                                  </>
+                                  </span>
                                 )}
-                                {user.status === "blocked" && (
-                                  <button
-                                    disabled={busyId !== null}
-                                    onClick={() => void act(user.id, "pending")}
-                                    className={buttonClass}
-                                  >
-                                    {t("대기로")}
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => setConfirmRemoveId(user.id)}
-                                  className={buttonClass}
-                                >
-                                  {t("삭제")}
-                                </button>
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-              <ul className={styles.helpList}>
-                <li>
-                  {t(
-                    "차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에 끊깁니다.",
-                  )}
-                </li>
-                <li>
-                  {t(
-                    "차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시 가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.",
-                  )}
-                </li>
-              </ul>
-            </div>
+            </section>
+
+            <section aria-labelledby="user-title">
+              <div className={styles.window}>
+                <header className={`${styles.windowTitlebar} ${styles.userTitlebar}`}>
+                  <span className={styles.windowTitle}>
+                    <span className={styles.userGlyph} aria-hidden="true" />
+                    <h2 id="user-title">{t("사용자")}</h2>
+                  </span>
+                  <span className={styles.windowMeta} aria-hidden="true">
+                    {users.length.toString().padStart(2, "0")} USERS
+                  </span>
+                </header>
+                <div className={styles.windowBody}>
+                  <div
+                    className={styles.tableRegion}
+                    role="region"
+                    aria-labelledby="user-title"
+                    tabIndex={0}
+                  >
+                    <table className={`${styles.table} ${styles.userTable}`}>
+                      <caption className={styles.srOnly}>
+                        {t("사용자 등록일, 상태, 역할, 로그인 기기와 관리 작업")}
+                      </caption>
+                      <thead>
+                        <tr className={styles.tableHeadRow}>
+                          <th>{t("사용자")}</th>
+                          <th>{t("등록일")}</th>
+                          <th>{t("상태")}</th>
+                          <th>{t("역할")}</th>
+                          <th>{t("로그인 기기")}</th>
+                          <th><span className={styles.srOnly}>{t("관리 작업")}</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {loading ? (
+                          <tr>
+                            <td colSpan={6} className={styles.emptyCell}>
+                              {t("불러오는 중…")}
+                            </td>
+                          </tr>
+                        ) : users.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className={styles.emptyCell}>
+                              {t("아직 등록된 사용자가 없습니다")}
+                            </td>
+                          </tr>
+                        ) : (
+                          users.map((user) => (
+                            <tr key={user.id} className={styles.tableRow}>
+                              <td>
+                                <div className={styles.userName}>
+                                  {user.name}
+                                  {user.isAdmin && (
+                                    <span className={styles.adminBadge}>
+                                      {t("관리자")}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className={styles.userEmail}>{user.email}</div>
+                              </td>
+                              <td className={styles.compactCell}>
+                                {formatDate(user.createdAt, locale)}
+                              </td>
+                              <td>
+                                <span className={`${styles.statusBadge} ${STATUS_STYLE[user.status]}`}>
+                                  {t(STATUS_LABEL[user.status])}
+                                </span>
+                              </td>
+                              <td>
+                                {user.isAdmin ? (
+                                  <span className={styles.muted}>{t("관리자")}</span>
+                                ) : (
+                                  <select
+                                    value={resolveUserRole(user.role)}
+                                    disabled={busyId !== null}
+                                    onChange={(event) =>
+                                      void changeRole(
+                                        user.id,
+                                        resolveUserRole(event.target.value),
+                                      )
+                                    }
+                                    className={`${styles.select} ${styles.roleSelect}`}
+                                    aria-label={t("{이름} 역할 변경", {
+                                      이름: user.name,
+                                    })}
+                                  >
+                                    {USER_ROLES.map((role) => (
+                                      <option key={role} value={role}>
+                                        {t(ROLE_LABELS[role])}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </td>
+                              <td>
+                                {user.sessions.length === 0 ? (
+                                  <span className={styles.muted}>{t("기록 없음")}</span>
+                                ) : (
+                                  <ul className={styles.sessionList}>
+                                    {[...user.sessions].reverse().map((session) => (
+                                      <li key={session.id} className={styles.sessionRow}>
+                                        <span className={styles.sessionInfo}>
+                                          <span className={styles.sessionDevice}>
+                                            {session.deviceLabel}
+                                          </span>
+                                          <span className={styles.sessionDate}>
+                                            {formatDate(session.createdAt, locale)}
+                                          </span>
+                                        </span>
+                                        {!user.isAdmin ? (
+                                          <button
+                                            disabled={busyId !== null}
+                                            onClick={() =>
+                                              void act(user.id, "revoke-session", session.id)
+                                            }
+                                            className={`${styles.pixelButton} ${styles.dangerButton}`}
+                                          >
+                                            {t("이 로그인 끊기")}
+                                          </button>
+                                        ) : null}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </td>
+                              <td className={styles.actionsCell}>
+                                {user.isAdmin ? (
+                                  <span className={styles.muted}>—</span>
+                                ) : confirmRemoveId === user.id ? (
+                                  <span className={styles.rowActions}>
+                                    <button
+                                      disabled={busyId !== null}
+                                      onClick={() => void act(user.id, "remove")}
+                                      className={`${styles.pixelButton} ${styles.dangerButton}`}
+                                    >
+                                      {t("삭제 확인")}
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmRemoveId(null)}
+                                      className={buttonClass}
+                                    >
+                                      {t("취소")}
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <span className={styles.rowActions}>
+                                    {user.status === "approved" && (
+                                      <>
+                                        <button
+                                          disabled={busyId !== null}
+                                          onClick={() => void act(user.id, "revoke")}
+                                          className={buttonClass}
+                                          title={t(
+                                            "이 사람의 모든 기기에서 로그인을 끊습니다",
+                                          )}
+                                        >
+                                          {t("모든 로그인 끊기")}
+                                        </button>
+                                        <button
+                                          disabled={busyId !== null}
+                                          onClick={() => void act(user.id, "block")}
+                                          className={buttonClass}
+                                        >
+                                          {t("차단")}
+                                        </button>
+                                      </>
+                                    )}
+                                    {user.status === "blocked" && (
+                                      <button
+                                        disabled={busyId !== null}
+                                        onClick={() => void act(user.id, "pending")}
+                                        className={buttonClass}
+                                      >
+                                        {t("대기로")}
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setConfirmRemoveId(user.id)}
+                                      className={buttonClass}
+                                    >
+                                      {t("삭제")}
+                                    </button>
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul className={styles.helpList}>
+                    <li>
+                      {t(
+                        "차단하면 화면 접근은 즉시 막히고, 열려 있던 파일 목록도 최대 5초 안에 끊깁니다.",
+                      )}
+                    </li>
+                    <li>
+                      {t(
+                        "차단·모든 로그인 끊기를 하면 기존 로그인이 전부 무효가 되어, 다시 가입 대기로 바꾼 뒤에도 새로 로그인하고 초대 코드를 입력해야 합니다.",
+                      )}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </section>
           </div>
-        </section>
+
+          <div
+            role="tabpanel"
+            id="panel-settings"
+            aria-labelledby="tab-settings"
+            hidden={activeTab !== "settings"}
+            className={styles.tabPanel}
+          >
+            <section aria-labelledby="locale-title">
+              <div className={styles.window}>
+                <header
+                  className={`${styles.windowTitlebar} ${styles.localeTitlebar}`}
+                >
+                  <span className={styles.windowTitle}>
+                    <span className={styles.localeGlyph} aria-hidden="true" />
+                    <h2 id="locale-title">{t("언어")}</h2>
+                  </span>
+                  {/* 데스크 언어와 별개로, 참여자 개인의 언어 선택을 허용할지. */}
+                  <label
+                    className={styles.allowToggle}
+                    htmlFor="allow-member-locale"
+                  >
+                    <input
+                      id="allow-member-locale"
+                      type="checkbox"
+                      checked={deskSettings?.allowMemberLocale ?? false}
+                      disabled={deskSettings === null || busyId !== null}
+                      onChange={(event) =>
+                        void updateDeskSettings(
+                          { allowMemberLocale: event.target.checked },
+                          event.target.checked
+                            ? "이제 참여자가 자기 화면 언어를 따로 고를 수 있습니다."
+                            : "이제 모든 참여자 화면에 데스크 언어가 적용됩니다.",
+                        )
+                      }
+                    />
+                    {t("개별 언어 허용")}
+                  </label>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "데스크 언어는 모든 참여자 화면에 함께 적용됩니다. 개별 언어 허용을 켜면 참여자가 자기 화면 언어를 따로 고를 수 있습니다.",
+                    )}
+                  </p>
+                  <label className={`${styles.field} ${styles.settingsField}`}>
+                    <span>{t("데스크 언어")}</span>
+                    <select
+                      value={deskSettings?.locale ?? locale}
+                      disabled={deskSettings === null || busyId !== null}
+                      onChange={(event) => {
+                        const next = parseLocale(event.target.value);
+                        if (next) {
+                          void updateDeskSettings(
+                            { locale: next },
+                            "데스크 언어를 바꿨습니다.",
+                          );
+                        }
+                      }}
+                      className={inputClass}
+                    >
+                      {LOCALES.map((item) => (
+                        <option key={item} value={item}>
+                          {LOCALE_LABELS[item]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+            </section>
+
+            <section aria-labelledby="theme-title">
+              <div className={styles.window}>
+                <header
+                  className={`${styles.windowTitlebar} ${styles.themeTitlebar}`}
+                >
+                  <span className={styles.windowTitle}>
+                    <span className={styles.themeGlyph} aria-hidden="true" />
+                    <h2 id="theme-title">{t("테마")}</h2>
+                  </span>
+                  <span className={styles.windowMeta} aria-hidden="true">
+                    THEME
+                  </span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "바탕화면은 이 기기의 내 화면에만 적용되는 개인 설정입니다. 파일 화면을 다음에 열 때 반영됩니다.",
+                    )}
+                  </p>
+                  <div
+                    className={styles.wallpaperGrid}
+                    role="group"
+                    aria-label={t("바탕화면")}
+                  >
+                    {WALLPAPERS.map((wallpaper) => (
+                      <button
+                        key={wallpaper.id}
+                        type="button"
+                        aria-pressed={wallpaperId === wallpaper.id}
+                        className={`${styles.wallpaperOption} ${wallpaperId === wallpaper.id ? styles.wallpaperSelected : ""}`}
+                        onClick={() => selectWallpaper(wallpaper.id)}
+                      >
+                        <span
+                          className={styles.wallpaperThumb}
+                          style={{ backgroundImage: `url(${wallpaper.src})` }}
+                          aria-hidden="true"
+                        />
+                        <span className={styles.wallpaperName}>
+                          {t(wallpaper.name)}
+                          {wallpaperId === wallpaper.id && (
+                            <span className={styles.wallpaperCheck}>
+                              {t("현재 선택")}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
       </main>
     </div>
   );
