@@ -1391,10 +1391,13 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <span className={styles.windowTitle}>
                     <h2 id="auto-update-title">{t("업데이트")}</h2>
                   </span>
-                  {/* 누르는 것이 곧 실행이다: 켜면 GitHub 저장소에 별이
-                      남고(이미 있으면 확인만) 자동 업데이트가 켜지며
-                      작업표시줄의 업데이트 버튼이 사라진다. 멈추면 버튼이
-                      돌아오고 별은 그대로 남는다. */}
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {autoUpdateOn
+                      ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
+                      : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
+                  </p>
                   {autoUpdateOn ? (
                     <button
                       type="button"
@@ -1412,7 +1415,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   ) : (
                     <button
                       type="button"
-                      className={`${styles.pixelButton} ${styles.primaryButton}`}
+                      className={styles.githubStarButton}
+                      aria-label={t("자동 업데이트")}
                       disabled={deskSettings === null || busyId !== null}
                       onClick={() =>
                         void updateDeskSettings(
@@ -1426,16 +1430,20 @@ export default function AdminView({ locale }: { locale: Locale }) {
                         )
                       }
                     >
-                      {t("자동 업데이트")}
+                      <svg
+                        className={styles.githubMark}
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+                      </svg>
+                      <span>Github</span>
+                      <span className={styles.starGlyph} aria-hidden="true">
+                        ★
+                      </span>
                     </button>
                   )}
-                </header>
-                <div className={styles.windowBody}>
-                  <p className={styles.description}>
-                    {autoUpdateOn
-                      ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
-                      : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
-                  </p>
                   {autoUpdateOn && updateInfo && (
                     <div className={styles.description}>
                       {updateInfo.failed ? (
