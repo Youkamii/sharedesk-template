@@ -20,13 +20,19 @@ import { promisify } from "node:util";
 export const MANIFEST_FILE = "sharedesk-release.json";
 export const UPDATE_SOURCE_REPOSITORY = "Youkamii/sharedesk-template";
 export const UPDATE_WORKFLOW_PATH = ".github/workflows/sharedesk-update.yml";
+export const AUTO_UPDATE_WORKFLOW_PATH =
+  ".github/workflows/sharedesk-auto-update.yml";
 export const BOOTSTRAP_CORE_PATHS = [
   "scripts/sharedesk-bootstrap.mjs",
   "scripts/sharedesk-update.mjs",
   UPDATE_WORKFLOW_PATH,
+  AUTO_UPDATE_WORKFLOW_PATH,
 ];
+// 워크플로는 자동 업데이트로 바꿀 수 없다(봉인 단계가 거부한다) —
+// 새 설치의 부트스트랩만 설치하고, 기존 설치는 문서의 1회 절차를 따른다.
 export const AUTOMATIC_CORE_PATHS = BOOTSTRAP_CORE_PATHS.filter(
-  (corePath) => corePath !== UPDATE_WORKFLOW_PATH,
+  (corePath) =>
+    corePath !== UPDATE_WORKFLOW_PATH && corePath !== AUTO_UPDATE_WORKFLOW_PATH,
 );
 
 const SEMVER_PATTERN =

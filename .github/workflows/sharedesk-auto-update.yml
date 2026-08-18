@@ -1,0 +1,174 @@
+name: ShareDesk Auto Update
+
+# 매시 7분에 깨어나 설치된 앱의 공개 정책(/api/update-policy)을 읽고,
+# 자동 업데이트가 켜져 있고 그 시간대가 자정(00시대)일 때만 수동
+# 업데이트와 동일한 적용·봉인·검증·푸시를 수행한다. 키가 필요 없다 —
+# 저장소 자체의 GITHUB_TOKEN만 쓴다. workflow_dispatch는 시험용으로
+# 자정 조건 없이 정책만 확인하고 바로 실행한다.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sharedesk-update-main
+  cancel-in-progress: false
+
+jobs:
+  policy:
+    # 배포되지 않는 원본 템플릿 저장소에서는 돌 이유가 없다.
+    if: github.repository != 'Youkamii/sharedesk-template'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Ask the installed app whether it is update time
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          api="https://api.github.com/repos/$REPOSITORY"
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+          # Vercel의 GitHub 연동이 남긴 Deployments 기록에서 프로덕션 URL을 찾는다.
+          url=""
+          deployments="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments?per_page=20" || echo '[]')"
+          for id in $(printf '%s' "$deployments" | jq -r '[.[] | select((.environment // "") | test("^production$"; "i"))][:5] | .[].id' 2>/dev/null); do
+            status_url="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments/$id/statuses?per_page=5" | jq -r '[.[] | select(.state == "success") | .environment_url // empty][0] // empty' 2>/dev/null)"
+            if [[ "$status_url" == https://* ]]; then
+              url="$status_url"
+              break
+            fi
+          done
+          if [[ -z "$url" ]]; then
+            echo "No production deployment URL found; nothing to do."
+            exit 0
+          fi
+          policy="$(curl -sS --max-time 20 "$url/api/update-policy" || true)"
+          auto="$(printf '%s' "$policy" | jq -r '.autoUpdate // false' 2>/dev/null || echo false)"
+          tz="$(printf '%s' "$policy" | jq -r '.timezone // empty' 2>/dev/null || true)"
+          if [[ "$auto" != "true" ]]; then
+            echo "Auto update is turned off; nothing to do."
+            exit 0
+          fi
+          if ! [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
+            echo "The reported timezone is unusable; nothing to do."
+            exit 0
+          fi
+          hour="$(TZ="$tz" date +%H)"
+          if [[ "$EVENT_NAME" == "schedule" && "$hour" != "00" ]]; then
+            echo "It is ${hour}:xx in ${tz}; waiting for midnight."
+            exit 0
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
+  prepare:
+    needs: policy
+    if: needs.policy.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      changed: ${{ steps.patch.outputs.changed }}
+    steps:
+      - name: Check out the installed repository without write credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Apply the latest stable ShareDesk release
+        run: node scripts/sharedesk-update.mjs --apply
+
+      - name: Seal the proposed update before running release code
+        id: patch
+        shell: bash
+        run: |
+          if [[ -z "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git diff --quiet -- .github/workflows/sharedesk-update.yml .github/workflows/sharedesk-auto-update.yml; then
+            echo "The update workflow changed. Run the one-time bootstrap in docs/UPDATE.md."
+            exit 1
+          fi
+          git add -A
+          git diff --cached --binary --full-index --no-ext-diff > "$RUNNER_TEMP/sharedesk-update.patch"
+          test -s "$RUNNER_TEMP/sharedesk-update.patch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Store the sealed update
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sharedesk-auto-update-patch
+          path: ${{ runner.temp }}/sharedesk-update.patch
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Set up the updated Node.js version
+        if: steps.patch.outputs.changed == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Verify the updated release without write credentials
+        if: steps.patch.outputs.changed == 'true'
+        run: node scripts/sharedesk-verify.mjs
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the installed repository without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the verified update
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: sharedesk-auto-update-patch
+          path: ${{ runner.temp }}/sharedesk-update
+
+      - name: Commit and push the verified update
+        shell: bash
+        env:
+          UPDATE_AUTHOR_NAME: ${{ github.actor }}
+          UPDATE_AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+          UPDATE_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          patch="$RUNNER_TEMP/sharedesk-update/sharedesk-update.patch"
+          git apply --index --binary --whitespace=nowarn "$patch"
+          if ! git diff --cached --quiet -- .github/workflows; then
+            echo "A verified update cannot change GitHub workflows."
+            exit 1
+          fi
+          git diff --cached --check
+          version="$(git show :package.json | sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([0-9]+\.[0-9]+\.[0-9]+)".*$/\1/p' | head -n1)"
+          test -n "$version"
+          git config user.name "$UPDATE_AUTHOR_NAME"
+          git config user.email "$UPDATE_AUTHOR_EMAIL"
+          git -c core.hooksPath=/dev/null commit -m "chore: update ShareDesk to ${version}"
+          auth="$(printf 'x-access-token:%s' "$UPDATE_GITHUB_TOKEN" | base64 -w0)"
+          git -c core.hooksPath=/dev/null -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" push origin HEAD:main

@@ -16,6 +16,7 @@ const CORE_PATHS = [
   "scripts/sharedesk-bootstrap.mjs",
   UPDATER_PATH,
   ".github/workflows/sharedesk-update.yml",
+  ".github/workflows/sharedesk-auto-update.yml",
 ];
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const STABLE_SEMVER_PATTERN =

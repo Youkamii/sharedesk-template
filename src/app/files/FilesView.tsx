@@ -609,6 +609,7 @@ export default function FilesView({
   canSendFeedback,
   locale,
   allowMemberLocale,
+  autoUpdate,
 }: {
   userName: string;
   userEmail: string;
@@ -618,6 +619,9 @@ export default function FilesView({
   canSendFeedback: boolean;
   locale: Locale;
   allowMemberLocale: boolean;
+  // 자동 업데이트가 켜진 데스크에서는 수동 업데이트 버튼을 숨긴다 —
+  // 업데이트 내용은 관리자 설정 화면이 보여 준다.
+  autoUpdate: boolean;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -1665,7 +1669,8 @@ export default function FilesView({
   }, [starConsentOpen]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    // 자동 업데이트가 켜진 데스크는 버튼이 없으므로 상태 확인도 하지 않는다.
+    if (!isAdmin || autoUpdate) return;
 
     updateControllerRef.current?.abort();
     const controller = new AbortController();
@@ -1716,7 +1721,7 @@ export default function FilesView({
         updateControllerRef.current = null;
       }
     };
-  }, [isAdmin, router, t]);
+  }, [isAdmin, autoUpdate, router, t]);
 
   // 원클릭 업데이트 진행 폴링. 패널이 닫혀도 실행이 끝날 때까지 이어간다.
   useEffect(() => {
@@ -7717,6 +7722,7 @@ export default function FilesView({
           )}
           {isAdmin && (
             <>
+              {!autoUpdate && (
               <button
                 type="button"
                 className={`${styles.trayLink} ${styles.updateTrayButton}`}
@@ -7737,6 +7743,7 @@ export default function FilesView({
                   </span>
                 )}
               </button>
+              )}
               <a href="/admin" className={styles.trayLink}>
                 {t("관리자")}
               </a>

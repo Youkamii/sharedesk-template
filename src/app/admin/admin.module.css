@@ -442,6 +442,38 @@
   line-height: 1.65;
 }
 
+/* 자동 업데이트를 켜기 전 별 동의 상자. */
+.starConsent {
+  max-width: 840px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid #d9b64a;
+  background: #fdf7e3;
+}
+
+.starConsentActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* 자동 업데이트 섹션의 최신 릴리스 내용 — 릴리스 노트 원문을 줄바꿈 그대로 보여 준다. */
+.releaseNotes {
+  max-width: 840px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #d5d9e2;
+  background: #f7f8fb;
+  color: #3d4350;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
 .inviteForm {
   display: grid;
   min-width: 0;

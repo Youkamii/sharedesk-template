@@ -1178,7 +1178,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(source, /if \(!isAdmin\) return;/);
   assert.match(
     source,
-    /if \(!isAdmin\) return;[\s\S]*?fetch\("\/api\/admin\/update", \{[\s\S]*?cache: "no-store"/,
+    /if \(!isAdmin \|\| autoUpdate\) return;[\s\S]*?fetch\("\/api\/admin\/update", \{[\s\S]*?cache: "no-store"/,
   );
   assert.match(
     source,
@@ -1506,4 +1506,23 @@ test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨�
   assert.doesNotMatch(source, /function selectWallpaper\(/);
   assert.doesNotMatch(source, /배경 — \{name\}/);
   assert.match(source, /WALLPAPERS\.find\(\(w\) => w\.id === wallpaperId\)/);
+});
+
+test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설정이 내용을 대신 보여 준다", async () => {
+  const [filesView, filesPage, adminView] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/admin/AdminView.tsx", import.meta.url), "utf8"),
+  ]);
+  // 버튼 숨김: autoUpdate가 켜지면 업데이트 버튼과 상태 확인이 모두 꺼진다.
+  assert.match(filesView, /\{!autoUpdate && \(\s*<button[\s\S]*?updateTrayButton/);
+  assert.match(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
+  assert.match(filesPage, /autoUpdate=\{deskSettings\.autoUpdate\}/);
+  // 설정 화면: 체크는 브라우저 시간대를 함께 저장하고, 별 동의 상자를 지원하며,
+  // 켜져 있는 동안 버전·릴리스 내용을 보여 준다.
+  assert.match(adminView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)[\s\S]{0,40}\.timeZone/);
+  assert.match(adminView, /starRequired === true/);
+  assert.match(adminView, /별 남기고 켜기/);
+  assert.match(adminView, /releases\/latest/);
+  assert.match(adminView, /releaseNotes/);
 });

@@ -108,6 +108,14 @@ export const EN_ADMIN: Record<string, string> = {
 
   // 설정 탭 — 언어
   "데스크 언어": "Desk language",
+  "자동 업데이트": "Automatic updates",
+  "켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용됩니다. 별도의 키가 필요 없습니다. 켜져 있는 동안 작업표시줄의 업데이트 버튼은 숨겨지고, 업데이트 내용은 여기에서 보여 줍니다.": "When on, new versions are applied automatically at midnight in this timezone. No key is needed. While it is on, the update button in the taskbar is hidden and update details are shown here instead.",
+  "이제 자정에 자동으로 업데이트됩니다.": "Updates now happen automatically at midnight.",
+  "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.": "Automatic updates are off. You can update yourself with the update button in the taskbar.",
+  "지금 최신 버전입니다": "you are up to date",
+  "최신 릴리스 정보를 불러오지 못했습니다": "Could not load the latest release details",
+  "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 남겨 주세요.": "To turn on automatic updates, please leave a star on the ShareDesk repository on GitHub.",
+  "별 남기고 켜기": "Star and turn on",
   "개별 언어 허용": "Allow personal language",
   "데스크 언어는 모든 참여자 화면에 함께 적용됩니다. 개별 언어 허용을 켜면 참여자가 자기 화면 언어를 따로 고를 수 있습니다.":
     "The desk language applies to every member's screen. Turn on personal language to let each member pick their own display language.",

@@ -233,6 +233,10 @@ test("manifest rejects bootstrap core duplicated in the managed file list", () =
             path: ".github/workflows/sharedesk-update.yml",
             sha256: "b".repeat(64),
           },
+          {
+            path: ".github/workflows/sharedesk-auto-update.yml",
+            sha256: "c".repeat(64),
+          },
         ],
       }),
     /cannot also be managed/,
@@ -285,6 +289,7 @@ test("one-command bootstrap adds and changes core/app files, deletes only old ma
       "scripts/sharedesk-bootstrap.mjs": bootstrapSource,
       "scripts/sharedesk-update.mjs": updaterSource,
       ".github/workflows/sharedesk-update.yml": "name: current updater\n",
+      ".github/workflows/sharedesk-auto-update.yml": "auto name: current updater\n",
     };
     const previous = manifest("1.0.0", {
       "src/change.txt": "old",
@@ -339,6 +344,7 @@ test("bootstrap accepts stable versions with build metadata", async () => {
       "scripts/sharedesk-bootstrap.mjs": "bootstrap\n",
       "scripts/sharedesk-update.mjs": "updater\n",
       ".github/workflows/sharedesk-update.yml": "workflow\n",
+      ".github/workflows/sharedesk-auto-update.yml": "auto workflow\n",
     };
     const next = manifest("1.1.0+build.7", { "src/app.txt": "app\n" }, core);
     let appliedVersion = "";
@@ -369,6 +375,7 @@ test("bootstrap uses a matching legacy baseline and rejects committed customizat
     "scripts/sharedesk-bootstrap.mjs": bootstrapSource,
     "scripts/sharedesk-update.mjs": updaterSource,
     ".github/workflows/sharedesk-update.yml": "name: updater\n",
+    ".github/workflows/sharedesk-auto-update.yml": "auto name: updater\n",
   };
   const oldPackage = '{"version":"v1.0.0"}\n';
   const newPackage = '{"version":"1.1.0"}\n';
@@ -435,11 +442,13 @@ test("manual managed updates replace executable core, preserve the workflow, and
     "scripts/sharedesk-bootstrap.mjs": "old bootstrap\n",
     "scripts/sharedesk-update.mjs": "old updater\n",
     ".github/workflows/sharedesk-update.yml": "name: old workflow\n",
+    ".github/workflows/sharedesk-auto-update.yml": "auto name: old workflow\n",
   };
   const newCore = {
     "scripts/sharedesk-bootstrap.mjs": "new bootstrap\n",
     "scripts/sharedesk-update.mjs": "new updater\n",
     ".github/workflows/sharedesk-update.yml": "name: old workflow\n",
+    ".github/workflows/sharedesk-auto-update.yml": "auto name: old workflow\n",
   };
   const previous = manifest("1.0.0", { "src/app.txt": "old app\n" }, oldCore);
   const nextFiles = { "src/app.txt": "new app\n" };
@@ -511,6 +520,7 @@ test("manual managed updates replace executable core, preserve the workflow, and
     const workflowChangedCore = {
       ...newCore,
       ".github/workflows/sharedesk-update.yml": "name: changed workflow\n",
+      ".github/workflows/sharedesk-auto-update.yml": "auto name: changed workflow\n",
     };
     await assert.rejects(
       applyAutomaticRelease({
@@ -1977,4 +1987,75 @@ test("setup offers to star the source repository once the build is done", async 
   // 설정 완료 안내 뒤에 물어본다.
   const completion = setup.indexOf("=== 설정 완료 ===");
   assert.ok(completion >= 0 && setup.indexOf("askToStar(", completion) > completion);
+});
+
+test("automatic updates run at midnight without a key and stay sealed", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/sharedesk-auto-update.yml", import.meta.url),
+    "utf8",
+  );
+  // 매시 예약으로 깨어나 앱의 공개 정책을 물어보고 자정에만 진행한다.
+  assert.match(workflow, /schedule:\s*\n\s*- cron: "7 \* \* \* \*"/);
+  assert.match(workflow, /\/api\/update-policy/);
+  assert.match(workflow, /"\$hour" != "00"/);
+  // 시간대는 앱 응답을 그대로 믿지 않고 문자 집합을 검증한 뒤 쓴다.
+  assert.match(workflow, /\[A-Za-z0-9_\+\/-\]\+\$/);
+  // 개인 키 없이 저장소 자체 토큰만 쓴다.
+  assert.match(workflow, /github\.token/);
+  assert.doesNotMatch(workflow, /SHAREDESK_GITHUB_TOKEN/);
+  // 수동 업데이트와 같은 봉인 규칙 — 워크플로 변경은 거부한다.
+  assert.match(
+    workflow,
+    /sharedesk-update\.yml \.github\/workflows\/sharedesk-auto-update\.yml/,
+  );
+  assert.match(workflow, /A verified update cannot change GitHub workflows/);
+  // 배포되지 않는 템플릿 저장소에서는 돌지 않는다.
+  assert.match(workflow, /github\.repository != 'Youkamii\/sharedesk-template'/);
+});
+
+test("the public update policy exposes only what the scheduler needs", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/update-policy/route.ts", import.meta.url),
+    "utf8",
+  );
+  // 키 없는 워크플로가 읽어야 하므로 인증을 걸지 않되, 내려 주는 값은
+  // 자동 업데이트 여부·시간대·버전뿐이어야 한다.
+  assert.doesNotMatch(route, /requireAdmin|requireSession/);
+  assert.match(route, /autoUpdate: settings\.autoUpdate/);
+  assert.match(route, /timezone: settings\.autoUpdate \? settings\.autoUpdateTimezone : null/);
+  assert.match(route, /currentVersion: packageJson\.version/);
+  assert.doesNotMatch(route, /invitations|email|sessions/i);
+});
+
+test("turning on automatic updates passes the same star gate and fails open", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/admin/desk-settings/route.ts", import.meta.url),
+    "utf8",
+  );
+  const gate = route.slice(route.indexOf("patch.autoUpdate === true"));
+  assert.match(gate, /checkStarred\(\{ token \}\)/);
+  assert.match(gate, /starRequired: true/);
+  assert.match(gate, /status: 409/);
+  // 별 남기기 실패는 켜는 것을 막지 않는다 — 실패 시 반환문이 없어야 한다.
+  assert.match(gate, /star-skipped/);
+  const afterAddStar = gate.slice(gate.indexOf("addStar"));
+  const consoleIndex = afterAddStar.indexOf("console.info");
+  const returnIndex = afterAddStar.indexOf("return NextResponse");
+  assert.ok(consoleIndex >= 0);
+  assert.ok(returnIndex === -1 || returnIndex > afterAddStar.indexOf("setDeskSettings") || consoleIndex < returnIndex);
+});
+
+test("desk settings only keep auto update together with a valid timezone", async () => {
+  const users = await readFile(
+    new URL("../src/lib/users.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(users, /export function parseTimezone/);
+  // 정규화: 시간대 없는 autoUpdate는 켜진 상태로 살아나지 못한다.
+  assert.match(
+    users,
+    /autoUpdate: rawSettings\?\.autoUpdate === true && autoUpdateTimezone !== null/,
+  );
+  // 끄면 시간대도 지워 다음 켜기에서 새로 잡는다.
+  assert.match(users, /patch\.autoUpdate === false[\s\S]*?autoUpdateTimezone = null/);
 });
