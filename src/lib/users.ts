@@ -140,11 +140,15 @@ export function defaultDeskSettings(): DeskSettings {
   };
 }
 
-// IANA 시간대 이름인지 실제 포매터 생성으로 검증한다.
+// IANA 시간대 이름인지 검증한다. Intl이 허용하는 "+05:30" 같은 오프셋
+// 문자열은 자정 계산의 기준이 흔들리므로 지역/도시 형태(또는 UTC)만 받는다.
+const TIMEZONE_SHAPE = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)+$/;
+
 export function parseTimezone(value: unknown): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > 64) {
     return null;
   }
+  if (value !== "UTC" && !TIMEZONE_SHAPE.test(value)) return null;
   try {
     new Intl.DateTimeFormat("en", { timeZone: value });
     return value;

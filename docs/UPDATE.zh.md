@@ -67,6 +67,8 @@ SHAREDESK_GITHUB_REPOSITORY=我的GitHub账号/我的ShareDesk仓库
 
 该功能由仓库中的 `.github/workflows/sharedesk-auto-update.yml` 工作流处理，新安装的仓库自带此文件。如果较早安装的仓库缺少此文件，请从源仓库的相同路径复制内容，一次性添加到自己仓库的相同位置。
 
+需要了解：自动更新会在无人确认的情况下直接应用新版本。请只在信任源仓库时开启 — 如果源账号被盗，其代码会自动进入你的仓库。
+
 注意：如果仓库六十天内没有任何活动，GitHub 会暂停定时运行。此时在仓库的 Actions 页面重新启用 `ShareDesk Auto Update` 工作流即可。
 
 ## 0.5.0 起的行为变化

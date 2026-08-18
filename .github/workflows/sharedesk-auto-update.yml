@@ -53,18 +53,15 @@ jobs:
           fi
           policy="$(curl -sS --max-time 20 "$url/api/update-policy" || true)"
           auto="$(printf '%s' "$policy" | jq -r '.autoUpdate // false' 2>/dev/null || echo false)"
-          tz="$(printf '%s' "$policy" | jq -r '.timezone // empty' 2>/dev/null || true)"
+          midnight="$(printf '%s' "$policy" | jq -r '.midnight // false' 2>/dev/null || echo false)"
           if [[ "$auto" != "true" ]]; then
             echo "Auto update is turned off; nothing to do."
             exit 0
           fi
-          if ! [[ "$tz" =~ ^[A-Za-z0-9_+/-]+$ ]]; then
-            echo "The reported timezone is unusable; nothing to do."
-            exit 0
-          fi
-          hour="$(TZ="$tz" date +%H)"
-          if [[ "$EVENT_NAME" == "schedule" && "$hour" != "00" ]]; then
-            echo "It is ${hour}:xx in ${tz}; waiting for midnight."
+          # 자정 판정은 앱이 저장된 시간대로 계산해 준다 — 시간대 문자열이
+          # 셸에 닿지 않고, 00~01시 창이라 예약 지연에도 그날을 놓치지 않는다.
+          if [[ "$EVENT_NAME" == "schedule" && "$midnight" != "true" ]]; then
+            echo "Not the midnight window yet; waiting."
             exit 0
           fi
           echo "proceed=true" >> "$GITHUB_OUTPUT"

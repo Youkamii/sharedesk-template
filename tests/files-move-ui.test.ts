@@ -22,6 +22,19 @@ import {
   fileActivationAction,
 } from "../src/lib/client/file-activation";
 import {
+  DOWNLOAD_CONCURRENCY,
+  downloadPercent,
+  downloadQueueSummary,
+  newDownloadItem,
+  nextDownloadStarts,
+  parseContentLength,
+  patchDownloadItem,
+  pruneFinishedDownloads,
+  retryDownloadItem,
+  runningDownloadCount,
+  startDownloads,
+} from "../src/lib/client/download-queue";
+import {
   groupLayoutMigrationTargets,
   migrateEntryLayoutKey,
   migrateLayoutKey,
@@ -1525,4 +1538,166 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
   assert.match(adminView, /별 남기고 켜기/);
   assert.match(adminView, /releases\/latest/);
   assert.match(adminView, /releaseNotes/);
+});
+
+test("동시 다운로드 큐(#103)는 3개까지만 동시에 받고 나머지를 대기시킨다", () => {
+  const items = ["a", "b", "c", "d", "e"].map((id, index) =>
+    newDownloadItem(id, `entry-${index}`, `${id}.txt`, `${id}.txt`),
+  );
+  assert.equal(DOWNLOAD_CONCURRENCY, 3);
+  const firstStarts = nextDownloadStarts(items);
+  assert.deepEqual(firstStarts, ["a", "b", "c"]);
+  const running = startDownloads(items, firstStarts);
+  assert.equal(runningDownloadCount(running), 3);
+  // 캡이 찼으면 대기 항목이 있어도 새로 띄우지 않는다.
+  assert.deepEqual(nextDownloadStarts(running), []);
+  // 하나가 끝나야 대기 항목이 한 칸 올라온다.
+  const oneDone = patchDownloadItem(running, "b", {
+    status: "done",
+    transferred: 10,
+    total: 10,
+  });
+  assert.deepEqual(nextDownloadStarts(oneDone), ["d"]);
+
+  // 진행률은 Content-Length가 있을 때만 숫자가 되고, 없으면 불확정(null)이다.
+  const partial = patchDownloadItem(oneDone, "a", {
+    transferred: 25,
+    total: 100,
+  });
+  assert.equal(downloadPercent(partial.find((item) => item.id === "a")!), 25);
+  const unknown = patchDownloadItem(partial, "c", {
+    transferred: 25,
+    total: null,
+  });
+  assert.equal(downloadPercent(unknown.find((item) => item.id === "c")!), null);
+  assert.equal(parseContentLength("2048"), 2048);
+  assert.equal(parseContentLength("2 048"), null);
+  assert.equal(parseContentLength(null), null);
+
+  // 실패 → 다시 시도는 대기로 되돌려 캡 안에서 다시 뜨게 한다.
+  const failed = patchDownloadItem(unknown, "e", {
+    status: "failed",
+    error: "다운로드에 실패했습니다",
+  });
+  assert.deepEqual(downloadQueueSummary(failed), {
+    total: 5,
+    done: 1,
+    failed: 1,
+    active: 3,
+  });
+  const retried = retryDownloadItem(failed, "e");
+  assert.equal(retried.find((item) => item.id === "e")!.status, "queued");
+  // 패널을 닫아도 진행 중·대기 항목은 남고 끝난 항목만 정리된다.
+  assert.deepEqual(
+    pruneFinishedDownloads(retried).map((item) => item.id),
+    ["a", "c", "d", "e"],
+  );
+});
+
+test("다중 선택 다운로드(#103)는 목록 패널을 거치고 기존 다운로드 경로를 재사용한다", async () => {
+  const [source, css, route, roles] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/files/desktop.module.css", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/api/drive/download/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/lib/roles.ts", import.meta.url), "utf8"),
+  ]);
+
+  // 진입점: 선택 안에서 연 항목 메뉴에만, 선택된 파일이 둘 이상일 때만 붙는다.
+  assert.match(source, /\{\(contextMenu\.batchDownload \?\? 0\) > 1 && \(/);
+  assert.match(source, /queueDownloads\(\s*selectedDownloadTargets\(/);
+  assert.match(source, /선택한 \{count\}개 다운로드/);
+  assert.match(source, /return targets\.length > 1 \? targets : \[\];/);
+  // 폴더는 큐에 넣지 않는다 — 단일 다운로드와 같은 규칙이다.
+  assert.match(
+    source,
+    /const targets = entries\.filter\(\(entry\) => !entry\.isFolder\);/,
+  );
+
+  // 동시 실행 캡은 순수 모듈이 계산하고, 하나 끝날 때마다 다음을 올린다.
+  assert.match(
+    source,
+    /nextDownloadStarts\(\s*downloadItemsRef\.current,\s*DOWNLOAD_CONCURRENCY,\s*\)/,
+  );
+  assert.match(
+    source,
+    /finally \{\s*reportTransferProgress\(null, id\);[\s\S]{0,120}?pumpDownloadQueue\(\);/,
+  );
+
+  // 진행률은 fetch 스트림 + Content-Length로 세고, 완료하면 blob을 a[download]로 저장한다.
+  assert.match(source, /response\.body\.getReader\(\)/);
+  assert.match(
+    source,
+    /parseContentLength\(response\.headers\.get\("content-length"\)\)/,
+  );
+  assert.match(source, /saveDownloadedBlob\(new Blob\(chunks\), item\.fileName\)/);
+  assert.match(source, /anchor\.download = fileName;/);
+
+  // 항목별 상태 4종 + 불확정 진행률 + 실패 재시도 버튼.
+  assert.match(source, /t\("대기 중"\)/);
+  assert.match(source, /t\("받는 중 \{percent\}%", \{ percent \}\)/);
+  assert.match(source, /t\("완료"\)/);
+  assert.match(source, /t\("다운로드 실패"\)/);
+  assert.match(source, /<progress className=\{styles\.downloadProgress\} \/>/);
+  assert.match(source, /onClick=\{\(\) => retryQueuedDownload\(item\.id\)\}/);
+
+  // 닫아도 진행 중인 다운로드는 계속되고, 작업표시줄 칩으로 다시 연다.
+  assert.match(
+    source,
+    /function closeDownloadPanel\(\) \{\s*writeDownloadItems\(pruneFinishedDownloads\(/,
+  );
+  assert.match(
+    source,
+    /\{!downloadPanelOpen &&\s*downloadSummary\.active \+ downloadSummary\.failed > 0 && \(/,
+  );
+
+  // 권한: 새 엔드포인트를 만들지 않고 단일 다운로드와 같은 세션 검사 경로를 쓴다.
+  // 다운로드는 역할 4단계 어디에도 게이트가 없는 동작이라(canDownload 없음)
+  // 화면 게이트는 "선택에 파일이 둘 이상인가"뿐이고, 실제 방어선은 서버 세션이다.
+  assert.match(
+    source,
+    /`\/api\/drive\/download\?id=\$\{encodeURIComponent\(item\.entryId\)\}`/,
+  );
+  assert.match(route, /const auth = await requireSession\(/);
+  assert.match(route, /if \("response" in auth\) return auth\.response;/);
+  assert.doesNotMatch(roles, /canDownload/);
+  assert.doesNotMatch(source, /allow(Edit|Upload) && \(\s*<MenuButton[^>]*>\s*\{t\("선택한/);
+
+  // 패널 스타일은 기존 픽셀 UI 관례(우하단 고정·픽셀 테두리)를 따른다.
+  assert.match(css, /\.downloadPanel \{[\s\S]{0,240}?position: fixed;/);
+  assert.match(css, /\.downloadRow\[data-status="failed"\] \.downloadState/);
+});
+
+test("외부 공유 링크는 수정 가능 역할의 파일에서만 열리고 복사·취소를 갖춘다", async () => {
+  const [filesView, dialog] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/files/ShareLinkDialog.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  // 메뉴 항목: canEdit(allowEdit) 게이트 + 폴더 제외.
+  assert.match(
+    filesView,
+    /\{allowEdit && !contextMenu\.entry\.isFolder && \(\s*<MenuButton[\s\S]*?openShareLinkDialog/,
+  );
+  // 창 렌더도 같은 게이트를 지난다.
+  assert.match(filesView, /\{allowEdit && shareLinkEntry && \(/);
+  // 서버 관리 API를 쓰고, 공개 URL 형식을 만든다.
+  assert.match(dialog, /\/api\/drive\/share-link/);
+  assert.match(dialog, /\/api\/share\/\$\{linkId\}/);
+  // 복사(클립보드 실패 시 직접 선택 안내)와 링크 취소가 있다.
+  assert.match(dialog, /navigator\.clipboard\.writeText/);
+  assert.match(dialog, /아래 주소를 직접 선택해 복사해 주세요/);
+  assert.match(dialog, /링크 취소/);
+  // 만료 선택지 4종, 기본 7일.
+  assert.match(dialog, /useState<number>\(24 \* 7\)/);
+  for (const label of ["1시간", "24시간", "7일", "30일"]) {
+    assert.ok(dialog.includes(`"${label}"`), label);
+  }
 });

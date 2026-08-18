@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
-import {
-  addStar,
-  checkStarred,
-  resolveStarToken,
-  starPageUrl,
-} from "@/lib/github-star";
+import { passStarGate, starPageUrl } from "@/lib/github-star";
 import { parseLocale, type Locale } from "@/lib/i18n";
+import { hasAutoUpdateWorkflow } from "@/lib/update-status";
 import { getDeskSettings, parseTimezone, setDeskSettings } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
@@ -86,33 +82,35 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
   }
 
-  // 자동 업데이트도 수동 업데이트와 같은 별 게이트를 지난다: 아직 별을
-  // 안 눌렀으면 동의를 받아 별을 남긴 뒤에 켠다. 별 남기기 실패나 확인
-  // 불가(토큰 없음 등)는 켜는 것을 막지 않는다.
   if (patch.autoUpdate === true) {
-    const agreedToStar =
-      (body as { star?: unknown } | null)?.star === true;
-    const token = resolveStarToken();
-    const starCheck = await checkStarred({ token });
-    if (starCheck.ok && !starCheck.starred) {
-      if (!agreedToStar) {
-        return NextResponse.json(
-          {
-            error:
-              "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 눌러 주세요.",
-            starRequired: true,
-            starPageUrl: starPageUrl(),
-          },
-          { status: 409, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-      const starred = await addStar({ token });
-      console.info("[admin]", {
-        event: starred.ok ? "star-added" : "star-skipped",
-        repository: starPageUrl(),
-        actorUserId: auth.session.userId,
-        ...(starred.ok ? {} : { status: starred.status }),
-      });
+    // 예전 설치에는 자동 업데이트 워크플로 파일이 없다. 그 상태로 켜면
+    // 버튼만 사라지고 아무 일도 안 일어나므로, 확인 가능한 환경에서는
+    // 파일이 생길 때까지 켜기를 거부한다(문서의 1회 추가 절차 안내).
+    const workflowPresent = await hasAutoUpdateWorkflow();
+    if (workflowPresent === false) {
+      return NextResponse.json(
+        {
+          error:
+            "이 저장소에는 자동 업데이트 워크플로가 아직 없습니다. 업데이트 안내 문서의 '자동 업데이트' 절을 따라 파일을 한 번 추가한 뒤 다시 켜 주세요.",
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    // 자동 업데이트도 수동 업데이트와 같은 별 게이트를 지난다.
+    const gate = await passStarGate({
+      agreed: (body as { star?: unknown } | null)?.star === true,
+      actorUserId: auth.session.userId,
+    });
+    if (!gate.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 눌러 주세요.",
+          starRequired: true,
+          starPageUrl: starPageUrl(),
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
     }
   }
 

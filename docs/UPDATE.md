@@ -67,6 +67,8 @@ Turn on `Automatic updates` under Admin → Settings → Updates, and new versio
 
 The feature is handled by the `.github/workflows/sharedesk-auto-update.yml` workflow, which every new install ships with. If an older install is missing this file, copy its contents from the same path in the source repository into the same location in your repository once.
 
+Worth knowing: automatic updates apply new releases without a human check. Turn it on only if you trust the source repository — if that account were compromised, its code would arrive automatically.
+
 Note: GitHub pauses scheduled runs after sixty days without repository activity. If that happens, re-enable the `ShareDesk Auto Update` workflow on your repository's Actions screen.
 
 ## What changes in 0.5.0
