@@ -2,13 +2,13 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
-import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
+import { LOCALE_COOKIE, resolveEffectiveLocale, translate,
+  docUrl,
+} from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
 
-const CREATE_DESK_URL =
-  "https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.md";
 
 const GOOGLE_LOGIN_ENV = [
   "ADMIN_EMAILS",
@@ -53,6 +53,7 @@ export default async function Home({
     await getDeskSettingsOrDefault(),
     cookieStore.get(LOCALE_COOKIE)?.value,
   );
+  const createDeskUrl = docUrl("INSTALL", locale);
   const t = (text: string, vars?: Record<string, string | number>) =>
     translate(locale, text, vars);
 
@@ -100,7 +101,7 @@ export default async function Home({
           </Link>
         ) : !keyLoginEnabled ? (
           <a
-            href={CREATE_DESK_URL}
+            href={createDeskUrl}
             target="_blank"
             rel="noreferrer"
             className="mt-6 flex items-center justify-center rounded-lg bg-foreground py-2.5 font-medium text-background"
@@ -134,7 +135,7 @@ export default async function Home({
             )}
           </p>
           <a
-            href={CREATE_DESK_URL}
+            href={createDeskUrl}
             target="_blank"
             rel="noreferrer"
             className="mt-4 flex items-center justify-center rounded-lg border border-black/15 py-2.5 font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"

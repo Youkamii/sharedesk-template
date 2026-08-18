@@ -79,7 +79,11 @@ import {
   previewKindOf,
   type PreviewKind,
 } from "@/lib/preview";
-import { translate, type Locale, LOCALE_BCP47,
+import {
+  docUrl,
+  LOCALE_BCP47,
+  translate,
+  type Locale,
 } from "@/lib/i18n";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageMenu from "../LanguageToggle";
@@ -332,8 +336,6 @@ const ROOT_DESKTOP_CORRECTION_RETRY_MS = 1_500;
 const LAYOUT_POLL_MS = 5_000;
 const LIST_POLL_MS = 30_000;
 const PRESENCE_HEARTBEAT_MS = 30_000;
-const UPDATE_GUIDE_URL =
-  "https://github.com/Youkamii/sharedesk-template/blob/main/docs/UPDATE.md";
 const DETACHED_LIST_SCOPE_PREFIX = "detached-folder:";
 const TEXT_EDIT_LIMIT = 1024 * 1024;
 // 역할 4단계(#80): 편집 권한이 없는 역할에게 편집 화면을 읽기 전용으로 보여 줄 때의 사유.
@@ -616,6 +618,7 @@ export default function FilesView({
     [],
   );
   const dateLocale = LOCALE_BCP47[locale];
+  const updateGuideUrl = docUrl("UPDATE", locale);
   // 역할 4단계(#80): 권한이 없는 조작 UI는 조용히 숨긴다(비활성보다 숨김).
   // 게스트는 서버가 viewer로 내려 주므로 별도 게스트 분기가 필요 없다.
   const allowUpload = canUpload(role);
@@ -8091,7 +8094,7 @@ export default function FilesView({
                         {t("설정 확인이나 기존 설치 전환 방법을 안내에서 확인한 뒤 다시 시도해 주세요.")}
                       </span>
                       <a
-                        href={UPDATE_GUIDE_URL}
+                        href={updateGuideUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                       >
@@ -8175,7 +8178,7 @@ export default function FilesView({
                           {t("Vercel 환경 변수에 SHAREDESK_GITHUB_TOKEN을 추가하면 이 창에서 바로 업데이트할 수 있습니다.")}
                         </span>
                         <a
-                          href={UPDATE_GUIDE_URL}
+                          href={updateGuideUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                         >

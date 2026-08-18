@@ -21,7 +21,8 @@ test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들�
   assert.match(source, /참여자라면 GitHub,[\s\S]*?Vercel, OAuth 설정 없이/);
   assert.match(
     source,
-    /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/INSTALL\.md/,
+    // 문서 링크는 화면 언어에 맞는 언어판으로 간다 (docUrl 헬퍼).
+    /docUrl\("INSTALL", locale\)/,
   );
 });
 
