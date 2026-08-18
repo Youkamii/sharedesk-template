@@ -1,14 +1,12 @@
 # ShareDesk
 
+### 语言
+
+[English](./README.md) · [한국어](./README.ko.md) · [日本語](./README.ja.md) · [हिन्दी](./README.hi.md) · **中文**
+
 ShareDesk 是**一个共享文件空间：多个人用各自的 Google 账号，一起使用同一个人的 Google Drive 存储空间**。只有主持人需要安装一次；参与者只要在同一个地址登录、输入邀请码，就能一起使用相同的文件和文件夹。
 
 ![ShareDesk 演示](./docs/sharedesk-demo.gif)
-
-## 语言
-
-本页面提供五种语言，应用界面也支持同样的五种语言。管理员在**设置**中确定桌面语言，也可以允许每位成员选择自己的语言。
-
-[English](./README.md) · [한국어](./README.ko.md) · [日本語](./README.ja.md) · [हिन्दी](./README.hi.md) · **中文**
 
 ## 四种壁纸
 
