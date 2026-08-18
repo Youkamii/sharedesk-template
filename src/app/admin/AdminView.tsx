@@ -1418,7 +1418,15 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       className={styles.githubStarButton}
                       aria-label={t("자동 업데이트")}
                       disabled={deskSettings === null || busyId !== null}
-                      onClick={() =>
+                      onClick={() => {
+                        // GitHub 버튼답게 저장소 페이지를 함께 연다 — 토큰에
+                        // Starring 권한이 없는 설치에서도 그 자리에서 별을
+                        // 누를 수 있다. 권한이 있으면 서버가 자동으로 남긴다.
+                        window.open(
+                          "https://github.com/Youkamii/sharedesk-template",
+                          "_blank",
+                          "noopener",
+                        );
                         void updateDeskSettings(
                           {
                             autoUpdate: true,
@@ -1427,8 +1435,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             star: true,
                           },
                           "이제 자정에 자동으로 업데이트됩니다.",
-                        )
-                      }
+                        );
+                      }}
                     >
                       <svg
                         className={styles.githubMark}

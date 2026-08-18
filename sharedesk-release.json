@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "0.7.4",
+  "version": "0.7.5",
   "files": [
     {
       "path": ".env.example",
@@ -231,16 +231,16 @@
     },
     {
       "path": "package-lock.json",
-      "sha256": "e438661c5c889680ce5d13fba2ab72faad19158139981259d4009a90ff851c54",
+      "sha256": "53065a13dabbb8a3dd55df8d3659a1a1e0567e14f15b5504084b641a05fb3b09",
       "acceptedSha256": [
-        "91c0b1d84a27ded95bdc898677b17185f851c99607cef674130b3ff56285c3b5"
+        "7832469c2c5548192e2232ace1d9e91c27a90a0f886c441fbc6f77e43b63c56e"
       ]
     },
     {
       "path": "package.json",
-      "sha256": "15eb89a27d173548110b38150873de2a18fa9ede57a67f0eb7c94ac84ed93f72",
+      "sha256": "c5f93282c6f8cbae76a9bf5cbf2aabf39948cbd5a20d067df35a13e0f3a19030",
       "acceptedSha256": [
-        "2934902c9c31905305f7f0d05a8939fe6d40d04147c805ba46e684ff6ba30acc"
+        "19e7dce609ef38375a199fab89531176a70c57f2433cfec8b24ee03bc4fb4316"
       ]
     },
     {
@@ -376,16 +376,16 @@
     },
     {
       "path": "src/app/admin/admin.module.css",
-      "sha256": "c881248ddeb81141afe97adb8d1caa01563ecd896a54aedcc7b9e848a3f246be",
+      "sha256": "736a88d14224770f1845adaaed9d891d7d328810e973f36e32e86a4cc8c31d9e",
       "acceptedSha256": [
-        "823159b831a20a53b9601c12c34781abf1e93463311423ad6ed155946f614ffe"
+        "126b6dc004a69b9b957c4246986f5d54d8f1b984a2506e9e0f37524def08317f"
       ]
     },
     {
       "path": "src/app/admin/AdminView.tsx",
-      "sha256": "114b169b1587c9f448e88eda468f5078310066ff60355bc9a18a414279331b7a",
+      "sha256": "afb86eff09bf890b02614751e0e6393fd8acc21cd2c0509761ec77ca93805439",
       "acceptedSha256": [
-        "eb8c9805fcdaaec1bdde21100983042382189e5824902e98e5db28c4b221fbbe"
+        "dc51136eca3d80667cc275ad6cd478be6f8b3f80a7807e7ad9bd2bf17c911447"
       ]
     },
     {
@@ -10797,7 +10797,7 @@
     },
     {
       "schemaVersion": 1,
-      "version": "0.7.3",
+      "version": "0.7.4",
       "files": [
         {
           "path": ".env.example",
@@ -11028,16 +11028,16 @@
         },
         {
           "path": "package-lock.json",
-          "sha256": "9a3e7232c568a2c10e6f7cf1faa7409966efebe1d22c5bf472a36d46d0b834cf",
+          "sha256": "e438661c5c889680ce5d13fba2ab72faad19158139981259d4009a90ff851c54",
           "acceptedSha256": [
-            "88ffa8e93b607be49e912700b05e774c9e6a38840ea8a7cd4d0f1df8c80f0f16"
+            "91c0b1d84a27ded95bdc898677b17185f851c99607cef674130b3ff56285c3b5"
           ]
         },
         {
           "path": "package.json",
-          "sha256": "9931347d61ac2ee3e26f9ffd4b322810312a14b97bfef49a5754e01562b77d0e",
+          "sha256": "15eb89a27d173548110b38150873de2a18fa9ede57a67f0eb7c94ac84ed93f72",
           "acceptedSha256": [
-            "b6c4dc36a1c3d2df5796bf1334aec23c46258a27e716aabca8b2264774672ca6"
+            "2934902c9c31905305f7f0d05a8939fe6d40d04147c805ba46e684ff6ba30acc"
           ]
         },
         {
@@ -11173,16 +11173,16 @@
         },
         {
           "path": "src/app/admin/admin.module.css",
-          "sha256": "936394f8846feb91435e01cbfaffd9f123d5c18e7306edc4a0cf13e15f7ee801",
+          "sha256": "c881248ddeb81141afe97adb8d1caa01563ecd896a54aedcc7b9e848a3f246be",
           "acceptedSha256": [
-            "7b85c1d8554b3363a820a02de4de57c8eb517b460d56fead3184ccc4e46fc734"
+            "823159b831a20a53b9601c12c34781abf1e93463311423ad6ed155946f614ffe"
           ]
         },
         {
           "path": "src/app/admin/AdminView.tsx",
-          "sha256": "9795dacffeae65ff682305c61b3514b1d42d229ca2edc2530ba08235aa9fd749",
+          "sha256": "114b169b1587c9f448e88eda468f5078310066ff60355bc9a18a414279331b7a",
           "acceptedSha256": [
-            "cac323750d1876357946bd6bc817331126646ae2550f44288b3b9bd7cd90940b"
+            "eb8c9805fcdaaec1bdde21100983042382189e5824902e98e5db28c4b221fbbe"
           ]
         },
         {
