@@ -17,6 +17,7 @@ import {
   selectStableRelease as selectUpdaterStableRelease,
   sha256,
   validateManifest,
+  BOOTSTRAP_CORE_PATHS,
 } from "../scripts/sharedesk-update.mjs";
 import {
   assertCleanGitRepository,
@@ -666,6 +667,10 @@ test("manifest generator captures the current snapshot, bootstrap core, legacy d
     await writeFile(
       path.join(rootDir, ".github/workflows/sharedesk-update.yml"),
       "on:\r\n  workflow_dispatch:\r\n",
+    );
+    await writeFile(
+      path.join(rootDir, ".github/workflows/sharedesk-auto-update.yml"),
+      "on:\r\n  schedule:\r\n",
     );
     await writeFile(path.join(rootDir, ".env.local"), "SECRET=preserve");
     await writeFile(path.join(rootDir, ".vercel/project.json"), "preserve");
@@ -1958,13 +1963,13 @@ test("the update route refuses to dispatch until the star is agreed", async () =
   );
   const postSource = route.slice(route.indexOf("export async function POST"));
   // 별 확인이 워크플로 실행보다 먼저 와야 한다.
-  const starIndex = postSource.indexOf("checkStarred");
+  const starIndex = postSource.indexOf("passStarGate");
   const dispatchIndex = postSource.indexOf("dispatchUpdateWorkflow");
   assert.ok(starIndex >= 0 && dispatchIndex > starIndex);
   assert.match(postSource, /star === true/);
   assert.match(postSource, /starRequired: true/);
   assert.match(postSource, /status: 409/);
-  assert.match(postSource, /addStar\(\{ token \}\)/);
+  assert.match(postSource, /passStarGate\(/);
 });
 
 test("setup offers to star the source repository once the build is done", async () => {
@@ -1977,4 +1982,163 @@ test("setup offers to star the source repository once the build is done", async 
   // 설정 완료 안내 뒤에 물어본다.
   const completion = setup.indexOf("=== 설정 완료 ===");
   assert.ok(completion >= 0 && setup.indexOf("askToStar(", completion) > completion);
+});
+
+test("automatic updates run at midnight without a key and stay sealed", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/sharedesk-auto-update.yml", import.meta.url),
+    "utf8",
+  );
+  // 매시 예약으로 깨어나 앱의 공개 정책을 물어보고 자정에만 진행한다.
+  assert.match(workflow, /schedule:\s*\n\s*- cron: "7 \* \* \* \*"/);
+  assert.match(workflow, /\/api\/update-policy/);
+  // 자정 판정은 앱이 계산해 준다 — 시간대 문자열이 셸에 닿지 않는다.
+  assert.match(workflow, /"\$midnight" != "true"/);
+  assert.doesNotMatch(workflow, /TZ=/);
+  // 개인 키 없이 저장소 자체 토큰만 쓴다.
+  assert.match(workflow, /github\.token/);
+  assert.doesNotMatch(workflow, /SHAREDESK_GITHUB_TOKEN/);
+  // 수동 업데이트와 같은 봉인 규칙 — 워크플로 변경은 거부한다.
+  assert.match(
+    workflow,
+    /sharedesk-update\.yml \.github\/workflows\/sharedesk-auto-update\.yml/,
+  );
+  assert.match(workflow, /A verified update cannot change GitHub workflows/);
+  // 배포되지 않는 템플릿 저장소에서는 돌지 않는다.
+  assert.match(workflow, /github\.repository != 'Youkamii\/sharedesk-template'/);
+});
+
+test("the public update policy exposes only what the scheduler needs", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/update-policy/route.ts", import.meta.url),
+    "utf8",
+  );
+  // 키 없는 워크플로가 읽어야 하므로 인증을 걸지 않되, 내려 주는 값은
+  // 자동 업데이트 여부·시간대·버전뿐이어야 한다.
+  assert.doesNotMatch(route, /requireAdmin|requireSession/);
+  assert.match(route, /autoUpdate: settings\.autoUpdate/);
+  // 시간대는 노출하지 않는다 — 자정(00~01시) 여부만 내려 준다.
+  assert.doesNotMatch(route, /timezone:/);
+  assert.match(route, /hour === "00" \|\| hour === "01"/);
+  assert.match(route, /currentVersion: packageJson\.version/);
+  assert.doesNotMatch(route, /invitations|email|sessions/i);
+});
+
+test("turning on automatic updates passes the same star gate and fails open", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/admin/desk-settings/route.ts", import.meta.url),
+    "utf8",
+  );
+  const gate = route.slice(route.indexOf("patch.autoUpdate === true"));
+  // 수동 업데이트와 같은 공용 별 게이트를 쓴다.
+  assert.match(gate, /passStarGate\(/);
+  assert.match(gate, /starRequired: true/);
+  assert.match(gate, /status: 409/);
+  // 예전 설치(워크플로 없음)에서는 켜기를 거부해 무음 실패를 막는다.
+  assert.match(gate, /hasAutoUpdateWorkflow\(\)/);
+  assert.match(gate, /workflowPresent === false/);
+  // 공용 게이트 자체가 별 실패를 fail-open으로 다룬다.
+  const star = await readFile(
+    new URL("../src/lib/github-star.ts", import.meta.url),
+    "utf8",
+  );
+  const passGate = star.slice(star.indexOf("export async function passStarGate"));
+  assert.match(passGate, /star-skipped/);
+  assert.doesNotMatch(
+    passGate.slice(0, passGate.indexOf("export function resolveStarToken")),
+    /throw /,
+  );
+});
+
+test("desk settings only keep auto update together with a valid timezone", async () => {
+  const users = await readFile(
+    new URL("../src/lib/users.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(users, /export function parseTimezone/);
+  // 정규화: 시간대 없는 autoUpdate는 켜진 상태로 살아나지 못한다.
+  assert.match(
+    users,
+    /autoUpdate: rawSettings\?\.autoUpdate === true && autoUpdateTimezone !== null/,
+  );
+  // 끄면 시간대도 지워 다음 켜기에서 새로 잡는다.
+  assert.match(users, /patch\.autoUpdate === false[\s\S]*?autoUpdateTimezone = null/);
+});
+
+test("desk activity is recorded after responses and never blocks the operation", async () => {
+  const activity = await readFile(
+    new URL("../src/lib/activity.ts", import.meta.url),
+    "utf8",
+  );
+  // 기록 실패는 삼키고, 동시 기록은 재시도 후 조용히 포기한다.
+  assert.match(activity, /catch \(error\) \{\s*console\.error\("\[activity\]"/);
+  assert.match(activity, /MAX_ENTRIES = 200/);
+  assert.match(activity, /compareAndSwapState/);
+  // 파일 작업 라우트들이 응답 뒤에 기록한다 (after 사용).
+  for (const routePath of [
+    "../src/app/api/drive/upload/route.ts",
+    "../src/app/api/drive/delete/route.ts",
+    "../src/app/api/drive/rename/route.ts",
+    "../src/app/api/drive/move/route.ts",
+    "../src/app/api/drive/mkdir/route.ts",
+    "../src/app/api/drive/trash/route.ts",
+    "../src/app/api/drive/content/route.ts",
+  ]) {
+    const route = await readFile(new URL(routePath, import.meta.url), "utf8");
+    assert.match(route, /recordActivityAfter\(/, routePath);
+  }
+  // 열람은 관리자 전용이다.
+  const adminRoute = await readFile(
+    new URL("../src/app/api/admin/activity/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(adminRoute, /requireAdmin/);
+});
+
+test("external share links are scoped, expiring, and revocable", async () => {
+  const lib = await readFile(
+    new URL("../src/lib/share-links.ts", import.meta.url),
+    "utf8",
+  );
+  // 링크 id는 URL에 노출되는 비밀 — 48자리 hex 난수를 강제한다.
+  assert.match(lib, /randomBytes\(24\)\.toString\("hex"\)/);
+  assert.match(lib, /\^\[a-f0-9\]\{48\}\$/);
+  // 만료 지난 링크는 목록·해석 어디서도 살아나지 못한다.
+  assert.match(lib, /pruneExpired/);
+  const manage = await readFile(
+    new URL("../src/app/api/drive/share-link/route.ts", import.meta.url),
+    "utf8",
+  );
+  // 만들기·거두기는 관리자·수정 가능 역할만, 폴더는 거부.
+  assert.match(manage, /requireEditRights/);
+  assert.match(manage, /entry\.isFolder\) return badRequest/);
+  const publicRoute = await readFile(
+    new URL("../src/app/api/share/[linkId]/route.ts", import.meta.url),
+    "utf8",
+  );
+  // 공개 경로는 attachment 고정 — 브라우저 안에서 렌더되지 않는다.
+  assert.match(publicRoute, /attachment; filename/);
+  assert.doesNotMatch(publicRoute, /requireSession|requireEditRights/);
+  // 공개 경로는 proxy 보호 접두사(/api/drive, /api/admin) 밖에 있어야 한다.
+  const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");
+  assert.match(proxy, /\/api\/drive\/:path\*/);
+  assert.ok(!publicRoute.includes("api/drive/"));
+});
+
+test("the manifest contract never grows and new core files stay optional", async () => {
+  // 배포된 구버전 업데이터는 bootstrapFiles 길이가 자기 목록과 다르면
+  // 매니페스트 전체를 거부한다. 여기 항목을 더하는 순간 기존 설치의
+  // 업데이트가 전부 깨진다 — 새 core 파일은 부트스트랩의 선택 설치로만.
+  assert.equal(BOOTSTRAP_CORE_PATHS.length, 3);
+  const bootstrap = await readFile(
+    new URL("../scripts/sharedesk-bootstrap.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(bootstrap, /OPTIONAL_BOOTSTRAP_PATHS = \[\s*"\.github\/workflows\/sharedesk-auto-update\.yml",/);
+  // 선택 파일은 실패해도 부트스트랩을 막지 않고, 기존 파일을 덮지 않는다.
+  assert.match(bootstrap, /installOptionalBootstrapFiles/);
+  const optional = bootstrap.slice(
+    bootstrap.indexOf("async function installOptionalBootstrapFiles"),
+  );
+  assert.match(optional.slice(0, optional.indexOf("function nextPageUrl")), /continue;/);
 });

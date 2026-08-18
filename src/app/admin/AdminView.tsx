@@ -25,6 +25,7 @@ import {
 } from "@/lib/roles";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
+import type { ActivityAction, ActivityEntry } from "@/lib/activity";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
 type InvitationUsageMode = "once" | "unlimited";
@@ -59,7 +60,21 @@ interface OwnerRegistryStatus {
 }
 
 // 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마·바탕화면).
-type AdminTab = "users" | "settings";
+type AdminTab = "users" | "settings" | "activity";
+
+// 활동 종류별 표시 문구 — 서버의 ActivityAction 값과 1:1. 타입을 좁혀
+// 서버에 액션이 늘면 컴파일러가 라벨 누락을 잡는다.
+const ACTIVITY_LABELS: Record<ActivityAction, string> = {
+  upload: "업로드",
+  trash: "휴지통으로 이동",
+  restore: "복원",
+  purge: "완전 삭제",
+  "empty-trash": "휴지통 비우기",
+  rename: "이름 변경",
+  move: "이동",
+  mkdir: "새 폴더",
+  edit: "내용 수정",
+};
 
 // 테마는 화면 전체의 UI·질감이고 바탕화면은 그 위에 까는 그림이다 — 서로 다른 설정.
 // 지금 쓰는 도트 화면이 기본 테마이며, 테마가 늘어나면 이 목록에 추가한다.
@@ -156,9 +171,24 @@ export default function AdminView({ locale }: { locale: Locale }) {
     role: "editor" as UserRole,
   });
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
-  const [deskSettings, setDeskSettings] = useState<DeskLocaleSettings | null>(
-    null,
-  );
+  const [deskSettings, setDeskSettings] = useState<
+    (DeskLocaleSettings & { autoUpdate: boolean }) | null
+  >(null);
+  // 활동 탭 — 열 때마다 최근 활동을 새로 불러온다.
+  const [activity, setActivity] = useState<
+    { entries: ActivityEntry[] } | { error: string } | null
+  >(null);
+  // 자동 업데이트를 켜기 전에 별 동의가 필요할 때 여는 안내 상자.
+  const [starConsent, setStarConsent] = useState<{
+    starPageUrl: string;
+  } | null>(null);
+  // 자동 업데이트가 켜졌을 때 설정 화면에서 보여 주는 버전·릴리스 정보.
+  const [updateInfo, setUpdateInfo] = useState<{
+    currentVersion: string | null;
+    latestVersion: string | null;
+    latestNotes: string | null;
+    failed: boolean;
+  } | null>(null);
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
   // 테마는 아직 기본 하나뿐이라 선택 상태만 보여 준다.
   const [themeId, setThemeId] = useState<ThemeId>("classic");
@@ -277,6 +307,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
           const body = (await response.json().catch(() => null)) as {
             locale?: unknown;
             allowMemberLocale?: unknown;
+            autoUpdate?: unknown;
             error?: string;
           } | null;
           const deskLocale = parseLocale(body?.locale);
@@ -293,6 +324,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
           return {
             locale: deskLocale,
             allowMemberLocale: body.allowMemberLocale,
+            autoUpdate: body.autoUpdate === true,
           };
         })
         .then((settings) => {
@@ -328,6 +360,91 @@ export default function AdminView({ locale }: { locale: Locale }) {
     }, 0);
     return () => window.clearTimeout(initial);
   }, []);
+
+  // 자동 업데이트가 켜진 동안에는 설정 화면이 업데이트 버튼을 대신해
+  // 현재 버전과 최신 릴리스 내용을 보여 준다. 릴리스는 공개 저장소라
+  // 키 없이 GitHub 공개 API로 읽는다.
+  const autoUpdateOn = deskSettings?.autoUpdate === true;
+  useEffect(() => {
+    if (!autoUpdateOn) return;
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void Promise.all([
+        fetch("/api/update-policy", {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => null),
+        fetch(
+          "https://api.github.com/repos/Youkamii/sharedesk-template/releases/latest",
+          { signal: controller.signal },
+        )
+          .then((response) => (response.ok ? response.json() : null))
+          .catch(() => null),
+      ]).then(([policy, release]) => {
+        if (controller.signal.aborted) return;
+        const currentVersion =
+          typeof (policy as { currentVersion?: unknown } | null)
+            ?.currentVersion === "string"
+            ? ((policy as { currentVersion: string }).currentVersion)
+            : null;
+        const tag = (release as { tag_name?: unknown } | null)?.tag_name;
+        const notes = (release as { body?: unknown } | null)?.body;
+        setUpdateInfo({
+          currentVersion,
+          latestVersion:
+            typeof tag === "string" ? tag.replace(/^v/, "") : null,
+          latestNotes:
+            typeof notes === "string" && notes.trim().length > 0
+              ? notes.trim().slice(0, 1200)
+              : null,
+          failed: currentVersion === null && typeof tag !== "string",
+        });
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [autoUpdateOn]);
+
+  useEffect(() => {
+    if (activeTab !== "activity") return;
+    const controller = new AbortController();
+    const initial = window.setTimeout(() => {
+      void fetch("/api/admin/activity", {
+        cache: "no-store",
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (response.status === 401 || response.status === 403) {
+            router.replace("/files");
+            return;
+          }
+          const body = (await response.json().catch(() => null)) as {
+            entries?: unknown;
+            error?: string;
+          } | null;
+          if (!response.ok || !Array.isArray(body?.entries)) {
+            setActivity({
+              error: body?.error ?? t("활동을 불러오지 못했습니다"),
+            });
+            return;
+          }
+          setActivity({ entries: body.entries as ActivityEntry[] });
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setActivity({ error: t("활동을 불러오지 못했습니다") });
+          }
+        });
+    }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [activeTab, router, t]);
 
   async function recordCurrentInstallation() {
     if (!ownerRegistry?.enabled || ownerRegistryBusy) return;
@@ -556,7 +673,13 @@ export default function AdminView({ locale }: { locale: Locale }) {
   // 데스크 언어·개별 언어 허용을 부분 갱신한다. 알림 문구는 한국어 원문으로
   // 저장해 두면 router.refresh()로 언어가 바뀐 뒤에도 그 언어로 번역돼 나온다.
   async function updateDeskSettings(
-    patch: { locale?: Locale; allowMemberLocale?: boolean },
+    patch: {
+      locale?: Locale;
+      allowMemberLocale?: boolean;
+      autoUpdate?: boolean;
+      autoUpdateTimezone?: string;
+      star?: boolean;
+    },
     successNotice: string,
   ) {
     if (!beginMutation("desk-settings")) return;
@@ -575,8 +698,27 @@ export default function AdminView({ locale }: { locale: Locale }) {
       const body = (await response.json().catch(() => null)) as {
         locale?: unknown;
         allowMemberLocale?: unknown;
+        autoUpdate?: unknown;
+        starRequired?: unknown;
+        starPageUrl?: unknown;
         error?: string;
       } | null;
+      // 아직 별을 안 누른 데스크가 자동 업데이트를 켜면 오류 대신 동의
+      // 상자를 연다 — 동의하면 star: true로 다시 저장한다.
+      if (
+        response.status === 409 &&
+        body?.starRequired === true &&
+        patch.autoUpdate === true
+      ) {
+        setStarConsent({
+          starPageUrl:
+            typeof body.starPageUrl === "string" &&
+            body.starPageUrl.startsWith("https://github.com/")
+              ? body.starPageUrl
+              : "https://github.com/Youkamii/sharedesk-template",
+        });
+        return;
+      }
       const savedLocale = parseLocale(body?.locale);
       if (
         !response.ok ||
@@ -586,9 +728,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
       ) {
         throw new Error(body?.error ?? t("데스크 설정을 저장하지 못했습니다"));
       }
+      setStarConsent(null);
       setDeskSettings({
         locale: savedLocale,
         allowMemberLocale: body.allowMemberLocale,
+        autoUpdate: body.autoUpdate === true,
       });
       setNotice(successNotice);
       // 데스크 언어·개별 언어 허용 둘 다 지금 보이는 화면 언어를 바꿀 수 있다.
@@ -734,6 +878,17 @@ export default function AdminView({ locale }: { locale: Locale }) {
               onClick={() => setActiveTab("settings")}
             >
               {t("설정")}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tab-activity"
+              aria-selected={activeTab === "activity"}
+              aria-controls="panel-activity"
+              className={`${styles.tabButton} ${activeTab === "activity" ? styles.tabButtonActive : ""}`}
+              onClick={() => setActiveTab("activity")}
+            >
+              {t("활동")}
             </button>
           </div>
 
@@ -1253,6 +1408,125 @@ export default function AdminView({ locale }: { locale: Locale }) {
               </div>
             </section>
 
+            <section aria-labelledby="auto-update-title">
+              <div className={styles.window}>
+                <header className={styles.windowTitlebar}>
+                  <span className={styles.windowTitle}>
+                    <h2 id="auto-update-title">{t("업데이트")}</h2>
+                  </span>
+                  <label className={styles.allowToggle} htmlFor="auto-update">
+                    <input
+                      id="auto-update"
+                      type="checkbox"
+                      checked={deskSettings?.autoUpdate ?? false}
+                      disabled={deskSettings === null || busyId !== null}
+                      onChange={(event) =>
+                        void updateDeskSettings(
+                          event.target.checked
+                            ? {
+                                autoUpdate: true,
+                                autoUpdateTimezone:
+                                  Intl.DateTimeFormat().resolvedOptions()
+                                    .timeZone,
+                              }
+                            : { autoUpdate: false },
+                          event.target.checked
+                            ? "이제 자정에 자동으로 업데이트됩니다."
+                            : "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.",
+                        )
+                      }
+                    />
+                    {t("자동 업데이트")}
+                  </label>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용됩니다. 별도의 키가 필요 없습니다. 켜져 있는 동안 작업표시줄의 업데이트 버튼은 숨겨지고, 업데이트 내용은 여기에서 보여 줍니다.",
+                    )}
+                  </p>
+                  {starConsent && (
+                    <div
+                      className={styles.starConsent}
+                      role="group"
+                      aria-label={t("GitHub에 별 남기기")}
+                    >
+                      <p className={styles.description}>
+                        {t(
+                          "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 남겨 주세요.",
+                        )}{" "}
+                        <a
+                          href={starConsent.starPageUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {t("저장소 열기")}
+                        </a>
+                      </p>
+                      <div className={styles.starConsentActions}>
+                        <button
+                          type="button"
+                          className={`${styles.pixelButton} ${styles.primaryButton}`}
+                          disabled={busyId !== null}
+                          onClick={() => {
+                            setStarConsent(null);
+                            void updateDeskSettings(
+                              {
+                                autoUpdate: true,
+                                autoUpdateTimezone:
+                                  Intl.DateTimeFormat().resolvedOptions()
+                                    .timeZone,
+                                star: true,
+                              },
+                              "이제 자정에 자동으로 업데이트됩니다.",
+                            );
+                          }}
+                        >
+                          {t("별 남기고 켜기")}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.pixelButton}
+                          disabled={busyId !== null}
+                          onClick={() => setStarConsent(null)}
+                        >
+                          {t("취소")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {autoUpdateOn && updateInfo && (
+                    <div className={styles.description}>
+                      {updateInfo.failed ? (
+                        <p>{t("최신 릴리스 정보를 불러오지 못했습니다")}</p>
+                      ) : (
+                        <>
+                          {updateInfo.currentVersion && (
+                            <p>
+                              {t("현재 버전")}: {updateInfo.currentVersion}
+                            </p>
+                          )}
+                          {updateInfo.latestVersion && (
+                            <p>
+                              {t("최신 버전")}: {updateInfo.latestVersion}
+                              {updateInfo.currentVersion ===
+                                updateInfo.latestVersion &&
+                                ` — ${t("지금 최신 버전입니다")}`}
+                            </p>
+                          )}
+                          {updateInfo.latestNotes && (
+                            <pre className={styles.releaseNotes}>
+                              {updateInfo.latestNotes}
+                            </pre>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
             <section aria-labelledby="theme-title">
               <div className={styles.window}>
                 <header
@@ -1352,6 +1626,66 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       </button>
                     ))}
                   </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div
+            role="tabpanel"
+            id="panel-activity"
+            aria-labelledby="tab-activity"
+            hidden={activeTab !== "activity"}
+            className={styles.tabPanel}
+          >
+            <section aria-labelledby="activity-title">
+              <div className={styles.window}>
+                <header className={styles.windowTitlebar}>
+                  <span className={styles.windowTitle}>
+                    <h2 id="activity-title">{t("활동")}</h2>
+                  </span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "참여자들이 데스크에서 한 일이 최근 것부터 보입니다. 업로드, 삭제, 이름 변경 같은 변화만 기록합니다.",
+                    )}
+                  </p>
+                  {activity === null ? (
+                    <p className={styles.description}>{t("불러오는 중…")}</p>
+                  ) : "error" in activity ? (
+                    <p className={styles.description} role="alert">
+                      {activity.error}
+                    </p>
+                  ) : activity.entries.length === 0 ? (
+                    <p className={styles.description}>
+                      {t("아직 기록된 활동이 없습니다.")}
+                    </p>
+                  ) : (
+                    <ul className={styles.activityList}>
+                      {activity.entries.map((entry, index) => (
+                        <li
+                          key={`${entry.at}-${index}`}
+                          className={styles.activityItem}
+                        >
+                          <span className={styles.activityTime}>
+                            {formatDate(entry.at, locale)}
+                          </span>
+                          <span className={styles.activityActor}>
+                            {entry.actorName}
+                          </span>
+                          <span>
+                            {t(ACTIVITY_LABELS[entry.action])}
+                            {entry.action === "empty-trash"
+                              ? ` · ${t("{count}개 항목", { count: entry.name })}`
+                              : entry.name
+                                ? ` · ${entry.name}`
+                                : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               </div>
             </section>

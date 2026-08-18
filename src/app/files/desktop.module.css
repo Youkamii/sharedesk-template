@@ -2289,6 +2289,116 @@
   border: 1px solid #51658d;
 }
 
+/* 동시 다운로드 목록(#103) — 작업표시줄 위 우하단에 뜨는 픽셀 패널.
+   휴지통 아이콘(bottom 66px, 높이 76px) 위쪽에 놓아 서로 가리지 않는다. */
+.downloadPanel {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: 152px;
+  z-index: 1200;
+  display: grid;
+  width: 320px;
+  max-width: calc(100% - 36px);
+  gap: 7px;
+  padding: 9px;
+  color: #fff8e7;
+  background: #182446;
+  border: 2px solid #ffd27d;
+  box-shadow: 5px 5px 0 rgb(5 9 20 / 72%);
+}
+
+.downloadPanelHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.downloadPanelHeader > strong {
+  color: #ffd27d;
+  font-size: 13px;
+}
+
+.downloadPanelHeader > span {
+  color: #cdd5e8;
+  font-size: 11px;
+}
+
+.downloadList {
+  display: grid;
+  gap: 7px;
+  max-height: 208px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.downloadRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 0 0;
+  border-top: 1px solid #34486d;
+}
+
+.downloadName {
+  overflow: hidden;
+  color: #fff8e7;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.downloadState {
+  color: #cdd5e8;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.downloadRow[data-status="done"] .downloadState { color: #61b3a6; }
+.downloadRow[data-status="failed"] .downloadState { color: #e96872; }
+
+.downloadProgress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 6px;
+  accent-color: #61b3a6;
+}
+
+.downloadRetry {
+  padding: 3px 7px;
+  color: #fff8e7;
+  background: #26385d;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #59729e, 2px 2px 0 #070b16;
+  font-size: 11px;
+}
+
+.downloadRetry:active { box-shadow: inset 2px 2px 0 #111b33; }
+
+/* 목록을 닫아도 진행 중이면 작업표시줄에 남는 칩 — 눌러 다시 연다. */
+.downloadChip {
+  display: flex;
+  max-width: 190px;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  color: #10172b;
+  background: #61b3a6;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #b7e4dc, inset -2px -2px 0 #2d5c5b;
+}
+
+.downloadChip span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.downloadChip:active { box-shadow: inset 2px 2px 0 #2d5c5b; }
+
 .hiddenInput { display: none; }
 
 @media (pointer: coarse) {

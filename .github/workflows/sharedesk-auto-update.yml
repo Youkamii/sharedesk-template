@@ -1,6 +1,13 @@
-name: ShareDesk Update
+name: ShareDesk Auto Update
 
+# 매시 7분에 깨어나 설치된 앱의 공개 정책(/api/update-policy)을 읽고,
+# 자동 업데이트가 켜져 있고 그 시간대가 자정(00시대)일 때만 수동
+# 업데이트와 동일한 적용·봉인·검증·푸시를 수행한다. 키가 필요 없다 —
+# 저장소 자체의 GITHUB_TOKEN만 쓴다. workflow_dispatch는 시험용으로
+# 자정 조건 없이 정책만 확인하고 바로 실행한다.
 on:
+  schedule:
+    - cron: "7 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -11,7 +18,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  policy:
+    # 배포되지 않는 원본 템플릿 저장소에서는 돌 이유가 없다.
+    if: github.repository != 'Youkamii/sharedesk-template'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Ask the installed app whether it is update time
+        id: gate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          api="https://api.github.com/repos/$REPOSITORY"
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+          # Vercel의 GitHub 연동이 남긴 Deployments 기록에서 프로덕션 URL을 찾는다.
+          url=""
+          deployments="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments?per_page=20" || echo '[]')"
+          for id in $(printf '%s' "$deployments" | jq -r '[.[] | select((.environment // "") | test("^production$"; "i"))][:5] | .[].id' 2>/dev/null); do
+            status_url="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments/$id/statuses?per_page=5" | jq -r '[.[] | select(.state == "success") | .environment_url // empty][0] // empty' 2>/dev/null)"
+            if [[ "$status_url" == https://* ]]; then
+              url="$status_url"
+              break
+            fi
+          done
+          if [[ -z "$url" ]]; then
+            echo "No production deployment URL found; nothing to do."
+            exit 0
+          fi
+          policy="$(curl -sS --max-time 20 "$url/api/update-policy" || true)"
+          auto="$(printf '%s' "$policy" | jq -r '.autoUpdate // false' 2>/dev/null || echo false)"
+          midnight="$(printf '%s' "$policy" | jq -r '.midnight // false' 2>/dev/null || echo false)"
+          if [[ "$auto" != "true" ]]; then
+            echo "Auto update is turned off; nothing to do."
+            exit 0
+          fi
+          # 자정 판정은 앱이 저장된 시간대로 계산해 준다 — 시간대 문자열이
+          # 셸에 닿지 않고, 00~01시 창이라 예약 지연에도 그날을 놓치지 않는다.
+          if [[ "$EVENT_NAME" == "schedule" && "$midnight" != "true" ]]; then
+            echo "Not the midnight window yet; waiting."
+            exit 0
+          fi
+          echo "proceed=true" >> "$GITHUB_OUTPUT"
+
   prepare:
+    needs: policy
+    if: needs.policy.outputs.proceed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -54,7 +111,7 @@ jobs:
         if: steps.patch.outputs.changed == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: sharedesk-update-patch
+          name: sharedesk-auto-update-patch
           path: ${{ runner.temp }}/sharedesk-update.patch
           if-no-files-found: error
           retention-days: 1
@@ -88,7 +145,7 @@ jobs:
       - name: Download the verified update
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: sharedesk-update-patch
+          name: sharedesk-auto-update-patch
           path: ${{ runner.temp }}/sharedesk-update
 
       - name: Commit and push the verified update

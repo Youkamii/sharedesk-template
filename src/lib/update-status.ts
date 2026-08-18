@@ -190,6 +190,45 @@ function workflowApiError(status: number): string {
   return `GitHub 응답 ${status}`;
 }
 
+// 자동 업데이트 워크플로가 이 설치 저장소에 있는지 확인한다.
+// 예전 설치에는 파일이 없는데 토글만 켜지면 "자정 자동 업데이트"가
+// 조용히 아무 일도 안 하게 되므로, 켜기 전에 이 검사로 막는다.
+// 확인할 수 없는 환경(토큰·저장소 미설정, API 장애)은 null — 켜기를
+// 막지 않는다.
+export async function hasAutoUpdateWorkflow(options?: {
+  env?: Environment;
+  fetchImpl?: typeof fetch;
+}): Promise<boolean | null> {
+  const resolved = resolveUpdateRepository(options?.env);
+  const token = resolveUpdateToken(options?.env);
+  if (!resolved.configured || !token.configured) return null;
+  const fetchImpl = options?.fetchImpl ?? fetch;
+  try {
+    const response = await fetchImpl(
+      `https://api.github.com/repos/${resolved.repository}/actions/workflows?per_page=100`,
+      {
+        cache: "no-store",
+        headers: {
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          Authorization: `Bearer ${token.token}`,
+        },
+      },
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as {
+      workflows?: Array<{ path?: string }>;
+    };
+    if (!Array.isArray(body.workflows)) return null;
+    return body.workflows.some(
+      (workflow) =>
+        workflow.path === ".github/workflows/sharedesk-auto-update.yml",
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function dispatchUpdateWorkflow(options?: {
   env?: Environment;
   fetchImpl?: typeof fetch;
