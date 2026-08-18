@@ -673,6 +673,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
       locale?: Locale;
       allowMemberLocale?: boolean;
       autoUpdate?: boolean;
+      autoUpdateTimezone?: string;
+      star?: boolean;
     },
     successNotice: string,
   ) {
@@ -1389,60 +1391,78 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <span className={styles.windowTitle}>
                     <h2 id="auto-update-title">{t("업데이트")}</h2>
                   </span>
+                  {/* 누르는 것이 곧 실행이다: 켜면 GitHub 저장소에 별이
+                      남고(이미 있으면 확인만) 자동 업데이트가 켜지며
+                      작업표시줄의 업데이트 버튼이 사라진다. 멈추면 버튼이
+                      돌아오고 별은 그대로 남는다. */}
+                  {autoUpdateOn ? (
+                    <button
+                      type="button"
+                      className={styles.pixelButton}
+                      disabled={deskSettings === null || busyId !== null}
+                      onClick={() =>
+                        void updateDeskSettings(
+                          { autoUpdate: false },
+                          "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.",
+                        )
+                      }
+                    >
+                      {t("자동 업데이트 멈추기")}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`${styles.pixelButton} ${styles.primaryButton}`}
+                      disabled={deskSettings === null || busyId !== null}
+                      onClick={() =>
+                        void updateDeskSettings(
+                          {
+                            autoUpdate: true,
+                            autoUpdateTimezone:
+                              Intl.DateTimeFormat().resolvedOptions().timeZone,
+                            star: true,
+                          },
+                          "이제 자정에 자동으로 업데이트됩니다.",
+                        )
+                      }
+                    >
+                      {t("자동 업데이트")}
+                    </button>
+                  )}
                 </header>
                 <div className={styles.windowBody}>
                   <p className={styles.description}>
                     {t(
-                      "자동 업데이트는 작업표시줄의 업데이트 창에서 '★ 누르고 자동 업데이트' 버튼으로 켭니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 업데이트 버튼은 숨겨집니다.",
+                      "자동 업데이트를 누르면 GitHub 저장소에 별이 남고 자동 업데이트가 켜집니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 작업표시줄의 업데이트 버튼은 숨겨집니다. 멈추면 업데이트 버튼이 다시 나타나고 별은 그대로 남습니다.",
                     )}
                   </p>
-                  {autoUpdateOn && (
-                    <>
-                      <p className={styles.description}>
-                        {t("자동 업데이트가 켜져 있습니다.")}
-                      </p>
-                      {updateInfo && (
-                        <div className={styles.description}>
-                          {updateInfo.failed ? (
-                            <p>{t("최신 릴리스 정보를 불러오지 못했습니다")}</p>
-                          ) : (
-                            <>
-                              {updateInfo.currentVersion && (
-                                <p>
-                                  {t("현재 버전")}: {updateInfo.currentVersion}
-                                </p>
-                              )}
-                              {updateInfo.latestVersion && (
-                                <p>
-                                  {t("최신 버전")}: {updateInfo.latestVersion}
-                                  {updateInfo.currentVersion ===
-                                    updateInfo.latestVersion &&
-                                    ` — ${t("지금 최신 버전입니다")}`}
-                                </p>
-                              )}
-                              {updateInfo.latestNotes && (
-                                <pre className={styles.releaseNotes}>
-                                  {updateInfo.latestNotes}
-                                </pre>
-                              )}
-                            </>
+                  {autoUpdateOn && updateInfo && (
+                    <div className={styles.description}>
+                      {updateInfo.failed ? (
+                        <p>{t("최신 릴리스 정보를 불러오지 못했습니다")}</p>
+                      ) : (
+                        <>
+                          {updateInfo.currentVersion && (
+                            <p>
+                              {t("현재 버전")}: {updateInfo.currentVersion}
+                            </p>
                           )}
-                        </div>
+                          {updateInfo.latestVersion && (
+                            <p>
+                              {t("최신 버전")}: {updateInfo.latestVersion}
+                              {updateInfo.currentVersion ===
+                                updateInfo.latestVersion &&
+                                ` — ${t("지금 최신 버전입니다")}`}
+                            </p>
+                          )}
+                          {updateInfo.latestNotes && (
+                            <pre className={styles.releaseNotes}>
+                              {updateInfo.latestNotes}
+                            </pre>
+                          )}
+                        </>
                       )}
-                      <button
-                        type="button"
-                        className={`${styles.pixelButton} ${styles.dangerButton}`}
-                        disabled={deskSettings === null || busyId !== null}
-                        onClick={() =>
-                          void updateDeskSettings(
-                            { autoUpdate: false },
-                            "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.",
-                          )
-                        }
-                      >
-                        {t("자동 업데이트 멈추기")}
-                      </button>
-                    </>
+                    </div>
                   )}
                 </div>
               </div>

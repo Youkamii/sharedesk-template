@@ -1531,15 +1531,15 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
   assert.match(filesView, /\{!autoUpdate && \(\s*<button[\s\S]*?updateTrayButton/);
   assert.match(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
   assert.match(filesPage, /autoUpdate=\{deskSettings\.autoUpdate\}/);
-  // 켜기는 업데이트 창의 단일 버튼(별 동의 포함 + 브라우저 시간대 저장),
-  // 끄기는 관리자 설정의 멈추기 버튼이다.
-  assert.match(filesView, /★ 누르고 자동 업데이트/);
-  assert.match(filesView, /star: true/);
-  assert.match(filesView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
-  // 별이 "확인"된 경우에만 동의 창 없이 실행한다.
+  // 자동 업데이트는 관리자 설정의 버튼이다: 누르면 별이 남고 켜지며,
+  // 멈추면 원상복구된다. 업데이트 창에는 자동 업데이트 UI가 없다.
+  assert.doesNotMatch(filesView, /★ 누르고 자동 업데이트/);
+  // 수동 업데이트의 별 동의 창은 그대로다("확인된 별"만 통과).
   assert.match(filesView, /status\.starred !== true/);
+  assert.match(adminView, /star: true/);
+  assert.match(adminView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
   assert.match(adminView, /자동 업데이트 멈추기/);
-  assert.doesNotMatch(adminView, /id="auto-update"[\s\S]{0,80}type="checkbox"/);
+  assert.doesNotMatch(adminView, /type="checkbox"[\s\S]{0,200}autoUpdate: true/);
   assert.match(adminView, /releases\/latest/);
   assert.match(adminView, /releaseNotes/);
 });
