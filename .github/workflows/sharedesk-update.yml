@@ -41,7 +41,7 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! git diff --quiet -- .github/workflows/sharedesk-update.yml .github/workflows/sharedesk-auto-update.yml; then
+          if ! git diff --quiet -- .github/workflows/sharedesk-update.yml; then
             echo "The update workflow changed. Run the one-time bootstrap in docs/UPDATE.md."
             exit 1
           fi
