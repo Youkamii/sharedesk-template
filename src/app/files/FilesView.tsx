@@ -45,6 +45,20 @@ import {
   fileActivationAction,
 } from "@/lib/client/file-activation";
 import {
+  LARGE_DOWNLOAD_BYTES,
+  DOWNLOAD_CONCURRENCY,
+  downloadPercent,
+  downloadQueueSummary,
+  newDownloadItem,
+  nextDownloadStarts,
+  parseContentLength,
+  patchDownloadItem,
+  pruneFinishedDownloads,
+  retryDownloadItem,
+  startDownloads,
+  type DownloadItem,
+} from "@/lib/client/download-queue";
+import {
   adjacentFolderImagePreviewKey,
   folderImagePreviewEntries,
 } from "@/lib/client/folder-side-preview";
@@ -89,6 +103,7 @@ import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
+import ShareLinkDialog from "./ShareLinkDialog";
 import styles from "./desktop.module.css";
 import {
   fitLogicalRect,
@@ -281,6 +296,8 @@ type ContextMenuState = {
   entry?: Entry;
   searchResult?: SearchResult;
   opener: HTMLElement | null;
+  // 다중 선택 상태에서 연 항목 메뉴만 "선택한 N개 다운로드" 줄을 얹는다(0이면 없음).
+  batchDownload?: number;
 };
 
 type ScopedRequest = {
@@ -549,13 +566,20 @@ function itemContextMenuHeight(
   isAdmin: boolean,
   hasParent: boolean,
   allowEdit: boolean,
+  // 다중 선택 일괄 다운로드 줄이 붙으면 그만큼 메뉴가 길어진다.
+  batchDownload = 0,
 ) {
   // 편집 권한이 없으면 열기·새 탭·다운로드만 남는다 (구분선·편집 그룹 제거).
   const fullHeight = allowEdit
     ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
     : 125;
-  if (!previewKindOf(entry)) return fullHeight - 70;
-  return canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35;
+  // 공유 링크 줄은 편집 권한이 있는 파일 메뉴에만 붙는다.
+  const shareLinkHeight = allowEdit && !entry.isFolder ? 35 : 0;
+  const batchHeight = (batchDownload > 1 ? 35 : 0) + shareLinkHeight;
+  if (!previewKindOf(entry)) return fullHeight - 70 + batchHeight;
+  return (
+    (canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35) + batchHeight
+  );
 }
 
 function desktopContextMenuHeight(allowUpload: boolean, allowEdit: boolean) {
@@ -650,6 +674,7 @@ export default function FilesView({
   const windowCanvasRefs = useRef(new Map<string, HTMLDivElement>());
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const shareDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const shareLinkOpenerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const feedbackDialogRef = useRef<HTMLElement>(null);
@@ -694,6 +719,9 @@ export default function FilesView({
   const presenceReadRequestIdRef = useRef(0);
   const presenceTabIdRef = useRef("");
   const activeTransfersRef = useRef(new Map<string, TransferProgress>());
+  // 동시 다운로드 목록(#103) — 화면 갱신용 state와 별개로, 큐 계산은 항상
+  // 최신 값이 필요하므로 ref를 단일 진실 원천으로 두고 state는 거울로 쓴다.
+  const downloadItemsRef = useRef<DownloadItem[]>([]);
   const transferStartedAtRef = useRef(new Map<string, number>());
   const transferRemovalTimersRef = useRef(new Map<string, number>());
   const presenceReportTimerRef = useRef<number | null>(null);
@@ -749,6 +777,8 @@ export default function FilesView({
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
+  // 외부 공유 링크 창의 대상 파일 (관리자·수정 가능 역할 전용).
+  const [shareLinkEntry, setShareLinkEntry] = useState<Entry | null>(null);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -760,6 +790,8 @@ export default function FilesView({
   const [notice, setNotice] = useAutoDismissNotice();
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
   const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
+  const [downloadItems, setDownloadItems] = useState<DownloadItem[]>([]);
+  const [downloadPanelOpen, setDownloadPanelOpen] = useState(false);
   const [transientPositions, setTransientPositions] = useState<
     Record<string, Placement>
   >({});
@@ -1564,7 +1596,13 @@ export default function FilesView({
       const height = current.searchResult
         ? searchContextMenuHeight(current.searchResult.entry)
         : current.entry
-          ? itemContextMenuHeight(current.entry, isAdmin, hasParent, allowEdit)
+          ? itemContextMenuHeight(
+              current.entry,
+              isAdmin,
+              hasParent,
+              allowEdit,
+              current.batchDownload ?? 0,
+            )
           : desktopContextMenuHeight(allowUpload, allowEdit);
       return {
         ...current,
@@ -2039,12 +2077,17 @@ export default function FilesView({
     return scopeWindow(scopeId)?.path.at(-2)?.id ?? null;
   }
 
-  function entryContextMenuHeight(scopeId: string, entry: Entry) {
+  function entryContextMenuHeight(
+    scopeId: string,
+    entry: Entry,
+    batchDownload = 0,
+  ) {
     return itemContextMenuHeight(
       entry,
       isAdmin,
       Boolean(scopeParentFolderId(scopeId)),
       allowEdit,
+      batchDownload,
     );
   }
 
@@ -2720,6 +2763,172 @@ export default function FilesView({
     } finally {
       reportTransferProgress(null, id);
     }
+  }
+
+  // ── 동시 다운로드 목록(#103) ──────────────────────────────────────────────
+  // 여러 파일을 한 번에 고르고 내려받으면 우하단 목록에 줄을 세우고, 최대
+  // DOWNLOAD_CONCURRENCY개만 동시에 받는다. 서버 경로와 권한 검사는 단일
+  // 다운로드와 같은 /api/drive/download를 그대로 쓴다.
+  function writeDownloadItems(items: DownloadItem[]) {
+    downloadItemsRef.current = items;
+    setDownloadItems(items);
+  }
+
+  function saveDownloadedBlob(blob: Blob, fileName: string) {
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    // 클릭 직후에 해제하면 저장이 취소되는 브라우저가 있어 한 박자 늦춘다.
+    window.setTimeout(() => URL.revokeObjectURL(href), 60_000);
+  }
+
+  function queueDownloads(entries: Entry[]) {
+    // 폴더는 단일 다운로드와 마찬가지로 받을 수 없다.
+    const targets = entries.filter((entry) => !entry.isFolder);
+    if (targets.length === 0) return;
+    setContextMenu(null);
+    // 목록이 닫혀 있는 동안 끝난 항목은 새 묶음을 시작할 때 정리한다 —
+    // 화면에 떠 있는 목록은 사용자 눈앞에서 바뀌지 않게 그대로 둔다.
+    const kept = downloadPanelOpen
+      ? downloadItemsRef.current
+      : pruneFinishedDownloads(downloadItemsRef.current);
+    writeDownloadItems([
+      ...kept,
+      ...targets.map((entry) =>
+        newDownloadItem(
+          crypto.randomUUID(),
+          entry.id,
+          entry.name,
+          downloadFileName(entry),
+          entry.size,
+        ),
+      ),
+    ]);
+    setDownloadPanelOpen(true);
+    pumpDownloadQueue();
+  }
+
+  function pumpDownloadQueue() {
+    const starts = nextDownloadStarts(
+      downloadItemsRef.current,
+      DOWNLOAD_CONCURRENCY,
+    );
+    if (starts.length === 0) return;
+    writeDownloadItems(startDownloads(downloadItemsRef.current, starts));
+    for (const id of starts) void runQueuedDownload(id);
+  }
+
+  function patchQueuedDownload(id: string, patch: Partial<DownloadItem>) {
+    writeDownloadItems(patchDownloadItem(downloadItemsRef.current, id, patch));
+  }
+
+  async function runQueuedDownload(id: string) {
+    const item = downloadItemsRef.current.find(
+      (candidate) => candidate.id === id,
+    );
+    if (!item) return;
+    try {
+      // 큰 파일을 통째로 메모리에 모으면(blob 저장 방식) 동시 3개와 겹쳐
+      // 탭이 죽을 수 있다 — 일정 크기 이상은 브라우저의 다운로드 관리자에
+      // 맡긴다(디스크 스트리밍, 진행률은 브라우저 쪽에 보인다).
+      if (item.size !== null && item.size > LARGE_DOWNLOAD_BYTES) {
+        const anchor = document.createElement("a");
+        anchor.href = `/api/drive/download?id=${encodeURIComponent(item.entryId)}`;
+        anchor.download = item.fileName;
+        anchor.rel = "noopener";
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        patchQueuedDownload(id, {
+          status: "done",
+          transferred: item.size,
+          total: item.size,
+        });
+        return;
+      }
+      const response = await fetch(
+        `/api/drive/download?id=${encodeURIComponent(item.entryId)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok || !response.body) {
+        throw new Error("다운로드를 시작하지 못했습니다");
+      }
+      // Content-Length가 없으면 total이 null이라 진행률을 불확정으로 그린다.
+      const total = parseContentLength(response.headers.get("content-length"));
+      const reader = response.body.getReader();
+      const chunks: Uint8Array<ArrayBuffer>[] = [];
+      let transferred = 0;
+      patchQueuedDownload(id, { transferred: 0, total });
+      reportTransferProgress({
+        id,
+        kind: "download",
+        name: item.name,
+        transferred: 0,
+        total,
+      });
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        // 스트림이 돌려준 버퍼는 재사용될 수 있어 복사해 모은다.
+        chunks.push(new Uint8Array(chunk.value));
+        transferred += chunk.value.byteLength;
+        patchQueuedDownload(id, { transferred, total });
+        reportTransferProgress({
+          id,
+          kind: "download",
+          name: item.name,
+          transferred,
+          total,
+        });
+      }
+      saveDownloadedBlob(new Blob(chunks), item.fileName);
+      patchQueuedDownload(id, {
+        status: "done",
+        transferred,
+        total: total ?? transferred,
+      });
+    } catch (error) {
+      patchQueuedDownload(id, {
+        status: "failed",
+        error: errorMessage(error, "다운로드에 실패했습니다"),
+      });
+    } finally {
+      reportTransferProgress(null, id);
+      // 자리가 비었으니 대기 중인 다음 항목을 올린다.
+      pumpDownloadQueue();
+    }
+  }
+
+  function retryQueuedDownload(id: string) {
+    writeDownloadItems(retryDownloadItem(downloadItemsRef.current, id));
+    pumpDownloadQueue();
+  }
+
+  // 다중 선택 안에서 연 메뉴만 일괄 다운로드를 제안한다 — 선택에 든 파일이
+  // 둘 이상일 때만 의미가 있으므로 하나 이하면 빈 배열이다.
+  function selectedDownloadTargets(scopeId: string, entry: Entry): Entry[] {
+    if (
+      selected?.scopeId !== scopeId ||
+      !selected.layoutKeys.includes(entry.layoutKey)
+    ) {
+      return [];
+    }
+    const keys = new Set(selected.layoutKeys);
+    const targets =
+      scopeData(scopeId)?.entries.filter(
+        (candidate) => keys.has(candidate.layoutKey) && !candidate.isFolder,
+      ) ?? [];
+    return targets.length > 1 ? targets : [];
+  }
+
+  // 닫아도 진행 중인 다운로드는 계속된다 — 끝난 항목만 정리하고 감춘다.
+  function closeDownloadPanel() {
+    writeDownloadItems(pruneFinishedDownloads(downloadItemsRef.current));
+    setDownloadPanelOpen(false);
   }
 
   async function loadPreviewText(entry: Entry, instanceId: number) {
@@ -5309,9 +5518,14 @@ export default function FilesView({
     if (entry && movingEntryIdsRef.current.has(entry.id)) return;
     if (scopeData(scopeId)?.loading) return;
     const width = 210;
+    // 선택 안에서 연 메뉴만 일괄 다운로드 줄을 얹는다 — 선택 밖 항목을 누르면
+    // 아래에서 선택이 그 항목 하나로 바뀌므로 여기서도 0이 된다.
+    const batchDownload = entry
+      ? selectedDownloadTargets(scopeId, entry).length
+      : 0;
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
-      ? entryContextMenuHeight(scopeId, entry)
+      ? entryContextMenuHeight(scopeId, entry, batchDownload)
       : desktopContextMenuHeight(allowUpload, allowEdit);
     const target = event.target as HTMLElement;
     const activeElement =
@@ -5335,6 +5549,7 @@ export default function FilesView({
       ),
       scopeId,
       entry,
+      batchDownload,
       opener:
         target.closest<HTMLElement>("button, a, [tabindex]") ?? activeElement,
     });
@@ -5438,6 +5653,21 @@ export default function FilesView({
     const opener = shareDialogOpenerRef.current;
     shareDialogOpenerRef.current = null;
     setShareEntry(null);
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
+  function openShareLinkDialog(entry: Entry) {
+    shareLinkOpenerRef.current = contextMenu?.opener ?? null;
+    setContextMenu(null);
+    setShareLinkEntry(entry);
+  }
+
+  function closeShareLinkDialog() {
+    const opener = shareLinkOpenerRef.current;
+    shareLinkOpenerRef.current = null;
+    setShareLinkEntry(null);
     window.requestAnimationFrame(() => {
       if (opener?.isConnected) opener.focus();
     });
@@ -6502,6 +6732,7 @@ export default function FilesView({
         selected.layoutKeys.includes(entry.layoutKey),
       ) ?? [])
     : [];
+  const downloadSummary = downloadQueueSummary(downloadItems);
   const previewReadOnlyReason = previewWindow
     ? previewTextReadOnlyReason(previewWindow, allowEdit)
     : null;
@@ -7696,6 +7927,25 @@ export default function FilesView({
             </span>
           </div>
         )}
+        {/* 목록을 닫아도 다운로드는 계속된다 — 작업표시줄에서 다시 열 수 있다.
+            남은 일(대기·받는 중·실패)이 없으면 칩도 사라진다. */}
+        {!downloadPanelOpen &&
+          downloadSummary.active + downloadSummary.failed > 0 && (
+            <button
+              type="button"
+              className={styles.downloadChip}
+              onClick={() => setDownloadPanelOpen(true)}
+            >
+              <span className={styles.uploadArrow} aria-hidden="true">
+                ↓
+              </span>
+              <span>
+                {t("다운로드 {count}개", {
+                  count: downloadSummary.active + downloadSummary.failed,
+                })}
+              </span>
+            </button>
+          )}
         <label className={styles.downloadPreference}>
           <input
             type="checkbox"
@@ -7834,6 +8084,22 @@ export default function FilesView({
             </>
           ) : contextMenu.entry ? (
             <>
+              {(contextMenu.batchDownload ?? 0) > 1 && (
+                <MenuButton
+                  onClick={() =>
+                    queueDownloads(
+                      selectedDownloadTargets(
+                        contextMenu.scopeId,
+                        contextMenu.entry!,
+                      ),
+                    )
+                  }
+                >
+                  {t("선택한 {count}개 다운로드", {
+                    count: contextMenu.batchDownload ?? 0,
+                  })}
+                </MenuButton>
+              )}
               <MenuButton
                 onClick={() => {
                   const entry = contextMenu.entry!;
@@ -7921,6 +8187,13 @@ export default function FilesView({
                   {t("이름 바꾸기")} <kbd>F2</kbd>
                 </MenuButton>
               )}
+              {allowEdit && !contextMenu.entry.isFolder && (
+                <MenuButton
+                  onClick={() => openShareLinkDialog(contextMenu.entry!)}
+                >
+                  {t("공유 링크")}
+                </MenuButton>
+              )}
               {isAdmin && (
                 <MenuButton
                   onClick={() => openShareDialog(contextMenu.entry!)}
@@ -7997,6 +8270,15 @@ export default function FilesView({
           entry={shareEntry}
           locale={locale}
           onClose={closeShareDialog}
+          onNotice={setNotice}
+        />
+      )}
+
+      {allowEdit && shareLinkEntry && (
+        <ShareLinkDialog
+          entry={shareLinkEntry}
+          locale={locale}
+          onClose={closeShareLinkDialog}
           onNotice={setNotice}
         />
       )}
@@ -8576,6 +8858,85 @@ export default function FilesView({
           {/* 서버가 준 한국어 오류 문구도 사전에 있으면 번역돼 나간다. */}
           {t(notice)}
         </button>
+      )}
+
+      {/* 동시 다운로드 목록(#103) — 브라우저 다운로드 목록처럼 우하단에 뜬다. */}
+      {downloadPanelOpen && downloadItems.length > 0 && (
+        <section
+          className={styles.downloadPanel}
+          data-testid="download-queue-panel"
+          aria-label={t("다운로드 목록")}
+        >
+          <header className={styles.downloadPanelHeader}>
+            <strong>{t("다운로드 목록")}</strong>
+            <span>
+              {t("{done}/{total} 완료", {
+                done: downloadSummary.done,
+                total: downloadSummary.total,
+              })}
+            </span>
+            <div className={styles.windowControls}>
+              <button
+                type="button"
+                className={styles.closeButton}
+                aria-label={t("다운로드 목록 닫기")}
+                onClick={closeDownloadPanel}
+              >
+                <span className={styles.closeGlyph} />
+              </button>
+            </div>
+          </header>
+          <ul className={styles.downloadList}>
+            {downloadItems.map((item) => {
+              const percent = downloadPercent(item);
+              return (
+                <li
+                  key={item.id}
+                  className={styles.downloadRow}
+                  data-status={item.status}
+                >
+                  <span className={styles.downloadName} title={item.name}>
+                    {item.name}
+                  </span>
+                  <span
+                    className={styles.downloadState}
+                    title={item.error ? t(item.error) : undefined}
+                  >
+                    {item.status === "queued"
+                      ? t("대기 중")
+                      : item.status === "downloading"
+                        ? percent === null
+                          ? t("받는 중")
+                          : t("받는 중 {percent}%", { percent })
+                        : item.status === "done"
+                          ? t("완료")
+                          : t("다운로드 실패")}
+                  </span>
+                  {item.status === "downloading" &&
+                    // Content-Length가 없으면 값 없는 progress로 불확정 표시.
+                    (percent === null ? (
+                      <progress className={styles.downloadProgress} />
+                    ) : (
+                      <progress
+                        className={styles.downloadProgress}
+                        value={item.transferred}
+                        max={item.total ?? undefined}
+                      />
+                    ))}
+                  {item.status === "failed" && (
+                    <button
+                      type="button"
+                      className={styles.downloadRetry}
+                      onClick={() => retryQueuedDownload(item.id)}
+                    >
+                      {t("다시 시도")}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {activeSelections.length > 0 && (
