@@ -175,33 +175,6 @@
   color: #9da9c2;
 }
 
-.languageToggle {
-  display: inline-flex;
-  min-width: 36px;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 8px;
-  color: var(--admin-cream);
-  background: #0b1122;
-  border: 2px solid #070b16;
-  box-shadow:
-    inset 1px 1px 0 #2a365d,
-    3px 3px 0 #070b16;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-
-.languageToggle:hover {
-  color: var(--admin-amber);
-}
-
-.languageToggle:active {
-  transform: translate(2px, 2px);
-  box-shadow: inset 1px 1px 0 #2a365d;
-}
-
 .headerLink {
   display: inline-flex;
   min-height: 36px;
@@ -239,7 +212,77 @@
   padding: clamp(18px, 3vw, 34px) clamp(10px, 3vw, 30px) 48px;
 }
 
-.main > section {
+/* 좌측 세로 탭(사용자/설정) + 우측 내용. 좁은 화면에서는 상단 가로 탭으로 접힌다. */
+.layout {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: clamp(14px, 2vw, 22px);
+}
+
+.tabRail {
+  position: sticky;
+  top: 14px;
+  display: flex;
+  width: 158px;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tabButton {
+  min-height: 40px;
+  padding: 9px 12px;
+  color: var(--admin-cream);
+  background: #0b1122;
+  border: 2px solid #070b16;
+  border-radius: 0;
+  box-shadow:
+    inset 1px 1px 0 #2a365d,
+    3px 3px 0 #070b16;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tabButton:hover {
+  color: var(--admin-amber);
+}
+
+.tabButton:active {
+  transform: translate(2px, 2px);
+  box-shadow: inset 1px 1px 0 #2a365d;
+}
+
+.tabButtonActive,
+.tabButtonActive:hover {
+  color: var(--admin-ink);
+  background: var(--admin-amber);
+  box-shadow:
+    inset 2px 2px 0 var(--admin-cream),
+    inset -2px -2px 0 #b5754f,
+    3px 3px 0 #070b16;
+}
+
+.tabButtonActive:hover {
+  background: #ffe2a3;
+}
+
+.tabPanel {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* hidden 속성이 display: flex에 덮이지 않게 명시한다. */
+.tabPanel[hidden] {
+  display: none;
+}
+
+.tabPanel > section {
   width: 100%;
   min-width: 0;
 }
@@ -327,7 +370,9 @@
 }
 
 .inviteGlyph,
-.userGlyph {
+.userGlyph,
+.localeGlyph,
+.themeGlyph {
   position: relative;
   display: inline-block;
   width: 18px;
@@ -354,6 +399,33 @@
   background:
     linear-gradient(var(--admin-teal), var(--admin-teal)) 4px 2px / 5px 5px no-repeat,
     linear-gradient(var(--admin-amber), var(--admin-amber)) 2px 9px / 9px 4px no-repeat,
+    #080d1c;
+}
+
+.localeGlyph {
+  width: 16px;
+  height: 16px;
+  background: var(--admin-teal);
+}
+
+.localeGlyph::after {
+  content: "A";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #080d1c;
+  font-family: var(--font-pixel), sans-serif;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.themeGlyph {
+  width: 16px;
+  height: 16px;
+  background:
+    linear-gradient(var(--admin-peach), var(--admin-peach)) 2px 2px / 8px 8px no-repeat,
+    linear-gradient(var(--admin-amber), var(--admin-amber)) 7px 7px / 5px 5px no-repeat,
     #080d1c;
 }
 
@@ -725,6 +797,120 @@
   font-size: 7px;
 }
 
+/* 설정 탭 — 언어 섹션. 체크박스는 섹션 타이틀바 우측 상단에 둔다. */
+.localeTitlebar {
+  flex-wrap: wrap;
+}
+
+.allowToggle {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--admin-cream);
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.allowToggle input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--admin-teal);
+  cursor: pointer;
+}
+
+.allowToggle input:disabled {
+  cursor: wait;
+}
+
+.settingsField {
+  max-width: 320px;
+  margin-top: 14px;
+}
+
+/* 설정 탭 — 테마 섹션. 바탕화면 4종을 미리보기 카드로 고른다. */
+.themeTitlebar {
+  background: #596078;
+}
+
+.wallpaperGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.wallpaperOption {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  color: var(--admin-ink);
+  background: #e5d6b7;
+  border: 2px solid #1b1b2f;
+  border-radius: 0;
+  box-shadow:
+    inset 2px 2px 0 var(--admin-paper),
+    inset -2px -2px 0 #9c8c78,
+    2px 2px 0 rgb(17 22 41 / 28%);
+  cursor: pointer;
+}
+
+.wallpaperOption:hover {
+  background: var(--admin-cream);
+}
+
+.wallpaperOption:active {
+  transform: translate(2px, 2px);
+  box-shadow: inset 2px 2px 0 #9c8c78;
+}
+
+.wallpaperSelected,
+.wallpaperSelected:hover {
+  background: var(--admin-amber);
+  box-shadow:
+    inset 2px 2px 0 var(--admin-cream),
+    inset -2px -2px 0 #b5754f,
+    2px 2px 0 rgb(17 22 41 / 38%);
+}
+
+.wallpaperThumb {
+  display: block;
+  width: 100%;
+  height: 84px;
+  background-color: #0b1122;
+  background-position: center;
+  background-size: cover;
+  border: 2px solid #1b1b2f;
+  image-rendering: pixelated;
+}
+
+.wallpaperName {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: left;
+}
+
+.wallpaperCheck {
+  flex: none;
+  padding: 2px 5px;
+  color: var(--admin-cream);
+  background: var(--admin-title);
+  border: 1px solid #070b16;
+  font-size: 8px;
+  letter-spacing: 0.05em;
+}
+
 .srOnly {
   position: absolute;
   width: 1px;
@@ -754,6 +940,23 @@
     gap: 18px;
     padding-top: 18px;
     padding-bottom: 34px;
+  }
+
+  /* 좁은 화면에서는 좌측 세로 탭이 상단 가로 탭으로 접힌다. */
+  .layout {
+    flex-direction: column;
+  }
+
+  .tabRail {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+  }
+
+  .tabButton {
+    min-height: 36px;
+    flex: 1;
+    text-align: center;
   }
 
   .window {

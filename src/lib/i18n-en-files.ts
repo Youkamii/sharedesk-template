@@ -5,8 +5,9 @@ export const EN_FILES: Record<string, string> = {
   "공유 바탕화면": "Shared Desktop",
   "공유 바탕화면 아이콘": "Shared Desktop icons",
   "접속 확인 실패": "Presence check failed",
-  "함께 쓰는 중 · {count}명": "Together now · {count}",
+  "접속자 · {count}명": "Online · {count}",
   "접속 인원 확인 중": "Checking who's online",
+  "언어 선택": "Choose language",
   "현재 접속자 없음": "No one online",
   "현재 접속 인원": "Currently online",
   "다시 확인": "Check again",
@@ -169,7 +170,8 @@ export const EN_FILES: Record<string, string> = {
   "열린 창": "Open windows",
   "전송 중 {count}개 · {name}": "Transferring {count} · {name}",
   "다운로드 우선": "Download first",
-  "사용자 관리": "Manage users",
+  // "관리자"는 EN_ADMIN에도 있는 키 — 값이 반드시 같아야 한다 (tests/i18n.test.ts).
+  "관리자": "Admin",
   "손님": "Guest",
   "나가기": "Sign out",
 
