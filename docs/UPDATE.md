@@ -2,13 +2,13 @@
 
 # ShareDesk Update
 
-ShareDesk applies a new version by updating **your own GitHub repository** — the one created when you installed it — and letting the Vercel project connected to that repository redeploy. Files, users, invitations, and notes in Google Drive, and your Vercel environment variables, are not part of a code update.
+ShareDesk applies a new version by updating **your own GitHub repository** — the one created when you installed it — and letting the Vercel project connected to that repository redeploy. The files, users, invitations, and notes in Google Drive, along with your Vercel environment variables, are not part of a code update.
 
 ## Using the update button
 
-ShareDesk never applies a new version on its own. When you sign in as an admin it checks the latest stable version once, and puts a star on `Update` in the taskbar only when a new version exists.
+ShareDesk never applies a new version on its own. When you sign in as an admin, ShareDesk checks the latest stable version once and puts a star on `Update` in the taskbar only when a new version exists.
 
-Once you have finished [Prepare one-click updates (one time)](#prepare-one-click-updates-one-time) below, the update finishes inside ShareDesk without sending you to GitHub.
+Once you have completed [Prepare one-click updates (one time)](#prepare-one-click-updates-one-time) below, the update finishes inside ShareDesk without sending you to GitHub.
 
 1. Press the starred `Update` to see the current version and the latest stable version inside ShareDesk. Even without a star you can press the button and check for yourself.
 2. If a new version exists, press `Update now` in that window.
@@ -25,18 +25,19 @@ To update straight from the app, create a GitHub token once and put it in Vercel
 1. Sign in to GitHub, then open your profile picture at the top right → `Settings`.
 2. At the bottom of the left menu, open `Developer settings` → `Personal access tokens` → `Fine-grained tokens`.
 3. Press `Generate new token`.
-4. Give the token a name you will recognize. For example `sharedesk-update`
-5. Set `Expiration`. Once the token expires, one-click updates stop and only the fallback path is left, so choose a long expiry and note the date, or create the token again with this procedure after it expires.
+4. Give the token a name you will recognize. For example: `sharedesk-update`.
+5. Set `Expiration`. Once the token expires, one-click updates stop and only the fallback path is left. Choose a long expiry and note the date, or repeat this procedure to create a new token when the old one runs out.
 6. Under `Repository access`, choose `Only select repositories` and select **only your one ShareDesk install repository**.
-7. Under `Permissions` → `Repository permissions`, set `Actions` to `Read and write`. Leave every other permission alone.
-8. Press `Generate token` and copy the token value. You cannot see it again once you leave the screen.
-9. In your Vercel project, go to `Settings` → `Environment Variables` and add the value below to the `Production` environment.
+7. Under `Permissions` → `Repository permissions`, set `Actions` to `Read and write`.
+8. On the same screen, under `Account permissions`, set `Starring` to `Read and write`. ShareDesk uses it to leave a star on the ShareDesk repository when an update starts. Leave every other permission alone.
+9. Press `Generate token` and copy the token value. You cannot see it again once you leave the screen.
+10. In your Vercel project, go to `Settings` → `Environment Variables` and add the value below to the `Production` environment.
 
 ```dotenv
 SHAREDESK_GITHUB_TOKEN=the-token-value-you-copied
 ```
 
-10. Redeploy Production. Environment variable changes do not reach an existing deployment on their own.
+11. Redeploy Production. Environment variable changes do not reach an existing deployment on their own.
 
 The token is a secret. Never paste it into a public repository, a chat, an issue, or a screenshot.
 
@@ -58,7 +59,7 @@ If the update button says the repository is not connected, add the value below t
 SHAREDESK_GITHUB_REPOSITORY=my-github-account/my-sharedesk-repository
 ```
 
-A project created with Deploy with Vercel picks up Vercel's Git repository information automatically, so you do not need to add this value. If GitHub Actions succeeded but no Vercel deployment started, open `Settings` → `Git` in the Vercel project and check that `main` of the same install repository is connected as the Production Branch.
+A project created through Deploy with Vercel picks up Vercel's Git repository information automatically, so you do not need to add this value. If GitHub Actions succeeded but no Vercel deployment started, open `Settings` → `Git` in the Vercel project and check that `main` of the same install repository is connected as the Production Branch.
 
 ## What changes in 0.5.0
 

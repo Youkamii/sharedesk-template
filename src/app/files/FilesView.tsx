@@ -213,6 +213,8 @@ type UpdateStatusResponse = {
   workflowUrl: string | null;
   configured: boolean;
   canDispatch: boolean; // 저장소 + 토큰 모두 유효 → 원클릭 실행 가능
+  // 원본 저장소에 별을 남겼는지. 토큰이 없어 확인할 수 없으면 null.
+  starred: boolean | null;
   run: UpdateRunInfo | null;
   error?: string;
 };
@@ -307,6 +309,9 @@ type DialogState =
 
 const DIALOG_FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// 별을 남기는 원본 저장소. 서버가 알려 주지 않을 때 쓰는 기본 주소다.
+const STAR_PAGE_URL = "https://github.com/Youkamii/sharedesk-template";
 
 const ROOT_ID = "root";
 const ROOT_SCOPE = "desktop";
@@ -505,6 +510,13 @@ function errorMessage(value: unknown, fallback: string) {
   return value instanceof Error ? value.message : fallback;
 }
 
+// 서버가 준 저장소 주소는 링크로 그대로 열리므로 GitHub 주소만 신뢰한다.
+function resolveStarPageUrl(value: unknown): string {
+  return typeof value === "string" && value.startsWith("https://github.com/")
+    ? value
+    : STAR_PAGE_URL;
+}
+
 function previewUrl(entry: Entry) {
   return `/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`;
 }
@@ -664,6 +676,8 @@ export default function FilesView({
   const searchControllerRef = useRef<AbortController | null>(null);
   const updateDialogRef = useRef<HTMLElement>(null);
   const updateDialogOpenerRef = useRef<HTMLElement | null>(null);
+  const starConsentDialogRef = useRef<HTMLElement>(null);
+  const starConsentOpenerRef = useRef<HTMLElement | null>(null);
   const updateControllerRef = useRef<AbortController | null>(null);
   const updateRequestIdRef = useRef(0);
   // 원클릭 실행 전용 — 패널 닫기(closeUpdatePanel)가 위 ref를 abort해도 진행 폴링은 살아야 한다.
@@ -764,6 +778,10 @@ export default function FilesView({
   const [updateStatus, setUpdateStatus] =
     useState<UpdateStatusResponse | null>(null);
   const [updatePanel, setUpdatePanel] = useState<UpdatePanelState | null>(null);
+  // 업데이트 전 별 남기기 동의 창. 열려 있으면 업데이트 패널 위에 뜬다.
+  const [starConsent, setStarConsent] = useState<{ starPageUrl: string } | null>(
+    null,
+  );
   const [updateRun, setUpdateRun] = useState<UpdateRunState | null>(null);
   const [previewWindow, setPreviewWindow] =
     useState<PreviewWindowState | null>(null);
@@ -817,6 +835,7 @@ export default function FilesView({
   );
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
+  const starConsentOpen = starConsent !== null;
   const updateAvailable = Boolean(updateStatus?.updateAvailable);
   // 진행 폴링과 버튼 잠금이 함께 쓰는 "실행이 아직 달리는 중" 판정
   const updateRunActive =
@@ -1636,6 +1655,16 @@ export default function FilesView({
   }, [updatePanelOpen]);
 
   useEffect(() => {
+    if (!starConsentOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      starConsentDialogRef.current
+        ?.querySelector<HTMLElement>("[data-star-initial-focus]")
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [starConsentOpen]);
+
+  useEffect(() => {
     if (!isAdmin) return;
 
     updateControllerRef.current?.abort();
@@ -1820,7 +1849,8 @@ export default function FilesView({
     const body = await response.json().catch(() => null);
     if (!response.ok) {
       const error = new Error(body?.error ?? t("요청에 실패했습니다"));
-      Object.assign(error, { status: response.status });
+      // 본문도 함께 넘긴다 — 호출부가 starRequired 같은 부가 정보를 봐야 한다.
+      Object.assign(error, { status: response.status, body });
       throw error;
     }
     return body as T;
@@ -5482,7 +5512,8 @@ export default function FilesView({
   }
 
   // 원클릭 업데이트 시작: 서버가 GitHub 워크플로를 실행하고, 이후 진행은 폴링이 이어받는다.
-  async function startUpdate() {
+  // agreeToStar는 관리자가 확인 창에서 별 남기기에 동의했다는 뜻이다.
+  async function startUpdate(agreeToStar = false) {
     const status = updatePanel?.status;
     if (!status) return;
     updateRunControllerRef.current?.abort();
@@ -5505,9 +5536,20 @@ export default function FilesView({
         {
           method: "POST",
           cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ star: agreeToStar }),
           signal: controller.signal,
         },
       );
+      if (agreeToStar) {
+        // 서버가 별을 남기고 실행했으니 다시 시도 때 또 묻지 않는다.
+        setUpdateStatus((prev) => (prev ? { ...prev, starred: true } : prev));
+        setUpdatePanel((prev) =>
+          prev?.status
+            ? { ...prev, status: { ...prev.status, starred: true } }
+            : prev,
+        );
+      }
     } catch (error) {
       if (
         controller.signal.aborted ||
@@ -5516,8 +5558,20 @@ export default function FilesView({
       ) {
         return;
       }
+      const failure = error as {
+        status?: number;
+        body?: { starRequired?: unknown; starPageUrl?: unknown } | null;
+      };
+      // 아직 별을 안 눌렀으면 실패로 남기지 않고 동의 창을 띄운다.
+      if (failure.status === 409 && failure.body?.starRequired === true) {
+        setUpdateRun(null);
+        setStarConsent({
+          starPageUrl: resolveStarPageUrl(failure.body.starPageUrl),
+        });
+        return;
+      }
       // 이미 진행 중(409)이면 실패가 아니라 그 실행을 이어받아 표시한다.
-      if ((error as { status?: number }).status === 409) {
+      if (failure.status === 409) {
         setUpdateRun(null);
         void loadUpdateStatus();
         return;
@@ -5537,6 +5591,79 @@ export default function FilesView({
     }
   }
 
+  // 업데이트 시작 진입점. 아직 별을 남기지 않았으면 동의 창을 먼저 띄운다.
+  // starred가 null이면 토큰이 없어 확인할 수 없는 설치라 기존처럼 바로 실행한다.
+  function requestUpdate(opener?: HTMLElement | null) {
+    const status = updatePanel?.status;
+    if (!status) return;
+    starConsentOpenerRef.current =
+      opener ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
+    if (status.starred === false) {
+      setStarConsent({ starPageUrl: STAR_PAGE_URL });
+      return;
+    }
+    void startUpdate();
+  }
+
+  function closeStarConsent() {
+    setStarConsent(null);
+    const opener = starConsentOpenerRef.current;
+    starConsentOpenerRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
+  function confirmStarConsent() {
+    starConsentOpenerRef.current = null;
+    setStarConsent(null);
+    void startUpdate(true);
+    // 실행이 시작되면 눌렀던 버튼이 사라지므로 포커스를 업데이트 창 안에 남긴다.
+    window.requestAnimationFrame(() => {
+      updateDialogRef.current
+        ?.querySelector<HTMLElement>("[data-update-initial-focus]")
+        ?.focus();
+    });
+  }
+
+  function handleStarConsentKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeStarConsent();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        DIALOG_FOCUSABLE_SELECTOR,
+      ),
+    );
+    if (!focusable.length) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (
+      event.shiftKey &&
+      (active === first || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (
+      !event.shiftKey &&
+      (active === last || !event.currentTarget.contains(active))
+    ) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function openUpdatePanel(opener: HTMLElement) {
     if (!isAdmin) return;
     updateDialogOpenerRef.current = opener;
@@ -5548,6 +5675,8 @@ export default function FilesView({
     updateRequestIdRef.current += 1;
     updateControllerRef.current?.abort();
     updateControllerRef.current = null;
+    setStarConsent(null);
+    starConsentOpenerRef.current = null;
     setUpdatePanel(null);
     const opener = updateDialogOpenerRef.current;
     updateDialogOpenerRef.current = null;
@@ -8210,7 +8339,7 @@ export default function FilesView({
                         <button
                           type="button"
                           className={styles.primaryButton}
-                          onClick={() => void startUpdate()}
+                          onClick={(event) => requestUpdate(event.currentTarget)}
                         >
                           {t("업데이트 하기")}
                         </button>
@@ -8219,9 +8348,9 @@ export default function FilesView({
                       <button
                         type="button"
                         className={styles.primaryButton}
-                        onClick={() => {
+                        onClick={(event) => {
                           setUpdateRun(null);
-                          void startUpdate();
+                          requestUpdate(event.currentTarget);
                         }}
                       >
                         {t("다시 시도")}
@@ -8259,6 +8388,68 @@ export default function FilesView({
                   </div>
                 </>
               ) : null}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* 별 남기기 동의 — 업데이트 패널 위에 뜨고, 동의해야 실행이 시작된다 */}
+      {isAdmin && updatePanel && starConsent && (
+        <div
+          className={`${styles.dialogBackdrop} ${styles.starConsentBackdrop}`}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeStarConsent();
+          }}
+        >
+          <section
+            ref={starConsentDialogRef}
+            className={styles.dialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="star-consent-title"
+            aria-describedby="star-consent-description"
+            onKeyDown={handleStarConsentKeyDown}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="star-consent-title">{t("GitHub에 별 남기기")}</strong>
+              <button
+                type="button"
+                data-star-initial-focus
+                aria-label={t("별 남기기 창 닫기")}
+                onClick={closeStarConsent}
+              >
+                ×
+              </button>
+            </header>
+            <div className={styles.updateDialogBody}>
+              <p id="star-consent-description">
+                {t("ShareDesk는 GitHub 저장소의 별로 응원을 받습니다. 업데이트를 시작하려면 별 남기기에 동의해 주세요. 관리자 GitHub 계정으로 별이 추가됩니다.")}
+              </p>
+              <a
+                className={styles.starConsentLink}
+                href={starConsent.starPageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t("저장소 열기")}
+              </a>
+              <div className={styles.dialogActions}>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  onClick={closeStarConsent}
+                >
+                  {t("취소")}
+                </button>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={confirmStarConsent}
+                >
+                  {t("별 남기고 업데이트")}
+                </button>
+              </div>
             </div>
           </section>
         </div>

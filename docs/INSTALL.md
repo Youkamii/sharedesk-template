@@ -26,7 +26,7 @@ Each install connects its own host Git repository, Vercel project, Google OAuth 
 4. **Connect it to production:** move the required values setup filled in to your Vercel Production environment variables and redeploy.
 5. **Check it with one other person:** confirm production sign-in and file saving first, then create an invitation code in `/admin`. Invite one person and check that both accounts see the same file — that finishes the core install. The Vercel Firewall comes afterwards, in the production hardening step.
 
-ShareDesk never applies a new version on its own. After installation, the `Update` button on the admin screen shows a star only when a new version exists. Connecting an older install for the first time is covered in the [Update guide](./UPDATE.md).
+ShareDesk never applies a new version on its own. After installation, the admin-only `Update` button in the taskbar shows a star only when a new version exists. Connecting an older install for the first time is covered in the [Update guide](./UPDATE.md).
 
 Each step is described in detail below. Feel free to look up only the Google Cloud screen or the error you ran into.
 
@@ -88,7 +88,7 @@ Enter the following in `Google Auth Platform` → `Branding`.
 - User support email
 - Developer contact email
 
-Depending on the language of your Google Cloud console, `Branding`, `Audience`, `Data Access`, and `Clients` may appear translated into that language.
+If your Google Cloud console is set to another language, `Branding`, `Audience`, `Data Access`, and `Clients` may appear translated.
 
 ### 2-3. Audience
 
@@ -99,7 +99,7 @@ Choose who may use the app in `Google Auth Platform` → `Audience`.
 
 For a production External app, press `Publish app` to switch to `In production` before running setup. If it is already `In production`, leave it as it is.
 
-You can install from `Testing` too, but the ShareDesk host connection asks for `drive.file` together with offline access. A refresh token issued in that state usually expires after 7 days. If you already ran setup while in Testing, switch to In production first and then redo the host connection. Do not discard a working token from an app that is already In production without a reason.
+You can install from `Testing` too, but the ShareDesk host connection asks for `drive.file` together with offline access. A refresh token issued in that state usually expires after 7 days. If you already ran setup while in Testing, switch to In production first and then redo the host connection. Without good reason, do not discard a working token from an app that is already In production.
 
 `In production` is a publishing status, separate from the token expiry policy for testing. It does not mean the app has been verified; depending on your Branding and the number of users, Google warnings or extra verification steps may still apply.
 
@@ -221,7 +221,7 @@ npm run dev
 3. Create a folder in `/files` and check that it is still there after a refresh.
 4. Check that `/admin` opens.
 
-Everything so far is a local check. It does not mean the production deployment other people can use is finished.
+Everything so far is a local check. It does not mean the production deployment that other people can use is finished.
 
 ## 6. Vercel Production environment variables and redeploy
 
@@ -315,7 +315,7 @@ The admin screen lets you block a user or move them back to pending, and sign ou
 
 ## Updating after installation
 
-ShareDesk never applies a new version on its own. When a new version is found, it puts a star on `Update` in the admin taskbar. Pressing the button shows the current and latest versions inside ShareDesk first. In an install that has `SHAREDESK_GITHUB_TOKEN` in Vercel, an admin pressing `Update now` starts the update right inside the app and sees the progress. An install without the token opens the GitHub Actions page as before, where you press `Run workflow` to start. Either way, the commit lands on `main` only when the checks pass, and the connected Vercel redeploys.
+ShareDesk never applies a new version on its own. When a new version is found, it puts a star on the admin-only `Update` button in the taskbar. Pressing the button shows the current and latest versions inside ShareDesk first. In an install that has `SHAREDESK_GITHUB_TOKEN` in Vercel, an admin who presses `Update now` starts the update right inside the app and sees the progress there. An install without the token opens the GitHub Actions page as before, where you press `Run workflow` to start. Either way, the commit lands on `main` only when the checks pass, and the connected Vercel redeploys.
 
 Drive files and shared state, `.env.local`, and Vercel environment variables are not part of a code update. For the one-time migration of an install created before the update feature arrived, and for resolving conflicts, follow [ShareDesk Update](./UPDATE.md).
 
@@ -330,7 +330,7 @@ Folder permissions carry down to child items according to Google Drive's rules. 
 | Symptom | What to check |
 |---|---|
 | `redirect_uri_mismatch` | Compare the `redirect_uri` from the error character by character with `Authorized redirect URIs` on the same Client ID in Google Auth Platform. Not JavaScript origins. |
-| `Access blocked` | Check that the Audience is External. If you keep Testing, the signing-in account has to be added as a Test user. |
+| `Access blocked` | Check that the Audience is External. If you keep Testing, the account you sign in with has to be added as a Test user. |
 | `org_internal` | You signed in to an Internal app with an account outside the organization. Switch to External, or use an organization account. |
 | `127.0.0.1` connection error after consent | Normal during setup. Copy the whole address bar and paste it into the question from `npm run setup -- --finish`. |
 | Setup reports that no `refresh_token` was received | Check the existing connection and the Audience status first. Only when you really need a new token and the existing connection is preventing it, remove the permission in [your Google account's connected apps](https://myaccount.google.com/permissions) and run setup again. |
@@ -340,13 +340,13 @@ Folder permissions carry down to child items according to Google Drive's rules. 
 | The invitation code is rejected | Check the code's expiry, active status, and usage type in `/admin`. A single-use code may already be spent after someone else's first successful sign-up. |
 | Only certain Workspace accounts fail | Check the organization admin's third-party app access restrictions, or Google Advanced Protection policies. |
 | Admin sign-in asks for an invitation | Check that the signed-in email matches `ADMIN_EMAILS` exactly, and redeploy if you changed the value. |
-| Setup stops because several state files share a name | Look at the JSON files in `ShareDesk/.sharedesk/` in Drive, compare their contents, keep only the one to preserve, and run it again. |
+| Setup stops because several state files share a name | Look at the JSON files in `ShareDesk/.sharedesk/` in Drive, compare their contents, keep only the one you want to preserve, and run setup again. |
 
 ### Is it all right to run setup again?
 
 If `.env.local` already has `DRIVE_ROOT_FOLDER_ID` and the state folder ID, setup carries on using that folder and the existing state files. If several core state files share a name, it stops instead of picking one at random, so check their contents in Drive and keep only one.
 
-If you replaced the Client secret, or need to receive the refresh token again, update the Client ID and secret in `.env.local` first and then start setup again. Do not discard a connection that already works on a guess.
+If you replaced the Client secret, or need to receive the refresh token again, update the Client ID and secret in `.env.local` first and then start setup again. Do not discard a working connection on a guess.
 
 ## Storage structure and limits
 

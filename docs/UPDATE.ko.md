@@ -28,15 +28,16 @@ ShareDesk는 새 버전을 자동으로 적용하지 않습니다. 관리자로 
 4. 토큰 이름을 알아볼 수 있게 적습니다. 예) `sharedesk-update`
 5. `Expiration`(만료일)을 정합니다. 만료일이 지나면 원클릭이 멈추고 폴백 경로만 남으므로, 긴 만료일을 고르고 만료 시점을 기억해 두거나 만료 뒤 이 절차로 토큰을 다시 만드세요.
 6. `Repository access`에서 `Only select repositories`를 고르고 **내 ShareDesk 설치 저장소 하나만** 선택합니다.
-7. `Permissions` → `Repository permissions`에서 `Actions`를 `Read and write`로 바꿉니다. 다른 권한은 건드리지 않습니다.
-8. `Generate token`을 눌러 만들어진 토큰 값을 복사합니다. 이 값은 화면을 떠나면 다시 볼 수 없습니다.
-9. Vercel 프로젝트의 `Settings` → `Environment Variables`에서 `Production` 환경에 아래 값을 추가합니다.
+7. `Permissions` → `Repository permissions`에서 `Actions`를 `Read and write`로 바꿉니다.
+8. 같은 화면의 `Account permissions`에서 `Starring`을 `Read and write`로 바꿉니다. 업데이트를 시작할 때 ShareDesk 저장소에 별을 남기는 데 씁니다. 다른 권한은 건드리지 않습니다.
+9. `Generate token`을 눌러 만들어진 토큰 값을 복사합니다. 이 값은 화면을 떠나면 다시 볼 수 없습니다.
+10. Vercel 프로젝트의 `Settings` → `Environment Variables`에서 `Production` 환경에 아래 값을 추가합니다.
 
 ```dotenv
 SHAREDESK_GITHUB_TOKEN=복사한-토큰-값
 ```
 
-10. Production을 다시 배포합니다. 환경 변수 변경은 기존 배포에 자동으로 반영되지 않습니다.
+11. Production을 다시 배포합니다. 환경 변수 변경은 기존 배포에 자동으로 반영되지 않습니다.
 
 토큰은 비밀값입니다. 공개 저장소, 채팅, 이슈, 스크린샷에는 붙이지 마세요.
 

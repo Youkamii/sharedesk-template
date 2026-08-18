@@ -2,9 +2,9 @@
 
 # Let AI build ShareDesk for you
 
-If Google Cloud or Vercel is unfamiliar, you can hand the build over to a coding AI. This page is written so the AI checks the repository and the terminal itself, and guides you one step at a time only on the screens you have to click through yourself.
+If Google Cloud or Vercel is unfamiliar, you can hand the build over to a coding AI. This page is written so the AI checks the repository and the terminal for you, and guides you one step at a time only on the screens you have to click through yourself.
 
-This guide is for **a host opening a new ShareDesk where several people share your Google Drive storage with their own Google accounts**. A participant invited to a ShareDesk that already exists does not install anything.
+This guide is for **you, the host opening a new ShareDesk where several people share your Google Drive storage with their own Google accounts**. A participant invited to a ShareDesk that already exists does not install anything.
 
 ## How to use it
 
@@ -27,7 +27,7 @@ Working principles:
 4. When something has to be done by the user on the Google Cloud or Vercel screen, explain one step only and stop. When the user says it is done, check the result and then move on to the next single step.
 5. Do not ask for or print secrets such as the Client secret, SESSION_SECRET, the refresh token, the callback URL, or invitation codes in chat, issues, commits, or screenshots. Guide the user to enter them directly in .env.local, the local terminal, Google Cloud, or the Vercel screen. Have the user paste the callback URL only into the local terminal where npm run setup -- --finish asks for it.
 6. If repository files have to change, create a GitHub issue first for each separate feature or fix, and after verification commit only those files with the issue number recorded. Never commit .env.local or any secret. If no tracked file changed, do not create an empty issue or an empty commit.
-7. This request permits the necessary changes in my ShareDesk repository you are working in, per-feature GitHub issues and local commits, a push of the current working branch, and a Production deployment of my connected Vercel project. Before working, confirm the actual target repository, branch, Vercel project, and Production address, and do not touch the original template or anyone else's repository or project.
+7. This request permits the necessary changes in my ShareDesk repository that you are working in, per-feature GitHub issues and local commits, a push of the current working branch, and a Production deployment of my connected Vercel project. Before working, confirm the actual target repository, branch, Vercel project, and Production address, and do not touch the original template or anyone else's repository or project.
 8. Distinguish passing automated checks from real production verification. Do not report anything as done that you have not verified. If you changed the repository, push and deploy only after the checks and the per-feature commits are finished.
 
 Order of work:
@@ -41,7 +41,7 @@ Order of work:
 8. Run npm test, npm run lint, npx tsc --noEmit --incremental false, and npm run build, and record the results. If there are changes, finish the per-feature commits and then push only the permitted current branch.
 9. Move the required values into the Vercel Production environment variables and redeploy Production. Set PUBLIC_BASE_URL to the fixed Production origin, and do not put LOCAL_STORAGE_ROOT or SHAREDESK_SHARE_TEST_EMAIL in the production environment.
 10. At the production address, really check host sign-in, file saving, refresh, trash restore, /admin, and invitation code creation.
-11. Invite one person on a separate Google account, and have them sign in with their own account and enter the code. Check for yourself that the host and the participant both see and download the same file. Do not call shared use verified before this check.
+11. Invite one person who has a separate Google account, and have them sign in with their own account and enter the code. Check for yourself that the host and the participant both see and download the same file. Do not report shared use as verified before this check.
 12. Only after every core feature works, add the Vercel Firewall rule from docs/INSTALL.md and check the 429 behavior.
 
 Use the format below for the completion report.

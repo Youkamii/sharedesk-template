@@ -33,7 +33,7 @@
 कार्य का क्रम:
 1. वर्तमान स्थिति को एक तालिका में रखो, और उसे पूरा / अधूरा / पुष्टि आवश्यक में बाँटो।
 2. मेरी GitHub रिपॉज़िटरी और Vercel प्रोजेक्ट न होने पर ही उन्हें बनाओ या जोड़ो, और न बदलने वाला Production पता नोट करो।
-3. Google Cloud में एक ही प्रोजेक्ट के Drive API, Branding, Audience, Data Access और Web application OAuth क्लाइंट की जाँच करो। docs/INSTALL.hi.md के तीन redirect URI और चार scope ठीक-ठीक मिलते हैं या नहीं, यह जँचवाओ।
+3. Google Cloud में एक ही प्रोजेक्ट के Drive API, Branding, Audience, Data Access और Web application OAuth क्लाइंट की जाँच करो। docs/INSTALL.hi.md के तीन redirect URI और चार scope ठीक-ठीक मिलते हैं या नहीं, यह उपयोगकर्ता से जँचवाओ।
 4. रिपॉज़िटरी में npm ci चलाओ और .env.local सुरक्षित रूप से तैयार करो। Google Client ID और Client secret उपयोगकर्ता से फ़ाइल में स्वयं डलवाओ।
 5. npm run setup चलाकर होस्ट की Google सहमति शुरू करो। सहमति के बाद callback URL उपयोगकर्ता से npm run setup -- --finish के प्रश्न में स्वयं चिपकवाओ, और AI उस मान को न पढ़े और न दोबारा प्रिंट करे।
 6. setup द्वारा बनाए गए ADMIN_EMAILS, SESSION_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, DRIVE_STATE_FOLDER_ID मौजूद हैं या नहीं — केवल यही, मान उजागर किए बिना जाँचो।
