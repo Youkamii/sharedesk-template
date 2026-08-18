@@ -8,7 +8,6 @@ import {
 } from "@/lib/github-star";
 import { parseLocale, type Locale } from "@/lib/i18n";
 import {
-  dispatchAutoUpdateRegister,
   hasAutoUpdateWorkflow,
   resolveUpdateRepository,
 } from "@/lib/update-status";
@@ -135,30 +134,6 @@ export async function PATCH(req: NextRequest) {
           { status: 409, headers: { "Cache-Control": "no-store" } },
         );
       }
-      // 자정 실행이 읽을 수 있게 저장소 쪽에도 켜짐을 등록한다.
-      // 등록이 안 되면 켜진 척하지 않는다.
-      const registered = await dispatchAutoUpdateRegister(
-        "enable",
-        patch.autoUpdateTimezone ?? null,
-      );
-      if (!registered.ok) {
-        return NextResponse.json(
-          { error: registered.error },
-          { status: registered.status, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-    }
-  }
-
-  // 끄기는 즉시 저장하되 저장소 쪽 기록도 함께 내린다 — 실패해도 화면은
-  // 꺼진 상태가 되고, 다음 자정 실행은 별·기록을 다시 확인한다.
-  if (patch.autoUpdate === false) {
-    const registered = await dispatchAutoUpdateRegister("disable");
-    if (!registered.ok) {
-      console.error("[admin]", {
-        event: "auto-update-disable-register-failed",
-        error: registered.error,
-      });
     }
   }
 
