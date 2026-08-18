@@ -1,14 +1,26 @@
 name: ShareDesk Auto Update
 
-# 매시 7분에 깨어나 설치된 앱의 공개 정책(/api/update-policy)을 읽고,
-# 자동 업데이트가 켜져 있고 그 시간대가 자정(00시대)일 때만 수동
-# 업데이트와 동일한 적용·봉인·검증·푸시를 수행한다. 키가 필요 없다 —
-# 저장소 자체의 GITHUB_TOKEN만 쓴다. workflow_dispatch는 시험용으로
-# 자정 조건 없이 정책만 확인하고 바로 실행한다.
+# 자동 업데이트의 두 얼굴:
+# 1) register — 앱(관리자 설정)이 workflow_dispatch 입력으로 켜기/끄기와
+#    시간대를 보내면 sharedesk-auto-update.json에 기록해 커밋한다.
+#    앱 주소를 몰라도 되는 유일한 통신로다(Vercel 보호벽·배포 URL 문제 없음).
+# 2) schedule — 매시 7분에 깨어나 그 기록을 읽고, 켜져 있고 그 시간대가
+#    자정 창(00~01시)이며 저장소 주인이 템플릿 저장소에 별을 눌러 둔
+#    경우에만 수동 업데이트와 동일한 적용·봉인·검증·푸시를 수행한다.
+#    개인 키가 필요 없다 — 저장소 자체의 GITHUB_TOKEN만 쓴다.
 on:
   schedule:
     - cron: "7 * * * *"
   workflow_dispatch:
+    inputs:
+      action:
+        description: "enable 또는 disable (비우면 예약 실행처럼 판단만 한다)"
+        required: false
+        type: string
+      timezone:
+        description: "IANA 시간대 (enable일 때 필수)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -18,15 +30,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  register:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the installed repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Record the auto-update setting
+        shell: bash
+        env:
+          ACTION: ${{ github.event.inputs.action }}
+          TIMEZONE: ${{ github.event.inputs.timezone }}
+          AUTHOR_NAME: ${{ github.actor }}
+          AUTHOR_EMAIL: ${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com
+        run: |
+          if [[ "$ACTION" != "enable" && "$ACTION" != "disable" ]]; then
+            echo "Unknown action: $ACTION"
+            exit 1
+          fi
+          enabled="false"
+          tz=""
+          if [[ "$ACTION" == "enable" ]]; then
+            if ! [[ "$TIMEZONE" =~ ^([A-Za-z_]+(/[A-Za-z0-9_+-]+)+|UTC)$ ]]; then
+              echo "Unusable timezone: $TIMEZONE"
+              exit 1
+            fi
+            enabled="true"
+            tz="$TIMEZONE"
+          fi
+          printf '{\n  "enabled": %s,\n  "timezone": "%s"\n}\n' "$enabled" "$tz" > sharedesk-auto-update.json
+          if git ls-files --error-unmatch sharedesk-auto-update.json > /dev/null 2>&1 && git diff --quiet -- sharedesk-auto-update.json; then
+            echo "Setting unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name "$AUTHOR_NAME"
+          git config user.email "$AUTHOR_EMAIL"
+          git add sharedesk-auto-update.json
+          git -c core.hooksPath=/dev/null commit -m "chore: set automatic updates to ${ACTION}"
+          git push origin HEAD:main
+
   policy:
     # 배포되지 않는 원본 템플릿 저장소에서는 돌 이유가 없다.
-    if: github.repository != 'Youkamii/sharedesk-template'
+    if: |
+      github.repository != 'Youkamii/sharedesk-template' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'workflow_dispatch' && github.event.inputs.action == ''))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
     steps:
-      - name: Ask the installed app whether it is update time
+      - name: Check out the recorded setting
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Decide whether tonight is update night
         id: gate
         shell: bash
         env:
@@ -35,48 +101,37 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           echo "proceed=false" >> "$GITHUB_OUTPUT"
-          api="https://api.github.com/repos/$REPOSITORY"
-          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
-          # Vercel의 GitHub 연동이 남긴 Deployments 기록에서 프로덕션 URL을 찾는다.
-          url=""
-          deployments="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments?per_page=20" || echo '[]')"
-          for id in $(printf '%s' "$deployments" | jq -r '[.[] | select((.environment // "") | test("^production$"; "i"))][:5] | .[].id' 2>/dev/null); do
-            status_url="$(curl -sS --max-time 20 "${auth[@]}" "$api/deployments/$id/statuses?per_page=5" | jq -r '[.[] | select(.state == "success") | .environment_url // empty][0] // empty' 2>/dev/null)"
-            if [[ "$status_url" == https://* ]]; then
-              url="$status_url"
-              break
-            fi
-          done
-          if [[ -z "$url" ]]; then
-            echo "No production deployment URL found; nothing to do."
+          if [[ ! -f sharedesk-auto-update.json ]]; then
+            echo "Auto update has never been turned on; nothing to do."
             exit 0
           fi
-          policy="$(curl -sS --max-time 20 "$url/api/update-policy" || true)"
-          auto="$(printf '%s' "$policy" | jq -r '.autoUpdate // false' 2>/dev/null || echo false)"
-          midnight="$(printf '%s' "$policy" | jq -r '.midnight // false' 2>/dev/null || echo false)"
-          if [[ "$auto" != "true" ]]; then
+          enabled="$(jq -r '.enabled // false' sharedesk-auto-update.json 2>/dev/null || echo false)"
+          tz="$(jq -r '.timezone // empty' sharedesk-auto-update.json 2>/dev/null || true)"
+          if [[ "$enabled" != "true" ]]; then
             echo "Auto update is turned off; nothing to do."
             exit 0
           fi
-          # 자정 판정은 앱이 저장된 시간대로 계산해 준다 — 시간대 문자열이
-          # 셸에 닿지 않고, 00~01시 창이라 예약 지연에도 그날을 놓치지 않는다.
-          if [[ "$EVENT_NAME" == "schedule" && "$midnight" != "true" ]]; then
-            echo "Not the midnight window yet; waiting."
+          if ! [[ "$tz" =~ ^([A-Za-z_]+(/[A-Za-z0-9_+-]+)+|UTC)$ ]]; then
+            echo "The recorded timezone is unusable; nothing to do."
+            exit 0
+          fi
+          hour="$(TZ="$tz" date +%H)"
+          if [[ "$EVENT_NAME" == "schedule" && "$hour" != "00" && "$hour" != "01" ]]; then
+            echo "It is ${hour}:xx in ${tz}; waiting for the midnight window."
             exit 0
           fi
           # 별이 실제로 박혀 있어야만 돈다 — 설치 저장소 주인이 템플릿
           # 저장소의 공개 스타 목록에 있는지 확인하고, 없으면 건너뛴다.
+          auth=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
           owner="${REPOSITORY%%/*}"
           starred="false"
           for page in $(seq 1 30); do
             names="$(curl -sS --max-time 20 "${auth[@]}" "https://api.github.com/repos/Youkamii/sharedesk-template/stargazers?per_page=100&page=$page" | jq -r '.[].login' 2>/dev/null)"
-            if printf '%s
-' "$names" | grep -qix "$owner"; then
+            if grep -qix "$owner" <<< "$names"; then
               starred="true"
               break
             fi
-            count="$(printf '%s
-' "$names" | grep -c . || true)"
+            count="$(grep -c . <<< "$names" || true)"
             if [[ "$count" -lt 100 ]]; then
               break
             fi
