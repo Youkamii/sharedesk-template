@@ -98,6 +98,10 @@ export const EN_FILES: Record<string, string> = {
   "휴지통 보관 중": "In the trash",
   // "삭제 확인"은 EN_ADMIN에도 있는 키 — 값이 반드시 같아야 한다 (tests/i18n.test.ts).
   "삭제 확인": "Confirm deletion",
+  "★ 누르고 자동 업데이트": "★ Star and auto-update",
+  "켜는 중…": "Turning on…",
+  "자동 업데이트를 켜지 못했습니다": "Could not turn on automatic updates",
+  "이제 자정에 자동으로 업데이트됩니다.": "Updates now happen automatically at midnight.",
   "취소": "Cancel",
   "완전 삭제": "Delete forever",
   "{count}개 항목 · 30일 후 자동 삭제":

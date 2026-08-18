@@ -178,10 +178,6 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const [activity, setActivity] = useState<
     { entries: ActivityEntry[] } | { error: string } | null
   >(null);
-  // 자동 업데이트를 켜기 전에 별 동의가 필요할 때 여는 안내 상자.
-  const [starConsent, setStarConsent] = useState<{
-    starPageUrl: string;
-  } | null>(null);
   // 자동 업데이트가 켜졌을 때 설정 화면에서 보여 주는 버전·릴리스 정보.
   const [updateInfo, setUpdateInfo] = useState<{
     currentVersion: string | null;
@@ -677,8 +673,6 @@ export default function AdminView({ locale }: { locale: Locale }) {
       locale?: Locale;
       allowMemberLocale?: boolean;
       autoUpdate?: boolean;
-      autoUpdateTimezone?: string;
-      star?: boolean;
     },
     successNotice: string,
   ) {
@@ -699,26 +693,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
         locale?: unknown;
         allowMemberLocale?: unknown;
         autoUpdate?: unknown;
-        starRequired?: unknown;
-        starPageUrl?: unknown;
         error?: string;
       } | null;
-      // 아직 별을 안 누른 데스크가 자동 업데이트를 켜면 오류 대신 동의
-      // 상자를 연다 — 동의하면 star: true로 다시 저장한다.
-      if (
-        response.status === 409 &&
-        body?.starRequired === true &&
-        patch.autoUpdate === true
-      ) {
-        setStarConsent({
-          starPageUrl:
-            typeof body.starPageUrl === "string" &&
-            body.starPageUrl.startsWith("https://github.com/")
-              ? body.starPageUrl
-              : "https://github.com/Youkamii/sharedesk-template",
-        });
-        return;
-      }
       const savedLocale = parseLocale(body?.locale);
       if (
         !response.ok ||
@@ -728,7 +704,6 @@ export default function AdminView({ locale }: { locale: Locale }) {
       ) {
         throw new Error(body?.error ?? t("데스크 설정을 저장하지 못했습니다"));
       }
-      setStarConsent(null);
       setDeskSettings({
         locale: savedLocale,
         allowMemberLocale: body.allowMemberLocale,
@@ -1414,114 +1389,60 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <span className={styles.windowTitle}>
                     <h2 id="auto-update-title">{t("업데이트")}</h2>
                   </span>
-                  <label className={styles.allowToggle} htmlFor="auto-update">
-                    <input
-                      id="auto-update"
-                      type="checkbox"
-                      checked={deskSettings?.autoUpdate ?? false}
-                      disabled={deskSettings === null || busyId !== null}
-                      onChange={(event) =>
-                        void updateDeskSettings(
-                          event.target.checked
-                            ? {
-                                autoUpdate: true,
-                                autoUpdateTimezone:
-                                  Intl.DateTimeFormat().resolvedOptions()
-                                    .timeZone,
-                              }
-                            : { autoUpdate: false },
-                          event.target.checked
-                            ? "이제 자정에 자동으로 업데이트됩니다."
-                            : "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.",
-                        )
-                      }
-                    />
-                    {t("자동 업데이트")}
-                  </label>
                 </header>
                 <div className={styles.windowBody}>
                   <p className={styles.description}>
                     {t(
-                      "켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용됩니다. 별도의 키가 필요 없습니다. 켜져 있는 동안 작업표시줄의 업데이트 버튼은 숨겨지고, 업데이트 내용은 여기에서 보여 줍니다.",
+                      "자동 업데이트는 작업표시줄의 업데이트 창에서 '★ 누르고 자동 업데이트' 버튼으로 켭니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 업데이트 버튼은 숨겨집니다.",
                     )}
                   </p>
-                  {starConsent && (
-                    <div
-                      className={styles.starConsent}
-                      role="group"
-                      aria-label={t("GitHub에 별 남기기")}
-                    >
+                  {autoUpdateOn && (
+                    <>
                       <p className={styles.description}>
-                        {t(
-                          "자동 업데이트를 켜려면 GitHub에서 ShareDesk 저장소에 별을 남겨 주세요.",
-                        )}{" "}
-                        <a
-                          href={starConsent.starPageUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {t("저장소 열기")}
-                        </a>
+                        {t("자동 업데이트가 켜져 있습니다.")}
                       </p>
-                      <div className={styles.starConsentActions}>
-                        <button
-                          type="button"
-                          className={`${styles.pixelButton} ${styles.primaryButton}`}
-                          disabled={busyId !== null}
-                          onClick={() => {
-                            setStarConsent(null);
-                            void updateDeskSettings(
-                              {
-                                autoUpdate: true,
-                                autoUpdateTimezone:
-                                  Intl.DateTimeFormat().resolvedOptions()
-                                    .timeZone,
-                                star: true,
-                              },
-                              "이제 자정에 자동으로 업데이트됩니다.",
-                            );
-                          }}
-                        >
-                          {t("별 남기고 켜기")}
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.pixelButton}
-                          disabled={busyId !== null}
-                          onClick={() => setStarConsent(null)}
-                        >
-                          {t("취소")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {autoUpdateOn && updateInfo && (
-                    <div className={styles.description}>
-                      {updateInfo.failed ? (
-                        <p>{t("최신 릴리스 정보를 불러오지 못했습니다")}</p>
-                      ) : (
-                        <>
-                          {updateInfo.currentVersion && (
-                            <p>
-                              {t("현재 버전")}: {updateInfo.currentVersion}
-                            </p>
+                      {updateInfo && (
+                        <div className={styles.description}>
+                          {updateInfo.failed ? (
+                            <p>{t("최신 릴리스 정보를 불러오지 못했습니다")}</p>
+                          ) : (
+                            <>
+                              {updateInfo.currentVersion && (
+                                <p>
+                                  {t("현재 버전")}: {updateInfo.currentVersion}
+                                </p>
+                              )}
+                              {updateInfo.latestVersion && (
+                                <p>
+                                  {t("최신 버전")}: {updateInfo.latestVersion}
+                                  {updateInfo.currentVersion ===
+                                    updateInfo.latestVersion &&
+                                    ` — ${t("지금 최신 버전입니다")}`}
+                                </p>
+                              )}
+                              {updateInfo.latestNotes && (
+                                <pre className={styles.releaseNotes}>
+                                  {updateInfo.latestNotes}
+                                </pre>
+                              )}
+                            </>
                           )}
-                          {updateInfo.latestVersion && (
-                            <p>
-                              {t("최신 버전")}: {updateInfo.latestVersion}
-                              {updateInfo.currentVersion ===
-                                updateInfo.latestVersion &&
-                                ` — ${t("지금 최신 버전입니다")}`}
-                            </p>
-                          )}
-                          {updateInfo.latestNotes && (
-                            <pre className={styles.releaseNotes}>
-                              {updateInfo.latestNotes}
-                            </pre>
-                          )}
-                        </>
+                        </div>
                       )}
-                    </div>
+                      <button
+                        type="button"
+                        className={`${styles.pixelButton} ${styles.dangerButton}`}
+                        disabled={deskSettings === null || busyId !== null}
+                        onClick={() =>
+                          void updateDeskSettings(
+                            { autoUpdate: false },
+                            "자동 업데이트를 껐습니다. 작업표시줄의 업데이트 버튼으로 직접 업데이트할 수 있습니다.",
+                          )
+                        }
+                      >
+                        {t("자동 업데이트 멈추기")}
+                      </button>
+                    </>
                   )}
                 </div>
               </div>

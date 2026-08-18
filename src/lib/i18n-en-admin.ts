@@ -77,6 +77,9 @@ export const EN_ADMIN: Record<string, string> = {
   "참여자들이 데스크에서 한 일이 최근 것부터 보입니다. 업로드, 삭제, 이름 변경 같은 변화만 기록합니다.": "What people did on the desk, newest first. Only changes such as uploads, deletions, and renames are recorded.",
   "아직 기록된 활동이 없습니다.": "No activity has been recorded yet.",
   "활동을 불러오지 못했습니다": "Could not load the activity",
+  "자동 업데이트 멈추기": "Stop automatic updates",
+  "자동 업데이트가 켜져 있습니다.": "Automatic updates are on.",
+  "자동 업데이트는 작업표시줄의 업데이트 창에서 '★ 누르고 자동 업데이트' 버튼으로 켭니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 업데이트 버튼은 숨겨집니다.": "Turn on automatic updates with the '★ Star and auto-update' button in the taskbar update window. When on, new versions apply automatically at midnight in this timezone, no key is needed, and the update button stays hidden.",
   "취소": "Cancel",
   "모든 로그인 끊기": "Sign out everywhere",
   "이 사람의 모든 기기에서 로그인을 끊습니다":

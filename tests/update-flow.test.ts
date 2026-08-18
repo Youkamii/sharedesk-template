@@ -2043,6 +2043,8 @@ test("turning on automatic updates passes the same star gate and fails open", as
     "utf8",
   );
   const passGate = star.slice(star.indexOf("export async function passStarGate"));
+  // 동의 생략은 "별을 눌렀다"가 확인된 경우뿐 — 확인 불가는 동의를 요구한다.
+  assert.match(passGate, /if \(starCheck\.ok && starCheck\.starred\) return \{ allowed: true \};/);
   assert.match(passGate, /star-skipped/);
   assert.doesNotMatch(
     passGate.slice(0, passGate.indexOf("export function resolveStarToken")),
