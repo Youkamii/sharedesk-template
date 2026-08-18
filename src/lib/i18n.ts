@@ -44,6 +44,16 @@ export const LOCALE_BCP47: Record<Locale, string> = {
   zh: "zh-CN",
 };
 
+
+// 안내 문서도 영어가 메인이고 나머지 언어는 접미사를 붙인다(docs/UPDATE.ko.md).
+// 화면 언어와 같은 언어의 문서로 보낸다.
+const DOC_BASE =
+  "https://github.com/Youkamii/sharedesk-template/blob/main/docs";
+export type DocName = "UPDATE" | "INSTALL" | "LOCAL" | "AI_INSTALL";
+export function docUrl(doc: DocName, locale: Locale): string {
+  return `${DOC_BASE}/${doc}${locale === "en" ? "" : `.${locale}`}.md`;
+}
+
 export function parseLocale(value: unknown): Locale | null {
   return typeof value === "string" && (LOCALES as readonly string[]).includes(value)
     ? (value as Locale)

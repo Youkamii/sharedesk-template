@@ -27,10 +27,10 @@ test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 
   );
   assert.match(koReadme, /호스트만 처음에 한 번 설치/);
   assert.match(koReadme, /참여자는 어떤 설치도 하지 않습니다/);
-  assert.match(koReadme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
-  assert.match(koReadme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
-  assert.match(koReadme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
-  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(koReadme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.ko\.md\)/);
+  assert.match(koReadme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.ko\.md\)/);
+  assert.match(koReadme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.ko\.md\)/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.ko\.md\)/);
 
   for (const [name, text] of [
     ["README.md", readme],
@@ -125,8 +125,8 @@ test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지�
 
 test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한곳에 둔다", async () => {
   const [install, aiGuide] = await Promise.all([
-    readFile(new URL("docs/INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
+    readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
   ]);
 
   const oauthSection = install.slice(
@@ -237,7 +237,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
 });
 
 test("설치 문서의 초대 안내는 코드 방식과 별도 데스크 설치를 구분한다", async () => {
-  const install = await readFile(new URL("docs/INSTALL.md", root), "utf8");
+  const install = await readFile(new URL("docs/INSTALL.ko.md", root), "utf8");
   const inviteSection = install.slice(
     install.indexOf("## 사람 초대와 관리"),
     install.indexOf("## Google Drive로 직접 공유하기"),
@@ -254,12 +254,12 @@ test("AI 구축 문서와 로컬 개인 사용 문서는 서로 다른 독자를
   const [readme, koReadme, install, aiGuide, localGuide] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("README.ko.md", root), "utf8"),
-    readFile(new URL("docs/INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/LOCAL.md", root), "utf8"),
+    readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/LOCAL.ko.md", root), "utf8"),
   ]);
 
-  assert.match(install, /\[AI에게 구축 맡기기\]\(\.\/AI_INSTALL\.md\)/);
+  assert.match(install, /\[AI에게 구축 맡기기\]\(\.\/AI_INSTALL\.ko\.md\)/);
   assert.match(aiGuide, /그대로 복사/);
   assert.match(aiGuide, /docs\/INSTALL\.md/);
   assert.match(aiGuide, /현재 상태/);
@@ -286,15 +286,15 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
     await Promise.all([
       readFile(new URL("README.md", root), "utf8"),
       readFile(new URL("README.ko.md", root), "utf8"),
-      readFile(new URL("docs/INSTALL.md", root), "utf8"),
-      readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
-      readFile(new URL("docs/LOCAL.md", root), "utf8"),
-      readFile(new URL("docs/UPDATE.md", root), "utf8"),
+      readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+      readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
+      readFile(new URL("docs/LOCAL.ko.md", root), "utf8"),
+      readFile(new URL("docs/UPDATE.ko.md", root), "utf8"),
       readFile(new URL(".env.example", root), "utf8"),
     ]);
 
   assert.match(readme, /\[Update guide\]\(\.\/docs\/UPDATE\.md\)/);
-  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.ko\.md\)/);
   assert.match(install, /관리자 화면의 `업데이트` 버튼/);
   assert.match(aiGuide, /ShareDesk 업데이트 안내/);
   assert.match(localGuide, /업데이트 안내/);

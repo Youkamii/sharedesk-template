@@ -1246,7 +1246,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.match(
     source,
-    /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/UPDATE\.md/,
+    /docUrl\("UPDATE", locale\)/,
   );
   assert.doesNotMatch(source, /href="\/docs"/);
 
