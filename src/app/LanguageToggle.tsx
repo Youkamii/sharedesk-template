@@ -10,6 +10,12 @@ import {
   type Locale,
 } from "@/lib/i18n";
 
+// 같은 언어를 골라도 쿠키를 남긴다 — 데스크 언어가 나중에 바뀌어도
+// 본인이 명시한 선택(resolveEffectiveLocale의 개인 쿠키)이 유지된다.
+function persistLocaleCookie(next: Locale) {
+  document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
+}
+
 // 참여자 개별 언어 메뉴: 다섯 언어 중 하나를 골라 쿠키에 저장하고
 // 서버 컴포넌트를 새로 그려 모든 화면에 적용한다. 스타일은 호출한
 // 화면의 CSS 모듈 클래스를 그대로 받아 그 화면의 메뉴 모양을 재사용한다.
@@ -50,9 +56,7 @@ export default function LanguageMenu({
 
   const selectLocale = (next: Locale) => {
     setOpen(false);
-    // 같은 언어를 골라도 쿠키를 남긴다 — 데스크 언어가 나중에 바뀌어도
-    // 본인이 명시한 선택(resolveEffectiveLocale의 개인 쿠키)이 유지된다.
-    document.cookie = `${LOCALE_COOKIE}=${next}; path=/; max-age=31536000; samesite=lax`;
+    persistLocaleCookie(next);
     router.refresh();
   };
 

@@ -314,15 +314,19 @@ export default function AdminView({ locale }: { locale: Locale }) {
   }, [router, t]);
 
   // 바탕화면 선택은 개인 설정 — FilesView와 같은 키의 localStorage에서 읽는다.
+  // 렌더 직후 한 틱 미뤄 읽어 effect 안의 동기 setState(연쇄 렌더)를 피한다.
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
-      if (saved && WALLPAPERS.some((wallpaper) => wallpaper.id === saved)) {
-        setWallpaperId(saved as WallpaperId);
+    const initial = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem(WALLPAPER_STORAGE_KEY);
+        if (saved && WALLPAPERS.some((wallpaper) => wallpaper.id === saved)) {
+          setWallpaperId(saved as WallpaperId);
+        }
+      } catch {
+        // 저장소 접근이 막힌 브라우저에서는 기본값을 보여 준다.
       }
-    } catch {
-      // 저장소 접근이 막힌 브라우저에서는 기본값을 보여 준다.
-    }
+    }, 0);
+    return () => window.clearTimeout(initial);
   }, []);
 
   async function recordCurrentInstallation() {
