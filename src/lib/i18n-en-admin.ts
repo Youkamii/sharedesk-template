@@ -80,6 +80,7 @@ export const EN_ADMIN: Record<string, string> = {
   "자동 업데이트 멈추기": "Stop automatic updates",
   "자동 업데이트가 켜져 있습니다.": "Automatic updates are on.",
   "자동 업데이트는 작업표시줄의 업데이트 창에서 '★ 누르고 자동 업데이트' 버튼으로 켭니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 업데이트 버튼은 숨겨집니다.": "Turn on automatic updates with the '★ Star and auto-update' button in the taskbar update window. When on, new versions apply automatically at midnight in this timezone, no key is needed, and the update button stays hidden.",
+  "자동 업데이트를 누르면 GitHub 저장소에 별이 남고 자동 업데이트가 켜집니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 작업표시줄의 업데이트 버튼은 숨겨집니다. 멈추면 업데이트 버튼이 다시 나타나고 별은 그대로 남습니다.": "Pressing Automatic updates leaves a star on the GitHub repository and turns automatic updates on. While on, new versions apply automatically at midnight in this timezone, no key is needed, and the taskbar update button is hidden. Stopping brings the update button back; the star stays.",
   "취소": "Cancel",
   "모든 로그인 끊기": "Sign out everywhere",
   "이 사람의 모든 기기에서 로그인을 끊습니다":
