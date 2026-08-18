@@ -1080,10 +1080,10 @@ test("책상과 열린 폴더 검색은 가상 결과 창을 쓰고 폴더 올�
   const taskbarEnd = source.indexOf("</footer>", taskbarStart);
   const taskbar = source.slice(taskbarStart, taskbarEnd);
   const searchIndex = taskbar.indexOf("className={styles.desktopSearch}");
-  const deskSettingsIndex = taskbar.indexOf("책상 설정");
-  assert.ok(searchIndex >= 0 && searchIndex < deskSettingsIndex);
+  assert.ok(searchIndex >= 0);
   assert.match(taskbar, /placeholder=\{t\("전체 파일 검색"\)\}/);
-  assert.match(taskbar, /className=\{styles\.deskButton\}/);
+  // 배경 선택은 관리자 설정으로 옮겼다 — 작업표시줄에 책상 설정 버튼을 두지 않는다.
+  assert.doesNotMatch(taskbar, /책상 설정|styles\.deskButton/);
 
   assert.match(source, /className={styles\.folderSearch}/);
   assert.match(source, /placeholder=\{t\("이 폴더 검색"\)\}/);
@@ -1497,12 +1497,8 @@ test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨�
     source,
     /\{isAdmin && \(\s*<MenuButton\s*onClick=\{\(\) => openShareDialog\(contextMenu\.entry!\)\}/,
   );
-  // 배경 변경은 localStorage 개인 설정이라 역할 게이트를 두지 않는다.
-  const wallpaperStart = source.indexOf("function selectWallpaper(");
-  const wallpaperEnd = source.indexOf("\n  }", wallpaperStart);
-  assert.ok(wallpaperStart >= 0 && wallpaperEnd > wallpaperStart);
-  assert.doesNotMatch(
-    source.slice(wallpaperStart, wallpaperEnd),
-    /allowUpload|allowEdit/,
-  );
+  // 배경 선택 UI는 관리자 설정으로 옮겼다 — 파일 화면에는 적용만 남는다.
+  assert.doesNotMatch(source, /function selectWallpaper\(/);
+  assert.doesNotMatch(source, /배경 — \{name\}/);
+  assert.match(source, /WALLPAPERS\.find\(\(w\) => w\.id === wallpaperId\)/);
 });

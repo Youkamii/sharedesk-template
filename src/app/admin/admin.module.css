@@ -1016,3 +1016,22 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* 테마 미리보기는 사진이 아니라 지금 화면의 질감(도트 배경 + 창)을 줄인 그림이다. */
+.themeThumb {
+  background-color: #14203a;
+  background-image:
+    linear-gradient(#f4e7c5 2px, transparent 2px),
+    linear-gradient(90deg, #f4e7c5 2px, transparent 2px),
+    radial-gradient(#51658d 1px, transparent 1px);
+  background-size:
+    100% 18px,
+    26px 100%,
+    8px 8px;
+  background-position:
+    0 10px,
+    8px 0,
+    0 0;
+  background-repeat: no-repeat, no-repeat, repeat;
+  image-rendering: pixelated;
+}
