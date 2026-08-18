@@ -108,8 +108,6 @@ export function isProtectedPath(filePath) {
   const parts = normalized.split("/");
   return (
     normalized === MANIFEST_FILE ||
-    // 자동 업데이트 설정 기록 — 릴리스가 덮어쓸 수 없다.
-    normalized === "sharedesk-auto-update.json" ||
     BOOTSTRAP_CORE_PATHS.some(
       (corePath) => normalized === corePath.toLowerCase(),
     ) ||
