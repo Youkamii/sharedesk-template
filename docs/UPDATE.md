@@ -61,6 +61,16 @@ SHAREDESK_GITHUB_REPOSITORY=my-github-account/my-sharedesk-repository
 
 A project created through Deploy with Vercel picks up Vercel's Git repository information automatically, so you do not need to add this value. If GitHub Actions succeeded but no Vercel deployment started, open `Settings` → `Git` in the Vercel project and check that `main` of the same install repository is connected as the Production Branch.
 
+## Automatic updates
+
+Turn on `Automatic updates` under Admin → Settings → Updates, and new versions are applied automatically at midnight in the timezone of the computer that turned it on. No key is needed. While it is on, the update button in the taskbar is hidden and update details appear on the same settings screen. Turning it on requires leaving a star on the ShareDesk repository on GitHub.
+
+The feature is handled by the `.github/workflows/sharedesk-auto-update.yml` workflow, which every new install ships with. If an older install is missing this file, copy its contents from the same path in the source repository into the same location in your repository once.
+
+Worth knowing: automatic updates apply new releases without a human check. Turn it on only if you trust the source repository — if that account were compromised, its code would arrive automatically.
+
+Note: GitHub pauses scheduled runs after sixty days without repository activity. If that happens, re-enable the `ShareDesk Auto Update` workflow on your repository's Actions screen.
+
 ## What changes in 0.5.0
 
 From 0.5.0 every user has a role. After the update:

@@ -100,6 +100,29 @@ export async function addStar(options?: {
   return { ok: false, status: 502, error: starApiError(response.status) };
 }
 
+// 별 게이트 공용 판정 — 수동 업데이트와 자동 업데이트 켜기가 같은 정책을
+// 쓰도록 한 곳에 둔다. 아직 별을 안 눌렀는데 동의가 없으면 allowed:false
+// (호출부가 409 동의 창을 연다), 동의했으면 별을 남기고 통과한다.
+// 별 남기기 실패·확인 불가는 통과다 — 사용자가 손쓸 수 없는 사정으로
+// 작업이 막히면 안 된다.
+export async function passStarGate(input: {
+  agreed: boolean;
+  actorUserId: string;
+}): Promise<{ allowed: boolean }> {
+  const token = resolveStarToken();
+  const starCheck = await checkStarred({ token });
+  if (!(starCheck.ok && !starCheck.starred)) return { allowed: true };
+  if (!input.agreed) return { allowed: false };
+  const starred = await addStar({ token });
+  console.info("[admin]", {
+    event: starred.ok ? "star-added" : "star-skipped",
+    repository: starPageUrl(),
+    actorUserId: input.actorUserId,
+    ...(starred.ok ? {} : { status: starred.status }),
+  });
+  return { allowed: true };
+}
+
 export function resolveStarToken(env: Environment = process.env): string | null {
   const value = env.SHAREDESK_GITHUB_TOKEN;
   return value && value === value.trim() && value.length > 0 ? value : null;

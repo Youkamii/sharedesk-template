@@ -235,10 +235,48 @@ export const EN_FILES: Record<string, string> = {
   "‘{name}’ 메모장은 만들었지만 목록을 새로고치지 못했습니다 — 새로고침해 주세요":
     "The notepad ‘{name}’ was created but the list couldn't be refreshed — please refresh",
 
+  // 외부 공유 링크
+  "공유 링크": "Share link",
+  "링크를 아는 사람은 로그인 없이 이 파일 하나만 내려받을 수 있습니다.": "Anyone with the link can download just this one file, no sign-in needed.",
+  "정한 기간이 지나면 링크는 저절로 만료되고, 언제든 먼저 취소할 수도 있습니다.": "The link expires on its own after the period you choose, and you can cancel it earlier at any time.",
+  "공유 링크를 불러오는 중입니다…": "Loading share links…",
+  "새 공유 링크": "New share link",
+  "만료 기간": "Expires after",
+  "만드는 중…": "Creating…",
+  "링크 만들기": "Create link",
+  "링크가 준비됐습니다": "Your link is ready",
+  "공유 링크 주소": "Share link address",
+  "복사": "Copy",
+  "활성 링크": "Active links",
+  "이 파일의 활성 링크가 없습니다.": "This file has no active links.",
+  "{time} 만료": "Expires {time}",
+  "{name}님이 만듦": "Created by {name}",
+  "취소 중…": "Canceling…",
+  "링크 취소": "Cancel link",
+  "공유 링크를 복사했습니다.": "The share link was copied.",
+  "이미 만료되었거나 취소된 링크입니다.": "That link had already expired or been revoked.",
+  "공유 링크를 취소했습니다. 이제 그 링크로는 받을 수 없습니다.": "The share link was canceled. It can no longer be used to download.",
+  "공유 링크를 불러오지 못했습니다": "Could not load the share links",
+  "공유 링크를 만들지 못했습니다": "Could not create the share link",
+  "공유 링크를 취소하지 못했습니다": "Could not cancel the share link",
+  "아래 주소를 직접 선택해 복사해 주세요": "Please select and copy the address below yourself",
   // 다운로드
   "브라우저 다운로드로 넘겼습니다. 이 브라우저에서는 진행량을 확인할 수 없습니다.":
     "Handed off to the browser download. This browser can't show progress.",
   "다운로드에 실패했습니다": "Download failed",
+  "다운로드를 시작하지 못했습니다": "Couldn't start the download",
+
+  // 동시 다운로드 목록
+  "다운로드 목록": "Downloads",
+  "다운로드 목록 닫기": "Close downloads",
+  "선택한 {count}개 다운로드": "Download {count} selected",
+  "다운로드 {count}개": "{count} downloads",
+  "{done}/{total} 완료": "{done}/{total} done",
+  "대기 중": "Waiting",
+  "받는 중": "Downloading",
+  "받는 중 {percent}%": "Downloading {percent}%",
+  "완료": "Done",
+  "다운로드 실패": "Failed",
 
   // 피드백
   "운영자에게 피드백 보내기": "Send feedback to the operator",

@@ -122,13 +122,39 @@ export type InvitationRedemptionResult =
 
 // 데스크 전체에 적용되는 공유 설정. 언어는 관리자가 정하고, 개별 언어
 // 허용을 켠 데스크에서만 참여자가 자기 언어를 고를 수 있다.
+// autoUpdate를 켜면 켠 관리자 브라우저의 시간대가 저장되고, 저장소의
+// 예약 워크플로가 그 시간대 자정에 키 없이 새 버전을 적용한다.
 export interface DeskSettings {
   locale: Locale;
   allowMemberLocale: boolean;
+  autoUpdate: boolean;
+  autoUpdateTimezone: string | null;
 }
 
 export function defaultDeskSettings(): DeskSettings {
-  return { locale: "en", allowMemberLocale: false };
+  return {
+    locale: "en",
+    allowMemberLocale: false,
+    autoUpdate: false,
+    autoUpdateTimezone: null,
+  };
+}
+
+// IANA 시간대 이름인지 검증한다. Intl이 허용하는 "+05:30" 같은 오프셋
+// 문자열은 자정 계산의 기준이 흔들리므로 지역/도시 형태(또는 UTC)만 받는다.
+const TIMEZONE_SHAPE = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+)+$/;
+
+export function parseTimezone(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) {
+    return null;
+  }
+  if (value !== "UTC" && !TIMEZONE_SHAPE.test(value)) return null;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: value });
+    return value;
+  } catch {
+    return null;
+  }
 }
 
 interface UserFile {
@@ -388,8 +414,16 @@ function normalize(raw: unknown): UserFile {
       };
     });
   const rawSettings = (
-    file as { deskSettings?: { locale?: unknown; allowMemberLocale?: unknown } }
+    file as {
+      deskSettings?: {
+        locale?: unknown;
+        allowMemberLocale?: unknown;
+        autoUpdate?: unknown;
+        autoUpdateTimezone?: unknown;
+      };
+    }
   ).deskSettings;
+  const autoUpdateTimezone = parseTimezone(rawSettings?.autoUpdateTimezone);
   return {
     version: 2,
     rev: typeof file.rev === "number" ? file.rev : 0,
@@ -399,6 +433,9 @@ function normalize(raw: unknown): UserFile {
     deskSettings: {
       locale: parseLocale(rawSettings?.locale) ?? "en",
       allowMemberLocale: rawSettings?.allowMemberLocale === true,
+      // 시간대 없이 자동 업데이트만 켜진 상태는 만들지 않는다.
+      autoUpdate: rawSettings?.autoUpdate === true && autoUpdateTimezone !== null,
+      autoUpdateTimezone,
     },
   };
 }
@@ -828,12 +865,31 @@ export async function setDeskSettings(
   if (patch.locale !== undefined && parseLocale(patch.locale) === null) {
     throw new Error("언어 값을 확인해 주세요");
   }
+  if (
+    patch.autoUpdateTimezone !== undefined &&
+    patch.autoUpdateTimezone !== null &&
+    parseTimezone(patch.autoUpdateTimezone) === null
+  ) {
+    throw new Error("시간대 값을 확인해 주세요");
+  }
   const updated = await mutate((file) => {
     if (patch.locale !== undefined) {
       file.deskSettings.locale = patch.locale;
     }
     if (patch.allowMemberLocale !== undefined) {
       file.deskSettings.allowMemberLocale = patch.allowMemberLocale === true;
+    }
+    if (patch.autoUpdateTimezone !== undefined) {
+      file.deskSettings.autoUpdateTimezone = patch.autoUpdateTimezone;
+    }
+    if (patch.autoUpdate !== undefined) {
+      file.deskSettings.autoUpdate =
+        patch.autoUpdate === true &&
+        file.deskSettings.autoUpdateTimezone !== null;
+    }
+    // 끄면 시간대도 지워 다음 켜기에서 그 브라우저 기준으로 다시 잡는다.
+    if (patch.autoUpdate === false) {
+      file.deskSettings.autoUpdateTimezone = null;
     }
     return { ...file.deskSettings };
   });

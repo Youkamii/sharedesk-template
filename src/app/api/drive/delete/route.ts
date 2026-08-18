@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, requireEditRights } from "@/lib/api";
 
@@ -10,7 +11,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
   }
   try {
-    await getAdapter().remove(body.id);
+    const adapter = getAdapter();
+    // 이름은 기록용 — 조회가 실패해도 삭제는 계속한다.
+    const name = await adapter
+      .getEntry(body.id)
+      .then((entry) => entry.name)
+      .catch(() => null);
+    await adapter.remove(body.id);
+    if (name) recordActivityAfter(auth.session, "trash", name);
     return NextResponse.json({ ok: true });
   } catch (e) {
     return errorResponse(e);

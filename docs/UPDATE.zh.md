@@ -61,6 +61,16 @@ SHAREDESK_GITHUB_REPOSITORY=我的GitHub账号/我的ShareDesk仓库
 
 用 Deploy with Vercel 创建的项目会自动获取 Vercel 的 Git 仓库信息，因此不必单独填写这个值。如果 GitHub Actions 成功了但 Vercel 部署没有开始，请在 Vercel 项目的 `Settings` → `Git` 中确认同一个安装仓库的 `main` 是否已设为 Production Branch。
 
+## 自动更新
+
+在管理员页面 → 设置 → 更新中开启`自动更新`后，会在开启它的电脑所在时区的午夜自动应用新版本，无需任何密钥。开启期间任务栏的更新按钮会隐藏，更新内容改在同一设置页面查看。开启前需要在 GitHub 上给 ShareDesk 仓库加星标。
+
+该功能由仓库中的 `.github/workflows/sharedesk-auto-update.yml` 工作流处理，新安装的仓库自带此文件。如果较早安装的仓库缺少此文件，请从源仓库的相同路径复制内容，一次性添加到自己仓库的相同位置。
+
+需要了解：自动更新会在无人确认的情况下直接应用新版本。请只在信任源仓库时开启 — 如果源账号被盗，其代码会自动进入你的仓库。
+
+注意：如果仓库六十天内没有任何活动，GitHub 会暂停定时运行。此时在仓库的 Actions 页面重新启用 `ShareDesk Auto Update` 工作流即可。
+
 ## 0.5.0 起的行为变化
 
 从 0.5.0 开始，每个用户都有了角色。更新之后会应用下面这些规则。
