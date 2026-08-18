@@ -1226,7 +1226,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.match(
     source,
-    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(\) => void startUpdate\(\)\}\s*>\s*\{t\("업데이트 하기"\)\}/,
+    /\{updatePanel\.status\.canDispatch &&\s*updatePanel\.status\.updateAvailable &&\s*!updateRun && \(\s*<button[\s\S]*?onClick=\{\(event\) => requestUpdate\(event\.currentTarget\)\}\s*>\s*\{t\("업데이트 하기"\)\}/,
   );
   assert.match(
     source,
@@ -1246,7 +1246,7 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.match(
     source,
-    /https:\/\/github\.com\/Youkamii\/sharedesk-template\/blob\/main\/docs\/UPDATE\.md/,
+    /docUrl\("UPDATE", locale\)/,
   );
   assert.doesNotMatch(source, /href="\/docs"/);
 
@@ -1258,6 +1258,11 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(css, /\.updateSetup \{/);
   assert.match(css, /\.updateInstruction \{/);
   assert.match(css, /\.updateError \{/);
+  // 업데이트는 GitHub 별 동의를 거쳐야 시작한다(#97).
+  assert.match(source, /function requestUpdate\(/);
+  assert.match(source, /status\.starred === false/);
+  assert.match(source, /startUpdate\(true\)/);
+  assert.match(source, /body: JSON\.stringify\(\{ star: /);
   assert.match(css, /\.updateProgress \{/);
 });
 

@@ -1,101 +1,103 @@
-# AI에게 ShareDesk 구축 맡기기
+**English** · [한국어](./AI_INSTALL.ko.md) · [日本語](./AI_INSTALL.ja.md) · [हिन्दी](./AI_INSTALL.hi.md) · [中文](./AI_INSTALL.zh.md)
 
-Google Cloud나 Vercel이 낯설다면 코딩 AI에게 구축을 맡길 수 있습니다. AI가 저장소와 터미널을 확인하고, 사용자가 직접 눌러야 하는 화면만 한 단계씩 안내하도록 만든 문서입니다.
+# Let AI build ShareDesk for you
 
-이 안내는 **내 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 ShareDesk를 새로 여는 호스트**를 위한 것입니다. 이미 만들어진 ShareDesk에 초대받은 참여자는 설치하지 않습니다.
+If Google Cloud or Vercel is unfamiliar, you can hand the build over to a coding AI. This page is written so the AI checks the repository and the terminal for you, and guides you one step at a time only on the screens you have to click through yourself.
 
-## 쓰는 법
+This guide is for **you, the host opening a new ShareDesk where several people share your Google Drive storage with their own Google accounts**. A participant invited to a ShareDesk that already exists does not install anything.
 
-1. 저장소와 터미널을 다룰 수 있는 코딩 AI에서 내 ShareDesk 저장소를 엽니다.
-2. 아래 요청문을 그대로 보냅니다.
-3. Google Cloud와 Vercel 화면에서 사용자가 직접 해야 하는 일이 나오면 AI가 안내하는 한 단계만 처리하고 `완료`라고 답합니다.
-4. Client secret, refresh token, callback URL 같은 비밀값은 채팅에 붙이지 않습니다. AI가 알려 준 로컬 파일이나 서비스 화면에 사용자가 직접 입력합니다.
+## How to use it
 
-## 그대로 복사할 요청문
+1. Open your ShareDesk repository in a coding AI that can work with the repository and a terminal.
+2. Send the request below as it is.
+3. When something on the Google Cloud or Vercel screen has to be done by you, handle just the one step the AI describes and reply `done`.
+4. Do not paste secrets such as the Client secret, the refresh token, or the callback URL into the chat. Enter them yourself in the local file or the service screen the AI points you to.
 
-```text
-이 저장소에 ShareDesk 운영 환경을 구축해줘.
-
-목표는 호스트 한 사람의 Google Drive 저장 공간을 여러 사람이 각자의 Google 계정으로 함께 쓰는 ShareDesk를 만드는 것이다. 초대받은 사람은 GitHub, Vercel, Google OAuth를 설정하지 않고 운영 주소에서 로그인한 뒤 초대 코드만 입력하면 되어야 한다.
-
-작업 원칙:
-1. 먼저 이 저장소의 docs/AI_INSTALL.md와 docs/INSTALL.md를 처음부터 끝까지 읽고, docs/INSTALL.md를 설치 절차의 기준으로 삼아라.
-2. 작업 전에 현재 상태를 확인하라. 현재 저장소·브랜치·git status·origin, 연결된 GitHub 저장소와 Vercel 프로젝트, 고정 Production 주소, .env.local의 필요한 항목이 채워졌는지, 기존 OAuth·Drive 연결 흔적을 값 노출 없이 확인하라.
-3. 이미 끝난 단계는 반복하지 마라. 기존 저장소와 Vercel 프로젝트를 다시 만들지 말고, 기존 OAuth 클라이언트, Audience 상태, refresh token, Drive ID를 추측으로 바꾸거나 폐기하지 마라.
-4. 사용자가 Google Cloud나 Vercel 화면에서 직접 해야 하는 일이 생기면 한 번에 한 단계만 설명하고 멈춰라. 사용자가 완료했다고 답하면 결과를 확인한 뒤 다음 한 단계로 넘어가라.
-5. Client secret, SESSION_SECRET, refresh token, callback URL, 초대 코드 같은 비밀값을 채팅·이슈·커밋·스크린샷에 요구하거나 출력하지 마라. 사용자가 .env.local, 로컬 터미널 입력, Google Cloud, Vercel 화면에 직접 넣도록 안내하라. callback URL은 npm run setup -- --finish가 묻는 로컬 터미널에만 사용자가 직접 붙여 넣게 하라.
-6. 저장소 파일을 바꿔야 한다면 서로 다른 기능이나 수정마다 GitHub 이슈를 먼저 만들고, 검증 뒤 해당 파일만 따로 커밋해 이슈 번호를 남겨라. .env.local과 비밀값은 절대 커밋하지 마라. 추적 파일 변경이 없다면 빈 이슈나 빈 커밋을 만들지 마라.
-7. 이 요청은 현재 작업 중인 내 ShareDesk 저장소의 필요한 변경, 기능별 GitHub 이슈와 로컬 커밋, 현재 작업 브랜치 push, 연결된 내 Vercel 프로젝트의 Production 배포를 허용한다. 작업 전에 실제 대상 저장소·브랜치·Vercel 프로젝트·Production 주소를 확인하고, 원본 템플릿이나 다른 사람의 저장소·프로젝트는 건드리지 마라.
-8. 자동 검사 통과와 실제 운영 확인을 구분하라. 확인하지 않은 내용을 완료했다고 보고하지 마라. 저장소를 바꿨다면 검사와 기능별 커밋을 끝낸 뒤에만 push·배포하라.
-
-진행 순서:
-1. 현재 상태를 표로 정리하고, 완료·미완료·확인 필요로 나눠라.
-2. 내 GitHub 저장소와 Vercel 프로젝트가 없을 때만 만들거나 연결하고, 바뀌지 않는 Production 주소를 기록하라.
-3. Google Cloud에서 같은 프로젝트의 Drive API, Branding, Audience, Data Access, Web application OAuth 클라이언트를 확인하라. docs/INSTALL.md의 redirect URI 세 개와 scope 네 개가 정확히 맞는지 확인하게 하라.
-4. 저장소에서 npm ci를 실행하고 .env.local을 안전하게 준비하라. Google Client ID와 Client secret은 사용자가 파일에 직접 넣게 하라.
-5. npm run setup을 실행해 호스트 Google 동의를 시작하라. 동의 뒤 callback URL은 사용자가 npm run setup -- --finish의 질문에 직접 붙여 넣게 하고, AI는 그 값을 읽거나 재출력하지 마라.
-6. setup이 만든 ADMIN_EMAILS, SESSION_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, DRIVE_STATE_FOLDER_ID가 존재하는지만 값 노출 없이 확인하라.
-7. npm run dev로 로컬에서 호스트 로그인, 폴더 생성, 새로고침 뒤 유지, 휴지통 복원, /admin 접근을 확인하라.
-8. npm test, npm run lint, npx tsc --noEmit --incremental false, npm run build를 실행하고 결과를 기록하라. 변경이 있다면 기능별 커밋을 마친 뒤 허용된 현재 브랜치만 push하라.
-9. 필요한 값을 Vercel Production 환경 변수에 옮기고 Production을 다시 배포하라. PUBLIC_BASE_URL은 고정 Production origin으로 맞추고, LOCAL_STORAGE_ROOT와 SHAREDESK_SHARE_TEST_EMAIL은 운영 환경에 넣지 마라.
-10. 운영 주소에서 호스트 로그인, 파일 저장, 새로고침, 휴지통 복원, /admin과 초대 코드 생성을 실제로 확인하라.
-11. 별도 Google 계정 한 명을 초대해 자기 계정으로 로그인하고 코드를 입력하게 하라. 호스트와 참여자 두 계정에서 같은 파일이 보이고 다운로드되는지 직접 확인하라. 이 확인 전에는 공동 사용 검증 완료라고 하지 마라.
-12. 핵심 기능이 모두 작동한 뒤에만 docs/INSTALL.md의 Vercel Firewall 규칙을 추가하고 429 동작을 확인하라.
-
-완료 보고는 아래 형식을 사용하라.
-
-상태: 완료 / 부분 완료 / 막힘
-운영 주소: <확인한 고정 Production 주소>
-
-확인됨:
-- GitHub 저장소와 브랜치:
-- Vercel 프로젝트와 최신 Production 배포:
-- Google OAuth callback과 Drive 연결:
-- 로컬 로그인·파일 저장·휴지통·관리 화면:
-- 운영 로그인·파일 저장·휴지통·관리 화면:
-- 두 Google 계정에서 같은 파일 보기·다운로드:
-- 자동 검사:
-
-기능별 변경:
-- 이슈 #번호 -> 커밋 해시 -> 검증 결과
-
-아직 확인하지 못함:
-- 실제로 확인하지 못한 항목과 이유
-
-사용자가 다음에 할 한 단계:
-- 남은 일이 있을 때만 한 가지를 적기
-```
-
-위 요청문은 **현재 작업 브랜치 push와 내 Vercel Production 배포까지 맡기는 문장**을 포함합니다. 배포까지 맡기고 싶지 않다면 보내기 전에 작업 원칙 7번을 다음처럼 바꾸세요.
+## The request to copy as it is
 
 ```text
-현재 저장소의 조사와 로컬 변경·기능별 이슈·로컬 커밋까지만 허용한다. 내가 채팅에서 push 또는 배포를 따로 허용하기 전에는 원격 push와 Vercel 배포를 하지 마라.
+Build a ShareDesk production environment in this repository.
+
+The goal is a ShareDesk where several people share one host's Google Drive storage with their own Google accounts. An invited person should not have to set up GitHub, Vercel, or Google OAuth — they only sign in at the production address and enter an invitation code.
+
+Working principles:
+1. First read docs/AI_INSTALL.md and docs/INSTALL.md in this repository from beginning to end, and treat docs/INSTALL.md as the reference for the install procedure.
+2. Check the current state before doing anything. Check the current repository, branch, git status, and origin, the connected GitHub repository and Vercel project, the fixed Production address, whether the required entries in .env.local are filled in, and any trace of an existing OAuth or Drive connection — without exposing values.
+3. Do not repeat steps that are already done. Do not recreate an existing repository or Vercel project, and do not change or discard an existing OAuth client, Audience status, refresh token, or Drive ID on a guess.
+4. When something has to be done by the user on the Google Cloud or Vercel screen, explain one step only and stop. When the user says it is done, check the result and then move on to the next single step.
+5. Do not ask for or print secrets such as the Client secret, SESSION_SECRET, the refresh token, the callback URL, or invitation codes in chat, issues, commits, or screenshots. Guide the user to enter them directly in .env.local, the local terminal, Google Cloud, or the Vercel screen. Have the user paste the callback URL only into the local terminal where npm run setup -- --finish asks for it.
+6. If repository files have to change, create a GitHub issue first for each separate feature or fix, and after verification commit only those files with the issue number recorded. Never commit .env.local or any secret. If no tracked file changed, do not create an empty issue or an empty commit.
+7. This request permits the necessary changes in my ShareDesk repository that you are working in, per-feature GitHub issues and local commits, a push of the current working branch, and a Production deployment of my connected Vercel project. Before working, confirm the actual target repository, branch, Vercel project, and Production address, and do not touch the original template or anyone else's repository or project.
+8. Distinguish passing automated checks from real production verification. Do not report anything as done that you have not verified. If you changed the repository, push and deploy only after the checks and the per-feature commits are finished.
+
+Order of work:
+1. Put the current state in a table, split into done, not done, and needs checking.
+2. Create or connect my GitHub repository and Vercel project only if they do not exist, and record the Production address that does not change.
+3. In Google Cloud, check the Drive API, Branding, Audience, Data Access, and the Web application OAuth client in the same project. Have the user verify that the three redirect URIs and four scopes in docs/INSTALL.md match exactly.
+4. Run npm ci in the repository and prepare .env.local safely. Have the user enter the Google Client ID and Client secret in the file themselves.
+5. Run npm run setup to start the host Google consent. After consent, have the user paste the callback URL themselves into the question from npm run setup -- --finish, and do not read or reprint that value.
+6. Check only that ADMIN_EMAILS, SESSION_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, and DRIVE_STATE_FOLDER_ID created by setup exist, without exposing the values.
+7. With npm run dev, check host sign-in, folder creation, persistence after a refresh, trash restore, and /admin access locally.
+8. Run npm test, npm run lint, npx tsc --noEmit --incremental false, and npm run build, and record the results. If there are changes, finish the per-feature commits and then push only the permitted current branch.
+9. Move the required values into the Vercel Production environment variables and redeploy Production. Set PUBLIC_BASE_URL to the fixed Production origin, and do not put LOCAL_STORAGE_ROOT or SHAREDESK_SHARE_TEST_EMAIL in the production environment.
+10. At the production address, really check host sign-in, file saving, refresh, trash restore, /admin, and invitation code creation.
+11. Invite one person who has a separate Google account, and have them sign in with their own account and enter the code. Check for yourself that the host and the participant both see and download the same file. Do not report shared use as verified before this check.
+12. Only after every core feature works, add the Vercel Firewall rule from docs/INSTALL.md and check the 429 behavior.
+
+Use the format below for the completion report.
+
+Status: Done / Partly done / Blocked
+Production address: <the fixed Production address you verified>
+
+Verified:
+- GitHub repository and branch:
+- Vercel project and latest Production deployment:
+- Google OAuth callback and Drive connection:
+- Local sign-in, file saving, trash, admin screen:
+- Production sign-in, file saving, trash, admin screen:
+- Same file visible and downloadable from two Google accounts:
+- Automated checks:
+
+Changes by feature:
+- issue #number -> commit hash -> verification result
+
+Not verified yet:
+- items you could not actually verify, and why
+
+One next step for the user:
+- write a single item only if something is left
 ```
 
-## AI가 반드시 멈춰야 하는 순간
+The request above includes **the sentence that hands over a push of the current working branch and a Production deployment of your Vercel project**. If you do not want to hand over the deployment, change working principle 7 to the following before sending it.
 
-다음 값과 화면은 사용자가 직접 다뤄야 합니다. AI는 한 단계만 안내한 뒤 기다립니다.
+```text
+Only investigation of the current repository and local changes, per-feature issues, and local commits are permitted. Do not push to the remote or deploy to Vercel before I separately permit a push or a deployment in the chat.
+```
 
-| 순간 | 사용자가 직접 할 일 | AI가 확인할 결과 |
+## Moments the AI must stop
+
+The following values and screens have to be handled by you. The AI describes one step and then waits.
+
+| Moment | What you do yourself | What the AI checks |
 |---|---|---|
-| Google Cloud OAuth 설정 | Drive API, Audience, scope, redirect URI를 화면에서 확인·저장 | 설정 항목과 주소가 [운영 설치 안내](./INSTALL.md)와 일치하는지 |
-| Client ID와 secret 입력 | 로컬 `.env.local`에 직접 입력 | 값은 출력하지 않고 두 항목이 비어 있지 않은지만 확인 |
-| 호스트 Google 동의 | 브라우저에서 호스트 계정을 선택하고 동의 | setup이 다음 단계로 이어지는지 |
-| callback URL 입력 | `npm run setup -- --finish`가 묻는 로컬 터미널에 직접 붙여넣기 | setup 성공 여부만 확인 |
-| Vercel 비밀값 입력 | Vercel Production 환경 변수 화면에 직접 입력 | 필요한 변수 이름과 배포 반영 여부 |
-| 참여자 계정 확인 | 별도 Google 계정으로 로그인하고 초대 코드 입력 | 두 계정에서 같은 파일이 보이고 내려받아지는지 |
+| Google Cloud OAuth settings | Check and save the Drive API, Audience, scopes, and redirect URIs on the screen | Whether the settings and addresses match the [production install guide](./INSTALL.md) |
+| Entering the Client ID and secret | Enter them directly in the local `.env.local` | Only that the two entries are not empty, without printing the values |
+| Host Google consent | Choose the host account in the browser and consent | Whether setup carries on to the next step |
+| Entering the callback URL | Paste it yourself into the local terminal where `npm run setup -- --finish` asks | Only whether setup succeeded |
+| Entering Vercel secrets | Enter them directly on the Vercel Production environment variables screen | The names of the required variables and whether the deployment picked them up |
+| Checking the participant account | Sign in with a separate Google account and enter the invitation code | Whether both accounts see and download the same file |
 
-## 설치가 끝났다고 말할 수 있는 기준
+## When you can say the install is finished
 
-코드 검사와 배포 성공만으로는 끝난 것이 아닙니다. 다음까지 실제로 확인해야 합니다.
+Code checks and a successful deployment are not enough. All of the following have to be verified for real.
 
-- 고정 Production 주소에서 호스트 Google 로그인이 됩니다.
-- 폴더와 파일이 새로고침 뒤에도 남고, 휴지통에 버린 항목을 복원할 수 있습니다.
-- `/admin`에서 초대 코드를 만들 수 있습니다.
-- 별도 Google 계정이 초대 코드로 들어옵니다.
-- 호스트와 참여자 두 계정에서 같은 파일이 보이고 다운로드됩니다.
-- 저장소 변경이 있다면 기능별 이슈와 커밋이 서로 맞고, 허용된 경우에만 push·배포됐습니다.
+- Host Google sign-in works at the fixed Production address.
+- Folders and files are still there after a refresh, and an item thrown in the trash can be restored.
+- An invitation code can be created in `/admin`.
+- A separate Google account comes in with an invitation code.
+- The host and the participant see and download the same file from both accounts.
+- If the repository changed, the per-feature issues and commits match each other, and a push or deployment happened only where it was permitted.
 
-설치 화면과 오류별 자세한 설명은 [ShareDesk 운영 설치 안내](./INSTALL.md)를 따르세요.
+For the install screens and detailed explanations of each error, follow the [ShareDesk production install guide](./INSTALL.md).
 
-이미 운영 중인 설치본을 새 버전으로 바꾸려는 경우에는 새로 구축하지 말고 [ShareDesk 업데이트 안내](./UPDATE.md)의 AI 요청문을 사용하세요.
+If you want to move an install that is already running to a new version, do not build it again — use the AI request in the [ShareDesk update guide](./UPDATE.md).

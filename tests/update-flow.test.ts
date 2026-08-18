@@ -25,7 +25,13 @@ import {
   selectStableRelease as selectBootstrapStableRelease,
 } from "../scripts/sharedesk-bootstrap.mjs";
 import {
+  addStar,
+  checkStarred,
+  STAR_REPOSITORY,
+} from "../src/lib/github-star";
+import {
   compareSemver,
+  UPDATE_SOURCE_REPOSITORY,
   dispatchUpdateWorkflow,
   fetchGitHubReleasePages as fetchStatusReleasePages,
   fetchLatestStableReleaseFallback,
@@ -1198,6 +1204,7 @@ test("update status reports the installed workflow and handles GitHub errors", a
     configured: true,
     canDispatch: false,
     run: null,
+    starred: null,
   });
 
   let requestedUrl = "";
@@ -1870,4 +1877,104 @@ test("all release clients inspect a full GitHub release page", async () => {
     const source = await readFile(new URL(relativePath, import.meta.url), "utf8");
     assert.match(source, /releases\?per_page=100/, relativePath);
   }
+});
+
+test("the star repository stays the same as the update source", () => {
+  // 순환 참조를 피하려고 상수를 따로 적었으므로 값이 갈라지지 않게 고정한다.
+  assert.equal(STAR_REPOSITORY, UPDATE_SOURCE_REPOSITORY);
+});
+
+test("star check and star creation talk to the right GitHub endpoint", async () => {
+  const requests: Array<{ url: string; method?: string; auth?: string }> = [];
+  const record = (input: RequestInfo | URL, init?: RequestInit) => {
+    const headers = new Headers(init?.headers);
+    requests.push({
+      url: String(input),
+      method: init?.method,
+      auth: headers.get("Authorization") ?? undefined,
+    });
+  };
+
+  const starred = await checkStarred({
+    token: "github_pat_test",
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      record(input, init);
+      return new Response(null, { status: 204 });
+    }) as typeof fetch,
+  });
+  assert.deepEqual(starred, { ok: true, starred: true });
+  assert.equal(
+    requests[0].url,
+    "https://api.github.com/user/starred/Youkamii/sharedesk-template",
+  );
+  assert.equal(requests[0].auth, "Bearer github_pat_test");
+
+  // 아직 누르지 않은 저장소는 404를 준다 — 오류가 아니라 "안 눌림"이다.
+  const notStarred = await checkStarred({
+    token: "github_pat_test",
+    fetchImpl: (async () => new Response(null, { status: 404 })) as typeof fetch,
+  });
+  assert.deepEqual(notStarred, { ok: true, starred: false });
+
+  const added = await addStar({
+    token: "github_pat_test",
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      record(input, init);
+      return new Response(null, { status: 204 });
+    }) as typeof fetch,
+  });
+  assert.deepEqual(added, { ok: true });
+  assert.equal(requests[1].method, "PUT");
+  assert.equal(
+    requests[1].url,
+    "https://api.github.com/user/starred/Youkamii/sharedesk-template",
+  );
+
+  // 토큰에 Starring 권한이 없으면 GitHub이 403이나 404를 준다.
+  const denied = await addStar({
+    token: "github_pat_test",
+    fetchImpl: (async () => new Response(null, { status: 403 })) as typeof fetch,
+  });
+  assert.equal(denied.ok, false);
+  assert.match((denied as { error: string }).error, /Starring/);
+
+  // 토큰이 없으면 GitHub을 부르지 않는다.
+  let called = false;
+  const noToken = await checkStarred({
+    token: null,
+    fetchImpl: (async () => {
+      called = true;
+      return new Response(null, { status: 204 });
+    }) as typeof fetch,
+  });
+  assert.equal(noToken.ok, false);
+  assert.equal(called, false);
+});
+
+test("the update route refuses to dispatch until the star is agreed", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/admin/update/route.ts", import.meta.url),
+    "utf8",
+  );
+  const postSource = route.slice(route.indexOf("export async function POST"));
+  // 별 확인이 워크플로 실행보다 먼저 와야 한다.
+  const starIndex = postSource.indexOf("checkStarred");
+  const dispatchIndex = postSource.indexOf("dispatchUpdateWorkflow");
+  assert.ok(starIndex >= 0 && dispatchIndex > starIndex);
+  assert.match(postSource, /star === true/);
+  assert.match(postSource, /starRequired: true/);
+  assert.match(postSource, /status: 409/);
+  assert.match(postSource, /addStar\(\{ token \}\)/);
+});
+
+test("setup offers to star the source repository once the build is done", async () => {
+  const setup = await readFile(
+    new URL("../scripts/setup.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(setup, /export async function askToStar/);
+  assert.match(setup, /github\.com\/Youkamii\/sharedesk-template/);
+  // 설정 완료 안내 뒤에 물어본다.
+  const completion = setup.indexOf("=== 설정 완료 ===");
+  assert.ok(completion >= 0 && setup.indexOf("askToStar(", completion) > completion);
 });

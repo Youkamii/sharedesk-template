@@ -1,18 +1,20 @@
-# ShareDesk 로컬 개인 사용
+**English** · [한국어](./LOCAL.ko.md) · [日本語](./LOCAL.ja.md) · [हिन्दी](./LOCAL.hi.md) · [中文](./LOCAL.zh.md)
 
-Google OAuth나 Vercel 없이 내 컴퓨터에서 ShareDesk 화면과 파일 기능을 쓰는 방법입니다. 파일은 Google Drive가 아니라 이 컴퓨터의 로컬 폴더에 저장됩니다.
+# ShareDesk local personal use
 
-이 방식은 개인 사용과 개발 확인에 맞습니다. 여러 사람이 각자의 Google 계정으로 함께 쓰는 운영 환경을 만들려면 [운영 설치 안내](./INSTALL.md)를 따르세요. 설치가 어렵다면 [AI에게 구축 맡기기](./AI_INSTALL.md)를 사용할 수 있습니다.
+This is how to use the ShareDesk screen and file features on your own computer, without Google OAuth or Vercel. Files are stored in a local folder on this computer instead of Google Drive.
 
-이미 받은 로컬 설치본을 새 버전으로 바꾸는 방법은 [업데이트 안내](./UPDATE.md#로컬-개인-사용)에 따로 정리했습니다.
+This way of running it suits personal use and development checks. To build a production environment where several people join with their own Google accounts, follow the [production install guide](./INSTALL.md). If the install feels hard, you can use [Let AI build it for you](./AI_INSTALL.md).
 
-## 준비물
+Replacing a local install you already have with a new version is covered separately in the [update guide](./UPDATE.md#local-personal-use).
 
-- [Node.js](https://nodejs.org/) 20.9 이상
+## What you need
+
+- [Node.js](https://nodejs.org/) 20.9 or later
 - Git
-- 터미널을 열 수 있는 Windows, macOS 또는 Linux 컴퓨터
+- A Windows, macOS, or Linux computer where you can open a terminal
 
-버전을 먼저 확인하세요.
+Check the versions first.
 
 ```powershell
 node --version
@@ -20,9 +22,9 @@ npm --version
 git --version
 ```
 
-## 설치
+## Install
 
-이미 이 저장소를 로컬에서 열었다면 `git clone`과 `cd`는 건너뜁니다.
+If you already have this repository open locally, skip `git clone` and `cd`.
 
 ```powershell
 git clone https://github.com/Youkamii/sharedesk-template.git
@@ -31,184 +33,184 @@ npm ci
 npm run setup -- --prepare-env
 ```
 
-마지막 명령은 `.env.local`을 준비합니다. 파일이 이미 있으면 내용을 덮어쓰지 않고 접근 권한만 확인합니다.
+The last command prepares `.env.local`. If the file already exists, it checks the access permissions without overwriting the contents.
 
-## 로컬 환경 설정
+## Local environment settings
 
-프로젝트 루트의 `.env.local`에서 아래 네 값을 채웁니다.
+Fill in these four values in `.env.local` at the project root.
 
 ```dotenv
 STORAGE_DRIVER=local
 LOCAL_STORAGE_ROOT=.devstorage
-SESSION_SECRET=로컬에서만-쓸-열여섯자-이상의-긴-무작위-문자열
-ACCESS_KEYS=내가-입력할-로컬-접속-키
+SESSION_SECRET=a-long-random-string-of-sixteen-or-more-characters-for-local-use-only
+ACCESS_KEYS=my-local-access-key-to-type-in
 ```
 
-- `STORAGE_DRIVER=local`은 Google Drive 대신 로컬 폴더를 사용합니다.
-- `LOCAL_STORAGE_ROOT=.devstorage`는 프로젝트 안의 `.devstorage` 폴더에 파일과 상태를 저장합니다.
-- `SESSION_SECRET`은 16자 이상이어야 합니다. 로그인 쿠키 서명에 사용합니다.
-- `ACCESS_KEYS`는 첫 화면에서 입력할 접속 키입니다. 여러 개를 쓰려면 쉼표로 나눕니다.
+- `STORAGE_DRIVER=local` uses a local folder instead of Google Drive.
+- `LOCAL_STORAGE_ROOT=.devstorage` stores files and state in the `.devstorage` folder inside the project.
+- `SESSION_SECRET` has to be 16 characters or longer. It signs the sign-in cookie.
+- `ACCESS_KEYS` is the access key you type on the first screen. To use several, separate them with commas.
 
-무작위 문자열이 필요하면 로컬 터미널에서 아래 명령을 실행할 수 있습니다. 출력값은 채팅이나 이슈에 올리지 말고 `.env.local`에 직접 넣으세요.
+If you need a random string, you can run the command below in a local terminal. Do not post the output in a chat or an issue — put it straight into `.env.local`.
 
 ```powershell
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-`.env.local`의 Google 관련 값은 local 모드에서 비워 둬도 됩니다. `.env.local`은 Git에서 제외돼 있으며 공개 저장소에 올리면 안 됩니다.
+The Google-related values in `.env.local` can stay empty in local mode. `.env.local` is excluded from Git and must never be pushed to a public repository.
 
-## 실행
+## Running it
 
 ```powershell
 npm run dev
 ```
 
-브라우저에서 `http://localhost:3000`을 열고 `.env.local`에 적은 `ACCESS_KEYS` 값 중 하나를 입력합니다.
+Open `http://localhost:3000` in your browser and enter one of the `ACCESS_KEYS` values you wrote in `.env.local`.
 
-local 모드의 접속 키는 `수정 가능` 권한으로 들어가므로 개인 사용에 필요한 파일 만들기와 수정을 그대로 쓸 수 있습니다.
+An access key in local mode grants `Can edit` permission, so you can create and edit the files you need for personal use.
 
-이 모드에서는 Google 로그인, 초대 코드 가입, 실제 Drive 공유를 확인할 수 없습니다.
+In this mode you cannot check Google sign-in, joining with an invitation code, or real Drive sharing.
 
-다음 항목까지 확인하면 로컬 실행이 된 것입니다.
+Once you can do all of the following, the local run is working.
 
-1. `/files` 바탕화면이 열립니다.
-2. 폴더를 만들고 파일을 올릴 수 있습니다.
-3. 새로고침해도 폴더와 파일이 남습니다.
-4. 파일을 휴지통에 버리고 화면 오른쪽 아래 휴지통에서 복원할 수 있습니다.
-5. `.txt` 파일과 폴더 메모를 만들고 수정할 수 있습니다.
+1. The `/files` desktop opens.
+2. You can create a folder and upload a file.
+3. Folders and files are still there after a refresh.
+4. You can throw a file in the trash and restore it from the trash at the bottom right of the screen.
+5. You can create and edit `.txt` files and folder notes.
 
-서버를 끄려면 실행 중인 터미널에서 `Ctrl+C`를 누릅니다.
+To stop the server, press `Ctrl+C` in the terminal where it is running.
 
-운영 빌드를 내 컴퓨터에서 확인하려면 다음처럼 실행합니다.
+To check the production build on your own computer, run it like this.
 
 ```powershell
 npm run build
 npm start
 ```
 
-## 파일 저장과 백업
+## File storage and backup
 
-`LOCAL_STORAGE_ROOT`가 상대 경로이면 ShareDesk를 실행한 프로젝트 폴더를 기준으로 계산합니다. 기본 설정에서는 실제 파일과 상태가 모두 `.devstorage/` 아래에 있습니다.
+If `LOCAL_STORAGE_ROOT` is a relative path, it is resolved from the project folder where you started ShareDesk. With the default settings, both the real files and the state sit under `.devstorage/`.
 
 ```text
 .devstorage/
-├── 내가 만든 파일과 폴더
+├── the files and folders you create
 └── .sharedesk/
-    ├── 사용자·초대·접속 상태
-    ├── 폴더 메모와 아이콘 배치
-    └── 휴지통과 로컬 공유 상태
+    ├── users, invitations, and presence state
+    ├── folder notes and icon layout
+    └── trash and local sharing state
 ```
 
-`.sharedesk`는 ShareDesk가 쓰는 내부 폴더라 파일 화면에는 나타나지 않습니다. 일부만 빼서 백업하면 메모, 아이콘 위치, 휴지통 같은 상태가 사라질 수 있으므로 **`LOCAL_STORAGE_ROOT` 전체를 백업**하세요.
+`.sharedesk` is an internal folder ShareDesk uses, so it does not appear on the files screen. If you back up only part of that folder, you can lose state such as notes, icon positions, and the trash, so **back up the whole `LOCAL_STORAGE_ROOT`**.
 
-백업 순서는 다음과 같습니다.
+The backup order is as follows.
 
-1. 실행 중인 서버를 `Ctrl+C`로 끕니다.
-2. `.devstorage` 또는 직접 정한 `LOCAL_STORAGE_ROOT` 폴더 전체를 다른 드라이브나 백업 폴더에 복사합니다.
-3. 같은 접속 키와 로그인 서명을 유지해야 한다면 `.env.local`도 공개되지 않는 별도 위치에 보관합니다.
+1. Stop the running server with `Ctrl+C`.
+2. Copy the whole `.devstorage` folder — or the `LOCAL_STORAGE_ROOT` you chose — to another drive or a backup folder.
+3. If you need to keep the same access keys and sign-in signature, keep `.env.local` too, in a separate place that is not public.
 
-Windows PowerShell에서는 목적지 경로를 내 환경에 맞게 바꾼 뒤 다음처럼 복사할 수 있습니다.
+In Windows PowerShell you can copy it like this, after changing the destination path to suit your setup.
 
 ```powershell
 New-Item -ItemType Directory -Force -Path 'D:\ShareDesk-Backup'
 Copy-Item -Recurse -Force -LiteralPath '.devstorage' -Destination 'D:\ShareDesk-Backup\devstorage'
 ```
 
-복원할 때도 서버를 끈 뒤 기존 `LOCAL_STORAGE_ROOT` 대신 백업한 폴더 전체를 놓고 다시 실행합니다. 서버가 파일을 쓰는 중에 복사한 백업은 상태 시점이 서로 어긋날 수 있습니다.
+When restoring, stop the server first as well, put the whole backed-up folder in place of the existing `LOCAL_STORAGE_ROOT`, and start again. A backup copied while the server was writing files can hold state from mismatched points in time.
 
-## local 모드에서 다른 점
+## What is different in local mode
 
-- Google 로그인과 초대 코드 가입을 사용하지 않습니다. `ACCESS_KEYS`로 들어갑니다.
-- 파일은 Google Drive 용량이 아니라 ShareDesk를 실행한 컴퓨터의 디스크를 사용합니다.
-- **Google Drive로 공유** 동작은 실제 Google 권한을 만들지 않습니다. local 모드의 상태 확인용 동작일 뿐입니다.
-- Google 문서·시트·슬라이드·드로잉의 PDF 변환 미리보기는 사용할 수 없습니다.
-- HTML과 SVG처럼 스크립트를 실행할 수 있는 형식은 바로 열지 않고 안전한 다운로드로 제공합니다.
-- 같은 폴더에 같은 이름의 항목을 만들거나 이름을 바꾸면 덮어쓰지 않고 거부합니다.
-- 휴지통 항목은 30일이 지난 뒤 다음 휴지통 조회 때 완전히 삭제됩니다.
-- `LOCAL_STORAGE_ROOT` 바깥 경로와 내부 `.sharedesk` 폴더는 파일 화면에서 열 수 없습니다.
-- Vercel 운영 배포에는 local 모드를 쓰지 마세요. 여러 사람이 함께 쓰는 운영 환경은 `STORAGE_DRIVER=drive`로 구성합니다.
+- Google sign-in and joining with an invitation code are not used. You come in with `ACCESS_KEYS`.
+- Files use the disk of the computer running ShareDesk, not Google Drive storage.
+- **Share via Google Drive** does not create a real Google permission. It only exists to check the state in local mode.
+- PDF conversion previews for Google Docs, Sheets, Slides, and Drawings are unavailable.
+- Formats that can run scripts, such as HTML and SVG, are not opened directly but offered as a safe download.
+- Creating or renaming an item to a name that already exists in the same folder is rejected instead of overwriting.
+- Trash items older than 30 days are deleted completely the next time the trash is opened.
+- Paths outside `LOCAL_STORAGE_ROOT` and the internal `.sharedesk` folder cannot be opened from the files screen.
+- Do not use local mode for a Vercel production deployment. Use `STORAGE_DRIVER=drive` to configure a production environment that several people share.
 
-## 문제 해결
+## Troubleshooting
 
-| 증상 | 확인할 내용 |
+| Symptom | What to check |
 |---|---|
-| `npm ci`가 Node 버전을 거부함 | `node --version`이 20.9 이상인지 확인하고 Node.js를 올립니다. |
-| `SESSION_SECRET이 없거나 너무 짧습니다` | `.env.local`의 `SESSION_SECRET`을 16자 이상의 문자열로 바꾸고 서버를 다시 시작합니다. |
-| 접속 키가 거부됨 | `.env.local`의 `ACCESS_KEYS` 철자와 쉼표 구분을 확인하고 서버를 다시 시작합니다. |
-| 파일이 예상한 폴더에 없음 | 저장소 루트에서 서버를 실행했는지와 `LOCAL_STORAGE_ROOT` 값을 확인합니다. 상대 경로는 현재 프로젝트 폴더 기준입니다. |
-| `.env.local` 변경이 반영되지 않음 | 실행 중인 개발 서버를 끈 뒤 `npm run dev`를 다시 실행합니다. |
-| 3000 포트를 사용 중이라는 오류 | 먼저 실행한 ShareDesk 개발 서버나 다른 프로그램을 끈 뒤 다시 실행합니다. |
-| `.devstorage`를 지운 뒤 파일이 사라짐 | local 모드의 실제 저장 폴더입니다. 서버를 끄고 전체 백업을 같은 위치에 복원합니다. |
-| `STORAGE_DRIVER 값이 올바르지 않습니다` | 값은 소문자 `local` 또는 `drive`만 허용됩니다. 개인 로컬 사용은 `local`로 고칩니다. |
+| `npm ci` rejects the Node version | Check that `node --version` is 20.9 or later, and upgrade Node.js. |
+| The server reports that `SESSION_SECRET` is missing or too short | Change `SESSION_SECRET` in `.env.local` to a string of 16 characters or more and restart the server. |
+| The access key is rejected | Check the spelling and comma separation of `ACCESS_KEYS` in `.env.local` and restart the server. |
+| Files are not in the folder you expected | Check that you started the server from the repository root, and check the `LOCAL_STORAGE_ROOT` value. A relative path is resolved from the current project folder. |
+| Changes to `.env.local` have no effect | Stop the running dev server and run `npm run dev` again. |
+| An error saying port 3000 is in use | Stop the ShareDesk dev server you started earlier, or another program, and run it again. |
+| Files disappeared after deleting `.devstorage` | That is the real storage folder in local mode. Stop the server and restore the full backup to the same place. |
+| The server reports that the `STORAGE_DRIVER` value is not valid | Only lowercase `local` or `drive` is allowed. For personal local use, set it to `local`. |
 
-## 개발자 참고
+## Developer reference
 
-### npm 명령
+### npm commands
 
-| 명령 | 용도 |
+| Command | What it does |
 |---|---|
-| `npm run dev` | Next.js 개발 서버를 실행합니다. |
-| `npm run build` | 운영 빌드가 만들어지는지 확인합니다. |
-| `npm start` | `npm run build`로 만든 운영 빌드를 실행합니다. |
-| `npm run lint` | ESLint 검사를 실행합니다. |
-| `npm test` | 저장소의 자동 테스트를 실행합니다. |
-| `npm run setup -- --prepare-env` | `.env.local`을 준비합니다. 기존 내용은 덮어쓰지 않습니다. |
-| `npm run setup` | 호스트 Google 인증을 시작합니다. `.env.local`이 없으면 먼저 준비합니다. |
-| `npm run setup -- --finish` | 사용자가 로컬 터미널에 callback URL을 붙여 넣어 호스트 Drive 연결을 완료합니다. URL을 명령 인자로 붙이지 않습니다. |
-| `npm run setup -- --check` | Client ID와 secret을 읽고 인증 URL을 만들 수 있는지 확인합니다. |
-| `npm run test:drive-operations` | 실제 Drive에서 생성·업로드·다운로드·이름 변경·이동·삭제·복원을 검사합니다. |
-| `npm run test:drive-preview` | 실제 Drive에서 Google 문서 PDF 변환과 동영상 Range 응답을 검사합니다. |
-| `npm run test:drive-sharing` | 실제 Drive의 보기·편집 권한 생성·변경·회수를 검사합니다. |
+| `npm run dev` | Runs the Next.js development server. |
+| `npm run build` | Checks that the production build is produced. |
+| `npm start` | Runs the production build made by `npm run build`. |
+| `npm run lint` | Runs the ESLint checks. |
+| `npm test` | Runs the repository's automated tests. |
+| `npm run setup -- --prepare-env` | Prepares `.env.local`. Existing contents are not overwritten. |
+| `npm run setup` | Starts the host Google authorization. If `.env.local` is missing, it prepares it first. |
+| `npm run setup -- --finish` | Completes the host Drive connection with a callback URL the user pastes into the local terminal. The URL is not attached as a command argument. |
+| `npm run setup -- --check` | Checks that the Client ID and secret can be read and an authorization URL can be built. |
+| `npm run test:drive-operations` | Checks create, upload, download, rename, move, delete, and restore on a real Drive. |
+| `npm run test:drive-preview` | Checks Google Docs PDF conversion and video Range responses on a real Drive. |
+| `npm run test:drive-sharing` | Checks creating, changing, and revoking view and edit permissions on a real Drive. |
 
-TypeScript만 따로 확인하려면 다음 명령을 사용합니다.
+To check TypeScript on its own, use this command.
 
 ```powershell
 npx tsc --noEmit --incremental false
 ```
 
-### 환경 변수
+### Environment variables
 
-| 변수 | 쓰는 곳 | 설명 |
+| Variable | Where it is used | Description |
 |---|---|---|
-| `ADMIN_EMAILS` | Drive 운영 | 관리자 Google 이메일입니다. 여러 명이면 쉼표로 나눕니다. setup이 호스트 이메일을 넣습니다. |
-| `ACCESS_KEYS` | 선택, local 권장 | 쉼표로 나눈 임시 손님용 접속 키입니다. local 개인 사용은 이 키로 `수정 가능` 권한으로 들어가고, 운영(drive)에서 접속 키로 들어온 손님은 `보기 전용`입니다. |
-| `SESSION_SECRET` | 필수 | 로그인 쿠키 서명 비밀입니다. 16자 이상이어야 합니다. |
-| `STORAGE_DRIVER` | 필수 권장 | `local` 또는 `drive`입니다. 비우면 refresh token 유무로 정하지만 명시해서 쓰는 편이 안전합니다. |
-| `LOCAL_STORAGE_ROOT` | local 전용 | 로컬 파일과 상태를 저장할 경로입니다. 기본값은 `.devstorage`입니다. |
-| `PUBLIC_BASE_URL` | Drive 운영 조건부 | 사용자 지정 도메인이나 고정 운영 주소의 origin입니다. 경로와 끝 슬래시를 넣지 않습니다. |
-| `GOOGLE_CLIENT_ID` | Drive 운영 | Web application 유형의 OAuth Client ID입니다. |
-| `GOOGLE_CLIENT_SECRET` | Drive 운영 | OAuth Client secret입니다. |
-| `GOOGLE_REFRESH_TOKEN` | Drive 운영 | setup이 받은 호스트 오프라인 토큰입니다. |
-| `DRIVE_ROOT_FOLDER_ID` | Drive 운영 | ShareDesk가 관리할 호스트 Drive 루트 ID입니다. |
-| `DRIVE_STATE_FOLDER_ID` | Drive 운영 | 루트 안의 `.sharedesk` 상태 폴더 ID입니다. |
-| `SHAREDESK_GITHUB_TOKEN` | 선택 | 원클릭 업데이트용 fine-grained PAT입니다. 로컬에서 원클릭 업데이트를 테스트하려면 `SHAREDESK_GITHUB_REPOSITORY`(아래)도 함께 넣어야 합니다. |
-| `SHAREDESK_GITHUB_REPOSITORY` | 선택 | 업데이트 대상 설치 저장소(`owner/repository`)입니다. Vercel 밖(로컬)에는 저장소 정보가 없으므로 원클릭 테스트 시 직접 지정합니다. |
-| `SHAREDESK_SHARE_TEST_EMAIL` | 실제 검사 전용 | 공유 검사를 받을 별도 승인 Google 계정입니다. 운영 Vercel 환경에는 넣지 않습니다. |
-| `SHAREDESK_TRACE` | 개발 확인 | 비어 있지 않으면 일부 Drive 호출과 아이콘 배치 저장 시간을 서버 로그에 남깁니다. |
+| `ADMIN_EMAILS` | Drive production | Admin Google emails. Separate several with commas. Setup puts the host email in. |
+| `ACCESS_KEYS` | Optional, recommended for local | Comma-separated access keys for temporary guests. In local personal use this key grants `Can edit` permission, while a guest who uses an access key in production (drive) is `View only`. |
+| `SESSION_SECRET` | Required | The secret that signs the sign-in cookie. It has to be 16 characters or longer. |
+| `STORAGE_DRIVER` | Required in practice | `local` or `drive`. If left empty, it is decided by whether a refresh token exists, but stating it explicitly is safer. |
+| `LOCAL_STORAGE_ROOT` | local only | The path where local files and state are stored. The default is `.devstorage`. |
+| `PUBLIC_BASE_URL` | Conditional, Drive production | The origin of a custom domain or the fixed production address. No path and no trailing slash. |
+| `GOOGLE_CLIENT_ID` | Drive production | The OAuth Client ID of the Web application type. |
+| `GOOGLE_CLIENT_SECRET` | Drive production | The OAuth Client secret. |
+| `GOOGLE_REFRESH_TOKEN` | Drive production | The host offline token setup received. |
+| `DRIVE_ROOT_FOLDER_ID` | Drive production | The ID of the host Drive root ShareDesk manages. |
+| `DRIVE_STATE_FOLDER_ID` | Drive production | The ID of the `.sharedesk` state folder inside the root. |
+| `SHAREDESK_GITHUB_TOKEN` | Optional | The fine-grained PAT for one-click updates. To test one-click updates locally, you also need `SHAREDESK_GITHUB_REPOSITORY` (below). |
+| `SHAREDESK_GITHUB_REPOSITORY` | Optional | The install repository to update (`owner/repository`). Outside Vercel (locally) there is no repository information, so set it yourself for a one-click test. |
+| `SHAREDESK_SHARE_TEST_EMAIL` | Real checks only | A separate approved Google account that receives the sharing checks. Do not put it in the production Vercel environment. |
+| `SHAREDESK_TRACE` | Development checks | When it is not empty, some Drive calls and icon layout save times are written to the server log. |
 
-Vercel 기본 도메인을 쓰면서 `PUBLIC_BASE_URL`을 비우면 앱은 Vercel이 제공하는 `VERCEL_PROJECT_PRODUCTION_URL`을 사용합니다. 직접 넣는 값이 아니라 Vercel의 시스템 환경 변수입니다. 운영에 필요한 값과 callback 주소는 [운영 설치 안내](./INSTALL.md)에 정리돼 있습니다.
+If you use the default Vercel domain and leave `PUBLIC_BASE_URL` empty, the app uses `VERCEL_PROJECT_PRODUCTION_URL`, which Vercel provides. That is a Vercel system environment variable, not a value you enter. The values and callback addresses production needs are collected in the [production install guide](./INSTALL.md).
 
-### 실제 Drive 검사
+### Real Drive checks
 
-아래 세 명령은 local 모드 검사가 아닙니다. `.env.local`의 실제 Google Drive 설정을 사용해 테스트 파일을 만들거나 권한을 바꿉니다. 개인 작업 파일과 분리해 검증할 수 있는 ShareDesk 루트에서 실행하세요.
+The three commands below are not local mode checks. They use the real Google Drive settings in `.env.local` to create test files and change permissions. Run them on a ShareDesk root you can verify separately from your personal working files.
 
-기본 파일 작업을 검사합니다.
+This checks the basic file operations.
 
 ```powershell
 npm run test:drive-operations
 ```
 
-이 검사는 폴더 생성, 서버 업로드, 전체 다운로드, 이름 변경, 폴더 간 이동, 브라우저 직행 업로드, 휴지통 삭제·복원·완전 삭제를 확인하고 자신이 만든 항목을 정리합니다. 정리에 실패하면 Drive의 `sharedesk-operations-test-*` 폴더를 직접 확인합니다.
+The check covers creating a folder, uploading through the server, downloading whole files, renaming, moving between folders, uploading directly from the browser, and moving to the trash, restoring, and deleting permanently. It then cleans up the items it created. If cleanup fails, check the `sharedesk-operations-test-*` folders in Drive yourself.
 
-미리보기를 검사합니다.
+This checks previews.
 
 ```powershell
 npm run test:drive-preview
 ```
 
-이 검사는 Google 문서·시트·슬라이드·드로잉이 PDF로 내려오는지와 동영상 일부 요청이 HTTP 206으로 동작하는지 확인한 뒤 검사용 Drive 항목을 정리합니다.
+The check confirms that Google Docs, Sheets, Slides, and Drawings download as PDF and that a partial video request returns HTTP 206, then cleans up the Drive items it used.
 
-공유 권한을 검사하려면 먼저 별도 Google 계정을 ShareDesk 초대로 승인하고 `.env.local`에 그 이메일을 넣습니다.
+To check sharing permissions, first approve a separate Google account through a ShareDesk invitation and put that email in `.env.local`.
 
 ```dotenv
 SHAREDESK_SHARE_TEST_EMAIL=recipient@example.com
@@ -218,23 +220,23 @@ SHAREDESK_SHARE_TEST_EMAIL=recipient@example.com
 npm run test:drive-sharing
 ```
 
-공유 검사는 보기 권한 생성, 편집 권한 변경, 권한 회수, ShareDesk 공유 장부 반영을 확인하고 검사용 파일과 권한을 정리합니다.
+The sharing check confirms creating view permission, changing it to edit permission, revoking it, and updating the ShareDesk sharing ledger, then cleans up the files and permissions it used.
 
-자동 검사가 통과해도 받는 사람 계정의 Google Drive `공유 문서함(Shared with me)`에 항목이 실제로 보이는지, 보기 권한에서는 수정이 거부되고 편집 권한에서는 허용되는지는 별도 계정으로 직접 확인해야 합니다.
+Even when the automated checks pass, you still have to confirm with a separate account whether the item really shows up in the recipient's `Shared with me` in Google Drive, and whether editing is refused with view permission and allowed with edit permission.
 
-### 상태 저장과 동시 변경
+### State storage and concurrent changes
 
-Drive 모드는 `ShareDesk/.sharedesk/`, local 모드는 `LOCAL_STORAGE_ROOT/.sharedesk/`에 사용자·초대, 접속 상태, Drive 공유 장부, 폴더 메모, 아이콘 배치와 휴지통 상태를 저장합니다. 일반 파일 목록에서는 이 폴더를 숨기고 직접 열지 못하게 막습니다.
+Drive mode stores users and invitations, presence state, the Drive sharing ledger, folder notes, icon layout, and trash state in `ShareDesk/.sharedesk/`, and local mode in `LOCAL_STORAGE_ROOT/.sharedesk/`. The folder is hidden from the normal file list and cannot be opened directly.
 
-상태 파일과 폴더 이동처럼 마지막으로 본 버전이 중요한 변경은 동시에 먼저 저장한 결과를 유지합니다. 늦은 요청은 충돌로 끝내고 최신 상태를 다시 읽습니다.
+For changes where the last version seen matters, such as state files and folder moves, the first of two simultaneous saves is kept. The later request ends as a conflict and reads the latest state again.
 
-### 현재 제한
+### Current limits
 
-- ShareDesk가 다루는 범위는 설정한 Drive 또는 local 루트 안쪽입니다.
-- 같은 폴더의 같은 이름은 허용하지 않습니다.
-- HTML과 SVG는 바로 미리 보지 않고 다운로드합니다.
-- Google 문서·시트·슬라이드·드로잉만 PDF 변환 미리보기를 지원합니다.
-- Drive 용량과 Drive 휴지통 보관 기간은 호스트 Google 계정 정책을 따릅니다.
-- local 휴지통은 30일이 지난 항목을 다음 휴지통 조회 때 완전히 삭제합니다.
+- ShareDesk works inside the configured Drive or local root.
+- The same name in the same folder is not allowed.
+- HTML and SVG are downloaded instead of being previewed directly.
+- Only Google Docs, Sheets, Slides, and Drawings support PDF conversion previews.
+- Drive storage and the Drive trash retention period follow the host Google account's policy.
+- The local trash deletes items older than 30 days completely the next time the trash is opened.
 
-변경 전에는 `npm test`, `npm run lint`, `npx tsc --noEmit --incremental false`, `npm run build`를 실행하세요. 버그를 제보할 때는 재현 순서와 브라우저·Node.js 버전을 적되 `.env.local`, OAuth callback URL, 토큰, Client secret은 첨부하지 마세요.
+Before making changes, run `npm test`, `npm run lint`, `npx tsc --noEmit --incremental false`, and `npm run build`. When reporting a bug, write down the steps to reproduce and your browser and Node.js versions, but do not attach `.env.local`, the OAuth callback URL, tokens, or the Client secret.

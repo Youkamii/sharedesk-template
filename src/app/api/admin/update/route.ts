@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/api";
 import {
+  addStar,
+  checkStarred,
+  resolveStarToken,
+  starPageUrl,
+} from "@/lib/github-star";
+import {
   dispatchUpdateWorkflow,
   fetchLatestUpdateRun,
   getUpdateStatus,
@@ -34,9 +40,40 @@ export async function GET(request: NextRequest) {
   });
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const auth = await requireAdmin({ fresh: true });
   if ("response" in auth) return auth.response;
+
+  // 업데이트는 원본 저장소에 별을 남기는 데 동의해야 시작한다.
+  // 이미 눌러 둔 설치는 그대로 통과한다.
+  const body = await request.json().catch(() => null);
+  const agreedToStar = (body as { star?: unknown } | null)?.star === true;
+  const token = resolveStarToken();
+  const starCheck = await checkStarred({ token });
+  if (starCheck.ok && !starCheck.starred) {
+    if (!agreedToStar) {
+      return NextResponse.json(
+        {
+          error: "업데이트하려면 GitHub에서 ShareDesk 저장소에 별을 눌러 주세요.",
+          starRequired: true,
+          starPageUrl: starPageUrl(),
+        },
+        { status: 409, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    const starred = await addStar({ token });
+    if (!starred.ok) {
+      return NextResponse.json(
+        { error: starred.error, starRequired: true, starPageUrl: starPageUrl() },
+        { status: starred.status, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    console.info("[admin]", {
+      event: "star-added",
+      repository: starPageUrl(),
+      actorUserId: auth.session.userId,
+    });
+  }
 
   // 실행이 이미 달리는 중이면 중복 디스패치 대신 그 실행을 알려 준다.
   // 조회가 실패하면 디스패치 쪽이 같은 원인의 정확한 오류를 돌려준다.

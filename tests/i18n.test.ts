@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  docUrl,
   englishDictionary,
   LOCALE_LABELS,
   LOCALES,
@@ -127,4 +128,14 @@ test("ja/hi/zh dictionaries only translate keys that exist in English", () => {
       assert.ok(source in english, `${name}: 영어 사전에 없는 키 — ${source}`);
     }
   }
+});
+
+test("doc links point at the guide written in the same language", () => {
+  const base = "https://github.com/Youkamii/sharedesk-template/blob/main/docs";
+  // 영어가 메인이라 접미사가 없고, 나머지 언어는 파일명에 언어 코드가 붙는다.
+  assert.equal(docUrl("UPDATE", "en"), `${base}/UPDATE.md`);
+  assert.equal(docUrl("UPDATE", "ko"), `${base}/UPDATE.ko.md`);
+  assert.equal(docUrl("INSTALL", "ja"), `${base}/INSTALL.ja.md`);
+  assert.equal(docUrl("LOCAL", "hi"), `${base}/LOCAL.hi.md`);
+  assert.equal(docUrl("AI_INSTALL", "zh"), `${base}/AI_INSTALL.zh.md`);
 });

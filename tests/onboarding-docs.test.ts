@@ -27,10 +27,10 @@ test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 
   );
   assert.match(koReadme, /호스트만 처음에 한 번 설치/);
   assert.match(koReadme, /참여자는 어떤 설치도 하지 않습니다/);
-  assert.match(koReadme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.md\)/);
-  assert.match(koReadme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.md\)/);
-  assert.match(koReadme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.md\)/);
-  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
+  assert.match(koReadme, /\[AI에게 구축 맡기기\]\(\.\/docs\/AI_INSTALL\.ko\.md\)/);
+  assert.match(koReadme, /\[상세 구축 안내\]\(\.\/docs\/INSTALL\.ko\.md\)/);
+  assert.match(koReadme, /\[로컬 개인 사용\]\(\.\/docs\/LOCAL\.ko\.md\)/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.ko\.md\)/);
 
   for (const [name, text] of [
     ["README.md", readme],
@@ -125,8 +125,8 @@ test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지�
 
 test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한곳에 둔다", async () => {
   const [install, aiGuide] = await Promise.all([
-    readFile(new URL("docs/INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
+    readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
   ]);
 
   const oauthSection = install.slice(
@@ -237,7 +237,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
 });
 
 test("설치 문서의 초대 안내는 코드 방식과 별도 데스크 설치를 구분한다", async () => {
-  const install = await readFile(new URL("docs/INSTALL.md", root), "utf8");
+  const install = await readFile(new URL("docs/INSTALL.ko.md", root), "utf8");
   const inviteSection = install.slice(
     install.indexOf("## 사람 초대와 관리"),
     install.indexOf("## Google Drive로 직접 공유하기"),
@@ -254,12 +254,12 @@ test("AI 구축 문서와 로컬 개인 사용 문서는 서로 다른 독자를
   const [readme, koReadme, install, aiGuide, localGuide] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("README.ko.md", root), "utf8"),
-    readFile(new URL("docs/INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
-    readFile(new URL("docs/LOCAL.md", root), "utf8"),
+    readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
+    readFile(new URL("docs/LOCAL.ko.md", root), "utf8"),
   ]);
 
-  assert.match(install, /\[AI에게 구축 맡기기\]\(\.\/AI_INSTALL\.md\)/);
+  assert.match(install, /\[AI에게 구축 맡기기\]\(\.\/AI_INSTALL\.ko\.md\)/);
   assert.match(aiGuide, /그대로 복사/);
   assert.match(aiGuide, /docs\/INSTALL\.md/);
   assert.match(aiGuide, /현재 상태/);
@@ -286,16 +286,16 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
     await Promise.all([
       readFile(new URL("README.md", root), "utf8"),
       readFile(new URL("README.ko.md", root), "utf8"),
-      readFile(new URL("docs/INSTALL.md", root), "utf8"),
-      readFile(new URL("docs/AI_INSTALL.md", root), "utf8"),
-      readFile(new URL("docs/LOCAL.md", root), "utf8"),
-      readFile(new URL("docs/UPDATE.md", root), "utf8"),
+      readFile(new URL("docs/INSTALL.ko.md", root), "utf8"),
+      readFile(new URL("docs/AI_INSTALL.ko.md", root), "utf8"),
+      readFile(new URL("docs/LOCAL.ko.md", root), "utf8"),
+      readFile(new URL("docs/UPDATE.ko.md", root), "utf8"),
       readFile(new URL(".env.example", root), "utf8"),
     ]);
 
   assert.match(readme, /\[Update guide\]\(\.\/docs\/UPDATE\.md\)/);
-  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.md\)/);
-  assert.match(install, /관리자 화면의 `업데이트` 버튼/);
+  assert.match(koReadme, /\[업데이트 안내\]\(\.\/docs\/UPDATE\.ko\.md\)/);
+  assert.match(install, /작업표시줄의 `업데이트` 버튼\(관리자에게만 보입니다\)/);
   assert.match(aiGuide, /ShareDesk 업데이트 안내/);
   assert.match(localGuide, /업데이트 안내/);
   assert.match(updateGuide, /GitHub Actions[\s\S]*`Run workflow`/);
@@ -310,4 +310,94 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
   assert.match(updateGuide, /npm test[\s\S]*npm run lint[\s\S]*tsc[\s\S]*npm run build/);
   assert.match(updateGuide, /AI에게 기존 설치 업데이트 맡기기/);
   assert.match(example, /SHAREDESK_GITHUB_REPOSITORY=/);
+});
+
+// 문서를 5개 언어로 내면서 링크 하나가 다른 언어를 가리키면 독자가 갑자기
+// 모르는 언어의 문서로 떨어진다. 사람이 매번 눈으로 볼 수 없으니 고정한다.
+const DOC_NAMES = ["UPDATE", "INSTALL", "LOCAL", "AI_INSTALL"] as const;
+const DOC_LOCALES = ["", ".ko", ".ja", ".hi", ".zh"] as const;
+
+function localeOfFile(name: string): string {
+  const matched = /(?:README|[A-Z_]+)\.([a-z]{2})\.md$/.exec(name);
+  return matched ? `.${matched[1]}` : "";
+}
+
+test("모든 안내 문서가 다섯 언어로 있고 언어 전환 줄을 갖춘다", async () => {
+  for (const doc of DOC_NAMES) {
+    for (const locale of DOC_LOCALES) {
+      const name = `docs/${doc}${locale}.md`;
+      const text = await readFile(new URL(name, root), "utf8");
+      const [languageLine] = text.split("\n");
+      for (const other of DOC_LOCALES) {
+        if (other === locale) continue;
+        assert.ok(
+          languageLine.includes(`(./${doc}${other}.md)`),
+          `${name}: ${doc}${other}.md로 가는 언어 링크가 있어야 합니다.`,
+        );
+      }
+    }
+  }
+});
+
+test("README와 안내 문서의 본문 링크는 같은 언어판으로만 이어진다", async () => {
+  const pages = [
+    ...["", ".ko", ".ja", ".hi", ".zh"].map((locale) => `README${locale}.md`),
+    ...DOC_NAMES.flatMap((doc) =>
+      DOC_LOCALES.map((locale) => `docs/${doc}${locale}.md`),
+    ),
+  ];
+
+  for (const page of pages) {
+    const expected = localeOfFile(page);
+    const text = await readFile(new URL(page, root), "utf8");
+    for (const line of text.split("\n")) {
+      // 언어 전환 줄은 일부러 다른 언어를 가리키므로 건너뛴다.
+      if (/English|한국어|日本語|中文/.test(line) && (line.match(/\]\(\.\//g)?.length ?? 0) >= 3) {
+        continue;
+      }
+      for (const [, target] of line.matchAll(
+        /\]\((?:\.\/)(?:docs\/)?((?:README|[A-Z_]+)(?:\.[a-z]{2})?\.md)(?:#[^)]*)?\)/g,
+      )) {
+        assert.equal(
+          localeOfFile(target),
+          expected,
+          `${page}: 본문 링크가 다른 언어판을 가리킵니다 — ${target}`,
+        );
+      }
+    }
+  }
+});
+
+test("각 언어판 문서가 실제로 그 언어로 쓰여 있다", async () => {
+  // 파일명만 언어판이고 내용은 번역이 안 된 채 남는 사고를 막는다.
+  const scripts: Record<string, RegExp> = {
+    ".ko": /[가-힣]/g,
+    ".ja": /[぀-ヿ]/g,
+    ".hi": /[ऀ-ॿ]/g,
+    ".zh": /[一-鿿]/g,
+  };
+  const pages = [
+    ...DOC_LOCALES.map((locale) => `README${locale}.md`),
+    ...DOC_NAMES.flatMap((doc) =>
+      DOC_LOCALES.map((locale) => `docs/${doc}${locale}.md`),
+    ),
+  ];
+
+  for (const page of pages) {
+    const locale = localeOfFile(page);
+    const text = await readFile(new URL(page, root), "utf8");
+    // 첫 줄(언어 전환 줄)에는 다른 언어 이름이 들어가므로 본문만 본다.
+    const body = text.split("\n").slice(1).join("\n");
+    if (locale === "") {
+      const hangul = body.match(/[가-힣]/g)?.length ?? 0;
+      assert.ok(hangul < 20, `${page}: 영어판에 한국어가 ${hangul}자 남아 있습니다.`);
+      continue;
+    }
+    const hits = body.match(scripts[locale])?.length ?? 0;
+    assert.ok(hits > 100, `${page}: ${locale} 문서인데 해당 문자가 ${hits}자뿐입니다.`);
+    if (locale !== ".ko") {
+      const hangul = body.match(/[가-힣]/g)?.length ?? 0;
+      assert.ok(hangul < 20, `${page}: 번역본에 한국어가 ${hangul}자 남아 있습니다.`);
+    }
+  }
 });

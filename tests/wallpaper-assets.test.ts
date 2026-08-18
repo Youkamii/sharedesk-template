@@ -16,7 +16,7 @@ test("dawn wallpaper keeps its id while using the accurate dawn-light label", as
     /\{ id: "dawn", name: "여명", src: "\/art\/wall-dawn\.png" \}/,
   );
   // 표 라벨은 헤더 행과 통일하려고 굵게 쓴다 — 굵기 표기는 선택적으로 본다.
-  assert.match(readme, /\|\s*\*{0,2}Dawn\*{0,2}\s*\|\s*\*{0,2}Night tide\*{0,2}\s*\|/);
+  assert.match(readme, /\|\s*\*{0,2}Dawn\*{0,2}\s*\|\s*\*{0,2}Night [Tt]ide\*{0,2}\s*\|/);
   assert.match(
     readme,
     /!\[Dawn wallpaper\]\(\.\/docs\/sharedesk-wallpaper-dawn\.png\)/,
