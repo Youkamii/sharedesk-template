@@ -1,17 +1,21 @@
-[English](./README.md) · [한국어](./README.ko.md) · **日本語** · [हिन्दी](./README.hi.md) · [中文](./README.zh.md)
-
 # ShareDesk
 
 ShareDesk は **ひとりの Google Drive の保存容量を、複数の人がそれぞれの Google アカウントで一緒に使う共有ファイルスペース**です。インストールするのはホストが最初に一度だけ。参加者は同じアドレスでログインして招待コードを入力するだけで、同じファイルとフォルダを一緒に使えます。
 
 ![ShareDesk デモ](./docs/sharedesk-demo.gif)
 
+## 言語
+
+このページは5つの言語で用意されており、アプリの画面も同じ5言語に対応しています。管理者が**設定**でデスクの言語を決め、参加者が自分の言語を選べるようにすることもできます。
+
+[English](./README.md) · [한국어](./README.ko.md) · **日本語** · [हिन्दी](./README.hi.md) · [中文](./README.zh.md)
+
 ## 4つの壁紙
 
 | 夕暮れ | 深い夜 |
-| --- | --- |
+| :---: | :---: |
 | ![夕暮れの壁紙](./docs/sharedesk-wallpaper-dusk.png) | ![深い夜の壁紙](./docs/sharedesk-wallpaper-night.png) |
-| 夜明け | 夜の海 |
+| **夜明け** | **夜の海** |
 | ![夜明けの壁紙](./docs/sharedesk-wallpaper-dawn.png) | ![夜の海の壁紙](./docs/sharedesk-wallpaper-tide.png) |
 
 ## できること
