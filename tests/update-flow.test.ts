@@ -2142,3 +2142,21 @@ test("the manifest contract never grows and new core files stay optional", async
   );
   assert.match(optional.slice(0, optional.indexOf("function nextPageUrl")), /continue;/);
 });
+
+test("the manual update workflow file must never change casually", async () => {
+  // 이 파일의 해시는 매니페스트 계약이다: 내용이 바뀌면 모든 기존 설치가
+  // 업데이트 전에 1회 부트스트랩을 요구받는다(assertPreservedWorkflowIsCurrent).
+  // 바꿔야 한다면 그 비용을 알고 릴리스 노트에 명시하고 이 테스트를 갱신하라.
+  const workflow = await readFile(
+    new URL("../.github/workflows/sharedesk-update.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    workflow,
+    /git diff --quiet -- \.github\/workflows\/sharedesk-update\.yml; then/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /sharedesk-update\.yml \.github\/workflows\/sharedesk-auto-update\.yml/,
+  );
+});
