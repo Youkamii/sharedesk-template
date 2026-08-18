@@ -2010,8 +2010,9 @@ test("automatic updates run at midnight without a key and stay sealed", async ()
   assert.match(workflow, /A verified update cannot change GitHub workflows/);
   // 배포되지 않는 템플릿 저장소에서는 돌지 않는다.
   assert.match(workflow, /github\.repository != 'Youkamii\/sharedesk-template'/);
-  // 별이 실제로 있어야 돈다 — 공개 스타 목록에서 주인을 확인한다.
-  assert.match(workflow, /stargazers\?per_page=100/);
+  // 별이 실제로 있어야 돈다 — 주인이 스타한 목록(익명 폴백 포함)에서 확인한다.
+  assert.match(workflow, /users\/\$owner\/starred\?per_page=100/);
+  assert.doesNotMatch(workflow, /stargazers/);
   assert.match(workflow, /has not starred/);
 });
 
@@ -2195,18 +2196,37 @@ test("setup stars automatically through the local gh login like tokscale", async
   assert.equal(fail, false);
 });
 
-test("owner star verification pages through the public stargazer list", async () => {
+test("owner star verification pages through the owner's public starred list", async () => {
   const { checkOwnerStarred } = await import("../src/lib/github-star");
-  const page1 = Array.from({ length: 100 }, (_, i) => ({ login: `user${i}` }));
-  const page2 = [{ login: "SomeoneElse" }, { login: "Youkamii" }];
+  const page1 = Array.from({ length: 100 }, (_, i) => ({
+    full_name: `someone/repo${i}`,
+  }));
+  const page2 = [
+    { full_name: "other/repo" },
+    { full_name: "Youkamii/sharedesk-template" },
+  ];
   const fetchImpl = (async (url: string) => ({
     ok: true,
-    json: async () => (url.endsWith("page=1") ? page1 : page2),
+    json: async () =>
+      url.includes("nobody-here") ? [] : url.endsWith("page=1") ? page1 : page2,
   })) as unknown as typeof fetch;
   const found = await checkOwnerStarred("youkamii", { fetchImpl });
   assert.deepEqual(found, { ok: true, starred: true });
   const missing = await checkOwnerStarred("nobody-here", { fetchImpl });
   assert.deepEqual(missing, { ok: true, starred: false });
+  // 저장소 전용 토큰이 거부돼도 익명 재시도로 이어진다.
+  let sawAnonymous = false;
+  const flaky = (async (url: string, init: { headers: Record<string, string> }) => {
+    if (init.headers.Authorization) return { ok: false, status: 404 };
+    sawAnonymous = true;
+    return { ok: true, json: async () => page2 };
+  }) as unknown as typeof fetch;
+  const viaAnon = await checkOwnerStarred("youkamii", {
+    token: "limited-token",
+    fetchImpl: flaky,
+  });
+  assert.deepEqual(viaAnon, { ok: true, starred: true });
+  assert.equal(sawAnonymous, true);
   // 연결 실패는 확인 실패로 끝난다 — 켜기를 허용하지 않는다.
   const down = await checkOwnerStarred("youkamii", {
     fetchImpl: (async () => {
