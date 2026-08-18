@@ -1991,10 +1991,14 @@ test("automatic updates run at midnight without a key and stay sealed", async ()
   );
   // 매시 예약으로 깨어나 앱의 공개 정책을 물어보고 자정에만 진행한다.
   assert.match(workflow, /schedule:\s*\n\s*- cron: "7 \* \* \* \*"/);
-  assert.match(workflow, /\/api\/update-policy/);
-  // 자정 판정은 앱이 계산해 준다 — 시간대 문자열이 셸에 닿지 않는다.
-  assert.match(workflow, /"\$midnight" != "true"/);
-  assert.doesNotMatch(workflow, /TZ=/);
+  // 앱 주소 발견에 기대지 않는다 — 켜짐·시간대는 앱이 register 디스패치로
+  // 저장소에 기록해 두고(sharedesk-auto-update.json), 예약 실행은 그 기록만 읽는다.
+  assert.doesNotMatch(workflow, /api\/update-policy|deployments\?/);
+  assert.match(workflow, /sharedesk-auto-update\.json/);
+  assert.match(workflow, /action:[\s\S]{0,30}description/);
+  // 시간대는 기록 시·판정 시 모두 IANA 형태를 강제한 뒤에만 TZ로 쓴다.
+  assert.match(workflow, /\^\(\[A-Za-z_\]\+\(\/\[A-Za-z0-9_\+-\]\+\)\+\|UTC\)\$/);
+  assert.match(workflow, /"\$hour" != "00" && "\$hour" != "01"/);
   // 개인 키 없이 저장소 자체 토큰만 쓴다.
   assert.match(workflow, /github\.token/);
   assert.doesNotMatch(workflow, /SHAREDESK_GITHUB_TOKEN/);
@@ -2229,4 +2233,23 @@ test("both workflow files must parse as YAML", async () => {
       }
     }
   }
+});
+
+test("enabling auto update registers the schedule inside the repository", async () => {
+  const route = await readFile(
+    new URL("../src/app/api/admin/desk-settings/route.ts", import.meta.url),
+    "utf8",
+  );
+  // 별 검증 통과 후 register(enable)까지 성공해야 켜진다.
+  const gate = route.slice(route.indexOf("patch.autoUpdate === true"));
+  assert.match(gate, /dispatchAutoUpdateRegister\(\s*"enable",/);
+  assert.match(gate, /if \(!registered\.ok\)/);
+  // 끄기도 저장소 기록을 내린다.
+  assert.match(route, /dispatchAutoUpdateRegister\("disable"\)/);
+  // 설정 기록 파일은 릴리스가 덮어쓸 수 없다.
+  const updater = await readFile(
+    new URL("../scripts/sharedesk-update.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(updater, /normalized === "sharedesk-auto-update\.json"/);
 });
