@@ -544,17 +544,10 @@ function itemContextMenuHeight(
   return canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35;
 }
 
-function desktopContextMenuHeight(
-  scopeId: string,
-  allowUpload: boolean,
-  allowEdit: boolean,
-) {
+function desktopContextMenuHeight(allowUpload: boolean, allowEdit: boolean) {
   // 새 폴더·파일 업로드와 구분선은 업로드 권한, 새 메모장(내용 저장이 필요)은
-  // 편집 권한이 있을 때만 나온다. 바탕화면(ROOT_SCOPE)에는 배경 4종이 추가된다.
-  return (
-    (allowUpload ? (allowEdit ? 194 : 159) : 79) +
-    (scopeId === ROOT_SCOPE ? 136 : 0)
-  );
+  // 편집 권한이 있을 때만 나온다. 배경 선택은 관리자 설정으로 옮겨 여기 없다.
+  return allowUpload ? (allowEdit ? 194 : 159) : 79;
 }
 
 function previewTextReadOnlyReason(
@@ -649,7 +642,6 @@ export default function FilesView({
     scopeId: string;
     entryId: string;
   } | null>(null);
-  const deskButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadScopeRef = useRef(ROOT_SCOPE);
   const rootDataRef = useRef<FolderData>(blankFolder());
@@ -1547,7 +1539,7 @@ export default function FilesView({
         ? searchContextMenuHeight(current.searchResult.entry)
         : current.entry
           ? itemContextMenuHeight(current.entry, isAdmin, hasParent, allowEdit)
-          : desktopContextMenuHeight(current.scopeId, allowUpload, allowEdit);
+          : desktopContextMenuHeight(allowUpload, allowEdit);
       return {
         ...current,
         x: clamp(
@@ -1564,15 +1556,6 @@ export default function FilesView({
     });
   }, [isAdmin, allowEdit, allowUpload, logicalViewport.height, logicalViewport.width]);
 
-  function selectWallpaper(id: WallpaperId) {
-    setWallpaperId(id);
-    try {
-      window.localStorage.setItem(WALLPAPER_STORAGE_KEY, id);
-    } catch {
-      // 시크릿 모드 등에서 저장이 막혀도 이번 세션 동안은 적용된다.
-    }
-    setContextMenu(null);
-  }
 
   function selectDownloadFirst(enabled: boolean) {
     setDownloadFirst(enabled);
@@ -2061,7 +2044,7 @@ export default function FilesView({
             ),
           )
           .find((button): button is HTMLButtonElement => !!button);
-        (candidate ?? remainingButtons[0] ?? canvas ?? deskButtonRef.current)?.focus();
+        (candidate ?? remainingButtons[0] ?? canvas)?.focus();
       });
     });
   }
@@ -5291,7 +5274,7 @@ export default function FilesView({
     // 항목 메뉴는 미리보기/다운로드 분리, 바탕화면 메뉴는 배경 4종이 추가됐다.
     const height = entry
       ? entryContextMenuHeight(scopeId, entry)
-      : desktopContextMenuHeight(scopeId, allowUpload, allowEdit);
+      : desktopContextMenuHeight(allowUpload, allowEdit);
     const target = event.target as HTMLElement;
     const activeElement =
       document.activeElement instanceof HTMLElement
@@ -7528,28 +7511,6 @@ export default function FilesView({
           />
           <button type="submit">{t("검색")}</button>
         </form>
-        <button
-          ref={deskButtonRef}
-          type="button"
-          className={styles.deskButton}
-          aria-label={t("책상 설정")}
-          onClick={(event) => {
-            const rect = event.currentTarget.getBoundingClientRect();
-            setContextMenu({
-              x: logicalClientCoordinate(rect.left, uiScale),
-              y: Math.max(
-                8,
-                logicalClientCoordinate(rect.top, uiScale) -
-                  (desktopContextMenuHeight(ROOT_SCOPE, allowUpload, allowEdit) + 8),
-              ),
-              scopeId: ROOT_SCOPE,
-              opener: event.currentTarget,
-            });
-          }}
-        >
-          <span className={styles.deskButtonMark} aria-hidden="true" />
-          {t("책상 설정")}
-        </button>
         <div className={styles.windowTasks} aria-label={t("열린 창")}>
           {deskWindows.map((item) => (
             <button
@@ -7887,20 +7848,6 @@ export default function FilesView({
               >
                 {t("새로고침")} <kbd>F5</kbd>
               </MenuButton>
-              {contextMenu.scopeId === ROOT_SCOPE && (
-                <>
-                  <div className={styles.menuSeparator} />
-                  {WALLPAPERS.map((wallpaper) => (
-                    <MenuButton
-                      key={wallpaper.id}
-                      onClick={() => selectWallpaper(wallpaper.id)}
-                    >
-                      {t("배경 — {name}", { name: t(wallpaper.name) })}
-                      {wallpaperId === wallpaper.id && <kbd>✓</kbd>}
-                    </MenuButton>
-                  ))}
-                </>
-              )}
             </>
           )}
         </div>

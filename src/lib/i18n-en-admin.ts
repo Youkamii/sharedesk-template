@@ -125,4 +125,10 @@ export const EN_ADMIN: Record<string, string> = {
   "바탕화면은 이 기기의 내 화면에만 적용되는 개인 설정입니다. 파일 화면을 다음에 열 때 반영됩니다.":
     "The wallpaper is a personal setting that only applies to your screen on this device. It takes effect the next time the files screen loads.",
   "현재 선택": "Selected",
+
+  // 관리자 설정 — 테마
+  "테마는 화면 전체의 모양과 질감입니다. 지금 쓰는 도트 화면이 기본 테마이고, 앞으로 늘어납니다.":
+    "A theme is the overall look and texture of the screen. The pixel look you see now is the default theme, and more will follow.",
+  "기본": "Default",
+
 };

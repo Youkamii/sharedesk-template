@@ -58,8 +58,13 @@ interface OwnerRegistryStatus {
   error: string | null;
 }
 
-// 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마).
+// 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마·바탕화면).
 type AdminTab = "users" | "settings";
+
+// 테마는 화면 전체의 UI·질감이고 바탕화면은 그 위에 까는 그림이다 — 서로 다른 설정.
+// 지금 쓰는 도트 화면이 기본 테마이며, 테마가 늘어나면 이 목록에 추가한다.
+const THEMES = [{ id: "classic", name: "기본" }] as const;
+type ThemeId = (typeof THEMES)[number]["id"];
 
 // 바탕화면은 개인 취향이라 FilesView와 같은 localStorage 키에 저장한다.
 // 파일 화면이 다음 로드 때 이 값을 읽어 반영한다 (FilesView.tsx와 리터럴 일치).
@@ -155,6 +160,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
     null,
   );
   const [wallpaperId, setWallpaperId] = useState<WallpaperId>("dusk");
+  // 테마는 아직 기본 하나뿐이라 선택 상태만 보여 준다.
+  const [themeId, setThemeId] = useState<ThemeId>("classic");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1253,6 +1260,57 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   </span>
                   <span className={styles.windowMeta} aria-hidden="true">
                     THEME
+                  </span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "테마는 화면 전체의 모양과 질감입니다. 지금 쓰는 도트 화면이 기본 테마이고, 앞으로 늘어납니다.",
+                    )}
+                  </p>
+                  <div
+                    className={styles.wallpaperGrid}
+                    role="group"
+                    aria-label={t("테마")}
+                  >
+                    {THEMES.map((theme) => (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        aria-pressed={themeId === theme.id}
+                        className={`${styles.wallpaperOption} ${themeId === theme.id ? styles.wallpaperSelected : ""}`}
+                        onClick={() => setThemeId(theme.id)}
+                      >
+                        <span
+                          className={`${styles.wallpaperThumb} ${styles.themeThumb}`}
+                          aria-hidden="true"
+                        />
+                        <span className={styles.wallpaperName}>
+                          {t(theme.name)}
+                          {themeId === theme.id && (
+                            <span className={styles.wallpaperCheck}>
+                              {t("현재 선택")}
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section aria-labelledby="wallpaper-title">
+              <div className={styles.window}>
+                <header
+                  className={`${styles.windowTitlebar} ${styles.themeTitlebar}`}
+                >
+                  <span className={styles.windowTitle}>
+                    <span className={styles.themeGlyph} aria-hidden="true" />
+                    <h2 id="wallpaper-title">{t("바탕화면")}</h2>
+                  </span>
+                  <span className={styles.windowMeta} aria-hidden="true">
+                    WALLPAPER
                   </span>
                 </header>
                 <div className={styles.windowBody}>
