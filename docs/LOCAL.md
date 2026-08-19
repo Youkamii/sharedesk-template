@@ -156,7 +156,7 @@ When restoring, stop the server first as well, put the whole backed-up folder in
 | `npm test` | Runs the repository's automated tests. |
 | `npm run setup -- --prepare-env` | Prepares `.env.local`. Existing contents are not overwritten. |
 | `npm run setup` | Starts the host Google authorization. If `.env.local` is missing, it prepares it first. |
-| `npm run setup -- --finish` | Completes the host Drive connection with a callback URL the user pastes into the local terminal. The URL is not attached as a command argument. |
+| `npm run setup:finish` | Completes the host Drive connection with a callback URL the user pastes into the local terminal. The URL is not attached as a command argument. |
 | `npm run setup -- --check` | Checks that the Client ID and secret can be read and an authorization URL can be built. |
 | `npm run test:drive-operations` | Checks create, upload, download, rename, move, delete, and restore on a real Drive. |
 | `npm run test:drive-preview` | Checks Google Docs PDF conversion and video Range responses on a real Drive. |
@@ -183,6 +183,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive production | The host offline token setup received. |
 | `DRIVE_ROOT_FOLDER_ID` | Drive production | The ID of the host Drive root ShareDesk manages. |
 | `DRIVE_STATE_FOLDER_ID` | Drive production | The ID of the `.sharedesk` state folder inside the root. |
+| `SHAREDESK_DEFAULT_LOCALE` | Optional | The default desk language (en/ko/ja/hi/zh). Starts in English when unset. |
 | `SHAREDESK_GITHUB_TOKEN` | Optional | The fine-grained PAT for one-click updates. To test one-click updates locally, you also need `SHAREDESK_GITHUB_REPOSITORY` (below). |
 | `SHAREDESK_GITHUB_REPOSITORY` | Optional | The install repository to update (`owner/repository`). Outside Vercel (locally) there is no repository information, so set it yourself for a one-click test. |
 | `SHAREDESK_SHARE_TEST_EMAIL` | Real checks only | A separate approved Google account that receives the sharing checks. Do not put it in the production Vercel environment. |

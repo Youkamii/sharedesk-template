@@ -66,6 +66,358 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
 // 없어 대신 눌러 줄 수 없으므로, 동의하면 저장소 페이지를 열어 준다.
 export const STAR_REPOSITORY_URL = "https://github.com/Youkamii/sharedesk-template";
 
+// ---------------------------------------------------------------------------
+// setup 전용 다국어 사전 — 앱의 src/lib/i18n.ts(TS)는 여기서 import할 수 없으므로
+// 같은 규칙(한국어 원문이 키, 번역이 없으면 영어 → 한국어 순 폴백)을 자체 구현한다.
+// 번역 용어는 앱 사전(src/lib/i18n-*.ts)과 맞춘다: 데스크=Desk/デスク/डेस्क/桌面,
+// 관리자=Admin/管理者/व्यवस्थापक/管理员.
+// ---------------------------------------------------------------------------
+
+export const SETUP_LOCALES = ["en", "ko", "ja", "hi", "zh"];
+
+export const SETUP_LOCALE_LABELS = {
+  en: "English",
+  ko: "한국어",
+  ja: "日本語",
+  hi: "हिन्दी",
+  zh: "中文",
+};
+
+// 언어 질문은 아직 언어를 모르는 시점이므로 5개 언어를 한 줄에 병기한다.
+export const SETUP_LANGUAGE_QUESTION =
+  "Language / 언어 / 言語 / भाषा / 语言 — 1) English  2) 한국어  3) 日本語  4) हिन्दी  5) 中文  [1]: ";
+
+// "1"~"5" 또는 로케일 코드("en"...)를 로케일로 바꾼다. 그 외에는 null.
+export function resolveSetupLocale(value) {
+  const answer = String(value ?? "").trim().toLowerCase();
+  // 일반 객체 인덱싱은 "constructor" 같은 입력이 프로토타입 체인을 타고
+  // 엉뚱한 값을 돌려준다 — 소유 속성만 본다.
+  const numbers = { 1: "en", 2: "ko", 3: "ja", 4: "hi", 5: "zh" };
+  if (Object.prototype.hasOwnProperty.call(numbers, answer)) {
+    return numbers[answer];
+  }
+  return SETUP_LOCALES.includes(answer) ? answer : null;
+}
+
+const SETUP_MESSAGES = {
+  en: {
+    "[1/2] Google 인증을 시작합니다.": "[1/2] Starting Google sign-in.",
+    "[2/2] 인증을 마치고 설정을 저장합니다.":
+      "[2/2] Finishing sign-in and saving the configuration.",
+    "데스크 기본 언어: {label}": "Desk default language: {label}",
+    "진행 중인 인증이 있습니다. 마치려면 npm run setup:finish 를 실행하세요.":
+      "An authentication is already in progress. Run npm run setup:finish to finish it.",
+    "이어가지 않고 새로 시작할까요? 새로 시작하면 기존 인증 링크는 무효가 됩니다. (y/N): ":
+      "Start over instead? Starting over invalidates the previous sign-in link. (y/N): ",
+    "기존 인증을 그대로 두었습니다. npm run setup:finish 로 마무리하세요.":
+      "Kept the existing authentication. Finish it with npm run setup:finish.",
+    "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다.":
+      "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are missing from .env.local.",
+    "1) Google 인증 페이지를 기본 브라우저에서 열었습니다.":
+      "1) Opened the Google consent page in your default browser.",
+    "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.":
+      "1) Could not open the browser automatically. Open the URL below yourself.",
+    "브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:":
+      "If the browser did not open, or to use another account, open this URL:",
+    "2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서":
+      "2) After you consent, the browser moves to a 127.0.0.1 address and",
+    "   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.":
+      "   shows an error page like 'can't connect' — that is expected.",
+    "   그때 주소창의 주소 전체를 복사하세요.":
+      "   Copy the full address from the address bar at that point.",
+    "3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:":
+      "3) Run the command below, then paste the copied address when asked:",
+    "진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.":
+      "No setup is in progress — run npm run setup first.",
+    "브라우저 주소창의 callback URL 전체를 붙여넣으세요: ":
+      "Paste the full callback URL from the browser address bar: ",
+    "관리자로 등록:": "Registered as admin:",
+    "드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:":
+      "Created the root folder 'ShareDesk' in Drive:",
+    "=== 설정 완료 ===": "=== Setup complete ===",
+    ".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)":
+      ".env.local updated (the refresh token is stored only in the file, never printed)",
+    "루트 폴더 ID:": "Root folder ID:",
+    "ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ":
+      "If ShareDesk helped you, would you leave a star on the GitHub repository? (y/N): ",
+    "GitHub 저장소에 별을 남겼습니다. 고맙습니다!":
+      "Left a star on the GitHub repository. Thank you!",
+    "나중에 별을 남기려면 {url} 를 열어 주세요.": "To star later, open {url} .",
+    "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요.":
+      "Opened the repository page. Please press the Star button at the top right.",
+    "브라우저를 열지 못했습니다. {url} 에서 Star를 눌러 주세요.":
+      "Could not open the browser. Please press Star at {url} .",
+    "별은 {url} 에서 언제든 남길 수 있습니다.":
+      "You can always leave a star at {url} .",
+    "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
+      "The callback URL is not accepted as an argument so it never lands in the shell history. Run npm run setup:finish only.",
+    [CALLBACK_URL_SECURITY_WARNING]: [
+      "Caution: the callback URL contains a short-lived one-time authorization code issued by Google.",
+      "Paste it only into the terminal on this computer — never share it in chats, issues, or screenshots.",
+    ].join("\n"),
+    [SETUP_COMPLETION_NEXT_STEPS]: [
+      "You have prepared a ShareDesk where several people share the host's Google Drive storage.",
+      "Next, continue from the 'Vercel Production environment variables and redeploy' step in docs/INSTALL.md.",
+      "Move the secrets safely into the Production environment, redeploy, and verify production sign-in and file saving.",
+      "Once it works, create an invitation code in /admin, invite one person, and check that both accounts see the same file.",
+      "Configure Vercel Firewall later, in the operations stage that protects invitation code requests after the feature check.",
+    ].join("\n"),
+  },
+  ja: {
+    "[1/2] Google 인증을 시작합니다.": "[1/2] Google 認証を開始します。",
+    "[2/2] 인증을 마치고 설정을 저장합니다.":
+      "[2/2] 認証を完了して設定を保存します。",
+    "데스크 기본 언어: {label}": "デスクの既定の言語: {label}",
+    "진행 중인 인증이 있습니다. 마치려면 npm run setup:finish 를 실행하세요.":
+      "進行中の認証があります。完了するには npm run setup:finish を実行してください。",
+    "이어가지 않고 새로 시작할까요? 새로 시작하면 기존 인증 링크는 무효가 됩니다. (y/N): ":
+      "最初からやり直しますか？ やり直すと以前の認証リンクは無効になります。(y/N): ",
+    "기존 인증을 그대로 두었습니다. npm run setup:finish 로 마무리하세요.":
+      "既存の認証をそのまま残しました。npm run setup:finish で完了してください。",
+    "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다.":
+      "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が .env.local にありません。",
+    "1) Google 인증 페이지를 기본 브라우저에서 열었습니다.":
+      "1) 既定のブラウザで Google 認証ページを開きました。",
+    "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.":
+      "1) ブラウザを自動で開けませんでした。下の URL を直接開いてください。",
+    "브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:":
+      "ブラウザが開かない場合や別のアカウントを使う場合は、この URL を開いてください:",
+    "2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서":
+      "2) 同意するとブラウザは 127.0.0.1 のアドレスに移動し、",
+    "   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.":
+      "   「接続できません」のようなエラー画面が表示されます — 正常です。",
+    "   그때 주소창의 주소 전체를 복사하세요.":
+      "   その時点でアドレスバーの URL 全体をコピーしてください。",
+    "3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:":
+      "3) 下のコマンドを実行し、聞かれたらコピーしたアドレスを貼り付けてください:",
+    "진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.":
+      "進行中のセットアップはありません — 先に npm run setup を実行してください。",
+    "브라우저 주소창의 callback URL 전체를 붙여넣으세요: ":
+      "ブラウザのアドレスバーの callback URL 全体を貼り付けてください: ",
+    "관리자로 등록:": "管理者として登録:",
+    "드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:":
+      "ドライブにルートフォルダー「ShareDesk」を作成しました:",
+    "=== 설정 완료 ===": "=== セットアップ完了 ===",
+    ".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)":
+      ".env.local を更新しました（refresh token はファイルにのみ保存し、画面には表示しません）",
+    "루트 폴더 ID:": "ルートフォルダー ID:",
+    "ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ":
+      "ShareDesk が役に立ったら、GitHub リポジトリにスターを残していただけますか？ (y/N): ",
+    "GitHub 저장소에 별을 남겼습니다. 고맙습니다!":
+      "GitHub リポジトリにスターを残しました。ありがとうございます！",
+    "나중에 별을 남기려면 {url} 를 열어 주세요.":
+      "後でスターを残すには {url} を開いてください。",
+    "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요.":
+      "リポジトリのページを開きました。右上の Star ボタンを押してください。",
+    "브라우저를 열지 못했습니다. {url} 에서 Star를 눌러 주세요.":
+      "ブラウザを開けませんでした。{url} で Star を押してください。",
+    "별은 {url} 에서 언제든 남길 수 있습니다.":
+      "スターはいつでも {url} で残せます。",
+    "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
+      "callback URL はコマンド履歴に残らないよう引数では受け取りません。npm run setup:finish だけを実行してください。",
+    [CALLBACK_URL_SECURITY_WARNING]: [
+      "注意: callback URL には Google が発行した短時間だけ有効な一回限りの認証コードが含まれます。",
+      "このアドレスはこのコンピューターのターミナルにだけ貼り付け、チャット・Issue・スクリーンショットで共有しないでください。",
+    ].join("\n"),
+    [SETUP_COMPLETION_NEXT_STEPS]: [
+      "ホストの Google Drive の保存容量をみんなで使う ShareDesk を準備しました。",
+      "次は docs/INSTALL.md の「Vercel Production 環境変数と再デプロイ」の手順から続けてください。",
+      "秘密の値を Production 環境へ安全に移して再デプロイし、本番のログインとファイル保存を実際に確認してください。",
+      "動作を確認したら /admin で招待コードを作って 1 人を招待し、2 つのアカウントで同じファイルが見えるか確認してください。",
+      "Vercel Firewall は機能確認が終わったあと、招待コードのリクエストを守る運用段階で設定します。",
+    ].join("\n"),
+  },
+  hi: {
+    "[1/2] Google 인증을 시작합니다.": "[1/2] Google प्रमाणीकरण शुरू हो रहा है।",
+    "[2/2] 인증을 마치고 설정을 저장합니다.":
+      "[2/2] प्रमाणीकरण पूरा करके सेटिंग सहेजी जा रही है।",
+    "데스크 기본 언어: {label}": "डेस्क की डिफ़ॉल्ट भाषा: {label}",
+    "진행 중인 인증이 있습니다. 마치려면 npm run setup:finish 를 실행하세요.":
+      "एक प्रमाणीकरण पहले से चल रहा है। पूरा करने के लिए npm run setup:finish चलाएँ।",
+    "이어가지 않고 새로 시작할까요? 새로 시작하면 기존 인증 링크는 무효가 됩니다. (y/N): ":
+      "क्या नए सिरे से शुरू करें? नए सिरे से शुरू करने पर पिछला प्रमाणीकरण लिंक अमान्य हो जाएगा। (y/N): ",
+    "기존 인증을 그대로 두었습니다. npm run setup:finish 로 마무리하세요.":
+      "मौजूदा प्रमाणीकरण वैसा ही रखा गया है। npm run setup:finish से पूरा करें।",
+    "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다.":
+      ".env.local में GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET नहीं हैं।",
+    "1) Google 인증 페이지를 기본 브라우저에서 열었습니다.":
+      "1) आपके डिफ़ॉल्ट ब्राउज़र में Google सहमति पेज खोला गया।",
+    "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.":
+      "1) ब्राउज़र अपने आप नहीं खुल सका। नीचे दिया URL स्वयं खोलें।",
+    "브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:":
+      "यदि ब्राउज़र नहीं खुला, या दूसरा खाता उपयोग करना हो, तो यह URL खोलें:",
+    "2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서":
+      "2) सहमति देने के बाद ब्राउज़र 127.0.0.1 पते पर जाएगा और",
+    "   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.":
+      "   \"कनेक्ट नहीं हो सकता\" जैसा त्रुटि पेज दिखेगा — यह सामान्य है।",
+    "   그때 주소창의 주소 전체를 복사하세요.":
+      "   उसी समय एड्रेस बार का पूरा पता कॉपी करें।",
+    "3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:":
+      "3) नीचे दी कमांड चलाएँ, फिर पूछे जाने पर कॉपी किया पता चिपकाएँ:",
+    "진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.":
+      "कोई सेटअप चालू नहीं है — पहले npm run setup चलाएँ।",
+    "브라우저 주소창의 callback URL 전체를 붙여넣으세요: ":
+      "ब्राउज़र एड्रेस बार का पूरा callback URL चिपकाएँ: ",
+    "관리자로 등록:": "व्यवस्थापक के रूप में पंजीकृत:",
+    "드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:":
+      "Drive में रूट फ़ोल्डर 'ShareDesk' बनाया गया:",
+    "=== 설정 완료 ===": "=== सेटअप पूर्ण ===",
+    ".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)":
+      ".env.local अपडेट हुआ (refresh token केवल फ़ाइल में सहेजा गया, स्क्रीन पर नहीं दिखाया गया)",
+    "루트 폴더 ID:": "रूट फ़ोल्डर ID:",
+    "ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ":
+      "यदि ShareDesk मददगार रहा, तो क्या आप GitHub रिपॉज़िटरी पर स्टार देंगे? (y/N): ",
+    "GitHub 저장소에 별을 남겼습니다. 고맙습니다!":
+      "GitHub रिपॉज़िटरी पर स्टार दे दिया गया। धन्यवाद!",
+    "나중에 별을 남기려면 {url} 를 열어 주세요.":
+      "बाद में स्टार देने के लिए {url} खोलें।",
+    "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요.":
+      "रिपॉज़िटरी पेज खोला गया। ऊपर दाईं ओर Star बटन दबाएँ।",
+    "브라우저를 열지 못했습니다. {url} 에서 Star를 눌러 주세요.":
+      "ब्राउज़र नहीं खुल सका। {url} पर जाकर Star दबाएँ।",
+    "별은 {url} 에서 언제든 남길 수 있습니다.":
+      "आप कभी भी {url} पर स्टार दे सकते हैं।",
+    "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
+      "callback URL को आर्ग्युमेंट के रूप में स्वीकार नहीं किया जाता ताकि वह कमांड इतिहास में न रहे। केवल npm run setup:finish चलाएँ।",
+    [CALLBACK_URL_SECURITY_WARNING]: [
+      "सावधान: callback URL में Google द्वारा जारी अल्पकालिक एक-बार का प्रमाणीकरण कोड होता है।",
+      "इसे केवल इसी कंप्यूटर के टर्मिनल में चिपकाएँ — चैट, इश्यू या स्क्रीनशॉट में साझा न करें।",
+    ].join("\n"),
+    [SETUP_COMPLETION_NEXT_STEPS]: [
+      "आपने ऐसा ShareDesk तैयार किया है जिसमें कई लोग होस्ट के Google Drive संग्रहण को साथ में उपयोग करेंगे।",
+      "अब docs/INSTALL.md के 'Vercel Production environment variables and redeploy' चरण से आगे बढ़ें।",
+      "गुप्त मान सुरक्षित रूप से Production परिवेश में ले जाकर पुनः डिप्लॉय करें, और उत्पादन लॉगिन तथा फ़ाइल सहेजना वास्तव में जाँचें।",
+      "काम करने पर /admin में आमंत्रण कोड बनाकर एक व्यक्ति को आमंत्रित करें, और देखें कि दोनों खातों में एक ही फ़ाइल दिखती है या नहीं।",
+      "Vercel Firewall को सुविधा-जाँच पूरी होने के बाद, आमंत्रण कोड अनुरोधों की सुरक्षा वाले संचालन चरण में सेट करें।",
+    ].join("\n"),
+  },
+  zh: {
+    "[1/2] Google 인증을 시작합니다.": "[1/2] 开始 Google 认证。",
+    "[2/2] 인증을 마치고 설정을 저장합니다.": "[2/2] 完成认证并保存设置。",
+    "데스크 기본 언어: {label}": "桌面默认语言：{label}",
+    "진행 중인 인증이 있습니다. 마치려면 npm run setup:finish 를 실행하세요.":
+      "已有正在进行的认证。要完成它，请运行 npm run setup:finish。",
+    "이어가지 않고 새로 시작할까요? 새로 시작하면 기존 인증 링크는 무효가 됩니다. (y/N): ":
+      "要重新开始吗？重新开始后，之前的认证链接将失效。(y/N): ",
+    "기존 인증을 그대로 두었습니다. npm run setup:finish 로 마무리하세요.":
+      "已保留现有认证。请用 npm run setup:finish 完成。",
+    "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다.":
+      ".env.local 中缺少 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET。",
+    "1) Google 인증 페이지를 기본 브라우저에서 열었습니다.":
+      "1) 已在默认浏览器中打开 Google 认证页面。",
+    "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.":
+      "1) 未能自动打开浏览器。请手动打开下面的 URL。",
+    "브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:":
+      "如果浏览器未打开，或想使用其他账号，请打开此 URL：",
+    "2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서":
+      "2) 同意后，浏览器会跳转到 127.0.0.1 地址，",
+    "   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.":
+      "   显示“无法连接”之类的错误页面——这是正常的。",
+    "   그때 주소창의 주소 전체를 복사하세요.":
+      "   此时请复制地址栏中的完整地址。",
+    "3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:":
+      "3) 运行下面的命令，然后在询问时粘贴复制的地址：",
+    "진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.":
+      "没有正在进行的设置——请先运行 npm run setup。",
+    "브라우저 주소창의 callback URL 전체를 붙여넣으세요: ":
+      "请粘贴浏览器地址栏中的完整 callback URL：",
+    "관리자로 등록:": "已注册为管理员：",
+    "드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:":
+      "已在云端硬盘中创建根文件夹“ShareDesk”：",
+    "=== 설정 완료 ===": "=== 设置完成 ===",
+    ".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)":
+      ".env.local 已更新（refresh token 仅保存在文件中，不在屏幕上显示）",
+    "루트 폴더 ID:": "根文件夹 ID：",
+    "ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ":
+      "如果 ShareDesk 对你有帮助，愿意给 GitHub 仓库点个星吗？(y/N): ",
+    "GitHub 저장소에 별을 남겼습니다. 고맙습니다!":
+      "已在 GitHub 仓库留下星标。谢谢！",
+    "나중에 별을 남기려면 {url} 를 열어 주세요.":
+      "以后想点星标时，请打开 {url} 。",
+    "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요.":
+      "已打开仓库页面。请点击右上角的 Star 按钮。",
+    "브라우저를 열지 못했습니다. {url} 에서 Star를 눌러 주세요.":
+      "未能打开浏览器。请到 {url} 点击 Star。",
+    "별은 {url} 에서 언제든 남길 수 있습니다.":
+      "你随时可以在 {url} 留下星标。",
+    "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
+      "为避免留在命令历史中，callback URL 不作为参数接收。请只运行 npm run setup:finish。",
+    [CALLBACK_URL_SECURITY_WARNING]: [
+      "注意：callback URL 中包含 Google 签发的短期一次性认证代码。",
+      "此地址只能粘贴到本机终端，切勿在聊天、issue 或截图中分享。",
+    ].join("\n"),
+    [SETUP_COMPLETION_NEXT_STEPS]: [
+      "你已准备好一个由多人共用主机 Google Drive 存储空间的 ShareDesk。",
+      "接下来请从 docs/INSTALL.md 的“Vercel Production 环境变量与重新部署”步骤继续。",
+      "将机密值安全地移入 Production 环境后重新部署，并实际确认线上登录和文件保存。",
+      "确认可用后，在 /admin 创建邀请码邀请一个人，并确认两个账号能看到同一个文件。",
+      "Vercel Firewall 在功能确认完成后、保护邀请码请求的运营阶段再设置。",
+    ].join("\n"),
+  },
+};
+
+let setupLocale = "ko";
+
+export function setSetupLocale(locale) {
+  setupLocale = resolveSetupLocale(locale) ?? "ko";
+}
+
+// 한국어 원문이 키다. 번역이 없으면 영어 → 한국어 원문 순으로 폴백한다.
+export function t(text, vars) {
+  let out =
+    setupLocale === "ko"
+      ? text
+      : SETUP_MESSAGES[setupLocale]?.[text] ?? SETUP_MESSAGES.en[text] ?? text;
+  if (vars) {
+    for (const [key, value] of Object.entries(vars)) {
+      out = out.replaceAll(`{${key}}`, String(value));
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// 도트 배너 — 제품의 픽셀 감성을 첫 실행부터 보여 준다. 순수 ASCII, 80자 이내.
+// ---------------------------------------------------------------------------
+
+const BANNER_FONT = {
+  S: ["#####", "#    ", "#####", "    #", "#####"],
+  H: ["#   #", "#   #", "#####", "#   #", "#   #"],
+  A: [" ### ", "#   #", "#####", "#   #", "#   #"],
+  R: ["#### ", "#   #", "#### ", "#  # ", "#   #"],
+  E: ["#####", "#    ", "#### ", "#    ", "#####"],
+  D: ["#### ", "#   #", "#   #", "#   #", "#### "],
+  K: ["#   #", "#  # ", "###  ", "#  # ", "#   #"],
+};
+
+export function renderSetupBanner(word = "SHAREDESK") {
+  const rows = Array.from({ length: 5 }, (_, row) =>
+    [...word]
+      .map((letter) => BANNER_FONT[letter]?.[row] ?? "     ")
+      .join(" ")
+      .replace(/\s+$/u, ""),
+  );
+  const width = Math.max(...rows.map((row) => row.length));
+  const dotted = ". ".repeat(Math.ceil(width / 2)).slice(0, width);
+  return [dotted, ...rows, dotted].join("\n");
+}
+
+function isInteractiveSetup() {
+  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+}
+
+async function askOnce(question) {
+  const prompt = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    return await prompt.question(question);
+  } finally {
+    prompt.close();
+  }
+}
+
 // 이 컴퓨터의 GitHub CLI(gh) 로그인을 빌려 조용히 별을 남긴다.
 // gh가 없거나 로그인돼 있지 않으면 false — 호출부가 묻는 흐름으로 넘어간다.
 export async function autoStarViaGh(execFileImpl = execFile) {
@@ -84,7 +436,7 @@ export async function autoStarViaGh(execFileImpl = execFile) {
         (error) => (error ? reject(error) : resolve(undefined)),
       );
     });
-    console.log("GitHub 저장소에 별을 남겼습니다. 고맙습니다!");
+    console.log(t("GitHub 저장소에 별을 남겼습니다. 고맙습니다!"));
     return true;
   } catch {
     return false;
@@ -95,19 +447,23 @@ export async function askToStar(ask, open = openBrowser) {
   // 먼저 자동으로 시도한다 — 성공하면 물어볼 것이 없다.
   if (await autoStarViaGh()) return true;
   const answer = (
-    await ask("ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): ")
+    await ask(t("ShareDesk가 도움이 되었다면 GitHub 저장소에 별을 남겨 주시겠어요? (y/N): "))
   )
     .trim()
     .toLowerCase();
   if (answer !== "y" && answer !== "yes") {
-    console.log(`나중에 별을 남기려면 ${STAR_REPOSITORY_URL} 를 열어 주세요.`);
+    console.log(
+      t("나중에 별을 남기려면 {url} 를 열어 주세요.", { url: STAR_REPOSITORY_URL }),
+    );
     return false;
   }
   const opened = await open(STAR_REPOSITORY_URL);
   console.log(
     opened
-      ? "저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요."
-      : `브라우저를 열지 못했습니다. ${STAR_REPOSITORY_URL} 에서 Star를 눌러 주세요.`,
+      ? t("저장소 페이지를 열었습니다. 오른쪽 위 Star 버튼을 눌러 주세요.")
+      : t("브라우저를 열지 못했습니다. {url} 에서 Star를 눌러 주세요.", {
+          url: STAR_REPOSITORY_URL,
+        }),
   );
   return true;
 }
@@ -684,6 +1040,9 @@ export async function ensureCoreStateFiles({
 }
 
 async function main() {
+  console.log(renderSetupBanner());
+  console.log("");
+
   if (process.argv.includes("--prepare-env")) {
     const result = await prepareEnvFile();
     console.log(
@@ -707,20 +1066,106 @@ async function main() {
   const fileEnv = parseEnv(raw);
   const get = (k) => fileEnv[k] || process.env[k] || "";
 
+  const finishArg = process.argv.indexOf("--finish");
+  const isFinish = finishArg >= 0;
+  const isCheck = process.argv.includes("--check");
+  // --restart: 진행 중 인증을 무시하고 처음부터 — 비대화형 잠금의 탈출구.
+  const isRestart = process.argv.includes("--restart");
+
+  // 이미 저장된 기본 언어가 있으면 그 언어로 말한다. 없으면 한국어 원문.
+  let selectedLocale = resolveSetupLocale(get("SHAREDESK_DEFAULT_LOCALE"));
+  setSetupLocale(selectedLocale ?? "ko");
+
+  // 비대화형(AI 설치)에서는 --locale=xx 플래그로 언어를 지정할 수 있다.
+  const localeArg = process.argv.find((arg) => arg.startsWith("--locale="));
+  if (localeArg) {
+    const flagLocale = resolveSetupLocale(localeArg.slice("--locale=".length));
+    if (flagLocale) {
+      selectedLocale = flagLocale;
+      setSetupLocale(flagLocale);
+    }
+  }
+
+  // 언어 선택 — 새 설정(1단계)에서만 묻는다. finish는 1단계의 선택을 이어받고,
+  // 비대화형(파이프·CI)에서는 묻지 않고 플래그/기존 값/한국어를 유지한다.
+  if (!localeArg && !isFinish && !isCheck && isInteractiveSetup()) {
+    selectedLocale =
+      resolveSetupLocale(await askOnce(SETUP_LANGUAGE_QUESTION)) ?? "en";
+    setSetupLocale(selectedLocale);
+    console.log(
+      t("데스크 기본 언어: {label}", {
+        label: SETUP_LOCALE_LABELS[selectedLocale],
+      }) + "\n",
+    );
+  }
+
   const clientId = get("GOOGLE_CLIENT_ID");
   const clientSecret = get("GOOGLE_CLIENT_SECRET");
   if (!clientId || !clientSecret) {
-    console.error("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다.");
+    console.error(t("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET이 .env.local에 없습니다."));
     console.error("");
     console.error(GOOGLE_AUTH_PLATFORM_GUIDANCE);
     process.exit(1);
   }
 
-  const finishArg = process.argv.indexOf("--finish");
-  const isFinish = finishArg >= 0;
-
   // --- 1단계: 인증 URL 생성 ---
   if (!isFinish) {
+    // 진행 중 인증이 살아 있으면 state를 새로 돌리기 전에 알린다 — PowerShell에서
+    // npm run setup -- --finish의 --finish가 npm에 먹혀 bare setup이 재실행되면
+    // state가 회전해 방금 받은 인증 링크가 무효가 되는 사고를 막는다.
+    if (!isCheck && !isRestart && existsSync(PENDING_PATH)) {
+      // 30분이 지난 인증은 구글 쪽에서도 이미 죽었다 — 잠금이 되지 않게
+      // 자동으로 새로 시작한다.
+      let pendingFresh = false;
+      try {
+        const previous = JSON.parse(await readFile(PENDING_PATH, "utf8"));
+        pendingFresh =
+          typeof previous.createdAt === "number" &&
+          Date.now() - previous.createdAt < 30 * 60_000;
+      } catch {
+        pendingFresh = false;
+      }
+      if (!pendingFresh) {
+        console.log(t("이전 인증이 만료되어 새로 시작합니다."));
+      } else {
+        console.log(
+          t("진행 중인 인증이 있습니다. 마치려면 npm run setup:finish 를 실행하세요."),
+        );
+        if (!isInteractiveSetup()) {
+          console.log(
+            t("처음부터 다시 시작하려면 npm run setup:restart 를 실행하세요."),
+          );
+          // 자동화가 이 상태를 성공으로 오해하지 않게 실패 코드로 끝낸다.
+          process.exitCode = 1;
+          return;
+        }
+        const restart = (
+          await askOnce(
+            t("이어가지 않고 새로 시작할까요? 새로 시작하면 기존 인증 링크는 무효가 됩니다. (y/N): "),
+          )
+        )
+          .trim()
+          .toLowerCase();
+        if (restart !== "y" && restart !== "yes") {
+          // 방금 고른 언어는 버리지 않고 기존 인증에 이어 둔다.
+          if (selectedLocale) {
+            try {
+              const previous = JSON.parse(await readFile(PENDING_PATH, "utf8"));
+              previous.locale = selectedLocale;
+              await writeFile(PENDING_PATH, JSON.stringify(previous));
+              await protectPrivateFile(PENDING_PATH);
+            } catch {
+              // 이어 두기 실패는 치명적이지 않다 — 기본 언어로 남는다.
+            }
+          }
+          console.log(
+            t("기존 인증을 그대로 두었습니다. npm run setup:finish 로 마무리하세요."),
+          );
+          return;
+        }
+      }
+    }
+
     // state와 PKCE로 콜백 위조를 막는다 (RFC 8252 §8.1/§8.9).
     const state = randomBytes(16).toString("base64url");
     const codeVerifier = randomBytes(32).toString("base64url");
@@ -742,54 +1187,71 @@ async function main() {
         code_challenge_method: "S256",
       });
 
-    if (process.argv.includes("--check")) {
+    if (isCheck) {
       console.log("[check] 환경 점검 통과. 인증 URL:");
       console.log(authUrl);
       return;
     }
 
+    console.log(t("[1/2] Google 인증을 시작합니다.") + "\n");
+
+    // 선택한 언어를 2단계(finish)가 이어받도록 state와 함께 보관한다.
     await writePrivateFile(
       PENDING_PATH,
-      JSON.stringify({ state, codeVerifier, createdAt: Date.now() }, null, 2),
+      JSON.stringify(
+        { state, codeVerifier, locale: selectedLocale ?? undefined, createdAt: Date.now() },
+        null,
+        2,
+      ),
     );
 
     const browserOpened = await openBrowser(authUrl);
     console.log(
       browserOpened
-        ? "1) Google 인증 페이지를 기본 브라우저에서 열었습니다."
-        : "1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요.",
+        ? t("1) Google 인증 페이지를 기본 브라우저에서 열었습니다.")
+        : t("1) 브라우저를 자동으로 열지 못했습니다. 아래 URL을 직접 여세요."),
     );
-    console.log("브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:\n");
+    console.log(t("브라우저가 열리지 않았거나 다른 계정을 쓰려면 아래 URL을 여세요:") + "\n");
     console.log(authUrl + "\n");
-    console.log(CALLBACK_URL_SECURITY_WARNING + "\n");
-    console.log("2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서");
-    console.log("   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다.");
-    console.log("   그때 주소창의 주소 전체를 복사하세요.\n");
-    console.log("3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:\n");
-    console.log("   npm run setup -- --finish");
+    console.log(t(CALLBACK_URL_SECURITY_WARNING) + "\n");
+    console.log(t("2) 동의하면 브라우저가 127.0.0.1 주소로 이동하면서"));
+    console.log(t("   '연결할 수 없음' 같은 오류 화면이 뜹니다 — 정상입니다."));
+    console.log(t("   그때 주소창의 주소 전체를 복사하세요.") + "\n");
+    console.log(t("3) 아래 명령을 실행한 뒤, 물어보면 복사한 주소를 붙여넣으세요:") + "\n");
+    console.log("   npm run setup:finish");
     return;
   }
 
   // --- 2단계: 붙여넣은 콜백 주소로 토큰 교환 ---
   if (!existsSync(PENDING_PATH)) {
-    console.error("진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요.");
+    console.error(t("진행 중인 설정이 없습니다 — 먼저 npm run setup 을 실행하세요."));
     process.exit(1);
   }
   await protectPrivateFile(PENDING_PATH);
   const pending = JSON.parse(await readFile(PENDING_PATH, "utf8"));
   const { state, codeVerifier } = pending;
 
+  // 1단계에서 고른 언어를 이어받는다 — finish에서 언어를 다시 묻지 않는다.
+  const pendingLocale = resolveSetupLocale(pending.locale);
+  if (pendingLocale) {
+    selectedLocale = pendingLocale;
+    setSetupLocale(pendingLocale);
+  }
+  console.log(t("[2/2] 인증을 마치고 설정을 저장합니다.") + "\n");
+
   if (process.argv[finishArg + 1]) {
     console.error(
-      "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup -- --finish만 실행하세요.",
+      t("callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요."),
     );
     process.exit(1);
   }
-  console.warn("\n" + CALLBACK_URL_SECURITY_WARNING + "\n");
+  console.warn("\n" + t(CALLBACK_URL_SECURITY_WARNING) + "\n");
   const prompt = createInterface({ input: process.stdin, output: process.stdout });
   let pasted;
   try {
-    pasted = await prompt.question("브라우저 주소창의 callback URL 전체를 붙여넣으세요: ");
+    pasted = await prompt.question(
+      t("브라우저 주소창의 callback URL 전체를 붙여넣으세요: "),
+    );
   } finally {
     prompt.close();
   }
@@ -856,7 +1318,7 @@ async function main() {
       const me = await meRes.json();
       if (me.email) {
         adminEmails = me.email;
-        console.log("관리자로 등록:", me.email);
+        console.log(t("관리자로 등록:"), me.email);
       }
     }
     if (!adminEmails) {
@@ -886,7 +1348,7 @@ async function main() {
       process.exit(1);
     }
     rootId = (await folderRes.json()).id;
-    console.log("드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:", rootId);
+    console.log(t("드라이브에 루트 폴더 'ShareDesk'를 만들었습니다:"), rootId);
   }
 
   // 서버리스 인스턴스들이 동시에 시작하며 각자 .sharedesk를 만드는 일을 막기 위해
@@ -1005,6 +1467,9 @@ async function main() {
     ADMIN_EMAILS: adminEmails,
     SESSION_SECRET: sessionSecret,
     STORAGE_DRIVER: "drive",
+    // 설치 때 고른 데스크 기본 언어. 앱은 새 데스크의 deskSettings.locale 기본값으로 읽는다.
+    // Vercel 운영 환경 변수로도 이 값을 함께 옮긴다(docs/INSTALL.md의 재배포 단계).
+    SHAREDESK_DEFAULT_LOCALE: selectedLocale ?? "en",
     GOOGLE_CLIENT_ID: clientId,
     GOOGLE_CLIENT_SECRET: clientSecret,
     GOOGLE_REFRESH_TOKEN: tok.refresh_token,
@@ -1021,10 +1486,10 @@ async function main() {
     );
   }
 
-  console.log("\n=== 설정 완료 ===");
-  console.log(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)");
-  console.log("루트 폴더 ID:", rootId);
-  console.log("\n" + SETUP_COMPLETION_NEXT_STEPS);
+  console.log("\n" + t("=== 설정 완료 ==="));
+  console.log(t(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)"));
+  console.log(t("루트 폴더 ID:"), rootId);
+  console.log("\n" + t(SETUP_COMPLETION_NEXT_STEPS));
 
   const starPrompt = createInterface({
     input: process.stdin,
@@ -1033,7 +1498,9 @@ async function main() {
   try {
     await askToStar((question) => starPrompt.question(question));
   } catch {
-    console.log(`별은 ${STAR_REPOSITORY_URL} 에서 언제든 남길 수 있습니다.`);
+    console.log(
+      t("별은 {url} 에서 언제든 남길 수 있습니다.", { url: STAR_REPOSITORY_URL }),
+    );
   } finally {
     starPrompt.close();
   }

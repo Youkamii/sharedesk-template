@@ -156,7 +156,7 @@ Copy-Item -Recurse -Force -LiteralPath '.devstorage' -Destination 'D:\ShareDesk-
 | `npm test` | リポジトリの自動テストを実行します。 |
 | `npm run setup -- --prepare-env` | `.env.local`を準備します。既存の内容は上書きしません。 |
 | `npm run setup` | ホストのGoogle認証を始めます。`.env.local`がなければ先に準備します。 |
-| `npm run setup -- --finish` | ユーザーがローカルのターミナルにcallback URLを貼り付けて、ホストのDrive接続を完了します。URLをコマンドの引数として付けません。 |
+| `npm run setup:finish` | ユーザーがローカルのターミナルにcallback URLを貼り付けて、ホストのDrive接続を完了します。URLをコマンドの引数として付けません。 |
 | `npm run setup -- --check` | Client IDとsecretを読み込み、認証URLを作れるか確認します。 |
 | `npm run test:drive-operations` | 実際のDriveで、作成・アップロード・ダウンロード・名前の変更・移動・削除・復元をテストします。 |
 | `npm run test:drive-preview` | 実際のDriveで、GoogleドキュメントのPDF変換と動画のRangeレスポンスをテストします。 |
@@ -183,6 +183,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive本番 | setupが受け取ったホストのオフライントークンです。 |
 | `DRIVE_ROOT_FOLDER_ID` | Drive本番 | ShareDeskが管理するホストのDriveルートのIDです。 |
 | `DRIVE_STATE_FOLDER_ID` | Drive本番 | ルート内の`.sharedesk`状態フォルダのIDです。 |
+| `SHAREDESK_DEFAULT_LOCALE` | 任意 | デスクの既定言語（en/ko/ja/hi/zh）です。未設定なら英語で始まります。 |
 | `SHAREDESK_GITHUB_TOKEN` | 任意 | ワンクリックアップデート用のfine-grained PATです。ローカルでワンクリックアップデートをテストするには、`SHAREDESK_GITHUB_REPOSITORY`（下記）も一緒に入れる必要があります。 |
 | `SHAREDESK_GITHUB_REPOSITORY` | 任意 | アップデート対象のインストールリポジトリ（`owner/repository`）です。Vercelの外（ローカル）にはリポジトリの情報がないため、ワンクリックのテスト時にご自身で指定します。 |
 | `SHAREDESK_SHARE_TEST_EMAIL` | 実際のDriveテスト専用 | 共有テストを受ける、別の承認済みGoogleアカウントです。本番のVercel環境には入れません。 |

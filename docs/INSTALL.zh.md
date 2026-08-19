@@ -22,7 +22,7 @@
 
 1. **创建 ShareDesk 地址：** 用 [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk) 创建你自己的 GitHub 仓库和 Vercel 项目，并记下 Production 地址。
 2. **建立 Google 连接：** 在 Google Cloud 中启用 Drive API，并创建 Web application 类型的 OAuth 客户端。准确的权限范围和 callback 地址请从[第 2 步](#2-google-cloud-设置)复制。
-3. **连接站长的 Drive：** 取回仓库后运行 `npm ci` 和 `npm run setup`。如果没有 `.env.local`，setup 会自动创建。填入 Client ID 和 secret 后再运行一次，认证页面就会自动在浏览器中打开。同意授权后用 `npm run setup -- --finish` 收尾。
+3. **连接站长的 Drive：** 取回仓库后运行 `npm ci` 和 `npm run setup`。如果没有 `.env.local`，setup 会自动创建。填入 Client ID 和 secret 后再运行一次，认证页面就会自动在浏览器中打开。同意授权后用 `npm run setup:finish` 收尾。
 4. **接入生产环境：** 把 setup 填好的必需值转移到 Vercel Production 环境变量中，然后重新部署。
 5. **和一个人一起确认：** 先确认生产环境的登录和文件保存，再在 `/admin` 中创建邀请码。邀请一个人进来，确认两个账号能看到同一个文件，核心安装就完成了。Vercel Firewall 在之后的生产防护阶段再设置。
 
@@ -53,6 +53,22 @@ ShareDesk 不会自动应用新版本。安装之后，任务栏上的 `更新` 
 - Vercel 账号
 - Google 账号，以及创建 Google Cloud 项目的权限
 
+### 确认当前连接的是哪个账号
+
+如果电脑上已经登录了其他 GitHub、Vercel 账号，仓库和项目就会被创建到错误的账号下。开始之前先确认。
+
+```powershell
+gh auth status
+vercel whoami
+git config --global user.email
+```
+
+如果显示的是别的账号，按下面的顺序重新登录。
+
+1. 先 `gh auth logout`，再用 `gh auth login` 登录要使用的 GitHub 账号。
+2. 先 `vercel logout`，再用 `vercel login` 登录要使用的 Vercel 账号。
+3. 用 `git config --global user.email "要使用的邮箱"` 对齐提交邮箱。
+
 ## 1. 准备仓库和固定的生产地址
 
 如果当前仓库的 `origin` 已经是你自己的仓库，并且已经连上了 Vercel 项目，就不要重复这一步。先用 `git remote -v` 和 Vercel 项目设置确认，然后继续使用现有项目。
@@ -63,12 +79,18 @@ ShareDesk 不会自动应用新版本。安装之后，任务栏上的 `更新` 
 
 如果想先只创建仓库、暂时不用 Vercel，请使用 [Use this template](https://github.com/Youkamii/sharedesk-template/generate)。
 
+### 新账号点不动 Create 按钮时
+
+第一次使用 Vercel 的账号，`Git Scope` 是空的，所以 `Create` 按钮处于不可用状态。点开 `Select Git Scope` 下拉框 → 点击 `Add GitHub Account` 安装 GitHub 应用（选择 `All repositories`），`Create` 就会变为可用。这个过程中 GitHub 会以弹窗形式打开，请同时检查浏览器的弹窗拦截设置。
+
 第一次部署时环境变量为空也没关系。看到的不是登录按钮而是安装指引，这是正常的。在这一步请记下下面两个地址。
 
 - 你自己的 Git 仓库：例如 `https://github.com/my-account/my-sharedesk`
 - 固定的 Production 地址：例如 `https://my-sharedesk.vercel.app`
 
 要使用一直绑定在项目上的 Production 地址，而不是每次提交都会变的 Preview 地址或很长的部署地址。
+
+如果项目名称已经被别人先用了，地址上可能会带上 `-theta` 之类的后缀。你的固定地址请在 Vercel 项目的 `Domains` 标签页里，确认那个以 `.vercel.app` 结尾的地址。中间带哈希的长部署地址不要使用。
 
 ## 2. Google Cloud 设置
 
@@ -192,7 +214,7 @@ callback URL 中包含短时间内有效的一次性认证码。只能粘贴到�
 ### 4-2. 完成认证
 
 ```powershell
-npm run setup -- --finish
+npm run setup:finish
 ```
 
 出现提问时，把刚才复制的完整 callback URL 粘贴进去。因为不会把 URL 写成命令参数，所以认证码不会留在 shell 历史记录里。
@@ -225,7 +247,7 @@ npm run dev
 
 ## 6. Vercel Production 环境变量与重新部署
 
-打开第 1 步中创建的那个 Vercel 项目。在 `Settings` → `Environment Variables` 中，把下面的值填入 Production 环境。
+打开第 1 步中创建的那个 Vercel 项目。在 `Settings` → `Environment Variables` 中，把下面的值填入 Production 环境。在最近的新版界面中，需要进入 `Settings` → `Environments` → 点击 `Production` 打开的详情页面里，才有环境变量的填写栏。
 
 | 名称 | 值 |
 |---|---|
@@ -238,6 +260,7 @@ npm run dev
 | `DRIVE_ROOT_FOLDER_ID` | setup 创建的 ShareDesk 文件夹 ID |
 | `DRIVE_STATE_FOLDER_ID` | setup 创建的状态文件夹 ID |
 | `PUBLIC_BASE_URL` | 固定的 Production origin。例如：`https://my-sharedesk.vercel.app` |
+| `SHAREDESK_DEFAULT_LOCALE` | （可选）桌面默认语言（en/ko/ja/hi/zh），即安装时在 setup 中选择的值 — 直接复制 `.env.local` 中的值 |
 | `SHAREDESK_GITHUB_TOKEN` | （可选）用于一键更新的 fine-grained PAT — 参见[更新指南](./UPDATE.zh.md) |
 
 为了减少安装失误，请在 Vercel Production 中明确写上 `PUBLIC_BASE_URL=https://你的真实生产域名`。这个值不要放进本地的 `.env.local`，因为本地应用的登录需要回到 `http://localhost:3000`。
@@ -248,7 +271,9 @@ npm run dev
 
 `ACCESS_KEYS` 只在要使用临时访客密钥时才填。在 drive 模式下，用访问密钥进入的访客是 `仅查看`。`LOCAL_STORAGE_ROOT` 和 `SHAREDESK_SHARE_TEST_EMAIL` 不要放进生产环境。任何机密值都不要加 `NEXT_PUBLIC_` 前缀。
 
-填写或修改环境变量之后，请重新部署 Production。环境变量的改动不会自动反映到已有的部署。详细行为请参考 [Vercel 环境变量指南](https://vercel.com/docs/environment-variables)。
+一次粘贴多个值时，存在 Key 栏把第一行（`ADMIN_EMAILS`）整个吞进去的陷阱。粘贴之后请务必确认变量是不是 9 个（不含可选项）。值默认以 `Sensitive` 保存，保存之后无法再次查看，这是正常的。
+
+填写或修改环境变量之后，请重新部署 Production。环境变量的改动不会自动反映到已有的部署。在 `Deployments` 标签页中，把鼠标悬停在最新的部署行上，点击出现的 `⋯` 菜单 → `Redeploy`。`Create Deployment` 按钮只用于 Preview 部署，不要使用。详细行为请参考 [Vercel 环境变量指南](https://vercel.com/docs/environment-variables)。
 
 ## 7. 生产环境确认
 
@@ -332,7 +357,7 @@ Drive 中的文件和共享状态、`.env.local`、Vercel 环境变量都不包�
 | `redirect_uri_mismatch` | 把错误里显示的 `redirect_uri` 和 Google Auth Platform 上同一个 Client ID 的 `Authorized redirect URIs` 逐字比对。注意不是 JavaScript origins。 |
 | `无法访问此应用` | 确认 Audience 是不是 External。如果要保持 Testing，就必须把登录用的账号加入 Test user。 |
 | `org_internal` | 这是用组织外的账号登录了 Internal 应用。请改成 External，或者使用组织内的账号。 |
-| 同意授权后 `127.0.0.1` 连接失败 | 在 setup 阶段这是正常的。复制地址栏的完整地址，粘贴到 `npm run setup -- --finish` 的提问中。 |
+| 同意授权后 `127.0.0.1` 连接失败 | 在 setup 阶段这是正常的。复制地址栏的完整地址，粘贴到 `npm run setup:finish` 的提问中。 |
 | `未能获取 refresh_token` | 先确认已有的连接和 Audience 状态。只有在确实需要新令牌、并且因为已有连接而签发不出来时，才到 [Google 账号的已关联应用](https://myaccount.google.com/permissions)中移除权限，再重新执行 setup。 |
 | 大约 7 天后 Drive 连接断开 | 先确认 Audience 之前是不是 Testing。如果是在 Testing 状态下拿到的站长令牌，请切换到 In production 后重新执行 setup。如果已经是 In production，不要先作废令牌，而要先查清实际的认证错误。 |
 | Drive API 返回 403 | 确认创建 OAuth 客户端的那个 Cloud 项目里是否启用了 Google Drive API。同时确认 Workspace 的管理策略是否阻止了外部应用。 |

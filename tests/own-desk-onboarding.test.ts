@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { EN_COMMON } from "../src/lib/i18n-en-common";
+import { HI } from "../src/lib/i18n-hi";
+import { JA } from "../src/lib/i18n-ja";
+import { ZH } from "../src/lib/i18n-zh";
 
 test("로그인 화면에서 현재 데스크 참여와 독립 데스크 만들기를 구분한다", async () => {
   const source = await readFile(
@@ -94,5 +98,49 @@ test("OAuth를 아직 설정하지 않은 새 배포는 실패하는 로그인 �
   assert.match(source, /이 ShareDesk는 아직 설치가 끝나지 않았습니다/);
   assert.match(source, /설치 안내 열기/);
   assert.match(source, /OAuth 없는 로컬 모드입니다/);
-  assert.match(source, /!keyLoginEnabled \? \([\s\S]*?설치 안내 열기/);
+  // 로그인 수단이 하나도 없으면 로그인 카드 대신 설치 안내 화면으로 빠진다.
+  assert.match(
+    source,
+    /if \(!googleLoginEnabled && !keyLoginEnabled\) \{[\s\S]*?설치 안내 열기/,
+  );
+});
+
+test("미설정 첫 화면은 픽셀 창과 브라우저 언어(Accept-Language)로 안내한다", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("../src/app/page.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/unconfigured.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  // 데스크 설정이 아직 없으므로 언어는 브라우저 Accept-Language에서 고른다.
+  assert.match(source, /await headers\(\)/);
+  assert.match(source, /get\("accept-language"\)/);
+  assert.match(source, /matchAcceptLanguage/);
+  assert.match(source, /parseLocale\(tag\.split\("-"\)\[0\]\)/);
+  assert.match(source, /return "en";/); // 매칭 실패 시 영어 폴백
+
+  // 픽셀 창(도트 프레임·Galmuri)으로 그린다.
+  assert.match(source, /unconfigured\.module\.css/);
+  for (const className of ["screen", "window", "titlebar", "installLink", "footnote"]) {
+    assert.ok(source.includes(`pixel.${className}`), `픽셀 클래스 미사용: ${className}`);
+  }
+  assert.match(source, /설치가 끝나면 이 주소가 로그인 화면이 됩니다\./);
+  assert.match(css, /var\(--font-pixel\)/); // Galmuri11 (globals.css)
+  assert.match(css, /#10172b/); // Dusk Room OS — night
+  assert.match(css, /#f4e7c5/); // window
+  assert.match(css, /inset 2px 2px 0 #fff8e7/); // 2px 빛/어둠 픽셀 프레임
+
+  // 다섯 언어 모두에서 표시된다: ko는 원문, 나머지 4개 언어는 사전 키.
+  for (const key of [
+    "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.",
+    "설치 안내 열기",
+    "설치 준비 중",
+    "설치가 끝나면 이 주소가 로그인 화면이 됩니다.",
+  ]) {
+    for (const [name, dictionary] of Object.entries({ EN_COMMON, JA, HI, ZH })) {
+      assert.ok(key in dictionary, `${name} 사전에 없는 키 — ${key}`);
+    }
+  }
 });

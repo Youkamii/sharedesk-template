@@ -156,7 +156,7 @@ Copy-Item -Recurse -Force -LiteralPath '.devstorage' -Destination 'D:\ShareDesk-
 | `npm test` | रिपॉज़िटरी के स्वचालित परीक्षण चलाता है। |
 | `npm run setup -- --prepare-env` | `.env.local` तैयार करता है। मौजूदा सामग्री ऊपर से नहीं लिखी जाती। |
 | `npm run setup` | होस्ट का Google प्रमाणीकरण शुरू करता है। `.env.local` न हो तो पहले उसे तैयार करता है। |
-| `npm run setup -- --finish` | उपयोगकर्ता द्वारा लोकल टर्मिनल में callback URL चिपकाकर होस्ट Drive कनेक्शन पूरा करता है। URL कमांड आर्ग्युमेंट के रूप में नहीं जोड़ा जाता। |
+| `npm run setup:finish` | उपयोगकर्ता द्वारा लोकल टर्मिनल में callback URL चिपकाकर होस्ट Drive कनेक्शन पूरा करता है। URL कमांड आर्ग्युमेंट के रूप में नहीं जोड़ा जाता। |
 | `npm run setup -- --check` | जाँचता है कि Client ID और secret पढ़कर प्रमाणीकरण URL बनाया जा सकता है या नहीं। |
 | `npm run test:drive-operations` | वास्तविक Drive में बनाना, अपलोड, डाउनलोड, नाम बदलना, स्थानांतरण, हटाना और बहाल करना जाँचता है। |
 | `npm run test:drive-preview` | वास्तविक Drive में Google डॉक्स का PDF रूपांतरण और वीडियो की Range प्रतिक्रिया जाँचता है। |
@@ -183,6 +183,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive प्रोडक्शन | setup द्वारा प्राप्त होस्ट का ऑफ़लाइन टोकन। |
 | `DRIVE_ROOT_FOLDER_ID` | Drive प्रोडक्शन | ShareDesk द्वारा प्रबंधित होस्ट Drive रूट की ID। |
 | `DRIVE_STATE_FOLDER_ID` | Drive प्रोडक्शन | रूट के भीतर `.sharedesk` स्थिति फ़ोल्डर की ID। |
+| `SHAREDESK_DEFAULT_LOCALE` | वैकल्पिक | डेस्क की डिफ़ॉल्ट भाषा (en/ko/ja/hi/zh)। सेट न होने पर अंग्रेज़ी से शुरू होती है। |
 | `SHAREDESK_GITHUB_TOKEN` | वैकल्पिक | वन-क्लिक अपडेट के लिए fine-grained PAT। लोकल में वन-क्लिक अपडेट जाँचना हो तो `SHAREDESK_GITHUB_REPOSITORY` (नीचे) भी साथ डालना होगा। |
 | `SHAREDESK_GITHUB_REPOSITORY` | वैकल्पिक | अपडेट की लक्ष्य इंस्टॉल रिपॉज़िटरी (`owner/repository`)। Vercel के बाहर (लोकल में) रिपॉज़िटरी की जानकारी नहीं होती, इसलिए वन-क्लिक जाँच के समय इसे स्वयं निर्दिष्ट करें। |
 | `SHAREDESK_SHARE_TEST_EMAIL` | केवल वास्तविक जाँच के लिए | साझा जाँच प्राप्त करने वाला अलग, स्वीकृत Google खाता। इसे प्रोडक्शन Vercel एनवायरनमेंट में न डालें। |

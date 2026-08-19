@@ -1,6 +1,6 @@
 {
   "name": "sharedesk",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "license": "MIT",
   "engines": {
@@ -16,7 +16,9 @@
     "test:drive-operations": "node --env-file=.env.local --import tsx scripts/verify-drive-operations.ts --live",
     "test:drive-preview": "node --env-file=.env.local --import tsx scripts/verify-drive-preview.ts --live",
     "test:drive-sharing": "node --env-file=.env.local --import tsx scripts/verify-drive-sharing.ts --live",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "setup:finish": "node scripts/setup.mjs --finish",
+    "setup:restart": "node scripts/setup.mjs --restart"
   },
   "dependencies": {
     "next": "16.3.0",
