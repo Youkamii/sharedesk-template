@@ -2266,6 +2266,87 @@ test("both workflow files must parse as YAML", async () => {
   }
 });
 
+test("npm run setup:finish exists so PowerShell cannot swallow the --finish flag", async () => {
+  // PowerShell에서 npm run setup -- --finish의 --finish가 npm에 흡수되면 bare
+  // setup이 재실행돼 state가 회전한다 — 전용 스크립트가 이 사고를 차단한다.
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    packageJson.scripts["setup:finish"],
+    "node scripts/setup.mjs --finish",
+  );
+});
+
+test("setup asks the desk language, records it, and guards a pending authentication", async () => {
+  const setup = await readFile(
+    new URL("../scripts/setup.mjs", import.meta.url),
+    "utf8",
+  );
+  // 선택한 언어가 .env.local의 SHAREDESK_DEFAULT_LOCALE로 주입된다.
+  assert.match(setup, /SHAREDESK_DEFAULT_LOCALE: selectedLocale \?\? "en"/);
+  // 진행 중 인증이 있으면 state를 돌리기 전에 setup:finish를 안내한다.
+  assert.match(setup, /진행 중인 인증이 있습니다\. 마치려면 npm run setup:finish/);
+  // 1단계 안내도 npm이 플래그를 삼키지 않는 전용 스크립트를 가리킨다.
+  assert.match(setup, /npm run setup:finish/);
+  const example = await readFile(
+    new URL("../.env.example", import.meta.url),
+    "utf8",
+  );
+  assert.match(example, /^SHAREDESK_DEFAULT_LOCALE=/m);
+
+  const {
+    renderSetupBanner,
+    resolveSetupLocale,
+    setSetupLocale,
+    t,
+  } = await import("../scripts/setup.mjs");
+  // 언어 질문의 1~5와 로케일 코드를 모두 받고, 그 외에는 null.
+  assert.equal(resolveSetupLocale("1"), "en");
+  assert.equal(resolveSetupLocale("2"), "ko");
+  assert.equal(resolveSetupLocale("3"), "ja");
+  assert.equal(resolveSetupLocale("4"), "hi");
+  assert.equal(resolveSetupLocale("5"), "zh");
+  assert.equal(resolveSetupLocale("ja"), "ja");
+  assert.equal(resolveSetupLocale(""), null);
+  assert.equal(resolveSetupLocale("9"), null);
+  try {
+    setSetupLocale("en");
+    assert.equal(t("=== 설정 완료 ==="), "=== Setup complete ===");
+    setSetupLocale("zh");
+    assert.equal(t("=== 설정 완료 ==="), "=== 设置完成 ===");
+    // 번역이 없는 문구는 영어 → 한국어 원문 순으로 폴백한다.
+    assert.equal(t("사전에 없는 문구"), "사전에 없는 문구");
+  } finally {
+    setSetupLocale("ko");
+  }
+  assert.equal(t("=== 설정 완료 ==="), "=== 설정 완료 ===");
+
+  // 도트 배너는 80자 이내의 순수 ASCII다.
+  const banner = renderSetupBanner();
+  assert.match(banner, /#/);
+  for (const line of banner.split("\n")) {
+    assert.ok(line.length <= 80, line);
+    assert.match(line, /^[ #.]*$/);
+  }
+});
+
+test("the desk default language follows SHAREDESK_DEFAULT_LOCALE from setup", async () => {
+  const { defaultDeskSettings } = await import("../src/lib/users");
+  const original = process.env.SHAREDESK_DEFAULT_LOCALE;
+  try {
+    process.env.SHAREDESK_DEFAULT_LOCALE = "ja";
+    assert.equal(defaultDeskSettings().locale, "ja");
+    process.env.SHAREDESK_DEFAULT_LOCALE = "invalid-locale";
+    assert.equal(defaultDeskSettings().locale, "en");
+    delete process.env.SHAREDESK_DEFAULT_LOCALE;
+    assert.equal(defaultDeskSettings().locale, "en");
+  } finally {
+    if (original === undefined) delete process.env.SHAREDESK_DEFAULT_LOCALE;
+    else process.env.SHAREDESK_DEFAULT_LOCALE = original;
+  }
+});
+
 test("enabling auto update never needs the personal token", async () => {
   const route = await readFile(
     new URL("../src/app/api/admin/desk-settings/route.ts", import.meta.url),

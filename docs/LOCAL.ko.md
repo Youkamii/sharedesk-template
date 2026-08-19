@@ -156,7 +156,7 @@ Copy-Item -Recurse -Force -LiteralPath '.devstorage' -Destination 'D:\ShareDesk-
 | `npm test` | 저장소의 자동 테스트를 실행합니다. |
 | `npm run setup -- --prepare-env` | `.env.local`을 준비합니다. 기존 내용은 덮어쓰지 않습니다. |
 | `npm run setup` | 호스트 Google 인증을 시작합니다. `.env.local`이 없으면 먼저 준비합니다. |
-| `npm run setup -- --finish` | 사용자가 로컬 터미널에 callback URL을 붙여 넣어 호스트 Drive 연결을 완료합니다. URL을 명령 인자로 붙이지 않습니다. |
+| `npm run setup:finish` | 사용자가 로컬 터미널에 callback URL을 붙여 넣어 호스트 Drive 연결을 완료합니다. URL을 명령 인자로 붙이지 않습니다. |
 | `npm run setup -- --check` | Client ID와 secret을 읽고 인증 URL을 만들 수 있는지 확인합니다. |
 | `npm run test:drive-operations` | 실제 Drive에서 생성·업로드·다운로드·이름 변경·이동·삭제·복원을 검사합니다. |
 | `npm run test:drive-preview` | 실제 Drive에서 Google 문서 PDF 변환과 동영상 Range 응답을 검사합니다. |
@@ -183,6 +183,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive 운영 | setup이 받은 호스트 오프라인 토큰입니다. |
 | `DRIVE_ROOT_FOLDER_ID` | Drive 운영 | ShareDesk가 관리할 호스트 Drive 루트 ID입니다. |
 | `DRIVE_STATE_FOLDER_ID` | Drive 운영 | 루트 안의 `.sharedesk` 상태 폴더 ID입니다. |
+| `SHAREDESK_DEFAULT_LOCALE` | 선택 | 데스크 기본 언어(en/ko/ja/hi/zh)입니다. 없으면 영어로 시작합니다. |
 | `SHAREDESK_GITHUB_TOKEN` | 선택 | 원클릭 업데이트용 fine-grained PAT입니다. 로컬에서 원클릭 업데이트를 테스트하려면 `SHAREDESK_GITHUB_REPOSITORY`(아래)도 함께 넣어야 합니다. |
 | `SHAREDESK_GITHUB_REPOSITORY` | 선택 | 업데이트 대상 설치 저장소(`owner/repository`)입니다. Vercel 밖(로컬)에는 저장소 정보가 없으므로 원클릭 테스트 시 직접 지정합니다. |
 | `SHAREDESK_SHARE_TEST_EMAIL` | 실제 검사 전용 | 공유 검사를 받을 별도 승인 Google 계정입니다. 운영 Vercel 환경에는 넣지 않습니다. |

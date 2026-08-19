@@ -22,7 +22,7 @@ Google CloudやVercelの設定に慣れていない場合は、すべてをご�
 
 1. **ShareDeskのアドレスを作る:** [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk)で自分のGitHubリポジトリとVercelプロジェクトを作り、Productionのアドレスを記録します。
 2. **Googleとの接続を作る:** Google CloudでDrive APIを有効にし、Web applicationのOAuthクライアントを作ります。正確なスコープとcallbackのアドレスは[ステップ2](#2-google-cloudの設定)からコピーしてください。
-3. **ホストのDriveを接続する:** リポジトリを取得し、`npm ci`、`npm run setup`を実行します。`.env.local`がなければsetupが自動で作ります。Client IDとsecretを入力してもう一度実行すると、認証ページがブラウザで自動的に開きます。同意したあと`npm run setup -- --finish`で仕上げます。
+3. **ホストのDriveを接続する:** リポジトリを取得し、`npm ci`、`npm run setup`を実行します。`.env.local`がなければsetupが自動で作ります。Client IDとsecretを入力してもう一度実行すると、認証ページがブラウザで自動的に開きます。同意したあと`npm run setup:finish`で仕上げます。
 4. **本番につなぐ:** setupが埋めた必須の値をVercelのProduction環境変数に移し、再デプロイします。
 5. **1人と一緒に確認する:** 本番でのログインとファイル保存をまず確認してから、`/admin`で招待コードを作ります。1人を招待して、2つのアカウントで同じファイルが見えることを確認できれば、中心となるインストールは完了です。Vercel Firewallはそのあとの本番保護の手順で設定します。
 
@@ -53,6 +53,22 @@ ShareDeskは新しいバージョンを自動では適用しません。イン�
 - Vercelアカウント
 - GoogleアカウントとGoogle Cloudプロジェクトを作れる権限
 
+### どのアカウントが接続されているかを確認する
+
+パソコンにすでに別のGitHub・Vercelアカウントがログインしていると、意図しないアカウントにリポジトリとプロジェクトが作られます。始める前に確認してください。
+
+```powershell
+gh auth status
+vercel whoami
+git config --global user.email
+```
+
+別のアカウントが表示されたら、この順でログインし直します。
+
+1. `gh auth logout`のあと`gh auth login`で、使うGitHubアカウントにログインします。
+2. `vercel logout`のあと`vercel login`で、使うVercelアカウントにログインします。
+3. `git config --global user.email "使うメールアドレス"`で、コミットのメールを合わせます。
+
 ## 1. リポジトリと固定の本番アドレスを準備する
 
 現在のリポジトリの`origin`が自分のリポジトリで、すでにVercelプロジェクトに接続されているなら、この手順を繰り返さないでください。`git remote -v`とVercelプロジェクトの設定を確認したうえで、既存のプロジェクトを使います。
@@ -63,12 +79,18 @@ ShareDeskは新しいバージョンを自動では適用しません。イン�
 
 Vercelなしでリポジトリだけを先に作るには、[Use this template](https://github.com/Youkamii/sharedesk-template/generate)を使います。
 
+### 新規アカウントでCreateボタンが押せないとき
+
+Vercelを初めて使うアカウントは`Git Scope`が空のため、`Create`ボタンが無効の状態です。`Select Git Scope`のドロップダウン → `Add GitHub Account`を押してGitHubアプリをインストール（`All repositories`を選択）すると、`Create`が有効になります。この過程でGitHubのウィンドウがポップアップで開くので、ブラウザのポップアップブロックも確認してください。
+
 最初のデプロイは環境変数が空のままでもかまいません。ログインボタンの代わりにインストールの案内が表示されるのが正常です。この手順で次の2つのアドレスを記録してください。
 
 - 自分のGitリポジトリ: 例）`https://github.com/my-account/my-sharedesk`
 - 固定のProductionアドレス: 例）`https://my-sharedesk.vercel.app`
 
 コミットごとに変わるPreviewのアドレスや長いデプロイのアドレスではなく、プロジェクトにずっと紐づいているProductionのアドレスを使います。
+
+プロジェクト名をほかの人が先に使っていると、アドレスに`-theta`のような接尾辞が付くことがあります。自分の固定アドレスは、Vercelプロジェクトの`Domains`タブで`.vercel.app`で終わるアドレスとして確認してください。途中にハッシュが付いた長いデプロイのアドレスは使いません。
 
 ## 2. Google Cloudの設定
 
@@ -192,7 +214,7 @@ callback URLには、短い時間だけ有効な使い捨ての認証コード�
 ### 4-2. 認証を完了する
 
 ```powershell
-npm run setup -- --finish
+npm run setup:finish
 ```
 
 質問が表示されたら、いまコピーしたcallback URL全体を貼り付けます。URLをコマンドの引数として書かないため、シェルの履歴に認証コードが残りません。
@@ -225,7 +247,7 @@ npm run dev
 
 ## 6. VercelのProduction環境変数と再デプロイ
 
-ステップ1で作った既存のVercelプロジェクトを開きます。`Settings` → `Environment Variables`で、下の値をProduction環境に入れます。
+ステップ1で作った既存のVercelプロジェクトを開きます。`Settings` → `Environment Variables`で、下の値をProduction環境に入れます。最近の画面では、`Settings` → `Environments` → `Production`を押して入った詳細画面の中に、環境変数の入力欄があります。
 
 | 名前 | 値 |
 |---|---|
@@ -238,6 +260,7 @@ npm run dev
 | `DRIVE_ROOT_FOLDER_ID` | setupが作ったShareDeskフォルダのID |
 | `DRIVE_STATE_FOLDER_ID` | setupが作った状態フォルダのID |
 | `PUBLIC_BASE_URL` | 固定のProduction origin。例: `https://my-sharedesk.vercel.app` |
+| `SHAREDESK_DEFAULT_LOCALE` | （任意）デスクの既定言語（en/ko/ja/hi/zh）。setupで選んだ値 — `.env.local`の値をそのままコピー |
 | `SHAREDESK_GITHUB_TOKEN` | （任意）ワンクリックアップデート用のfine-grained PAT — [アップデートガイド](./UPDATE.ja.md)を参照 |
 
 インストールのミスを減らすため、VercelのProductionには`PUBLIC_BASE_URL=https://実際の本番ドメイン`を明示してください。この値はローカルの`.env.local`には入れません。ローカルのアプリのログインは`http://localhost:3000`に戻ってくる必要があるからです。
@@ -248,7 +271,9 @@ npm run dev
 
 `ACCESS_KEYS`は、一時的なゲスト用のキーを使うときだけ入れます。driveモードでアクセスキーで入ったゲストは`閲覧のみ`です。`LOCAL_STORAGE_ROOT`と`SHAREDESK_SHARE_TEST_EMAIL`は本番環境に入れません。どの秘密の値にも`NEXT_PUBLIC_`の接頭辞を付けないでください。
 
-環境変数を入力したり変更したりしたあとは、Productionを再デプロイします。環境変数の変更は、既存のデプロイには自動で反映されません。詳しい動作は[Vercelの環境変数ガイド](https://vercel.com/docs/environment-variables)を参照してください。
+複数の値を一度に貼り付けるときは、Key欄が1行目（`ADMIN_EMAILS`）を丸ごと飲み込む落とし穴があります。貼り付けたあと、変数の数が9個（任意の項目を除く）かを必ず確認してください。値はデフォルトで`Sensitive`として保存され、保存後は二度と見られませんが、これは正常です。
+
+環境変数を入力したり変更したりしたあとは、Productionを再デプロイします。環境変数の変更は、既存のデプロイには自動で反映されません。`Deployments`タブで最新のデプロイの行にマウスを載せると出てくる`⋯`メニュー → `Redeploy`を押してください。`Create Deployment`ボタンはPreviewデプロイ専用なので、使わないでください。詳しい動作は[Vercelの環境変数ガイド](https://vercel.com/docs/environment-variables)を参照してください。
 
 ## 7. 本番での確認
 
@@ -332,7 +357,7 @@ Driveのファイルと共有の状態、`.env.local`、Vercelの環境変数は
 | `redirect_uri_mismatch` | エラーに出た`redirect_uri`を、Google Auth Platformの同じClient IDにある`Authorized redirect URIs`と1文字ずつ比べます。JavaScript originsではありません。 |
 | `アプリにアクセスできません` | Audienceが`External`か確認します。`Testing`のままにするなら、ログインするアカウントをTest userに入れる必要があります。 |
 | `org_internal` | Internalのアプリに、組織外のアカウントでログインした場合です。Externalに変えるか、組織のアカウントを使います。 |
-| 同意のあとに`127.0.0.1`への接続が失敗する | setupでは正常です。アドレスバーの全体をコピーして、`npm run setup -- --finish`の質問に貼り付けます。 |
+| 同意のあとに`127.0.0.1`への接続が失敗する | setupでは正常です。アドレスバーの全体をコピーして、`npm run setup:finish`の質問に貼り付けます。 |
 | `refresh_tokenを受け取れませんでした` | 既存の接続とAudienceの状態をまず確認します。新しいトークンが本当に必要で、既存の接続のせいで発行されない場合にだけ、[Googleアカウントの連携済みアプリ](https://myaccount.google.com/permissions)で権限を削除し、setupをやり直します。 |
 | 約7日後にDriveの接続が切れる | Audienceが`Testing`だったかをまず確認します。Testingで受け取ったホストのトークンなら、In productionに切り替えてからsetupをやり直します。すでにIn productionなら、先にトークンを破棄せず、実際の認証エラーを確認します。 |
 | Drive APIが403を返す | OAuthクライアントを作ったのと同じCloudプロジェクトで、Google Drive APIが有効になっているか確認します。Workspaceの管理ポリシーが外部アプリをブロックしていないかも確認します。 |

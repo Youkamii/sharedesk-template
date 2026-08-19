@@ -1,13 +1,15 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
-import { LOCALE_COOKIE, resolveEffectiveLocale, translate,
+import { LOCALE_COOKIE, parseLocale, resolveEffectiveLocale, translate,
   docUrl,
+  type Locale,
 } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { getAccessKeys } from "@/lib/session-token";
 import KeyForm from "./KeyForm";
+import pixel from "./unconfigured.module.css";
 
 
 const GOOGLE_LOGIN_ENV = [
@@ -36,6 +38,31 @@ const ERRORS: Record<string, string> = {
   blocked: "차단된 사용자입니다. 관리자에게 문의해 주세요.",
 };
 
+// 미설정 데스크는 아직 데스크 언어 설정이 없으므로, 브라우저의
+// Accept-Language 헤더에서 지원 언어(en/ko/ja/hi/zh)를 고른다. 매칭 실패 시 en.
+function matchAcceptLanguage(header: string | null): Locale {
+  const ranges = (header ?? "")
+    .split(",")
+    .map((part) => {
+      const [tag = "", ...params] = part.trim().split(";");
+      const q = params
+        .map((param) => param.trim())
+        .find((param) => param.startsWith("q="));
+      const weight = q ? Number.parseFloat(q.slice(2)) : 1;
+      return {
+        tag: tag.trim().toLowerCase(),
+        weight: Number.isFinite(weight) ? weight : 0,
+      };
+    })
+    .filter((range) => range.tag && range.weight > 0)
+    .sort((a, b) => b.weight - a.weight);
+  for (const { tag } of ranges) {
+    const locale = parseLocale(tag.split("-")[0]);
+    if (locale) return locale;
+  }
+  return "en";
+}
+
 export default async function Home({
   searchParams,
 }: {
@@ -49,6 +76,60 @@ export default async function Home({
   if (identity?.status === "pending") redirect("/join");
   if (identity?.status === "blocked") redirect("/pending");
 
+  const keyLoginEnabled = getAccessKeys().length > 0;
+  const googleLoginEnabled =
+    process.env.STORAGE_DRIVER === "drive" &&
+    GOOGLE_LOGIN_ENV.every((name) => Boolean(process.env[name]?.trim()));
+
+  // 미설정 첫 화면 — 로그인 수단이 하나도 없으면 설치 안내 픽셀 창만 보여 준다.
+  if (!googleLoginEnabled && !keyLoginEnabled) {
+    const acceptLanguage = (await headers()).get("accept-language");
+    const locale = matchAcceptLanguage(acceptLanguage);
+    const t = (text: string) => translate(locale, text);
+    // 콜백이 에러와 함께 돌아온 경우(?error=)도 삼키지 않고 보여 준다.
+    const { error: errorKey } = await searchParams;
+    const unconfiguredError = errorKey ? (ERRORS[errorKey] ?? null) : null;
+    return (
+      <main className={pixel.screen}>
+        <section className={pixel.window} aria-labelledby="unconfigured-title">
+          <header className={pixel.titlebar}>
+            <span className={pixel.brandMark} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <strong id="unconfigured-title">ShareDesk</strong>
+            <span className={pixel.stateTag}>{t("설치 준비 중")}</span>
+          </header>
+          <div className={pixel.body}>
+            <p className={pixel.message}>
+              {t(
+                "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.",
+              )}
+            </p>
+            <a
+              href={docUrl("INSTALL", locale)}
+              target="_blank"
+              rel="noreferrer"
+              className={pixel.installLink}
+            >
+              {t("설치 안내 열기")}
+            </a>
+            <p className={pixel.footnote}>
+              {t("설치가 끝나면 이 주소가 로그인 화면이 됩니다.")}
+            </p>
+            {unconfiguredError && (
+              <p className={pixel.footnote} role="alert">
+                {t(unconfiguredError)}
+              </p>
+            )}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   const locale = resolveEffectiveLocale(
     await getDeskSettingsOrDefault(),
     cookieStore.get(LOCALE_COOKIE)?.value,
@@ -58,10 +139,6 @@ export default async function Home({
     translate(locale, text, vars);
 
   const { error } = await searchParams;
-  const keyLoginEnabled = getAccessKeys().length > 0;
-  const googleLoginEnabled =
-    process.env.STORAGE_DRIVER === "drive" &&
-    GOOGLE_LOGIN_ENV.every((name) => Boolean(process.env[name]?.trim()));
 
   return (
     <main className="relative flex flex-1 items-center justify-center p-6">
@@ -73,15 +150,9 @@ export default async function Home({
               "호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓰는 ShareDesk입니다. 초대받았다면 별도 설치 없이 내 Google 계정으로 로그인하고, 처음 한 번만 호스트가 준 초대 코드를 입력하세요.",
             )}
           </p>
-        ) : keyLoginEnabled ? (
-          <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            {t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
-          </p>
         ) : (
           <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            {t(
-              "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.",
-            )}
+            {t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
           </p>
         )}
 
@@ -99,15 +170,6 @@ export default async function Home({
           >
             {t("Google로 계속하기")}
           </Link>
-        ) : !keyLoginEnabled ? (
-          <a
-            href={createDeskUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-6 flex items-center justify-center rounded-lg bg-foreground py-2.5 font-medium text-background"
-          >
-            {t("설치 안내 열기")}
-          </a>
         ) : null}
 
         {keyLoginEnabled && (

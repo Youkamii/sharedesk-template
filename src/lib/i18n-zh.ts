@@ -33,6 +33,9 @@ export const ZH: Record<string, string> = {
     "这是无 OAuth 的本地模式，请使用下方的访客密钥开始。",
   "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.":
     "这个 ShareDesk 尚未完成安装。请桌面所有者完成 Google OAuth 与 Drive 的连接。",
+  "설치 준비 중": "安装准备中",
+  "설치가 끝나면 이 주소가 로그인 화면이 됩니다.":
+    "安装完成后，这个地址将成为登录页面。",
   "Google로 계속하기": "使用 Google 继续",
   "설치 안내 열기": "打开安装指南",
   "또는 손님용 키": "或使用访客密钥",
