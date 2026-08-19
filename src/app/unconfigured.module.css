@@ -1,0 +1,112 @@
+/* 미설정 첫 화면 — 데스크 설정 전에 보여 주는 설치 안내 픽셀 창.
+   팔레트와 2px 빛/어둠 프레임 문법은 Dusk Room OS
+   (DESIGN.md, src/app/files/desktop.module.css)를 그대로 따른다. */
+
+.screen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #10172b;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+}
+
+.window {
+  width: min(430px, 100%);
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow:
+    inset 2px 2px 0 #fff8e7,
+    inset -2px -2px 0 #9c8c78,
+    7px 7px 0 rgb(5 9 20 / 70%);
+}
+
+.titlebar {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  border-bottom: 2px solid #10172b;
+  font-size: 13px;
+}
+
+.titlebar strong {
+  color: #ffd27d;
+  letter-spacing: 0.02em;
+  text-shadow: 1px 1px 0 #10172b;
+}
+
+.brandMark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: #0b1021;
+  border: 2px solid #f2a56f;
+}
+
+.brandMark i:nth-child(1) { background: #ffd27d; }
+.brandMark i:nth-child(2) { background: #61b3a6; }
+.brandMark i:nth-child(3) { background: #e96872; }
+.brandMark i:nth-child(4) { background: #79a8e8; }
+
+.stateTag {
+  margin-left: auto;
+  color: #cfe4dc;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.body {
+  padding: 20px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.message {
+  margin: 0;
+}
+
+.installLink {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 8px 12px;
+  color: #1b1b2f;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #cf9a52;
+  text-align: center;
+  text-decoration: none;
+}
+
+.installLink:hover {
+  background: #f2a56f;
+}
+
+.installLink:active {
+  box-shadow: inset 2px 2px 0 #cf9a52;
+}
+
+.installLink:focus-visible {
+  outline: 2px solid #ffd27d;
+  outline-offset: 2px;
+}
+
+.footnote {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 2px solid #d9c9a4;
+  color: #5e5361;
+  font-size: 12px;
+}

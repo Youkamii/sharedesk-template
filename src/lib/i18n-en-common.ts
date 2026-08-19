@@ -31,6 +31,9 @@ export const EN_COMMON: Record<string, string> = {
     "Local mode without OAuth. Start with the guest key below.",
   "이 ShareDesk는 아직 설치가 끝나지 않았습니다. 데스크 소유자는 Google OAuth와 Drive 연결을 마쳐 주세요.":
     "This ShareDesk isn't fully set up yet. Desk owner: please finish the Google OAuth and Drive connection.",
+  "설치 준비 중": "Setting up",
+  "설치가 끝나면 이 주소가 로그인 화면이 됩니다.":
+    "Once setup is finished, this address becomes the sign-in screen.",
   "Google로 계속하기": "Continue with Google",
   "설치 안내 열기": "Open the install guide",
   "또는 손님용 키": "or with a guest key",

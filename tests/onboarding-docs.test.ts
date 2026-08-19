@@ -142,7 +142,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
 
   const setupIndex = install.search(/^npm run setup\r?$/m);
   const prepareIndex = install.indexOf("npm run setup -- --prepare-env", setupIndex);
-  const finishIndex = install.indexOf("npm run setup -- --finish", setupIndex);
+  const finishIndex = install.indexOf("npm run setup:finish", setupIndex);
   assert.ok(
     setupIndex >= 0 && setupIndex < prepareIndex && prepareIndex < finishIndex,
     "bare setup이 먼저 나오고 prepare-env 호환 안내와 finish가 뒤를 따라야 합니다.",
@@ -169,6 +169,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
     "DRIVE_ROOT_FOLDER_ID",
     "DRIVE_STATE_FOLDER_ID",
     "PUBLIC_BASE_URL",
+    "SHAREDESK_DEFAULT_LOCALE",
     "SHAREDESK_GITHUB_TOKEN",
   ]);
   assert.match(productionSection, /LOCAL_STORAGE_ROOT.*운영 환경에 넣지 않습니다/);

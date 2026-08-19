@@ -22,7 +22,7 @@ Each install connects its own host Git repository, Vercel project, Google OAuth 
 
 1. **Create the ShareDesk address:** use [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk) to create your GitHub repository and Vercel project, and write down the Production address.
 2. **Create the Google connection:** turn on the Drive API in Google Cloud and create a Web application OAuth client. Copy the exact scopes and callback addresses from [step 2](#2-google-cloud-setup).
-3. **Connect the host Drive:** get the repository and run `npm ci` and `npm run setup`. If `.env.local` is missing, setup creates it for you. Enter the Client ID and secret, run it again, and the authorization page opens in your browser automatically. After you consent, finish with `npm run setup -- --finish`.
+3. **Connect the host Drive:** get the repository and run `npm ci` and `npm run setup`. If `.env.local` is missing, setup creates it for you. Enter the Client ID and secret, run it again, and the authorization page opens in your browser automatically. After you consent, finish with `npm run setup:finish`.
 4. **Connect it to production:** move the required values setup filled in to your Vercel Production environment variables and redeploy.
 5. **Check it with one other person:** confirm production sign-in and file saving first, then create an invitation code in `/admin`. Invite one person and check that both accounts see the same file — that finishes the core install. The Vercel Firewall comes afterwards, in the production hardening step.
 
@@ -53,6 +53,22 @@ The production install is finished once all of the following are true.
 - A Vercel account
 - A Google account and permission to create a Google Cloud project
 
+### Check which accounts are connected
+
+If another GitHub or Vercel account is already signed in on this computer, the repository and the project get created under the wrong account. Check before you start.
+
+```powershell
+gh auth status
+vercel whoami
+git config --global user.email
+```
+
+If a different account shows up, sign in again in this order.
+
+1. Run `gh auth logout`, then `gh auth login`, and sign in to the GitHub account you will use.
+2. Run `vercel logout`, then `vercel login`, and sign in to the Vercel account you will use.
+3. Set the commit email with `git config --global user.email "the-email-to-use"`.
+
 ## 1. Prepare the repository and a fixed production address
 
 If the current repository's `origin` is already yours and already connected to a Vercel project, do not repeat this step. Check `git remote -v` and the Vercel project settings, then use the existing project.
@@ -63,12 +79,18 @@ If you have no repository and no Vercel project yet, create both with the button
 
 To create only the repository first, without Vercel, use [Use this template](https://github.com/Youkamii/sharedesk-template/generate).
 
+### When the Create button cannot be pressed on a new account
+
+On an account using Vercel for the first time, `Git Scope` is empty and the `Create` button stays disabled. Open the `Select Git Scope` dropdown → press `Add GitHub Account` and install the GitHub app (choose `All repositories`), and `Create` becomes active. GitHub opens in a popup window during this, so check your browser's popup blocker too.
+
 The first deployment can run with empty environment variables. Seeing the install notice instead of a sign-in button is normal. Write down these two addresses at this step.
 
 - Your Git repository: for example `https://github.com/my-account/my-sharedesk`
 - Your fixed Production address: for example `https://my-sharedesk.vercel.app`
 
 Use the Production address that stays attached to the project, not a Preview address or a long deployment address that changes with every commit.
+
+If somebody else is already using the project name, the address can get a suffix like `-theta`. Confirm your fixed address in the `Domains` tab of the Vercel project as the one ending in `.vercel.app`. Do not use a long deployment address with a hash in the middle.
 
 ## 2. Google Cloud setup
 
@@ -192,7 +214,7 @@ The callback URL contains a single-use authorization code that is valid for a sh
 ### 4-2. Finish the authorization
 
 ```powershell
-npm run setup -- --finish
+npm run setup:finish
 ```
 
 When it asks, paste the whole callback URL you just copied. The URL is not written as a command argument, so the authorization code does not stay in your shell history.
@@ -225,7 +247,7 @@ Everything so far is a local check. It does not mean the production deployment t
 
 ## 6. Vercel Production environment variables and redeploy
 
-Open the existing Vercel project you created in step 1. In `Settings` → `Environment Variables`, put the values below into the Production environment.
+Open the existing Vercel project you created in step 1. In `Settings` → `Environment Variables`, put the values below into the Production environment. In the newer screens, press `Settings` → `Environments` → `Production`, and the environment variable fields are inside that detail screen.
 
 | Name | Value |
 |---|---|
@@ -238,6 +260,7 @@ Open the existing Vercel project you created in step 1. In `Settings` → `Envir
 | `DRIVE_ROOT_FOLDER_ID` | The ID of the ShareDesk folder setup created |
 | `DRIVE_STATE_FOLDER_ID` | The ID of the state folder setup created |
 | `PUBLIC_BASE_URL` | The fixed Production origin. For example: `https://my-sharedesk.vercel.app` |
+| `SHAREDESK_DEFAULT_LOCALE` | (Optional) Default desk language (en/ko/ja/hi/zh), the one you picked during setup — copy the value from `.env.local` |
 | `SHAREDESK_GITHUB_TOKEN` | (Optional) fine-grained PAT for one-click updates — see the [Update guide](./UPDATE.md) |
 
 To reduce install mistakes, set `PUBLIC_BASE_URL=https://your-real-production-domain` explicitly in Vercel Production. Do not put this value in your local `.env.local`, because local app sign-in has to come back to `http://localhost:3000`.
@@ -248,7 +271,9 @@ If you leave `PUBLIC_BASE_URL` out, ShareDesk uses `VERCEL_PROJECT_PRODUCTION_UR
 
 Add `ACCESS_KEYS` only when you use temporary guest keys. In drive mode, a guest who comes in with an access key is `View only`. Do not put `LOCAL_STORAGE_ROOT` or `SHAREDESK_SHARE_TEST_EMAIL` in the production environment. Never give any secret the `NEXT_PUBLIC_` prefix.
 
-Redeploy Production after entering or changing environment variables. Environment variable changes do not reach an existing deployment on their own. For the details, see the [Vercel environment variables guide](https://vercel.com/docs/environment-variables).
+Pasting several values at once has a trap where the Key field swallows the whole first line (`ADMIN_EMAILS`). After pasting, always check that there are 9 variables (leaving out the optional one). Values are stored as `Sensitive` by default and cannot be viewed again after saving, which is normal.
+
+Redeploy Production after entering or changing environment variables. Environment variable changes do not reach an existing deployment on their own. In the `Deployments` tab, hover over the latest deployment row, open the `⋯` menu that appears, and press `Redeploy`. The `Create Deployment` button is for Preview deployments only — do not use it. For the details, see the [Vercel environment variables guide](https://vercel.com/docs/environment-variables).
 
 ## 7. Production check
 
@@ -332,7 +357,7 @@ Folder permissions carry down to child items according to Google Drive's rules. 
 | `redirect_uri_mismatch` | Compare the `redirect_uri` from the error character by character with `Authorized redirect URIs` on the same Client ID in Google Auth Platform. Not JavaScript origins. |
 | `Access blocked` | Check that the Audience is External. If you keep Testing, the account you sign in with has to be added as a Test user. |
 | `org_internal` | You signed in to an Internal app with an account outside the organization. Switch to External, or use an organization account. |
-| `127.0.0.1` connection error after consent | Normal during setup. Copy the whole address bar and paste it into the question from `npm run setup -- --finish`. |
+| `127.0.0.1` connection error after consent | Normal during setup. Copy the whole address bar and paste it into the question from `npm run setup:finish`. |
 | Setup reports that no `refresh_token` was received | Check the existing connection and the Audience status first. Only when you really need a new token and the existing connection is preventing it, remove the permission in [your Google account's connected apps](https://myaccount.google.com/permissions) and run setup again. |
 | The Drive connection drops after about 7 days | Check first whether the Audience was Testing. If the host token came from Testing, switch to In production and run setup again. If it is already In production, do not discard the token first — look for the actual authentication error. |
 | The Drive API returns 403 | Check that the Google Drive API is enabled in the same Cloud project where you created the OAuth client. Check as well whether a Workspace admin policy blocks external apps. |

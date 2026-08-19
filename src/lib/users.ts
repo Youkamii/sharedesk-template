@@ -131,9 +131,14 @@ export interface DeskSettings {
   autoUpdateTimezone: string | null;
 }
 
+// npm run setup이 설치 때 고른 데스크 기본 언어. 값이 없거나 잘못되면 영어.
+function defaultDeskLocale(): Locale {
+  return parseLocale(process.env.SHAREDESK_DEFAULT_LOCALE) ?? "en";
+}
+
 export function defaultDeskSettings(): DeskSettings {
   return {
-    locale: "en",
+    locale: defaultDeskLocale(),
     allowMemberLocale: false,
     autoUpdate: false,
     autoUpdateTimezone: null,
@@ -429,9 +434,11 @@ function normalize(raw: unknown): UserFile {
     rev: typeof file.rev === "number" ? file.rev : 0,
     users,
     invitations,
-    // 설정 도입 전 파일에는 deskSettings가 없다 — 기본은 영어·개별 언어 비허용.
+    // 설정 도입 전 파일에는 deskSettings가 없다 — 기본은 설치 때 고른 언어
+    // (SHAREDESK_DEFAULT_LOCALE, 없으면 영어)·개별 언어 비허용. setup이 만드는
+    // users.json에는 deskSettings가 없으므로 여기 기본값이 실제 첫 언어가 된다.
     deskSettings: {
-      locale: parseLocale(rawSettings?.locale) ?? "en",
+      locale: parseLocale(rawSettings?.locale) ?? defaultDeskLocale(),
       allowMemberLocale: rawSettings?.allowMemberLocale === true,
       // 시간대 없이 자동 업데이트만 켜진 상태는 만들지 않는다.
       autoUpdate: rawSettings?.autoUpdate === true && autoUpdateTimezone !== null,

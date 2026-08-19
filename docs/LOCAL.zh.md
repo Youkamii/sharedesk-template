@@ -156,7 +156,7 @@ Copy-Item -Recurse -Force -LiteralPath '.devstorage' -Destination 'D:\ShareDesk-
 | `npm test` | 运行仓库中的自动化测试。 |
 | `npm run setup -- --prepare-env` | 准备 `.env.local`。不会覆盖已有内容。 |
 | `npm run setup` | 开始站长的 Google 认证。没有 `.env.local` 时会先准备好这个文件。 |
-| `npm run setup -- --finish` | 由用户在本地终端粘贴 callback URL，完成站长 Drive 的连接。不会把 URL 作为命令参数。 |
+| `npm run setup:finish` | 由用户在本地终端粘贴 callback URL，完成站长 Drive 的连接。不会把 URL 作为命令参数。 |
 | `npm run setup -- --check` | 确认能否读取 Client ID 和 secret 并生成认证 URL。 |
 | `npm run test:drive-operations` | 在真实 Drive 上检查创建、上传、下载、重命名、移动、删除和恢复。 |
 | `npm run test:drive-preview` | 在真实 Drive 上检查 Google 文档的 PDF 转换和视频的 Range 响应。 |
@@ -183,6 +183,7 @@ npx tsc --noEmit --incremental false
 | `GOOGLE_REFRESH_TOKEN` | Drive 生产 | setup 拿到的站长离线令牌。 |
 | `DRIVE_ROOT_FOLDER_ID` | Drive 生产 | ShareDesk 要管理的站长 Drive 根目录 ID。 |
 | `DRIVE_STATE_FOLDER_ID` | Drive 生产 | 根目录内 `.sharedesk` 状态文件夹的 ID。 |
+| `SHAREDESK_DEFAULT_LOCALE` | 可选 | 桌面默认语言（en/ko/ja/hi/zh）。未设置时以英语开始。 |
 | `SHAREDESK_GITHUB_TOKEN` | 可选 | 用于一键更新的 fine-grained PAT。想在本地测试一键更新，还要一并填上下面的 `SHAREDESK_GITHUB_REPOSITORY`。 |
 | `SHAREDESK_GITHUB_REPOSITORY` | 可选 | 更新目标的安装仓库（`owner/repository`）。Vercel 之外（本地）没有仓库信息，所以做一键测试时要自己指定。 |
 | `SHAREDESK_SHARE_TEST_EMAIL` | 仅真实检查用 | 用来接收共享检查的另一个已批准 Google 账号。不要放进生产 Vercel 环境。 |
