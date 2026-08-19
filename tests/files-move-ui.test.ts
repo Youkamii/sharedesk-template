@@ -1537,6 +1537,9 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
   // 수동 업데이트의 별 동의 창은 그대로다("확인된 별"만 통과).
   assert.match(filesView, /status\.starred !== true/);
   assert.match(adminView, /star: true/);
+  // 별을 누르고 돌아오면 알아서 켜진다 — 몇 초 간격의 자동 감지.
+  assert.match(adminView, /scheduleStarPoll/);
+  assert.match(adminView, /별 확인 중…/);
   assert.match(adminView, /Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone/);
   assert.match(adminView, /자동 업데이트 멈추기/);
   assert.doesNotMatch(adminView, /type="checkbox"[\s\S]{0,200}autoUpdate: true/);

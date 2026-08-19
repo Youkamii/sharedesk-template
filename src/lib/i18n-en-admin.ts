@@ -83,6 +83,9 @@ export const EN_ADMIN: Record<string, string> = {
   "자동 업데이트를 누르면 GitHub 저장소에 별이 남고 자동 업데이트가 켜집니다. 켜면 이 시간대 기준 자정에 새 버전이 자동으로 적용되고, 별도의 키가 필요 없으며, 작업표시줄의 업데이트 버튼은 숨겨집니다. 멈추면 업데이트 버튼이 다시 나타나고 별은 그대로 남습니다.": "Pressing Automatic updates leaves a star on the GitHub repository and turns automatic updates on. While on, new versions apply automatically at midnight in this timezone, no key is needed, and the taskbar update button is hidden. Stopping brings the update button back; the star stays.",
   "템플릿 자동 업데이트를 위해 별을 눌러주세요.": "Please leave a star to enable automatic template updates.",
   "매 자정에 새로운 버전으로 업데이트됩니다.": "Updates to the newest version every midnight.",
+  "별 확인 중…": "Checking for your star…",
+  "GitHub에서 별을 누르면 자동으로 켜집니다.": "Leave a star on GitHub and this turns on by itself.",
+  "별을 확인하지 못했습니다. 별을 누른 뒤 버튼을 다시 눌러 주세요": "Could not spot the star. After starring, press the button again",
   "취소": "Cancel",
   "모든 로그인 끊기": "Sign out everywhere",
   "이 사람의 모든 기기에서 로그인을 끊습니다":

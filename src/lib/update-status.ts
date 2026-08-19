@@ -229,57 +229,6 @@ export async function hasAutoUpdateWorkflow(options?: {
   }
 }
 
-// 자동 업데이트 켜기/끄기를 저장소의 예약 워크플로에 등록한다.
-// 워크플로가 sharedesk-auto-update.json에 기록해 두면 자정 실행이 그
-// 기록만 읽는다 — 앱 주소를 몰라도 되는 유일한 통신로다.
-export async function dispatchAutoUpdateRegister(
-  action: "enable" | "disable",
-  timezone?: string | null,
-  options?: { env?: Environment; fetchImpl?: typeof fetch },
-): Promise<
-  | { ok: true }
-  | { ok: false; status: number; error: string }
-> {
-  const resolved = resolveUpdateRepository(options?.env);
-  if (!resolved.configured) {
-    return { ok: false, status: 409, error: resolved.error };
-  }
-  const token = resolveUpdateToken(options?.env);
-  if (!token.configured) {
-    return { ok: false, status: 409, error: token.error };
-  }
-  const fetchImpl = options?.fetchImpl ?? fetch;
-  let response: Response;
-  try {
-    response = await fetchImpl(
-      `https://api.github.com/repos/${resolved.repository}/actions/workflows/sharedesk-auto-update.yml/dispatches`,
-      {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-          Authorization: `Bearer ${token.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ref: "main",
-          inputs: {
-            action,
-            ...(action === "enable" && timezone ? { timezone } : {}),
-          },
-        }),
-      },
-    );
-  } catch {
-    return { ok: false, status: 502, error: "GitHub에 연결하지 못했습니다." };
-  }
-  if (response.status !== 204) {
-    return { ok: false, status: 502, error: workflowApiError(response.status) };
-  }
-  return { ok: true };
-}
-
 export async function dispatchUpdateWorkflow(options?: {
   env?: Environment;
   fetchImpl?: typeof fetch;
