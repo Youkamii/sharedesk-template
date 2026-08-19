@@ -1495,14 +1495,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <span className={styles.windowTitle}>
                     <h2 id="auto-update-title">{t("업데이트")}</h2>
                   </span>
-                </header>
-                <div className={styles.windowBody}>
-                  <p className={styles.description}>
-                    {autoUpdateOn
-                      ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
-                      : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
-                  </p>
-                  {autoUpdateOn ? (
+                  {autoUpdateOn && (
                     <button
                       type="button"
                       className={styles.pixelButton}
@@ -1516,7 +1509,17 @@ export default function AdminView({ locale }: { locale: Locale }) {
                     >
                       {t("자동 업데이트 멈추기")}
                     </button>
-                  ) : (
+                  )}
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    <strong>
+                      {autoUpdateOn
+                        ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
+                        : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
+                    </strong>
+                  </p>
+                  {!autoUpdateOn && (
                     <button
                       type="button"
                       className={styles.githubStarButton}
