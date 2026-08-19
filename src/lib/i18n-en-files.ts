@@ -102,6 +102,7 @@ export const EN_FILES: Record<string, string> = {
   "켜는 중…": "Turning on…",
   "자동 업데이트를 켜지 못했습니다": "Could not turn on automatic updates",
   "이제 자정에 자동으로 업데이트됩니다.": "Updates now happen automatically at midnight.",
+  "상위 폴더를 만들지 못해 하위 폴더 {count}개를 건너뛰었습니다": "Skipped {count} subfolders because their parent could not be created",
   "취소": "Cancel",
   "완전 삭제": "Delete forever",
   "{count}개 항목 · 30일 후 자동 삭제":
@@ -230,6 +231,17 @@ export const EN_FILES: Record<string, string> = {
   "일부 파일을 올리지 못했습니다 · {failures}":
     "Some files didn't upload · {failures}",
   "{count}개 파일을 올렸습니다": "Uploaded {count} files",
+  "폴더를 읽는 중입니다": "Reading the folder…",
+  "드롭한 폴더를 읽지 못했습니다": "Couldn't read the dropped folder",
+  "올릴 항목이 없습니다": "Nothing to upload",
+  "폴더 {folders}개와 파일 {files}개를 올렸습니다":
+    "Uploaded {folders} folders and {files} files",
+  "점(.)으로 시작하는 이름이라 {count}개를 건너뛰었습니다":
+    "Skipped {count} items whose names start with a dot (.)",
+  "일부 폴더를 만들지 못했습니다 · {failures}":
+    "Some folders couldn't be created · {failures}",
+  "상위 폴더를 만들지 못해 {count}개 파일을 건너뛰었습니다":
+    "Skipped {count} files because their parent folder couldn't be created",
   "새 메모장을 만들지 못했습니다": "Couldn't create a new notepad",
   "‘{name}’ 메모장은 만들었습니다 — 최신 목록을 다시 불러옵니다":
     "The notepad ‘{name}’ was created — reloading the latest list",

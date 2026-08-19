@@ -35,6 +35,13 @@ import {
   startDownloads,
 } from "../src/lib/client/download-queue";
 import {
+  folderPathKey,
+  isFolderExistsConflict,
+  matchExistingFolder,
+  planFolderUpload,
+  resolveUploadTargets,
+} from "../src/lib/client/folder-upload";
+import {
   groupLayoutMigrationTargets,
   migrateEntryLayoutKey,
   migrateLayoutKey,
@@ -1444,10 +1451,12 @@ test("역할 권한(#80): 업로드·수정 UI는 allowUpload/allowEdit로 숨�
   );
   // 외부 파일 드래그 업로드(드롭존 표시 포함) 차단
   assert.match(source, /onDragOver=\{\(event\) => \{\s*if \(!allowUpload\) return;/);
+  // 폴더 드롭도 같은 가드를 지난다 — 권한·로딩 먼저, 그 다음 내용물 확인.
   assert.match(
     source,
-    /if \(!allowUpload \|\| data\.loading \|\| !event\.dataTransfer\.files\.length\) return;/,
+    /if \(!allowUpload \|\| data\.loading\) return;[\s\S]{0,220}?if \(!directoryRoots && !event\.dataTransfer\.files\.length\) return;/,
   );
+  assert.match(source, /if \(!allowUpload\) return;\s*setNotice\(t\("폴더를 읽는 중입니다"\)\);/);
   // 아이콘 배치 드래그는 시작 자체를 차단하고, 자동 배치 보정 저장도 건너뛴다.
   assert.match(
     source,
@@ -1707,4 +1716,107 @@ test("외부 공유 링크는 수정 가능 역할의 파일에서만 열리고 
   for (const label of ["1시간", "24시간", "7일", "30일"]) {
     assert.ok(dialog.includes(`"${label}"`), label);
   }
+});
+
+test("폴더 드롭 계획은 부모 폴더를 먼저 만들고 빈 폴더도 남긴다", () => {
+  const plan = planFolderUpload([
+    { kind: "file", path: ["프로젝트", "문서", "메모.txt"], file: { name: "메모.txt" } },
+    { kind: "folder", path: ["프로젝트"] },
+    { kind: "folder", path: ["프로젝트", "빈폴더"] },
+    { kind: "file", path: ["단독.txt"], file: { name: "단독.txt" } },
+  ]);
+  // 조상은 항상 자식보다 앞에 온다 — 순차 생성이 부모부터 돌아야 한다.
+  assert.deepEqual(plan.folders, [
+    ["프로젝트"],
+    ["프로젝트", "문서"],
+    ["프로젝트", "빈폴더"],
+  ]);
+  assert.deepEqual(
+    plan.files.map((item) => [item.file.name, item.folderPath]),
+    [
+      ["메모.txt", ["프로젝트", "문서"]],
+      ["단독.txt", []],
+    ],
+  );
+  assert.equal(plan.skipped, 0);
+});
+
+test("점으로 시작하는 항목은 계획에서 빠지고 개수만 센다", () => {
+  const plan = planFolderUpload([
+    { kind: "folder", path: [".git"] },
+    { kind: "skipped", path: ["앱", ".env"] },
+    { kind: "file", path: ["앱", ".env"], file: { name: ".env" } },
+    { kind: "file", path: [".숨김폴더", "안.txt"], file: { name: "안.txt" } },
+    { kind: "file", path: ["앱", "보임.txt"], file: { name: "보임.txt" } },
+  ]);
+  assert.deepEqual(plan.folders, [["앱"]]);
+  assert.deepEqual(plan.files.map((item) => item.file.name), ["보임.txt"]);
+  assert.equal(plan.skipped, 4);
+});
+
+test("경로 키는 이름에 든 구분자와 섞이지 않는다", () => {
+  assert.notEqual(folderPathKey(["a b"]), folderPathKey(["a", "b"]));
+  assert.notEqual(folderPathKey(["a/b"]), folderPathKey(["a", "b"]));
+  assert.equal(folderPathKey([]), "");
+});
+
+test("상위 폴더 생성이 실패한 파일은 올리지 않고 막힌 것으로 센다", () => {
+  const plan = planFolderUpload([
+    { kind: "file", path: ["열림", "a.txt"], file: { name: "a.txt" } },
+    { kind: "file", path: ["막힘", "b.txt"], file: { name: "b.txt" } },
+    { kind: "file", path: ["c.txt"], file: { name: "c.txt" } },
+  ]);
+  const folderIds = new Map([
+    [folderPathKey([]), "root"],
+    [folderPathKey(["열림"]), "folder-1"],
+  ]);
+  const { ready, blocked } = resolveUploadTargets(plan.files, folderIds);
+  assert.deepEqual(
+    ready.map((item) => [item.file.name, item.parentId]),
+    [
+      ["a.txt", "folder-1"],
+      ["c.txt", "root"],
+    ],
+  );
+  assert.equal(blocked, 1);
+});
+
+test("mkdir 409만 병합으로 보고, 같은 이름의 폴더를 목록에서 찾는다", () => {
+  assert.equal(isFolderExistsConflict(Object.assign(new Error("x"), { status: 409 })), true);
+  assert.equal(
+    isFolderExistsConflict(Object.assign(new Error("x"), { body: { code: "CONFLICT" } })),
+    true,
+  );
+  assert.equal(isFolderExistsConflict(Object.assign(new Error("x"), { status: 403 })), false);
+  assert.equal(isFolderExistsConflict(new Error("x")), false);
+  assert.equal(isFolderExistsConflict(null), false);
+
+  const entries = [
+    { id: "f1", name: "보고서", isFolder: false },
+    { id: "f2", name: "보고서", isFolder: true },
+    { id: "f3", name: "사진", isFolder: true },
+  ];
+  // 같은 이름이라도 폴더만 병합 대상이다.
+  assert.equal(matchExistingFolder(entries, "보고서"), "f2");
+  assert.equal(matchExistingFolder(entries, " 사진 "), "f3");
+  // 파일하고만 부딪히면 찾지 못하고 호출부가 실패로 남긴다.
+  assert.equal(matchExistingFolder([entries[0]], "보고서"), null);
+});
+
+test("폴더 드롭은 기존 파일 업로드 경로를 그대로 남긴다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  // 디렉터리가 없으면 null → 기존 uploadFiles 경로.
+  assert.match(
+    source,
+    /const directoryRoots = droppedDirectoryEntries\(event\.dataTransfer\);/,
+  );
+  assert.match(source, /void uploadFiles\(event\.dataTransfer\.files, scopeId\);/);
+  assert.match(source, /void uploadDroppedTree\(directoryRoots, scopeId\);/);
+  // 업로드 권한·로딩 가드는 그대로.
+  assert.match(source, /if \(!allowUpload \|\| data\.loading\) return;/);
+  // 파일 진행 UI는 기존 uploadOne(=reportTransferProgress)을 그대로 쓴다.
+  assert.match(source, /await uploadOne\(target\.file, target\.parentId\);/);
 });
