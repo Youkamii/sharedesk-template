@@ -2198,6 +2198,15 @@ test("setup stars automatically through the local gh login like tokscale", async
   assert.equal(fail, false);
 });
 
+test("owner star checks bust GitHub's anonymous cache", async () => {
+  const lib = await readFile(
+    new URL("../src/lib/github-star.ts", import.meta.url),
+    "utf8",
+  );
+  // 익명 응답은 약 1분 캐시된다 — 방금 누른 별이 안 보이면 사용자가 갇힌다.
+  assert.match(lib, /fresh=\$\{Date\.now\(\)\}/);
+});
+
 test("owner star verification pages through the owner's public starred list", async () => {
   const { checkOwnerStarred } = await import("../src/lib/github-star");
   const page1 = Array.from({ length: 100 }, (_, i) => ({
