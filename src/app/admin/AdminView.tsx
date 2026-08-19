@@ -178,6 +178,18 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const [activity, setActivity] = useState<
     { entries: ActivityEntry[] } | { error: string } | null
   >(null);
+  // 별 감지 대기 — 버튼 한 번이면 앱이 몇 초 간격으로 별을 재확인하다가
+  // 감지되는 순간 자동으로 켠다. 타이머는 ref에 들고 언마운트 때 정리한다.
+  const [starWaiting, setStarWaiting] = useState(false);
+  const starPollTimerRef = useRef<number | null>(null);
+  const starPollDeadlineRef = useRef(0);
+  useEffect(() => {
+    return () => {
+      if (starPollTimerRef.current !== null) {
+        window.clearTimeout(starPollTimerRef.current);
+      }
+    };
+  }, []);
   // 자동 업데이트가 켜졌을 때 설정 화면에서 보여 주는 버전·릴리스 정보.
   const [updateInfo, setUpdateInfo] = useState<{
     currentVersion: string | null;
@@ -723,6 +735,98 @@ export default function AdminView({ locale }: { locale: Locale }) {
     } finally {
       finishMutation();
     }
+  }
+
+  // 자동 업데이트 켜기 한 번의 시도. 결과만 돌려주고 알림·상태는 호출부가 정한다.
+  async function tryEnableAutoUpdate(): Promise<"on" | "waiting" | "failed"> {
+    try {
+      const response = await fetch("/api/admin/desk-settings", {
+        method: "PATCH",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          autoUpdate: true,
+          autoUpdateTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          star: true,
+        }),
+      });
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/files");
+        return "failed";
+      }
+      const body = (await response.json().catch(() => null)) as {
+        autoUpdate?: unknown;
+        allowMemberLocale?: unknown;
+        locale?: unknown;
+        starRequired?: unknown;
+        error?: string;
+      } | null;
+      if (response.ok && body?.autoUpdate === true) {
+        const savedLocale = parseLocale(body.locale);
+        if (savedLocale && typeof body.allowMemberLocale === "boolean") {
+          setDeskSettings({
+            locale: savedLocale,
+            allowMemberLocale: body.allowMemberLocale,
+            autoUpdate: true,
+          });
+        }
+        setNotice(t("이제 자정에 자동으로 업데이트됩니다."));
+        setError(null);
+        router.refresh();
+        return "on";
+      }
+      if (response.status === 409 && body?.starRequired === true) {
+        return "waiting";
+      }
+      setError(body?.error ?? t("자동 업데이트를 켜지 못했습니다"));
+      return "failed";
+    } catch {
+      setError(t("자동 업데이트를 켜지 못했습니다"));
+      return "failed";
+    }
+  }
+
+  function stopStarPolling() {
+    if (starPollTimerRef.current !== null) {
+      window.clearTimeout(starPollTimerRef.current);
+      starPollTimerRef.current = null;
+    }
+    setStarWaiting(false);
+  }
+
+  function scheduleStarPoll() {
+    starPollTimerRef.current = window.setTimeout(() => {
+      void (async () => {
+        const result = await tryEnableAutoUpdate();
+        if (result === "waiting") {
+          if (Date.now() < starPollDeadlineRef.current) {
+            scheduleStarPoll();
+            return;
+          }
+          setError(t("별을 확인하지 못했습니다. 별을 누른 뒤 버튼을 다시 눌러 주세요"));
+        }
+        stopStarPolling();
+      })();
+    }, 5_000);
+  }
+
+  async function startEnableAutoUpdate() {
+    if (starWaiting) return;
+    // GitHub 버튼답게 저장소 페이지를 연다 — 사용자는 거기서 별만 누르면
+    // 되고, 앱이 몇 초 간격으로 감지해 자동으로 켠다.
+    window.open(
+      "https://github.com/Youkamii/sharedesk-template",
+      "_blank",
+      "noopener",
+    );
+    const result = await tryEnableAutoUpdate();
+    if (result !== "waiting") return;
+    setStarWaiting(true);
+    setError(null);
+    setNotice(t("GitHub에서 별을 누르면 자동으로 켜집니다."));
+    // 별 감지는 최대 3분까지 기다린다.
+    starPollDeadlineRef.current = Date.now() + 180_000;
+    scheduleStarPoll();
   }
 
   function selectWallpaper(id: WallpaperId) {
@@ -1417,26 +1521,10 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       type="button"
                       className={styles.githubStarButton}
                       aria-label={t("자동 업데이트")}
-                      disabled={deskSettings === null || busyId !== null}
-                      onClick={() => {
-                        // GitHub 버튼답게 저장소 페이지를 함께 연다 — 토큰에
-                        // Starring 권한이 없는 설치에서도 그 자리에서 별을
-                        // 누를 수 있다. 권한이 있으면 서버가 자동으로 남긴다.
-                        window.open(
-                          "https://github.com/Youkamii/sharedesk-template",
-                          "_blank",
-                          "noopener",
-                        );
-                        void updateDeskSettings(
-                          {
-                            autoUpdate: true,
-                            autoUpdateTimezone:
-                              Intl.DateTimeFormat().resolvedOptions().timeZone,
-                            star: true,
-                          },
-                          "이제 자정에 자동으로 업데이트됩니다.",
-                        );
-                      }}
+                      disabled={
+                        deskSettings === null || busyId !== null || starWaiting
+                      }
+                      onClick={() => void startEnableAutoUpdate()}
                     >
                       <svg
                         className={styles.githubMark}
@@ -1446,7 +1534,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       >
                         <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
                       </svg>
-                      <span>Github</span>
+                      <span>{starWaiting ? t("별 확인 중…") : "Github"}</span>
                       <span className={styles.starGlyph} aria-hidden="true">
                         ★
                       </span>

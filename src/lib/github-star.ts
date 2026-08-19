@@ -125,8 +125,10 @@ export async function checkOwnerStarred(
         headers.Authorization = `Bearer ${options.token}`;
       }
       try {
+        // GitHub는 익명 요청을 약 1분 캐시한다 — 방금 누른 별이 안 보이면
+        // 사용자가 갇힌다. 매번 다른 파라미터로 캐시를 우회한다.
         response = await fetchImpl(
-          `https://api.github.com/users/${encodeURIComponent(owner)}/starred?per_page=100&page=${page}`,
+          `https://api.github.com/users/${encodeURIComponent(owner)}/starred?per_page=100&page=${page}&fresh=${Date.now()}`,
           { cache: "no-store", headers },
         );
       } catch {
