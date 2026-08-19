@@ -63,6 +63,15 @@ import {
   folderImagePreviewEntries,
 } from "@/lib/client/folder-side-preview";
 import {
+  collectDroppedTree,
+  droppedDirectoryEntries,
+  folderPathKey,
+  isFolderExistsConflict,
+  matchExistingFolder,
+  planFolderUpload,
+  resolveUploadTargets,
+} from "@/lib/client/folder-upload";
+import {
   groupLayoutMigrationTargets,
   migrateEntryLayoutKey,
   migrateLayoutKey,
@@ -4770,6 +4779,24 @@ export default function FilesView({
     return null;
   }
 
+  // 활동 기록용 위치 이름 — 확실히 알 때만 채우고, 모르면 생략된다.
+  // 루트, 열린 창의 경로 조각, 화면에 로드된 목록 순으로 찾는다.
+  function locationNameForActivity(folderId: string): string | null {
+    if (folderId === ROOT_ID) return "바탕화면";
+    for (const item of windowsRef.current) {
+      const crumb = item.path.find((part) => part.id === folderId);
+      if (crumb?.name) return crumb.name;
+      const hit = item.data.entries.find(
+        (candidate) => candidate.id === folderId,
+      );
+      if (hit?.name) return hit.name;
+    }
+    const rootHit = rootData.entries.find(
+      (candidate) => candidate.id === folderId,
+    );
+    return rootHit?.name ?? null;
+  }
+
   async function moveEntry(
     sourceScopeId: string,
     entry: Entry,
@@ -4846,6 +4873,9 @@ export default function FilesView({
           id: entry.id,
           targetFolderId,
           expectedVersion: entry.version,
+          // 활동 기록의 "어디서 → 어디로" 표시용 (표시 전용, 없으면 생략)
+          fromName: locationNameForActivity(scopeFolderId(sourceScopeId)),
+          toName: locationNameForActivity(targetFolderId),
         }),
       });
       cancelFolderListRequests(sourceFolderId);
@@ -6188,6 +6218,138 @@ export default function FilesView({
     await refreshScope(scopeId);
   }
 
+  // 같은 이름의 폴더가 이미 있으면 새로 만들지 않고 그 폴더 안으로 병합한다.
+  async function ensureUploadFolder(parentId: string, name: string) {
+    try {
+      const created = await apiJson<{ entry: Entry }>("/api/drive/mkdir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ parentId, name }),
+      });
+      return created.entry.id;
+    } catch (error) {
+      if (!isFolderExistsConflict(error)) throw error;
+      const listing = await apiJson<{ entries: Entry[] }>(
+        `/api/drive/list?folderId=${encodeURIComponent(parentId)}`,
+        { cache: "no-store" },
+      );
+      // 같은 이름의 파일 때문에 난 충돌이면 못 찾는다 — 원래 오류를 그대로 남긴다.
+      const existing = matchExistingFolder(listing.entries ?? [], name);
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  // 폴더를 드롭했을 때. 부모 폴더부터 순서대로 만든 뒤 파일을 제자리에 올린다.
+  async function uploadDroppedTree(
+    roots: readonly FileSystemEntry[],
+    scopeId: string,
+  ) {
+    if (!allowUpload) return;
+    setNotice(t("폴더를 읽는 중입니다"));
+    let collected;
+    try {
+      collected = await collectDroppedTree(roots);
+    } catch (error) {
+      setNotice(errorMessage(error, t("드롭한 폴더를 읽지 못했습니다")));
+      return;
+    }
+    const plan = planFolderUpload(collected);
+    if (!plan.folders.length && !plan.files.length) {
+      setNotice(
+        plan.skipped
+          ? t("점(.)으로 시작하는 이름이라 {count}개를 건너뛰었습니다", {
+              count: plan.skipped,
+            })
+          : t("올릴 항목이 없습니다"),
+      );
+      return;
+    }
+
+    const folderIds = new Map<string, string>([
+      [folderPathKey([]), scopeFolderId(scopeId)],
+    ]);
+    const folderFailures: string[] = [];
+    let createdFolders = 0;
+    let blockedFolders = 0;
+    for (const path of plan.folders) {
+      const parentId = folderIds.get(folderPathKey(path.slice(0, -1)));
+      // 상위 폴더를 못 만들었으면 그 아래는 만들 곳이 없다 — 개수만 센다.
+      if (parentId === undefined) {
+        blockedFolders += 1;
+        continue;
+      }
+      const name = path[path.length - 1];
+      try {
+        folderIds.set(
+          folderPathKey(path),
+          await ensureUploadFolder(parentId, name),
+        );
+        createdFolders += 1;
+      } catch (error) {
+        folderFailures.push(`${path.join("/")}: ${errorMessage(error, t("실패"))}`);
+      }
+    }
+
+    const { ready, blocked } = resolveUploadTargets(plan.files, folderIds);
+    const fileFailures: string[] = [];
+    let uploaded = 0;
+    for (const target of ready) {
+      try {
+        await uploadOne(target.file, target.parentId);
+        uploaded += 1;
+      } catch (error) {
+        fileFailures.push(
+          `${target.file.name}: ${errorMessage(error, t("실패"))}`,
+        );
+      }
+    }
+
+    const parts = [
+      t("폴더 {folders}개와 파일 {files}개를 올렸습니다", {
+        folders: createdFolders,
+        files: uploaded,
+      }),
+    ];
+    if (plan.skipped) {
+      parts.push(
+        t("점(.)으로 시작하는 이름이라 {count}개를 건너뛰었습니다", {
+          count: plan.skipped,
+        }),
+      );
+    }
+    if (folderFailures.length) {
+      parts.push(
+        t("일부 폴더를 만들지 못했습니다 · {failures}", {
+          failures: folderFailures.join(" / "),
+        }),
+      );
+    }
+    if (fileFailures.length) {
+      parts.push(
+        t("일부 파일을 올리지 못했습니다 · {failures}", {
+          failures: fileFailures.join(" / "),
+        }),
+      );
+    }
+    if (blockedFolders) {
+      parts.push(
+        t("상위 폴더를 만들지 못해 하위 폴더 {count}개를 건너뛰었습니다", {
+          count: blockedFolders,
+        }),
+      );
+    }
+    if (blocked) {
+      parts.push(
+        t("상위 폴더를 만들지 못해 {count}개 파일을 건너뛰었습니다", {
+          count: blocked,
+        }),
+      );
+    }
+    setNotice(parts.join(" · "));
+    await refreshScope(scopeId);
+  }
+
   async function createNotepad(scopeId: string) {
     // 만들자마자 내용을 저장해야 하는 기능이라 편집 권한 기준으로 연다.
     // 올리기 가능 역할이 만들면 본인이 채우지도 지우지도 못하는 빈 파일이 남는다.
@@ -6511,9 +6673,16 @@ export default function FilesView({
           }
         }}
         onDrop={(event) => {
-          if (!allowUpload || data.loading || !event.dataTransfer.files.length) return;
+          if (!allowUpload || data.loading) return;
+          // 드롭 순간에 동기로 읽어야 한다 — 핸들러가 끝나면 items가 비워진다.
+          const directoryRoots = droppedDirectoryEntries(event.dataTransfer);
+          if (!directoryRoots && !event.dataTransfer.files.length) return;
           event.preventDefault();
           setDragOverScope(null);
+          if (directoryRoots) {
+            void uploadDroppedTree(directoryRoots, scopeId);
+            return;
+          }
           void uploadFiles(event.dataTransfer.files, scopeId);
         }}
         aria-label={isRoot ? t("공유 바탕화면") : t("폴더 내용")}
