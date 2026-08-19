@@ -183,6 +183,19 @@ Code checks and a successful deployment are not enough. All of the following hav
 - The host and the participant see and download the same file from both accounts.
 - If the repository changed, the per-feature issues and commits match each other, and a push or deployment happened only where it was permitted.
 
+## The last step: offer to clean up the conversation
+
+An install conversation tends to accumulate callback URLs, secrets caught in pasted screens, and environment variable contents. Right after declaring the install finished, the AI must offer this:
+
+> This conversation may still contain secrets. Shall I delete the chat transcript?
+
+If the user agrees, delete the tool's transcript file. The live session file keeps being written until the conversation ends, so it is fine to say "close this conversation first, then run the command below — or ask me to delete it in the next session."
+
+- Claude Code: `%USERPROFILE%\.claude\projects\<project folder>\<session id>.jsonl` (on macOS/Linux, `~/.claude/projects/...`)
+- Codex CLI: the session file under `~/.codex/sessions`
+
+Note: deletion only removes the record on this computer. Whatever was already sent to the provider's servers follows their retention policy — which is why rotating any exposed secret is the surest fix, deletion or not.
+
 For the install screens and detailed explanations of each error, follow the [ShareDesk production install guide](./INSTALL.md).
 
 If you want to move an install that is already running to a new version, do not build it again — use the AI request in the [ShareDesk update guide](./UPDATE.md).
