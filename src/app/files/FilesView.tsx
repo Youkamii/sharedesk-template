@@ -8310,9 +8310,6 @@ export default function FilesView({
           minimized={chatWindow.minimized}
           zIndex={chatWindow.z}
           active={chatWindow.z === topManagedWindowZ}
-          onClose={() =>
-            setChatWindow((current) => ({ ...current, minimized: true }))
-          }
           onMinimize={() =>
             setChatWindow((current) => ({ ...current, minimized: true }))
           }

@@ -14,7 +14,7 @@ import styles from "./desktop.module.css";
 const CHAT_MAX_TEXT_LENGTH = 2_000;
 const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 60_000;
-const MINIMIZED_POLL_MS = 5 * 60_000;
+const MINIMIZED_POLL_MS = 60_000;
 const ACTIVE_WINDOW_MS = 30_000;
 
 type ClientChatMessage = {
@@ -30,7 +30,6 @@ type Props = {
   minimized: boolean;
   zIndex: number;
   active: boolean;
-  onClose: () => void;
   onMinimize: () => void;
   onUnreadChange: (count: number) => void;
   onActivate: () => void;
@@ -53,7 +52,6 @@ export default function ChatPanel({
   minimized,
   zIndex,
   active,
-  onClose,
   onMinimize,
   onUnreadChange,
   onActivate,
@@ -240,9 +238,6 @@ export default function ChatPanel({
         <span className={styles.windowControls}>
           <button type="button" aria-label={t("최소화")} onClick={onMinimize}>
             <span className={styles.minimizeGlyph} />
-          </button>
-          <button type="button" aria-label={t("닫기")} onClick={onClose}>
-            <span className={styles.closeGlyph} />
           </button>
         </span>
       </header>

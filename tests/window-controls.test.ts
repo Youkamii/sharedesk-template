@@ -36,4 +36,5 @@ test("데스크의 모든 일반 창은 최소화·최대화와 작업표시줄 
   assert.match(quick, /minimized \? styles\.utilityHidden/);
   assert.match(chat, /aria-label=\{t\("최소화"\)\}/);
   assert.doesNotMatch(chat, /maximizeGlyph|"최대화"/);
+  assert.doesNotMatch(chat, /closeGlyph|"닫기"/);
 });
