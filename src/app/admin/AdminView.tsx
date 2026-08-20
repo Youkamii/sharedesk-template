@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type CSSProperties,
   type FormEvent,
   useCallback,
   useEffect,
@@ -983,6 +984,31 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const buttonClass = styles.pixelButton;
   const inputClass = styles.select;
   const pending = users.filter((user) => user.status === "pending");
+  const storageUsedBytes = storageStatus?.deskUsedBytes ?? null;
+  const storageReservedBytes = storageStatus?.reservedBytes ?? 0;
+  const storageLimitBytes = deskSettings?.deskStorageLimitBytes ?? null;
+  const storageUsedPercent =
+    storageUsedBytes !== null && storageLimitBytes !== null
+      ? Math.min(100, (storageUsedBytes / storageLimitBytes) * 100)
+      : 0;
+  const storageTotalPercent =
+    storageUsedBytes !== null && storageLimitBytes !== null
+      ? Math.min(
+          100,
+          ((storageUsedBytes + storageReservedBytes) / storageLimitBytes) * 100,
+        )
+      : 0;
+  const storageRemainingBytes =
+    storageUsedBytes !== null && storageLimitBytes !== null
+      ? Math.max(
+          0,
+          storageLimitBytes - storageUsedBytes - storageReservedBytes,
+        )
+      : null;
+  const storageDonutStyle = {
+    "--storage-used": `${storageUsedPercent}%`,
+    "--storage-total": `${storageTotalPercent}%`,
+  } as CSSProperties;
 
   return (
     <div className={styles.page}>
@@ -1640,65 +1666,102 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   <span className={styles.windowMeta}>STORAGE</span>
                 </header>
                 <div className={styles.windowBody}>
-                  <p className={styles.description}>
-                    {t(
-                      "한 파일의 최대 업로드 크기와 이 데스크가 사용할 수 있는 전체 용량을 정합니다. 비워 두면 제한하지 않습니다.",
-                    )}
-                  </p>
-                  <p className={styles.description}>
-                    {t("데스크 사용량")}: {formatBytes(storageStatus?.deskUsedBytes ?? null)}
-                    {storageStatus && storageStatus.reservedBytes > 0
-                      ? ` + ${formatBytes(storageStatus.reservedBytes)} ${t("업로드 중")}`
-                      : ""}
-                    {" · "}
+                  <div className={styles.storageLayout}>
+                    <div>
+                      <p className={styles.description}>
+                        {t(
+                          "한 파일의 최대 업로드 크기와 이 데스크가 사용할 수 있는 전체 용량을 정합니다. 비워 두면 제한하지 않습니다.",
+                        )}
+                      </p>
+                      <form
+                        key={`${deskSettings?.maxUploadBytes ?? "none"}:${deskSettings?.deskStorageLimitBytes ?? "none"}`}
+                        onSubmit={(event) => void saveStorageLimits(event)}
+                      >
+                        <label className={`${styles.field} ${styles.settingsField}`}>
+                          <span>{t("한 파일 업로드 제한 (GB)")}</span>
+                          <input
+                            name="maxUploadGiB"
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            inputMode="decimal"
+                            defaultValue={bytesAsInputGiB(
+                              deskSettings?.maxUploadBytes ?? null,
+                            )}
+                            disabled={deskSettings === null || busyId !== null}
+                            placeholder={t("제한 없음")}
+                            className={inputClass}
+                          />
+                        </label>
+                        <label className={`${styles.field} ${styles.settingsField}`}>
+                          <span>{t("데스크 전체 제한 (GB)")}</span>
+                          <input
+                            name="deskStorageLimitGiB"
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            inputMode="decimal"
+                            defaultValue={bytesAsInputGiB(
+                              deskSettings?.deskStorageLimitBytes ?? null,
+                            )}
+                            disabled={deskSettings === null || busyId !== null}
+                            placeholder={t("제한 없음")}
+                            className={inputClass}
+                          />
+                        </label>
+                        <button
+                          type="submit"
+                          className={styles.pixelButton}
+                          disabled={deskSettings === null || busyId !== null}
+                        >
+                          {t("용량 제한 저장")}
+                        </button>
+                      </form>
+                    </div>
+
+                    <aside
+                      className={styles.storageMeter}
+                      aria-label={`${t("데스크 사용량")}: ${formatBytes(storageUsedBytes)} / ${formatBytes(storageLimitBytes)}`}
+                    >
+                      <div
+                        className={`${styles.storageDonut} ${storageLimitBytes === null ? styles.storageDonutUnlimited : ""}`}
+                        style={storageDonutStyle}
+                        role="img"
+                      >
+                        <span className={styles.storageDonutCenter}>
+                          <strong>{formatBytes(storageUsedBytes)}</strong>
+                          <small>
+                            {storageLimitBytes === null
+                              ? t("제한 없음")
+                              : `${Math.round(storageTotalPercent)}%`}
+                          </small>
+                        </span>
+                      </div>
+                      <dl className={styles.storageLegend}>
+                        <div>
+                          <dt><i className={styles.storageUsedMark} />{t("데스크 사용량")}</dt>
+                          <dd>{formatBytes(storageUsedBytes)}</dd>
+                        </div>
+                        <div>
+                          <dt><i className={styles.storageReservedMark} />{t("업로드 중")}</dt>
+                          <dd>{formatBytes(storageReservedBytes)}</dd>
+                        </div>
+                        <div>
+                          <dt><i className={styles.storageFreeMark} />{t("남은 용량")}</dt>
+                          <dd>
+                            {storageLimitBytes === null
+                              ? t("제한 없음")
+                              : formatBytes(storageRemainingBytes)}
+                          </dd>
+                        </div>
+                      </dl>
+                    </aside>
+                  </div>
+                  <p className={`${styles.description} ${styles.hostStorageSummary}`}>
                     {t("호스트 사용량")}: {formatBytes(storageStatus?.hostUsedBytes ?? null)}
                     {" / "}
                     {formatBytes(storageStatus?.hostLimitBytes ?? null)}
                   </p>
-                  <form
-                    key={`${deskSettings?.maxUploadBytes ?? "none"}:${deskSettings?.deskStorageLimitBytes ?? "none"}`}
-                    onSubmit={(event) => void saveStorageLimits(event)}
-                  >
-                    <label className={`${styles.field} ${styles.settingsField}`}>
-                      <span>{t("한 파일 업로드 제한 (GB)")}</span>
-                      <input
-                        name="maxUploadGiB"
-                        type="number"
-                        min="0.001"
-                        step="0.001"
-                        inputMode="decimal"
-                        defaultValue={bytesAsInputGiB(
-                          deskSettings?.maxUploadBytes ?? null,
-                        )}
-                        disabled={deskSettings === null || busyId !== null}
-                        placeholder={t("제한 없음")}
-                        className={inputClass}
-                      />
-                    </label>
-                    <label className={`${styles.field} ${styles.settingsField}`}>
-                      <span>{t("데스크 전체 제한 (GB)")}</span>
-                      <input
-                        name="deskStorageLimitGiB"
-                        type="number"
-                        min="0.001"
-                        step="0.001"
-                        inputMode="decimal"
-                        defaultValue={bytesAsInputGiB(
-                          deskSettings?.deskStorageLimitBytes ?? null,
-                        )}
-                        disabled={deskSettings === null || busyId !== null}
-                        placeholder={t("제한 없음")}
-                        className={inputClass}
-                      />
-                    </label>
-                    <button
-                      type="submit"
-                      className={styles.pixelButton}
-                      disabled={deskSettings === null || busyId !== null}
-                    >
-                      {t("용량 제한 저장")}
-                    </button>
-                  </form>
                 </div>
               </div>
             </section>

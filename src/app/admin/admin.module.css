@@ -935,6 +935,140 @@
   margin-top: 14px;
 }
 
+/* 저장 용량 — 오래된 디스크 관리 도구처럼 사용·예약·남은 영역을 한눈에 본다. */
+.storageLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 270px);
+  align-items: center;
+  gap: clamp(20px, 5vw, 52px);
+}
+
+.storageMeter {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: #d8ccb1;
+  border: 2px solid #080d1c;
+  box-shadow:
+    inset 2px 2px 0 var(--admin-paper),
+    inset -2px -2px 0 #927f66,
+    3px 3px 0 rgb(5 9 20 / 34%);
+}
+
+.storageDonut {
+  position: relative;
+  display: grid;
+  width: 154px;
+  height: 154px;
+  place-items: center;
+  background: conic-gradient(
+    var(--admin-teal) 0 var(--storage-used),
+    var(--admin-amber) var(--storage-used) var(--storage-total),
+    #766f69 var(--storage-total) 100%
+  );
+  border: 5px solid #080d1c;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 3px #f4e7c5,
+    inset 0 0 0 7px rgb(8 13 28 / 28%),
+    4px 4px 0 rgb(5 9 20 / 42%);
+}
+
+.storageDonutUnlimited {
+  background: repeating-conic-gradient(
+    #596078 0 12deg,
+    #7d7180 12deg 24deg
+  );
+}
+
+.storageDonut::before {
+  content: "";
+  position: absolute;
+  width: 84px;
+  height: 84px;
+  background: var(--admin-paper);
+  border: 4px solid #080d1c;
+  border-radius: 50%;
+  box-shadow: inset 3px 3px 0 #c7b994;
+}
+
+.storageDonutCenter {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  max-width: 76px;
+  gap: 4px;
+  color: var(--admin-ink);
+  text-align: center;
+}
+
+.storageDonutCenter strong {
+  overflow: hidden;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 11px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storageDonutCenter small {
+  color: #555b69;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+
+.storageLegend {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.storageLegend > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 5px;
+  border-bottom: 1px dotted #7d7180;
+}
+
+.storageLegend dt,
+.storageLegend dd {
+  margin: 0;
+}
+
+.storageLegend dt {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: #555b69;
+}
+
+.storageLegend dd {
+  color: var(--admin-ink);
+  font-family: var(--font-geist-mono), monospace;
+  white-space: nowrap;
+}
+
+.storageLegend i {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 1px solid #080d1c;
+}
+
+.storageUsedMark { background: var(--admin-teal); }
+.storageReservedMark { background: var(--admin-amber); }
+.storageFreeMark { background: #766f69; }
+
+.hostStorageSummary {
+  margin-top: 14px;
+}
+
 /* 설정 탭 — 테마 섹션. 바탕화면 4종을 미리보기 카드로 고른다. */
 .themeTitlebar {
   background: #596078;
@@ -1073,6 +1207,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .storageLayout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .storageMeter {
+    grid-template-columns: auto minmax(150px, 1fr);
+    justify-items: stretch;
+  }
+
   .primaryButton {
     width: 100%;
   }
@@ -1095,6 +1238,11 @@
 
   .windowMeta {
     display: none;
+  }
+
+  .storageMeter {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
   }
 
   .codeRow {

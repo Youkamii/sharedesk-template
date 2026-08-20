@@ -153,6 +153,7 @@ export const EN_ADMIN: Record<string, string> = {
   "데스크 사용량": "Desk usage",
   "호스트 사용량": "Host usage",
   "업로드 중": "uploading",
+  "남은 용량": "Available",
   "한 파일 업로드 제한 (GB)": "Per-file upload limit (GB)",
   "데스크 전체 제한 (GB)": "Desk total limit (GB)",
   "제한 없음": "No limit",

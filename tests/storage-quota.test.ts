@@ -128,3 +128,19 @@ test("한 업로드 파일로 여러 용량 예약을 완료할 수 없다", asy
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("관리자 용량 설정은 현재 사용량을 디스크형 도넛으로 보여 준다", async () => {
+  const [view, css] = await Promise.all([
+    readFile(new URL("../src/app/admin/AdminView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/admin/admin.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(view, /storageUsedPercent/);
+  assert.match(view, /storageRemainingBytes/);
+  assert.match(view, /styles\.storageDonut/);
+  assert.match(view, /styles\.storageReservedMark/);
+  assert.match(view, /styles\.storageFreeMark/);
+  assert.match(css, /conic-gradient\(/);
+  assert.match(css, /\.storageDonutUnlimited/);
+  assert.match(css, /\.storageLegend/);
+});
