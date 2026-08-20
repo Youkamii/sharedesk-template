@@ -191,6 +191,7 @@ export default function ShareLinksWindow({
                   </button>
                   <button
                     type="button"
+                    className={styles.dangerButton}
                     disabled={busyId !== null}
                     onClick={() => void revoke(link)}
                   >

@@ -2439,11 +2439,7 @@
 
 .quickLinkWindow,
 .shareLinksWindow {
-  left: 50%;
-  top: 78px;
   z-index: 74;
-  width: min(720px, calc(100% - 28px));
-  height: min(590px, calc(100% - 150px));
   min-width: 340px;
   min-height: 320px;
   transform: translateX(-50%);
@@ -2491,10 +2487,18 @@
 }
 
 .quickLinkWindow {
+  left: calc(50% - 42px);
+  top: 72px;
+  width: min(640px, calc(100% - 28px));
+  height: min(460px, calc(100% - 144px));
   grid-template-rows: 32px auto minmax(0, 1fr) 28px;
 }
 
 .shareLinksWindow {
+  left: calc(50% + 48px);
+  top: 104px;
+  width: min(620px, calc(100% - 28px));
+  height: min(430px, calc(100% - 176px));
   grid-template-rows: 32px minmax(0, 1fr) 28px;
 }
 
@@ -2641,6 +2645,13 @@
   border: 2px solid #10172b;
   box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f;
   font: inherit;
+}
+
+.quickLinkActions button.dangerButton,
+.shareLinksBody button.dangerButton {
+  color: #fff8e7;
+  background: #a53c46;
+  box-shadow: inset 2px 2px 0 #e27a78, inset -2px -2px 0 #632439;
 }
 
 .quickLinkList,

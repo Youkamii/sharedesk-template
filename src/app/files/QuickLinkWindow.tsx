@@ -336,7 +336,9 @@ export default function QuickLinkWindow({
         }}
       >
         <strong>{t("파일을 놓으면 바로 1시간 링크를 만듭니다")}</strong>
-        <span>{t("체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.")}</span>
+        <span id="quick-link-delete-help">
+          {t("체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.")}
+        </span>
         <button type="button" onClick={() => inputRef.current?.click()}>
           {t("파일 고르기")}
         </button>
@@ -360,6 +362,7 @@ export default function QuickLinkWindow({
               <label>
                 <input
                   type="checkbox"
+                  aria-describedby="quick-link-delete-help"
                   checked={
                     item.link
                       ? item.link.deleteOnExpire
@@ -385,7 +388,11 @@ export default function QuickLinkWindow({
                   <button type="button" onClick={() => void copy(item.link!)}>
                     {t("복사")}
                   </button>
-                  <button type="button" onClick={() => void stop(item)}>
+                  <button
+                    type="button"
+                    className={styles.dangerButton}
+                    onClick={() => void stop(item)}
+                  >
                     {t("공유 멈추기")}
                   </button>
                 </div>
