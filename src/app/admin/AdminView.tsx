@@ -1729,7 +1729,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                         </label>
                         <button
                           type="submit"
-                          className={styles.pixelButton}
+                          className={`${styles.pixelButton} ${styles.storageSubmit}`}
                           disabled={deskSettings === null || busyId !== null}
                         >
                           {t("용량 제한 저장")}
@@ -1744,7 +1744,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       <div
                         className={`${styles.storageDonut} ${storageLimitBytes === null ? styles.storageDonutUnlimited : ""}`}
                         style={storageDonutStyle}
-                        role="img"
+                        aria-hidden="true"
                       >
                         <span className={styles.storageDonutCenter}>
                           <strong>{formatBytes(storageUsedBytes)}</strong>

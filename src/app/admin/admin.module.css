@@ -935,6 +935,10 @@
   margin-top: 14px;
 }
 
+.storageSubmit {
+  margin-top: 14px;
+}
+
 /* 저장 용량 — 오래된 디스크 관리 도구처럼 사용·예약·남은 영역을 한눈에 본다. */
 .storageLayout {
   display: grid;

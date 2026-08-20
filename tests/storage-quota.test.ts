@@ -267,10 +267,13 @@ test("관리자 용량 설정은 현재 사용량을 디스크형 도넛으로 �
   assert.match(view, /styles\.storageDonut/);
   assert.match(view, /styles\.storageReservedMark/);
   assert.match(view, /styles\.storageFreeMark/);
+  assert.match(view, /styles\.storageSubmit/);
+  assert.match(view, /aria-hidden="true"/);
   assert.match(view, /activeTab !== "settings"/);
   assert.match(view, /window\.setInterval\(refresh, 60_000\)/);
   assert.match(view, /visibilitychange/);
   assert.match(css, /conic-gradient\(/);
   assert.match(css, /\.storageDonutUnlimited/);
   assert.match(css, /\.storageLegend/);
+  assert.match(css, /\.storageSubmit \{\s*margin-top: 14px;/);
 });
