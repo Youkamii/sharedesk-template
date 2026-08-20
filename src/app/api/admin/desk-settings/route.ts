@@ -11,7 +11,12 @@ import {
   hasAutoUpdateWorkflow,
   resolveUpdateRepository,
 } from "@/lib/update-status";
-import { getDeskSettings, parseTimezone, setDeskSettings } from "@/lib/users";
+import {
+  getDeskSettings,
+  parseOptionalByteLimit,
+  parseTimezone,
+  setDeskSettings,
+} from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,6 +44,8 @@ export async function PATCH(req: NextRequest) {
     allowMemberLocale?: boolean;
     autoUpdate?: boolean;
     autoUpdateTimezone?: string | null;
+    maxUploadBytes?: number | null;
+    deskStorageLimitBytes?: number | null;
   } = {};
   if ("locale" in body) {
     const locale = parseLocale((body as { locale?: unknown }).locale);
@@ -82,12 +89,49 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  for (const key of ["maxUploadBytes", "deskStorageLimitBytes"] as const) {
+    if (!(key in body)) continue;
+    const parsed = parseOptionalByteLimit(
+      (body as Record<string, unknown>)[key],
+    );
+    if (parsed === undefined) {
+      return NextResponse.json(
+        { error: "용량 제한 값을 확인해 주세요" },
+        { status: 400 },
+      );
+    }
+    patch[key] = parsed;
+  }
+
   if (
     patch.locale === undefined &&
     patch.allowMemberLocale === undefined &&
-    patch.autoUpdate === undefined
+    patch.autoUpdate === undefined &&
+    patch.maxUploadBytes === undefined &&
+    patch.deskStorageLimitBytes === undefined
   ) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
+  }
+
+  if (
+    patch.maxUploadBytes !== undefined ||
+    patch.deskStorageLimitBytes !== undefined
+  ) {
+    const current = await getDeskSettings({ fresh: true });
+    const nextMax =
+      patch.maxUploadBytes !== undefined
+        ? patch.maxUploadBytes
+        : current.maxUploadBytes;
+    const nextDesk =
+      patch.deskStorageLimitBytes !== undefined
+        ? patch.deskStorageLimitBytes
+        : current.deskStorageLimitBytes;
+    if (nextMax !== null && nextDesk !== null && nextMax > nextDesk) {
+      return NextResponse.json(
+        { error: "한 번 업로드 제한은 데스크 전체 제한보다 클 수 없습니다" },
+        { status: 400 },
+      );
+    }
   }
 
   if (patch.autoUpdate === true) {

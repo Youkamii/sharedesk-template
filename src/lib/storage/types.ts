@@ -47,7 +47,15 @@ export interface DownloadResult {
   generatedPreview?: "office-fallback";
 }
 
-export type UploadSession = { mode: "direct"; url: string } | { mode: "proxy" };
+export type UploadSession =
+  | { mode: "direct"; url: string; reservationId?: string }
+  | { mode: "proxy"; reservationId?: string };
+
+export interface StorageUsage {
+  deskUsedBytes: number;
+  hostUsedBytes: number | null;
+  hostLimitBytes: number | null;
+}
 
 export type ShareRole = "reader" | "writer";
 
@@ -173,6 +181,10 @@ export interface StorageAdapter {
     size: number,
     origin: string,
   ): Promise<UploadSession>;
+  // 데스크 루트 아래 숨김 파일과 휴지통까지 포함한 실제 사용량, 그리고
+  // 저장소 계정 전체 사용량/한도다. 업로드 제한은 화면이 아니라 서버에서
+  // 이 값을 기준으로 집행한다.
+  getStorageUsage(): Promise<StorageUsage>;
   createPermission(
     id: string,
     email: string,

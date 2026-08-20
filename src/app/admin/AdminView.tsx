@@ -128,6 +128,52 @@ type Translator = (
   vars?: Record<string, string | number>,
 ) => string;
 
+type AdminDeskSettings = DeskLocaleSettings & {
+  autoUpdate: boolean;
+  maxUploadBytes: number | null;
+  deskStorageLimitBytes: number | null;
+};
+
+type StorageStatus = {
+  deskUsedBytes: number;
+  hostUsedBytes: number | null;
+  hostLimitBytes: number | null;
+  reservedBytes: number;
+};
+
+const GIB = 1024 ** 3;
+
+function bytesAsInputGiB(value: number | null): string {
+  return value === null ? "" : String(Number((value / GIB).toFixed(3)));
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1024) return `${value} B`;
+  const units = ["KB", "MB", "GB", "TB", "PB"];
+  let amount = value;
+  let unit = -1;
+  do {
+    amount /= 1024;
+    unit += 1;
+  } while (amount >= 1024 && unit < units.length - 1);
+  return `${amount >= 100 ? amount.toFixed(0) : amount.toFixed(1)} ${units[unit]}`;
+}
+
+function byteLimitFromForm(value: FormDataEntryValue | null): number | null {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return null;
+  const gib = Number(text);
+  if (!Number.isFinite(gib) || gib <= 0) {
+    throw new Error("용량은 0보다 큰 GB 값으로 입력해 주세요");
+  }
+  const bytes = Math.round(gib * GIB);
+  if (!Number.isSafeInteger(bytes)) {
+    throw new Error("용량 값이 너무 큽니다");
+  }
+  return bytes;
+}
+
 function formatDate(value: string | null, locale: Locale): string {
   if (!value) return "—";
   const date = new Date(value);
@@ -172,8 +218,9 @@ export default function AdminView({ locale }: { locale: Locale }) {
   });
   const [activeTab, setActiveTab] = useState<AdminTab>("users");
   const [deskSettings, setDeskSettings] = useState<
-    (DeskLocaleSettings & { autoUpdate: boolean }) | null
+    AdminDeskSettings | null
   >(null);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   // 활동 탭 — 열 때마다 최근 활동을 새로 불러온다.
   const [activity, setActivity] = useState<
     { entries: ActivityEntry[] } | { error: string } | null
@@ -316,6 +363,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
             locale?: unknown;
             allowMemberLocale?: unknown;
             autoUpdate?: unknown;
+            maxUploadBytes?: unknown;
+            deskStorageLimitBytes?: unknown;
             error?: string;
           } | null;
           const deskLocale = parseLocale(body?.locale);
@@ -333,6 +382,16 @@ export default function AdminView({ locale }: { locale: Locale }) {
             locale: deskLocale,
             allowMemberLocale: body.allowMemberLocale,
             autoUpdate: body.autoUpdate === true,
+            maxUploadBytes:
+              body.maxUploadBytes === null ||
+              Number.isSafeInteger(body.maxUploadBytes)
+                ? (body.maxUploadBytes as number | null)
+                : null,
+            deskStorageLimitBytes:
+              body.deskStorageLimitBytes === null ||
+              Number.isSafeInteger(body.deskStorageLimitBytes)
+                ? (body.deskStorageLimitBytes as number | null)
+                : null,
           };
         })
         .then((settings) => {
@@ -347,6 +406,46 @@ export default function AdminView({ locale }: { locale: Locale }) {
           );
         });
     }, 0);
+    return () => {
+      window.clearTimeout(initial);
+      controller.abort();
+    };
+  }, [router, t]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const loadStorage = async () => {
+      try {
+        const response = await fetch("/api/storage/usage", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.status === 401 || response.status === 403) {
+          router.replace("/files");
+          return;
+        }
+        const body = (await response.json().catch(() => null)) as
+          | (StorageStatus & { error?: string })
+          | null;
+        if (
+          !response.ok ||
+          !body ||
+          !Number.isSafeInteger(body.deskUsedBytes) ||
+          !Number.isSafeInteger(body.reservedBytes)
+        ) {
+          throw new Error(body?.error ?? t("저장 용량을 불러오지 못했습니다"));
+        }
+        setStorageStatus(body);
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === "AbortError") return;
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : t("저장 용량을 불러오지 못했습니다"),
+        );
+      }
+    };
+    const initial = window.setTimeout(() => void loadStorage(), 0);
     return () => {
       window.clearTimeout(initial);
       controller.abort();
@@ -686,6 +785,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
       allowMemberLocale?: boolean;
       autoUpdate?: boolean;
       autoUpdateTimezone?: string;
+      maxUploadBytes?: number | null;
+      deskStorageLimitBytes?: number | null;
       star?: boolean;
     },
     successNotice: string,
@@ -707,6 +808,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
         locale?: unknown;
         allowMemberLocale?: unknown;
         autoUpdate?: unknown;
+        maxUploadBytes?: unknown;
+        deskStorageLimitBytes?: unknown;
         error?: string;
       } | null;
       const savedLocale = parseLocale(body?.locale);
@@ -722,6 +825,15 @@ export default function AdminView({ locale }: { locale: Locale }) {
         locale: savedLocale,
         allowMemberLocale: body.allowMemberLocale,
         autoUpdate: body.autoUpdate === true,
+        maxUploadBytes:
+          body.maxUploadBytes === null || Number.isSafeInteger(body.maxUploadBytes)
+            ? (body.maxUploadBytes as number | null)
+            : null,
+        deskStorageLimitBytes:
+          body.deskStorageLimitBytes === null ||
+          Number.isSafeInteger(body.deskStorageLimitBytes)
+            ? (body.deskStorageLimitBytes as number | null)
+            : null,
       });
       setNotice(successNotice);
       // 데스크 언어·개별 언어 허용 둘 다 지금 보이는 화면 언어를 바꿀 수 있다.
@@ -734,6 +846,34 @@ export default function AdminView({ locale }: { locale: Locale }) {
       );
     } finally {
       finishMutation();
+    }
+  }
+
+  async function saveStorageLimits(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      const maxUploadBytes = byteLimitFromForm(form.get("maxUploadGiB"));
+      const deskStorageLimitBytes = byteLimitFromForm(
+        form.get("deskStorageLimitGiB"),
+      );
+      if (
+        maxUploadBytes !== null &&
+        deskStorageLimitBytes !== null &&
+        maxUploadBytes > deskStorageLimitBytes
+      ) {
+        throw new Error("한 번 업로드 제한은 데스크 전체 제한보다 작아야 합니다");
+      }
+      await updateDeskSettings(
+        { maxUploadBytes, deskStorageLimitBytes },
+        "저장 용량 제한을 바꿨습니다.",
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : t("용량 제한 값을 확인해 주세요"),
+      );
     }
   }
 
@@ -764,11 +904,13 @@ export default function AdminView({ locale }: { locale: Locale }) {
       if (response.ok && body?.autoUpdate === true) {
         const savedLocale = parseLocale(body.locale);
         if (savedLocale && typeof body.allowMemberLocale === "boolean") {
-          setDeskSettings({
+          setDeskSettings((current) => ({
             locale: savedLocale,
-            allowMemberLocale: body.allowMemberLocale,
+            allowMemberLocale: body.allowMemberLocale as boolean,
             autoUpdate: true,
-          });
+            maxUploadBytes: current?.maxUploadBytes ?? null,
+            deskStorageLimitBytes: current?.deskStorageLimitBytes ?? null,
+          }));
         }
         setNotice(t("이제 자정에 자동으로 업데이트됩니다."));
         setError(null);
@@ -1485,6 +1627,78 @@ export default function AdminView({ locale }: { locale: Locale }) {
                       ))}
                     </select>
                   </label>
+                </div>
+              </div>
+            </section>
+
+            <section aria-labelledby="storage-title">
+              <div className={styles.window}>
+                <header className={styles.windowTitlebar}>
+                  <span className={styles.windowTitle}>
+                    <h2 id="storage-title">{t("저장 용량")}</h2>
+                  </span>
+                  <span className={styles.windowMeta}>STORAGE</span>
+                </header>
+                <div className={styles.windowBody}>
+                  <p className={styles.description}>
+                    {t(
+                      "한 파일의 최대 업로드 크기와 이 데스크가 사용할 수 있는 전체 용량을 정합니다. 비워 두면 제한하지 않습니다.",
+                    )}
+                  </p>
+                  <p className={styles.description}>
+                    {t("데스크 사용량")}: {formatBytes(storageStatus?.deskUsedBytes ?? null)}
+                    {storageStatus && storageStatus.reservedBytes > 0
+                      ? ` + ${formatBytes(storageStatus.reservedBytes)} ${t("업로드 중")}`
+                      : ""}
+                    {" · "}
+                    {t("호스트 사용량")}: {formatBytes(storageStatus?.hostUsedBytes ?? null)}
+                    {" / "}
+                    {formatBytes(storageStatus?.hostLimitBytes ?? null)}
+                  </p>
+                  <form
+                    key={`${deskSettings?.maxUploadBytes ?? "none"}:${deskSettings?.deskStorageLimitBytes ?? "none"}`}
+                    onSubmit={(event) => void saveStorageLimits(event)}
+                  >
+                    <label className={`${styles.field} ${styles.settingsField}`}>
+                      <span>{t("한 파일 업로드 제한 (GB)")}</span>
+                      <input
+                        name="maxUploadGiB"
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        inputMode="decimal"
+                        defaultValue={bytesAsInputGiB(
+                          deskSettings?.maxUploadBytes ?? null,
+                        )}
+                        disabled={deskSettings === null || busyId !== null}
+                        placeholder={t("제한 없음")}
+                        className={inputClass}
+                      />
+                    </label>
+                    <label className={`${styles.field} ${styles.settingsField}`}>
+                      <span>{t("데스크 전체 제한 (GB)")}</span>
+                      <input
+                        name="deskStorageLimitGiB"
+                        type="number"
+                        min="0.001"
+                        step="0.001"
+                        inputMode="decimal"
+                        defaultValue={bytesAsInputGiB(
+                          deskSettings?.deskStorageLimitBytes ?? null,
+                        )}
+                        disabled={deskSettings === null || busyId !== null}
+                        placeholder={t("제한 없음")}
+                        className={inputClass}
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className={styles.pixelButton}
+                      disabled={deskSettings === null || busyId !== null}
+                    >
+                      {t("용량 제한 저장")}
+                    </button>
+                  </form>
                 </div>
               </div>
             </section>

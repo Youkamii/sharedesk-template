@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import { errorResponse, requireUploadRights } from "@/lib/api";
+import {
+  finishUploadReservation,
+  reserveUpload,
+} from "@/lib/storage-quota";
 
 export async function POST(req: NextRequest) {
   const auth = await requireUploadRights({ fresh: true });
@@ -19,14 +23,31 @@ export async function POST(req: NextRequest) {
   const size = typeof body.size === "number" ? body.size : 0;
   const origin = req.headers.get("origin") ?? req.nextUrl.origin;
   try {
-    const session = await getAdapter().createUploadSession(
+    const reservationId = await reserveUpload({
+      userId: auth.session.userId,
       parentId,
-      body.name,
-      mimeType,
-      size,
-      origin,
-    );
-    return NextResponse.json(session);
+      name: body.name,
+      size: body.size,
+    });
+    try {
+      const session = await getAdapter().createUploadSession(
+        parentId,
+        body.name,
+        mimeType,
+        size,
+        origin,
+      );
+      return NextResponse.json({
+        ...session,
+        reservationId: reservationId ?? undefined,
+      });
+    } catch (error) {
+      await finishUploadReservation(
+        reservationId,
+        auth.session.userId,
+      ).catch(() => undefined);
+      throw error;
+    }
   } catch (e) {
     return errorResponse(e);
   }

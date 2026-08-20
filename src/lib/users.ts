@@ -129,6 +129,24 @@ export interface DeskSettings {
   allowMemberLocale: boolean;
   autoUpdate: boolean;
   autoUpdateTimezone: string | null;
+  maxUploadBytes: number | null;
+  deskStorageLimitBytes: number | null;
+}
+
+export const MIN_STORAGE_LIMIT_BYTES = 1024 * 1024;
+export const MAX_STORAGE_LIMIT_BYTES = 8 * 1024 ** 5;
+
+// null은 제한 없음, undefined는 잘못된 입력이다. API와 저장 파일 정규화가
+// 같은 범위를 쓰도록 한 곳에서 판정한다.
+export function parseOptionalByteLimit(
+  value: unknown,
+): number | null | undefined {
+  if (value === null) return null;
+  return Number.isSafeInteger(value) &&
+    (value as number) >= MIN_STORAGE_LIMIT_BYTES &&
+    (value as number) <= MAX_STORAGE_LIMIT_BYTES
+    ? (value as number)
+    : undefined;
 }
 
 // npm run setup이 설치 때 고른 데스크 기본 언어. 값이 없거나 잘못되면 영어.
@@ -142,6 +160,8 @@ export function defaultDeskSettings(): DeskSettings {
     allowMemberLocale: false,
     autoUpdate: false,
     autoUpdateTimezone: null,
+    maxUploadBytes: null,
+    deskStorageLimitBytes: null,
   };
 }
 
@@ -425,6 +445,8 @@ function normalize(raw: unknown): UserFile {
         allowMemberLocale?: unknown;
         autoUpdate?: unknown;
         autoUpdateTimezone?: unknown;
+        maxUploadBytes?: unknown;
+        deskStorageLimitBytes?: unknown;
       };
     }
   ).deskSettings;
@@ -443,6 +465,10 @@ function normalize(raw: unknown): UserFile {
       // 시간대 없이 자동 업데이트만 켜진 상태는 만들지 않는다.
       autoUpdate: rawSettings?.autoUpdate === true && autoUpdateTimezone !== null,
       autoUpdateTimezone,
+      maxUploadBytes:
+        parseOptionalByteLimit(rawSettings?.maxUploadBytes) ?? null,
+      deskStorageLimitBytes:
+        parseOptionalByteLimit(rawSettings?.deskStorageLimitBytes) ?? null,
     },
   };
 }
@@ -879,6 +905,11 @@ export async function setDeskSettings(
   ) {
     throw new Error("시간대 값을 확인해 주세요");
   }
+  for (const value of [patch.maxUploadBytes, patch.deskStorageLimitBytes]) {
+    if (value !== undefined && parseOptionalByteLimit(value) === undefined) {
+      throw new Error("용량 제한 값을 확인해 주세요");
+    }
+  }
   const updated = await mutate((file) => {
     if (patch.locale !== undefined) {
       file.deskSettings.locale = patch.locale;
@@ -893,6 +924,12 @@ export async function setDeskSettings(
       file.deskSettings.autoUpdate =
         patch.autoUpdate === true &&
         file.deskSettings.autoUpdateTimezone !== null;
+    }
+    if (patch.maxUploadBytes !== undefined) {
+      file.deskSettings.maxUploadBytes = patch.maxUploadBytes;
+    }
+    if (patch.deskStorageLimitBytes !== undefined) {
+      file.deskSettings.deskStorageLimitBytes = patch.deskStorageLimitBytes;
     }
     // 끄면 시간대도 지워 다음 켜기에서 그 브라우저 기준으로 다시 잡는다.
     if (patch.autoUpdate === false) {

@@ -138,8 +138,8 @@ type Entry = {
 };
 
 type UploadSession =
-  | { mode: "direct"; url: string }
-  | { mode: "proxy" };
+  | { mode: "direct"; url: string; reservationId?: string }
+  | { mode: "proxy"; reservationId?: string };
 
 type Placement = { x: number; y: number; version: number };
 
@@ -6168,10 +6168,23 @@ export default function FilesView({
         const body = JSON.parse(response.responseText || "null") as {
           id?: string;
         } | null;
+        if (session.reservationId && body?.id) {
+          await apiJson("/api/drive/upload-complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reservationId: session.reservationId,
+              fileId: body.id,
+            }),
+          });
+        }
         return body?.id ?? null;
       }
+      const reservationQuery = session.reservationId
+        ? `&reservationId=${encodeURIComponent(session.reservationId)}`
+        : "";
       const response = await uploadWithProgress(
-        `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}`,
+        `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}${reservationQuery}`,
         "POST",
         file,
         mimeType,

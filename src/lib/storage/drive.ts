@@ -10,6 +10,7 @@ import {
   StorageAdapter,
   StorageError,
   StoragePermission,
+  StorageUsage,
   ShareRole,
   TrashDeleteTarget,
   TrashEntry,
@@ -456,6 +457,41 @@ interface DriveFile {
   trashed?: boolean;
 }
 
+type DriveUsageFile = {
+  id: string;
+  mimeType?: string;
+  size?: string;
+  parents?: string[];
+  trashed?: boolean;
+};
+
+async function listUsageFiles(trashed: boolean): Promise<DriveUsageFile[]> {
+  const files: DriveUsageFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: `trashed=${trashed}`,
+      fields: "nextPageToken,files(id,mimeType,size,parents,trashed)",
+      pageSize: "1000",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const response = await driveFetch(`${API}/files?${params}`);
+    const body = (await response.json()) as {
+      files?: DriveUsageFile[];
+      nextPageToken?: string;
+    };
+    files.push(...(body.files ?? []));
+    pageToken = body.nextPageToken;
+  } while (pageToken);
+  return files;
+}
+
+function numericBytes(value: unknown): number | null {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 async function readPreviewPdf(response: Response): Promise<Uint8Array> {
   const declared = response.headers.get("content-length");
   if (declared && Number(declared) > MAX_OFFICE_PREVIEW_PDF_BYTES) {
@@ -869,6 +905,42 @@ export class DriveAdapter implements StorageAdapter {
           : 1,
     );
     return entries;
+  }
+
+  async getStorageUsage(): Promise<StorageUsage> {
+    const [aboutResponse, activeFiles, trashedFiles] = await Promise.all([
+      driveFetch(`${API}/about?fields=storageQuota(limit,usage)`),
+      listUsageFiles(false),
+      listUsageFiles(true),
+    ]);
+    const about = (await aboutResponse.json()) as {
+      storageQuota?: { limit?: string; usage?: string };
+    };
+    const files = [...activeFiles, ...trashedFiles];
+    const byId = new Map(files.map((file) => [file.id, file]));
+    const root = rootFolderId();
+    const insideMemo = new Map<string, boolean>();
+    const isInsideDesk = (id: string, seen = new Set<string>()): boolean => {
+      if (id === root) return true;
+      const cached = insideMemo.get(id);
+      if (cached !== undefined) return cached;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const parent = byId.get(id)?.parents?.[0];
+      const inside = !!parent && isInsideDesk(parent, seen);
+      insideMemo.set(id, inside);
+      return inside;
+    };
+    let deskUsedBytes = 0;
+    for (const file of files) {
+      if (file.mimeType === FOLDER_MIME || !isInsideDesk(file.id)) continue;
+      deskUsedBytes += numericBytes(file.size) ?? 0;
+    }
+    return {
+      deskUsedBytes,
+      hostUsedBytes: numericBytes(about.storageQuota?.usage),
+      hostLimitBytes: numericBytes(about.storageQuota?.limit),
+    };
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {

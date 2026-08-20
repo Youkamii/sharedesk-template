@@ -10,6 +10,7 @@ import {
   rename as fsRename,
   rm,
   stat,
+  statfs,
   writeFile,
 } from "node:fs/promises";
 import { Readable } from "node:stream";
@@ -27,6 +28,7 @@ import {
   StorageAdapter,
   StorageError,
   StoragePermission,
+  StorageUsage,
   ShareRole,
   TrashDeleteTarget,
   TrashEntry,
@@ -382,6 +384,29 @@ export class LocalAdapter implements StorageAdapter {
           : 1,
     );
     return entries;
+  }
+
+  async getStorageUsage(): Promise<StorageUsage> {
+    await this.ensureRoot();
+    const root = rootDir();
+    const sizeOf = async (directory: string): Promise<number> => {
+      const items = await readdir(directory, { withFileTypes: true });
+      let total = 0;
+      for (const item of items) {
+        const target = path.join(directory, item.name);
+        if (item.isDirectory()) total += await sizeOf(target);
+        else total += (await lstat(target)).size;
+      }
+      return total;
+    };
+    const [deskUsedBytes, disk] = await Promise.all([sizeOf(root), statfs(root)]);
+    const hostLimitBytes = disk.blocks * disk.bsize;
+    const hostFreeBytes = disk.bavail * disk.bsize;
+    return {
+      deskUsedBytes,
+      hostUsedBytes: Math.max(0, hostLimitBytes - hostFreeBytes),
+      hostLimitBytes,
+    };
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
