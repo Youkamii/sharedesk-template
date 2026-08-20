@@ -1698,10 +1698,8 @@ test("외부 공유 링크는 수정 가능 역할의 파일에서만 열리고 
     ),
   ]);
   // 메뉴 항목: canEdit(allowEdit) 게이트 + 폴더 제외.
-  assert.match(
-    filesView,
-    /\{allowEdit && !contextMenu\.entry\.isFolder && \(\s*<MenuButton[\s\S]*?openShareLinkDialog/,
-  );
+  assert.match(filesView, /createFastShareLink\(contextMenu\.entry!\)/);
+  assert.match(filesView, /openShareLinkDialog\(contextMenu\.entry!\)/);
   // 창 렌더도 같은 게이트를 지난다.
   assert.match(filesView, /\{allowEdit && shareLinkEntry && \(/);
   // 서버 관리 API를 쓰고, 공개 URL 형식을 만든다.

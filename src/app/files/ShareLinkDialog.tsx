@@ -17,6 +17,7 @@ type ShareLinkDialogProps = {
   entry: {
     id: string;
     name: string;
+    isFolder: boolean;
   };
   locale: Locale;
   onClose: () => void;
@@ -346,7 +347,9 @@ export default function ShareLinkDialog({
             }}
           >
             <span>
-              {t("링크를 아는 사람은 로그인 없이 이 파일 하나만 내려받을 수 있습니다.")}
+              {entry.isFolder
+                ? t("링크를 아는 사람은 로그인 없이 이 폴더 안을 둘러보고 파일을 받을 수 있습니다.")
+                : t("링크를 아는 사람은 로그인 없이 이 파일 하나만 내려받을 수 있습니다.")}
             </span>
             <small>
               {t("정한 기간이 지나면 링크는 저절로 만료되고, 언제든 먼저 취소할 수도 있습니다.")}
@@ -420,7 +423,7 @@ export default function ShareLinkDialog({
                 <strong id={`${titleId}-links`}>{t("활성 링크")}</strong>
                 {links.length === 0 ? (
                   <span style={{ color: "#666b78", lineHeight: 1.5 }}>
-                    {t("이 파일의 활성 링크가 없습니다.")}
+                    {t("이 항목의 활성 링크가 없습니다.")}
                   </span>
                 ) : (
                   <ul

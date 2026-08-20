@@ -2,99 +2,123 @@ import { randomBytes } from "node:crypto";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 
-// 외부 공유 링크 — 링크를 아는 사람이 로그인 없이 파일 하나를 내려받는
-// 만료형 통로. 발급 기록을 저장소 상태 파일에 남겨 두므로 만료 전에도
-// 취소할 수 있다. 링크 id는 URL에 그대로 노출되는 비밀이라 충분히 긴
-// 난수를 쓴다.
 const FILE = "share-links.json";
 const MAX_LINKS = 200;
-const MAX_ATTEMPTS = 3;
+const MAX_PENDING_DELETES = 500;
+const MAX_ATTEMPTS = 4;
 const MAX_EXPIRY_HOURS = 24 * 30;
-// 공개 다운로드 경로는 인증이 없어 요청마다 저장소를 읽으면 무인증
-// 트래픽이 Drive 쿼터를 증폭시킨다. 짧은 캐시로 읽기를 흡수한다
-// (서버리스 인스턴스별 캐시 — 취소 반영이 최대 이 시간만큼 늦을 수 있다).
-const READ_CACHE_MS = 15_000;
-let readCache: { at: number; file: ShareLinkFile } | null = null;
 
 export interface ShareLink {
   linkId: string;
   fileId: string;
-  // 발급 시점의 파일 이름 — 목록 표시용. 이후 이름이 바뀌어도 링크는 산다.
   name: string;
+  kind: "file" | "folder";
   createdBy: string;
+  createdByUserId: string;
   createdAt: string;
   expiresAt: string;
+  quick: boolean;
+  deleteOnExpire: boolean;
+}
+
+interface PendingDelete {
+  linkId: string;
+  fileId: string;
+  name: string;
+  deleteAt: string;
 }
 
 interface ShareLinkFile {
-  version: 1;
+  version: 2;
   links: ShareLink[];
+  pendingDeletes: PendingDelete[];
+}
+
+function validIso(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 function normalize(value: unknown): ShareLinkFile {
-  const raw = value as { links?: unknown } | null;
+  const raw = value as {
+    links?: unknown;
+    pendingDeletes?: unknown;
+  } | null;
   const links = Array.isArray(raw?.links)
     ? raw.links
-        .filter((link): link is ShareLink => {
-          const candidate = link as ShareLink | null;
+        .filter((value): value is ShareLink => {
+          const link = value as Partial<ShareLink> | null;
           return (
-            !!candidate &&
-            typeof candidate.linkId === "string" &&
-            /^[a-f0-9]{48}$/.test(candidate.linkId) &&
-            typeof candidate.fileId === "string" &&
-            typeof candidate.name === "string" &&
-            typeof candidate.createdBy === "string" &&
-            typeof candidate.createdAt === "string" &&
-            typeof candidate.expiresAt === "string"
+            !!link &&
+            typeof link.linkId === "string" &&
+            /^[a-f0-9]{48}$/.test(link.linkId) &&
+            typeof link.fileId === "string" &&
+            typeof link.name === "string" &&
+            typeof link.createdBy === "string" &&
+            validIso(link.createdAt) &&
+            validIso(link.expiresAt)
           );
         })
+        .map<ShareLink>((link) => ({
+          ...link,
+          kind: link.kind === "folder" ? "folder" : "file",
+          createdByUserId:
+            typeof link.createdByUserId === "string" ? link.createdByUserId : "",
+          quick: link.quick === true,
+          deleteOnExpire: link.quick === true && link.deleteOnExpire === true,
+        }))
         .slice(0, MAX_LINKS)
     : [];
-  return { version: 1, links };
+  const pendingDeletes = Array.isArray(raw?.pendingDeletes)
+    ? raw.pendingDeletes
+        .filter((value): value is PendingDelete => {
+          const pending = value as Partial<PendingDelete> | null;
+          return (
+            !!pending &&
+            typeof pending.linkId === "string" &&
+            typeof pending.fileId === "string" &&
+            typeof pending.name === "string" &&
+            validIso(pending.deleteAt)
+          );
+        })
+        .slice(0, MAX_PENDING_DELETES)
+    : [];
+  return { version: 2, links, pendingDeletes };
 }
 
-function pruneExpired(file: ShareLinkFile, now: number): ShareLinkFile {
-  return {
-    version: 1,
-    links: file.links.filter((link) => Date.parse(link.expiresAt) > now),
-  };
+function activeLinks(file: ShareLinkFile, now = Date.now()): ShareLink[] {
+  return file.links.filter((link) => Date.parse(link.expiresAt) > now);
 }
 
-async function mutate(
-  change: (file: ShareLinkFile) => ShareLinkFile,
-): Promise<ShareLinkFile> {
+async function mutate<T>(
+  change: (file: ShareLinkFile) => { file: ShareLinkFile; result: T },
+): Promise<T> {
   const adapter = getAdapter();
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     const state = await adapter.readStateVersioned<ShareLinkFile>(FILE);
-    const next = change(pruneExpired(normalize(state.value), Date.now()));
+    const changed = change(normalize(state.value));
     try {
-      await adapter.compareAndSwapState(FILE, next, state.version);
-      readCache = { at: Date.now(), file: next };
-      return next;
+      await adapter.compareAndSwapState(FILE, changed.file, state.version);
+      return changed.result;
     } catch (error) {
       lastError = error;
+      if (!(error instanceof StorageError) || error.code !== "CONFLICT") {
+        throw error;
+      }
     }
   }
   throw lastError ?? new StorageError("CONFLICT", "잠시 후 다시 시도해 주세요");
 }
 
-async function readLinks(): Promise<ShareLinkFile> {
-  if (readCache && Date.now() - readCache.at < READ_CACHE_MS) {
-    return readCache.file;
-  }
-  const state = await getAdapter().readStateVersioned<ShareLinkFile>(FILE);
-  const file = normalize(state.value);
-  readCache = { at: Date.now(), file };
-  return file;
+async function readFile(): Promise<ShareLinkFile> {
+  return normalize(await getAdapter().readState<ShareLinkFile>(FILE));
 }
 
 export function parseExpiryHours(value: unknown): number | null {
   const hours = typeof value === "number" ? value : Number.NaN;
-  if (!Number.isInteger(hours) || hours < 1 || hours > MAX_EXPIRY_HOURS) {
-    return null;
-  }
-  return hours;
+  return Number.isInteger(hours) && hours >= 1 && hours <= MAX_EXPIRY_HOURS
+    ? hours
+    : null;
 }
 
 export async function createShareLink(
@@ -102,52 +126,213 @@ export async function createShareLink(
   name: string,
   createdBy: string,
   expiresInHours: number,
+  options: {
+    kind?: "file" | "folder";
+    createdByUserId?: string;
+    quick?: boolean;
+    deleteOnExpire?: boolean;
+  } = {},
 ): Promise<ShareLink> {
   const now = Date.now();
   const link: ShareLink = {
     linkId: randomBytes(24).toString("hex"),
     fileId,
     name,
+    kind: options.kind === "folder" ? "folder" : "file",
     createdBy,
+    createdByUserId: options.createdByUserId ?? "",
     createdAt: new Date(now).toISOString(),
     expiresAt: new Date(now + expiresInHours * 3_600_000).toISOString(),
+    quick: options.quick === true,
+    deleteOnExpire:
+      options.quick === true && options.deleteOnExpire === true,
   };
-  await mutate((file) => {
-    // 가득 찼을 때 오래된 유효 링크를 몰래 버리면 이미 배포된 링크가
-    // 예고 없이 죽는다 — 대신 만들기를 명시적으로 거부한다.
-    if (file.links.length >= MAX_LINKS) {
+  return mutate((file) => {
+    const links = activeLinks(file);
+    if (links.length >= MAX_LINKS) {
       throw new StorageError(
         "CONFLICT",
         "활성 공유 링크가 너무 많습니다. 쓰지 않는 링크를 취소한 뒤 다시 만들어 주세요",
       );
     }
-    return { version: 1, links: [link, ...file.links] };
+    return {
+      file: { ...file, links: [link, ...links] },
+      result: link,
+    };
   });
-  return link;
 }
 
 export async function listShareLinks(fileId?: string): Promise<ShareLink[]> {
-  const file = pruneExpired(await readLinks(), Date.now());
-  return fileId
-    ? file.links.filter((link) => link.fileId === fileId)
-    : file.links;
+  const links = activeLinks(await readFile());
+  return fileId ? links.filter((link) => link.fileId === fileId) : links;
+}
+
+export async function getShareLink(linkId: string): Promise<ShareLink | null> {
+  if (!/^[a-f0-9]{48}$/.test(linkId)) return null;
+  return (await listShareLinks()).find((link) => link.linkId === linkId) ?? null;
 }
 
 export async function revokeShareLink(linkId: string): Promise<boolean> {
-  let removed = false;
-  await mutate((file) => {
-    const links = file.links.filter((link) => link.linkId !== linkId);
-    removed = links.length !== file.links.length;
-    return { version: 1, links };
+  return mutate((file) => {
+    const target = file.links.find((link) => link.linkId === linkId);
+    const pendingDeletes = target?.deleteOnExpire
+      ? [
+          ...file.pendingDeletes.filter((item) => item.linkId !== linkId),
+          {
+            linkId: target.linkId,
+            fileId: target.fileId,
+            name: target.name,
+            deleteAt: target.expiresAt,
+          },
+        ].slice(-MAX_PENDING_DELETES)
+      : file.pendingDeletes;
+    return {
+      file: {
+        ...file,
+        links: file.links.filter((link) => link.linkId !== linkId),
+        pendingDeletes,
+      },
+      result: !!target,
+    };
   });
-  return removed;
 }
 
-// 공개 다운로드 경로용 — 유효한(만료 전·취소 안 된) 링크만 돌려준다.
+export async function keepQuickLinkFile(
+  linkId: string,
+): Promise<ShareLink | null> {
+  return mutate((file) => {
+    let result: ShareLink | null = null;
+    const links = file.links.map((link) => {
+      if (
+        link.linkId !== linkId ||
+        !link.quick ||
+        Date.parse(link.expiresAt) <= Date.now()
+      ) {
+        return link;
+      }
+      result = { ...link, deleteOnExpire: false };
+      return result;
+    });
+    return { file: { ...file, links }, result };
+  });
+}
+
+export async function restoreQuickLinkDeletion(linkId: string): Promise<void> {
+  await mutate((file) => ({
+    file: {
+      ...file,
+      links: file.links.map((link) =>
+        link.linkId === linkId && link.quick
+          ? { ...link, deleteOnExpire: true }
+          : link,
+      ),
+    },
+    result: undefined,
+  }));
+}
+
+export async function updateQuickLinkTarget(
+  linkId: string,
+  entry: { id: string; name: string },
+): Promise<ShareLink | null> {
+  return mutate((file) => {
+    let result: ShareLink | null = null;
+    const links = file.links.map((link) => {
+      if (link.linkId !== linkId || !link.quick) return link;
+      result = {
+        ...link,
+        fileId: entry.id,
+        name: entry.name,
+        quick: false,
+        deleteOnExpire: false,
+      };
+      return result;
+    });
+    return { file: { ...file, links }, result };
+  });
+}
+
 export async function resolveShareLink(
   linkId: string,
 ): Promise<ShareLink | null> {
-  if (!/^[a-f0-9]{48}$/.test(linkId)) return null;
-  const links = await listShareLinks();
-  return links.find((link) => link.linkId === linkId) ?? null;
+  return getShareLink(linkId);
+}
+
+// 만료된 링크를 먼저 장부에서 떼어 pendingDeletes로 옮긴 뒤 실제 파일을
+// 지운다. 중간에 함수가 끝나도 다음 요청이나 하루 한 번 Cron이 이어서 처리한다.
+export async function cleanupExpiredShareLinks(limit = 20): Promise<{
+  expired: number;
+  deleted: number;
+  failed: number;
+}> {
+  const now = Date.now();
+  const snapshot = await readFile();
+  if (
+    !snapshot.links.some((link) => Date.parse(link.expiresAt) <= now) &&
+    !snapshot.pendingDeletes.some((item) => Date.parse(item.deleteAt) <= now)
+  ) {
+    return { expired: 0, deleted: 0, failed: 0 };
+  }
+  const claimed = await mutate((file) => {
+    const expired = file.links.filter(
+      (link) => Date.parse(link.expiresAt) <= now,
+    );
+    const additions = expired
+      .filter((link) => link.deleteOnExpire)
+      .map((link) => ({
+        linkId: link.linkId,
+        fileId: link.fileId,
+        name: link.name,
+        deleteAt: link.expiresAt,
+      }));
+    const byLink = new Map(
+      [...file.pendingDeletes, ...additions].map((item) => [item.linkId, item]),
+    );
+    const next: ShareLinkFile = {
+      ...file,
+      links: file.links.filter((link) => Date.parse(link.expiresAt) > now),
+      pendingDeletes: [...byLink.values()].slice(-MAX_PENDING_DELETES),
+    };
+    return {
+      file: next,
+      result: {
+        expired: expired.length,
+        due: next.pendingDeletes
+          .filter((item) => Date.parse(item.deleteAt) <= now)
+          .slice(0, Math.max(1, Math.min(limit, 100))),
+      },
+    };
+  });
+
+  const deletedIds: string[] = [];
+  let failed = 0;
+  for (const pending of claimed.due) {
+    try {
+      await getAdapter().deleteTemporary(pending.fileId);
+      deletedIds.push(pending.linkId);
+    } catch (error) {
+      if (error instanceof StorageError && error.code === "NOT_FOUND") {
+        deletedIds.push(pending.linkId);
+      } else {
+        failed += 1;
+        console.error("[share-links] 간이 링크 파일 정리 실패", {
+          linkId: pending.linkId,
+          error,
+        });
+      }
+    }
+  }
+  if (deletedIds.length > 0) {
+    const deleted = new Set(deletedIds);
+    await mutate((file) => ({
+      file: {
+        ...file,
+        pendingDeletes: file.pendingDeletes.filter(
+          (item) => !deleted.has(item.linkId),
+        ),
+      },
+      result: undefined,
+    }));
+  }
+  return { expired: claimed.expired, deleted: deletedIds.length, failed };
 }

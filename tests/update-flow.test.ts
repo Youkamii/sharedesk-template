@@ -2117,20 +2117,23 @@ test("external share links are scoped, expiring, and revocable", async () => {
   assert.match(lib, /randomBytes\(24\)\.toString\("hex"\)/);
   assert.match(lib, /\^\[a-f0-9\]\{48\}\$/);
   // 만료 지난 링크는 목록·해석 어디서도 살아나지 못한다.
-  assert.match(lib, /pruneExpired/);
+  assert.match(lib, /function activeLinks/);
+  assert.match(lib, /cleanupExpiredShareLinks/);
   const manage = await readFile(
     new URL("../src/app/api/drive/share-link/route.ts", import.meta.url),
     "utf8",
   );
   // 만들기·거두기는 관리자·수정 가능 역할만, 폴더는 거부.
   assert.match(manage, /requireEditRights/);
-  assert.match(manage, /entry\.isFolder\) return badRequest/);
+  assert.match(manage, /kind: entry\.isFolder \? "folder" : "file"/);
   const publicRoute = await readFile(
     new URL("../src/app/api/share/[linkId]/route.ts", import.meta.url),
     "utf8",
   );
   // 공개 경로는 attachment 고정 — 브라우저 안에서 렌더되지 않는다.
   assert.match(publicRoute, /attachment; filename/);
+  assert.match(publicRoute, /adapter\.isWithin\(targetId, link\.fileId\)/);
+  assert.match(publicRoute, /folderPage\(/);
   assert.doesNotMatch(publicRoute, /requireSession|requireEditRights/);
   // 공개 경로는 proxy 보호 접두사(/api/drive, /api/admin) 밖에 있어야 한다.
   const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");

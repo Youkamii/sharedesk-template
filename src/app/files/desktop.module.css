@@ -2399,6 +2399,200 @@
 
 .downloadChip:active { box-shadow: inset 2px 2px 0 #2d5c5b; }
 
+.quickLinkWindow,
+.shareLinksWindow {
+  left: 50%;
+  top: 78px;
+  z-index: 74;
+  width: min(720px, calc(100% - 28px));
+  height: min(590px, calc(100% - 150px));
+  min-width: 340px;
+  min-height: 320px;
+  transform: translateX(-50%);
+}
+
+.extraFeatures {
+  position: relative;
+  flex: none;
+}
+
+.extraFeatures > .downloadPreference {
+  font: inherit;
+}
+
+.extraFeaturesMenu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  z-index: 130;
+  display: grid;
+  width: 190px;
+  padding: 5px;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, 4px 4px 0 rgb(5 9 20 / 58%);
+}
+
+.extraFeaturesMenu button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  color: #1b1b2f;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+}
+
+.extraFeaturesMenu button:hover,
+.extraFeaturesMenu button:focus-visible {
+  color: #fff8e7;
+  background: #2d5c5b;
+}
+
+.quickLinkWindow {
+  grid-template-rows: 32px auto minmax(0, 1fr) 28px;
+}
+
+.shareLinksWindow {
+  grid-template-rows: 32px minmax(0, 1fr) 28px;
+}
+
+.utilityMaximized {
+  inset: 42px 8px 56px;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  transform: none;
+}
+
+.quickDropzone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  color: #1b1b2f;
+  background: #e5eef0;
+  border-bottom: 2px solid #51658d;
+}
+
+.quickDropzone strong,
+.quickDropzone > span {
+  width: 100%;
+}
+
+.quickDropzone > span {
+  color: #4f566b;
+  font-size: 11px;
+}
+
+.quickDropzone button,
+.quickLinkActions button,
+.shareLinksBody button,
+.shareLinksWindow .windowStatus button {
+  min-height: 30px;
+  padding: 4px 9px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f;
+  font: inherit;
+}
+
+.quickLinkList,
+.shareLinksBody {
+  overflow: auto;
+  padding: 10px;
+  background: #fff8e7;
+}
+
+.quickLinkList > p,
+.shareLinksBody > p {
+  margin: 20px;
+  color: #686474;
+  text-align: center;
+}
+
+.quickLinkRow {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #f4e7c5;
+  border: 2px solid #7d7180;
+}
+
+.quickLinkRow + .quickLinkRow { margin-top: 8px; }
+
+.quickLinkRow > label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.quickLinkRow > label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickLinkRow progress { width: 100%; }
+.quickLinkRow [role="alert"] { color: #9f2434; }
+
+.quickLinkActions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quickLinkActions input {
+  min-width: 180px;
+  flex: 1;
+  padding: 6px;
+  background: #fff;
+  border: 2px solid #596078;
+  font: inherit;
+}
+
+.shareLinksBody ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shareLinksBody li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  background: #f4e7c5;
+  border: 2px solid #7d7180;
+}
+
+.shareLinksBody li > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.shareLinksBody li strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shareLinksBody li small { color: #686474; }
+.shareLinksBody li > span:last-child { display: flex; gap: 6px; }
+
 .hiddenInput { display: none; }
 
 @media (pointer: coarse) {

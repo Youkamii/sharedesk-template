@@ -113,6 +113,9 @@ import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import ShareLinkDialog from "./ShareLinkDialog";
+import QuickLinkWindow from "./QuickLinkWindow";
+import ShareLinksWindow from "./ShareLinksWindow";
+import type { ShareLink } from "@/lib/share-links";
 import styles from "./desktop.module.css";
 import {
   fitLogicalRect,
@@ -332,6 +335,11 @@ type DialogState =
   | { kind: "create"; scopeId: string; value: string }
   | { kind: "rename"; scopeId: string; entry: Entry; value: string }
   | { kind: "delete"; scopeId: string; entry: Entry };
+
+type UtilityWindowState = {
+  minimized: boolean;
+  maximized: boolean;
+};
 
 const DIALOG_FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -582,8 +590,8 @@ function itemContextMenuHeight(
   const fullHeight = allowEdit
     ? (isAdmin ? 250 : 205) + (hasParent ? 45 : 0)
     : 125;
-  // 공유 링크 줄은 편집 권한이 있는 파일 메뉴에만 붙는다.
-  const shareLinkHeight = allowEdit && !entry.isFolder ? 35 : 0;
+  // 빠른 1시간 공유와 링크 관리 두 줄은 파일·폴더 모두에 붙는다.
+  const shareLinkHeight = allowEdit ? 70 : 0;
   const batchHeight = (batchDownload > 1 ? 35 : 0) + shareLinkHeight;
   if (!previewKindOf(entry)) return fullHeight - 70 + batchHeight;
   return (
@@ -788,6 +796,11 @@ export default function FilesView({
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   // 외부 공유 링크 창의 대상 파일 (관리자·수정 가능 역할 전용).
   const [shareLinkEntry, setShareLinkEntry] = useState<Entry | null>(null);
+  const [quickLinkWindow, setQuickLinkWindow] =
+    useState<UtilityWindowState | null>(null);
+  const [shareLinksWindow, setShareLinksWindow] =
+    useState<UtilityWindowState | null>(null);
+  const [extraFeaturesOpen, setExtraFeaturesOpen] = useState(false);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -5703,6 +5716,47 @@ export default function FilesView({
     });
   }
 
+  async function createFastShareLink(entry: Entry) {
+    setContextMenu(null);
+    try {
+      const body = await apiJson<{ link?: ShareLink }>(
+        "/api/drive/share-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: entry.id, expiresInHours: 1 }),
+        },
+      );
+      if (!body.link?.linkId) {
+        throw new Error(t("공유 링크를 만들지 못했습니다"));
+      }
+      const url = `${window.location.origin}/api/share/${body.link.linkId}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        setNotice(t("1시간 공유 링크를 만들어 복사했습니다."));
+      } catch {
+        setNotice(url);
+      }
+    } catch (error) {
+      setNotice(errorMessage(error, t("공유 링크를 만들지 못했습니다")));
+    }
+  }
+
+  function openQuickLinkWindow() {
+    setExtraFeaturesOpen(false);
+    setQuickLinkWindow((current) => ({
+      minimized: false,
+      maximized: current?.maximized ?? false,
+    }));
+  }
+
+  function openShareLinksWindow() {
+    setShareLinksWindow((current) => ({
+      minimized: false,
+      maximized: current?.maximized ?? false,
+    }));
+  }
+
   async function loadUpdateStatus() {
     updateControllerRef.current?.abort();
     const controller = new AbortController();
@@ -8012,6 +8066,47 @@ export default function FilesView({
         </section>
       )}
 
+      {quickLinkWindow && !quickLinkWindow.minimized && (
+        <QuickLinkWindow
+          locale={locale}
+          maximized={quickLinkWindow.maximized}
+          canManageLinks={allowUpload}
+          onClose={() => setQuickLinkWindow(null)}
+          onMinimize={() =>
+            setQuickLinkWindow((current) =>
+              current ? { ...current, minimized: true } : current,
+            )
+          }
+          onToggleMaximize={() =>
+            setQuickLinkWindow((current) =>
+              current ? { ...current, maximized: !current.maximized } : current,
+            )
+          }
+          onOpenLinks={openShareLinksWindow}
+          onDesktopChanged={() => void refreshScope(ROOT_SCOPE)}
+          onNotice={setNotice}
+        />
+      )}
+
+      {allowUpload && shareLinksWindow && !shareLinksWindow.minimized && (
+        <ShareLinksWindow
+          locale={locale}
+          maximized={shareLinksWindow.maximized}
+          onClose={() => setShareLinksWindow(null)}
+          onMinimize={() =>
+            setShareLinksWindow((current) =>
+              current ? { ...current, minimized: true } : current,
+            )
+          }
+          onToggleMaximize={() =>
+            setShareLinksWindow((current) =>
+              current ? { ...current, maximized: !current.maximized } : current,
+            )
+          }
+          onNotice={setNotice}
+        />
+      )}
+
       {allowUpload && (
         <input
           ref={fileInputRef}
@@ -8096,6 +8191,34 @@ export default function FilesView({
               </span>
             </button>
           )}
+          {quickLinkWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${!quickLinkWindow.minimized ? styles.activeTask : ""}`}
+              onClick={() =>
+                setQuickLinkWindow((current) =>
+                  current ? { ...current, minimized: false } : current,
+                )
+              }
+            >
+              <span aria-hidden="true">↗</span>
+              <span className={styles.taskTitle}>{t("간이 링크")}</span>
+            </button>
+          )}
+          {allowUpload && shareLinksWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${!shareLinksWindow.minimized ? styles.activeTask : ""}`}
+              onClick={() =>
+                setShareLinksWindow((current) =>
+                  current ? { ...current, minimized: false } : current,
+                )
+              }
+            >
+              <span aria-hidden="true">☍</span>
+              <span className={styles.taskTitle}>{t("공유 중인 링크")}</span>
+            </button>
+          )}
         </div>
         {activeTransfers.length > 0 && (
           <div className={styles.uploadChip} role="status">
@@ -8129,15 +8252,40 @@ export default function FilesView({
               </span>
             </button>
           )}
-        <label className={styles.downloadPreference}>
-          <input
-            type="checkbox"
-            checked={downloadFirst}
-            onChange={(event) => selectDownloadFirst(event.target.checked)}
-          />
-          <span className={styles.preferenceCheck} aria-hidden="true" />
-          <span>{t("다운로드 우선")}</span>
-        </label>
+        <div className={styles.extraFeatures}>
+          <button
+            type="button"
+            className={styles.downloadPreference}
+            aria-haspopup="menu"
+            aria-expanded={extraFeaturesOpen}
+            onClick={() => setExtraFeaturesOpen((current) => !current)}
+          >
+            <span aria-hidden="true">＋</span>
+            <span>{t("추가기능")}</span>
+          </button>
+          {extraFeaturesOpen && (
+            <div className={styles.extraFeaturesMenu} role="menu">
+              {allowUpload && (
+                <button type="button" role="menuitem" onClick={openQuickLinkWindow}>
+                  <span aria-hidden="true">↗</span>
+                  {t("간이 링크")}
+                </button>
+              )}
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={downloadFirst}
+                onClick={() => {
+                  selectDownloadFirst(!downloadFirst);
+                  setExtraFeaturesOpen(false);
+                }}
+              >
+                <span aria-hidden="true">{downloadFirst ? "✓" : "□"}</span>
+                <span>{t("다운로드 우선")}</span>
+              </button>
+            </div>
+          )}
+        </div>
         <div className={styles.userTray}>
           {canSendFeedback && (
             <button
@@ -8370,11 +8518,18 @@ export default function FilesView({
                   {t("이름 바꾸기")} <kbd>F2</kbd>
                 </MenuButton>
               )}
-              {allowEdit && !contextMenu.entry.isFolder && (
+              {allowEdit && (
+                <MenuButton
+                  onClick={() => void createFastShareLink(contextMenu.entry!)}
+                >
+                  {t("1시간 빠른 공유")}
+                </MenuButton>
+              )}
+              {allowEdit && (
                 <MenuButton
                   onClick={() => openShareLinkDialog(contextMenu.entry!)}
                 >
-                  {t("공유 링크")}
+                  {t("공유 링크 관리…")}
                 </MenuButton>
               )}
               {isAdmin && (

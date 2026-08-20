@@ -11,6 +11,7 @@ import {
   StorageError,
   StoragePermission,
   StorageUsage,
+  TEMPORARY_FILE_PREFIX,
   ShareRole,
   TrashDeleteTarget,
   TrashEntry,
@@ -943,6 +944,26 @@ export class DriveAdapter implements StorageAdapter {
     };
   }
 
+  async isWithin(id: string, ancestorId: string): Promise<boolean> {
+    const real = resolveId(id);
+    const ancestor = resolveId(ancestorId);
+    await Promise.all([assertInsideRoot(real), assertInsideRoot(ancestor)]);
+    if (real === ancestor) return true;
+    let current = real;
+    for (let hop = 0; hop < MAX_ANCESTOR_HOPS; hop += 1) {
+      const response = await driveFetch(
+        `${API}/files/${current}?fields=id,parents,trashed`,
+      );
+      const meta = (await response.json()) as AncestryMeta;
+      const parent = meta.parents?.[0];
+      if (!parent) return false;
+      if (parent === ancestor) return true;
+      if (parent === rootFolderId()) return false;
+      current = parent;
+    }
+    return false;
+  }
+
   async createFolder(parentId: string, name: string): Promise<Entry> {
     const clean = assertUserName(name);
     const parent = resolveId(parentId);
@@ -1514,6 +1535,75 @@ export class DriveAdapter implements StorageAdapter {
     return toEntry(file);
   }
 
+  async uploadTemporary(
+    name: string,
+    mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry> {
+    assertUserName(name);
+    const temporaryName = `${TEMPORARY_FILE_PREFIX}${randomUUID()}`;
+    const sessionUrl = await this.initResumable(
+      rootFolderId(),
+      temporaryName,
+      mimeType,
+    );
+    const put = await fetch(sessionUrl, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType },
+      body: data,
+      duplex: "half",
+    } as RequestInit);
+    if (!put.ok) {
+      throw new StorageError(
+        "UPSTREAM",
+        `드라이브 업로드에 실패했습니다 (HTTP ${put.status})`,
+      );
+    }
+    return toEntry((await put.json()) as DriveFile);
+  }
+
+  async promoteTemporary(id: string, name: string): Promise<Entry> {
+    const real = resolveId(id);
+    const clean = assertUserName(name);
+    const response = await driveFetch(
+      `${API}/files/${real}?fields=${FILE_FIELDS},parents,trashed`,
+    );
+    const meta = (await response.json()) as DriveFile;
+    await assertInsideRoot(real, meta);
+    if (
+      meta.parents?.[0] !== rootFolderId() ||
+      !meta.name.startsWith(TEMPORARY_FILE_PREFIX)
+    ) {
+      throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
+    }
+    await assertNameFree(rootFolderId(), clean);
+    const renamed = await driveFetch(
+      `${API}/files/${real}?fields=${FILE_FIELDS}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=UTF-8" },
+        body: JSON.stringify({ name: clean }),
+      },
+    );
+    return toEntry((await renamed.json()) as DriveFile);
+  }
+
+  async deleteTemporary(id: string): Promise<void> {
+    const real = resolveId(id);
+    const response = await driveFetch(
+      `${API}/files/${real}?fields=id,name,parents,trashed`,
+    );
+    const meta = (await response.json()) as DriveFile;
+    await assertInsideRoot(real, meta);
+    if (
+      meta.parents?.[0] !== rootFolderId() ||
+      !meta.name.startsWith(TEMPORARY_FILE_PREFIX)
+    ) {
+      throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
+    }
+    await driveFetch(`${API}/files/${real}`, { method: "DELETE" });
+  }
+
   async createUploadSession(
     parentId: string,
     name: string,
@@ -1526,6 +1616,24 @@ export class DriveAdapter implements StorageAdapter {
     await assertInsideRoot(parent);
     await assertNameFree(parent, clean);
     const url = await this.initResumable(parent, clean, mimeType, size, origin);
+    return { mode: "direct", url };
+  }
+
+  async createTemporaryUploadSession(
+    name: string,
+    mimeType: string,
+    size: number,
+    origin: string,
+  ): Promise<UploadSession> {
+    assertUserName(name);
+    const temporaryName = `${TEMPORARY_FILE_PREFIX}${randomUUID()}`;
+    const url = await this.initResumable(
+      rootFolderId(),
+      temporaryName,
+      mimeType,
+      size,
+      origin,
+    );
     return { mode: "direct", url };
   }
 

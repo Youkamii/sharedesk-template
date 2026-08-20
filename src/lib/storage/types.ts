@@ -1,6 +1,7 @@
 export const ROOT_ID = "root";
 // 앱 내부 파일이 담기는 폴더. 탐색기 목록에서는 숨긴다.
 export const STATE_DIR = ".sharedesk";
+export const TEMPORARY_FILE_PREFIX = ".sharedesk-quick-";
 
 export interface Entry {
   id: string;
@@ -185,6 +186,24 @@ export interface StorageAdapter {
   // 저장소 계정 전체 사용량/한도다. 업로드 제한은 화면이 아니라 서버에서
   // 이 값을 기준으로 집행한다.
   getStorageUsage(): Promise<StorageUsage>;
+  // 간이 링크 파일은 루트에 숨겨 둔 뒤, 사용자가 자동 삭제를 풀 때만
+  // 원래 이름으로 바탕화면에 올린다.
+  createTemporaryUploadSession(
+    name: string,
+    mimeType: string,
+    size: number,
+    origin: string,
+  ): Promise<UploadSession>;
+  uploadTemporary(
+    name: string,
+    mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry>;
+  promoteTemporary(id: string, name: string): Promise<Entry>;
+  deleteTemporary(id: string): Promise<void>;
+  // 공개 폴더 링크에서 다른 데스크 항목 id를 끼워 넣지 못하게 공유
+  // 폴더의 자손인지 저장소 경계에서 확인한다.
+  isWithin(id: string, ancestorId: string): Promise<boolean>;
   createPermission(
     id: string,
     email: string,

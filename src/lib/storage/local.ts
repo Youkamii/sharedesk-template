@@ -29,6 +29,7 @@ import {
   StorageError,
   StoragePermission,
   StorageUsage,
+  TEMPORARY_FILE_PREFIX,
   ShareRole,
   TrashDeleteTarget,
   TrashEntry,
@@ -407,6 +408,13 @@ export class LocalAdapter implements StorageAdapter {
       hostUsedBytes: Math.max(0, hostLimitBytes - hostFreeBytes),
       hostLimitBytes,
     };
+  }
+
+  async isWithin(id: string, ancestorId: string): Promise<boolean> {
+    const rel = idToRel(id);
+    const ancestor = idToRel(ancestorId);
+    if (!ancestor) return true;
+    return rel === ancestor || rel.startsWith(`${ancestor}/`);
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
@@ -939,7 +947,63 @@ export class LocalAdapter implements StorageAdapter {
     });
   }
 
+  async uploadTemporary(
+    name: string,
+    _mimeType: string,
+    data: ReadableStream<Uint8Array>,
+  ): Promise<Entry> {
+    await this.ensureRoot();
+    assertUserName(name);
+    const temporaryName = `${TEMPORARY_FILE_PREFIX}${randomUUID()}`;
+    return withLocalMutationLock(async () => {
+      const target = await safeAbs(temporaryName, true);
+      try {
+        await pipeline(
+          Readable.fromWeb(data as import("node:stream/web").ReadableStream),
+          createWriteStream(target, { flags: "wx" }),
+        );
+      } catch (error) {
+        await rm(target, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      return toEntry(temporaryName, temporaryName);
+    });
+  }
+
+  async promoteTemporary(id: string, name: string): Promise<Entry> {
+    const rel = idToRel(id);
+    const clean = assertUserName(name);
+    if (rel.includes("/") || !rel.startsWith(TEMPORARY_FILE_PREFIX)) {
+      throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
+    }
+    return withLocalMutationLock(async () => {
+      const target = await safeAbs(clean, true);
+      if (await stat(target).catch(() => null)) throw conflictError();
+      try {
+        await fsRename(await safeAbs(rel), target);
+      } catch (error) {
+        if (isNoEnt(error)) {
+          throw new StorageError("NOT_FOUND", "대상이 없습니다");
+        }
+        throw error;
+      }
+      return toEntry(clean, clean);
+    });
+  }
+
+  async deleteTemporary(id: string): Promise<void> {
+    const rel = idToRel(id);
+    if (rel.includes("/") || !rel.startsWith(TEMPORARY_FILE_PREFIX)) {
+      throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
+    }
+    await rm(await safeAbs(rel), { force: true });
+  }
+
   async createUploadSession(): Promise<UploadSession> {
+    return { mode: "proxy" };
+  }
+
+  async createTemporaryUploadSession(): Promise<UploadSession> {
     return { mode: "proxy" };
   }
 
