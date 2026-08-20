@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUploadRights } from "@/lib/api";
 import { getAdapter } from "@/lib/storage";
-import { finishUploadReservation } from "@/lib/storage-quota";
+import {
+  finishUploadReservation,
+  getUploadReservation,
+} from "@/lib/storage-quota";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,7 +24,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
   }
   try {
-    const entry = await getAdapter().getEntry(body.fileId);
+    const reservation = await getUploadReservation(
+      body.reservationId,
+      auth.session.userId,
+    );
+    if (!reservation) {
+      return NextResponse.json(
+        { error: "업로드 예약을 찾지 못했습니다" },
+        { status: 409 },
+      );
+    }
+    const adapter = getAdapter();
+    const entry = await adapter.getEntry(body.fileId);
+    if (entry.isFolder || entry.size === null) {
+      return NextResponse.json(
+        { error: "업로드된 파일 정보가 일치하지 않습니다" },
+        { status: 409 },
+      );
+    }
+    if (!(await adapter.isDirectChild(entry.id, reservation.parentId))) {
+      return NextResponse.json(
+        { error: "업로드된 파일 위치가 일치하지 않습니다" },
+        { status: 409 },
+      );
+    }
     const completed = await finishUploadReservation(
       body.reservationId,
       auth.session.userId,

@@ -65,11 +65,13 @@ test("채팅 API와 창은 서버리스 폴링과 최소화를 사용한다", as
   ]);
   assert.match(route, /requireSession\(\)/);
   assert.match(route, /sendChatMessage/);
+  assert.match(route, /cursor: messages\.at\(-1\)\?\.id/);
   assert.doesNotMatch(route, /WebSocket|EventSource/);
   assert.match(panel, /ACTIVE_POLL_MS = 4_000/);
-  assert.match(panel, /IDLE_POLL_MS = 20_000/);
-  assert.match(panel, /MINIMIZED_POLL_MS = 60_000/);
+  assert.match(panel, /IDLE_POLL_MS = 60_000/);
+  assert.match(panel, /MINIMIZED_POLL_MS = 5 \* 60_000/);
   assert.match(panel, /document\.hidden/);
+  assert.match(panel, /knownIdsRef/);
   assert.match(panel, /aria-label=\{t\("최소화"\)\}/);
   assert.doesNotMatch(panel, /aria-label=\{.*"최대화"/);
   assert.match(filesView, /role="menuitem" onClick=\{openChatWindow\}/);

@@ -5,12 +5,13 @@ import {
   createShareLink,
   getShareLink,
   keepQuickLinkFile,
+  listShareLinks,
   restoreQuickLinkDeletion,
   revokeShareLink,
   updateQuickLinkTarget,
 } from "@/lib/share-links";
 import { getAdapter } from "@/lib/storage";
-import { TEMPORARY_FILE_PREFIX } from "@/lib/storage/types";
+import { StorageError, TEMPORARY_FILE_PREFIX } from "@/lib/storage/types";
 import {
   finishUploadReservation,
   getUploadReservation,
@@ -65,14 +66,16 @@ export async function POST(req: NextRequest) {
         reservation.name !== body.name ||
         (entry.size !== null && reservation.size !== entry.size)
       ) {
-        return NextResponse.json(
-          { error: "업로드 예약 정보가 일치하지 않습니다" },
-          { status: 409 },
+        throw new StorageError(
+          "CONFLICT",
+          "업로드 예약 정보가 일치하지 않습니다",
         );
       }
       await finishUploadReservation(
         body.reservationId,
         auth.session.userId,
+        entry,
+        { ignoreEntryName: true },
       );
     }
     const link = await createShareLink(
@@ -90,7 +93,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ link }, { status: 201 });
   } catch (error) {
     if (deleteOnFailure) {
-      await getAdapter().deleteTemporary(body.fileId).catch(() => undefined);
+      const activeLinks = await listShareLinks(body.fileId).catch(() => []);
+      if (activeLinks.length === 0) {
+        await getAdapter().deleteTemporary(body.fileId).catch(() => undefined);
+      }
     }
     return errorResponse(error);
   }

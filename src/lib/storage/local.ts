@@ -413,8 +413,23 @@ export class LocalAdapter implements StorageAdapter {
   async isWithin(id: string, ancestorId: string): Promise<boolean> {
     const rel = idToRel(id);
     const ancestor = idToRel(ancestorId);
-    if (!ancestor) return true;
-    return rel === ancestor || rel.startsWith(`${ancestor}/`);
+    const [targetAbs, ancestorAbs] = await Promise.all([
+      safeAbs(rel),
+      safeAbs(ancestor),
+    ]);
+    const [targetPath, ancestorPath] = await Promise.all([
+      realpath(targetAbs),
+      realpath(ancestorAbs),
+    ]);
+    return isInside(ancestorPath, targetPath);
+  }
+
+  async isDirectChild(id: string, parentId: string): Promise<boolean> {
+    const rel = idToRel(id);
+    const parent = idToRel(parentId);
+    if (!rel) return false;
+    const separator = rel.lastIndexOf("/");
+    return (separator >= 0 ? rel.slice(0, separator) : "") === parent;
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
@@ -978,7 +993,9 @@ export class LocalAdapter implements StorageAdapter {
     }
     return withLocalMutationLock(async () => {
       const target = await safeAbs(clean, true);
-      if (await stat(target).catch(() => null)) throw conflictError();
+      if (await stat(/* turbopackIgnore: true */ target).catch(() => null)) {
+        throw conflictError();
+      }
       try {
         await fsRename(await safeAbs(rel), target);
       } catch (error) {

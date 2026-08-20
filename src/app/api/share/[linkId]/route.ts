@@ -22,11 +22,11 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function downloadResponse(file: DownloadResult): Response {
-  const asciiName = file.name
+function downloadResponse(file: DownloadResult, downloadName = file.name): Response {
+  const asciiName = downloadName
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/["\\]/g, "'");
-  const encodedName = encodeURIComponent(file.name).replace(
+  const encodedName = encodeURIComponent(downloadName).replace(
     /['()*!]/g,
     (character) =>
       "%" + character.charCodeAt(0).toString(16).toUpperCase(),
@@ -104,7 +104,10 @@ export async function GET(
       }
       return downloadResponse(await adapter.download(entry.id, range));
     }
-    return downloadResponse(await adapter.download(link.fileId, range));
+    return downloadResponse(
+      await adapter.download(link.fileId, range),
+      link.name,
+    );
   } catch {
     return missing();
   }

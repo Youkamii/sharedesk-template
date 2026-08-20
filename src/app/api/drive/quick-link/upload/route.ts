@@ -4,8 +4,10 @@ import { createShareLink } from "@/lib/share-links";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import {
+  exactSizeUploadStream,
   finishUploadReservation,
   getUploadReservation,
+  parseUploadContentLength,
   reserveUpload,
 } from "@/lib/storage-quota";
 
@@ -21,10 +23,10 @@ export async function POST(req: NextRequest) {
   const name = req.nextUrl.searchParams.get("name") ?? "";
   const requestedReservationId =
     req.nextUrl.searchParams.get("reservationId") ?? "";
-  const size = Number(req.headers.get("content-length"));
   let reservationId: string | null = null;
   let temporaryId: string | null = null;
   try {
+    const size = parseUploadContentLength(req.headers.get("content-length"));
     if (requestedReservationId) {
       const reservation = await getUploadReservation(
         requestedReservationId,
@@ -53,10 +55,15 @@ export async function POST(req: NextRequest) {
     const entry = await getAdapter().uploadTemporary(
       name,
       req.headers.get("content-type") || "application/octet-stream",
-      req.body as ReadableStream<Uint8Array>,
+      exactSizeUploadStream(
+        req.body as ReadableStream<Uint8Array>,
+        size,
+      ),
     );
     temporaryId = entry.id;
-    await finishUploadReservation(reservationId, auth.session.userId);
+    await finishUploadReservation(reservationId, auth.session.userId, entry, {
+      ignoreEntryName: true,
+    });
     const link = await createShareLink(
       entry.id,
       name,

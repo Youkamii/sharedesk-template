@@ -146,6 +146,26 @@ export const EN_ADMIN: Record<string, string> = {
   "이제 모든 참여자 화면에 데스크 언어가 적용됩니다.":
     "The desk language now applies to every member's screen.",
 
+  // 설정 탭 — 저장 용량
+  "저장 용량": "Storage",
+  "한 파일의 최대 업로드 크기와 이 데스크가 사용할 수 있는 전체 용량을 정합니다. 비워 두면 제한하지 않습니다.":
+    "Set the maximum size of one upload and the total storage this desk may use. Leave a field blank for no limit.",
+  "데스크 사용량": "Desk usage",
+  "호스트 사용량": "Host usage",
+  "업로드 중": "uploading",
+  "한 파일 업로드 제한 (GB)": "Per-file upload limit (GB)",
+  "데스크 전체 제한 (GB)": "Desk total limit (GB)",
+  "제한 없음": "No limit",
+  "용량 제한 저장": "Save storage limits",
+  "저장 용량을 불러오지 못했습니다": "Couldn't load storage usage",
+  "용량은 0보다 큰 GB 값으로 입력해 주세요":
+    "Enter a storage amount greater than 0 GB",
+  "용량 값이 너무 큽니다": "The storage amount is too large",
+  "한 번 업로드 제한은 데스크 전체 제한보다 작아야 합니다":
+    "The per-upload limit must not exceed the desk total limit",
+  "용량 제한 값을 확인해 주세요": "Check the storage limit values",
+  "저장 용량 제한을 바꿨습니다.": "Storage limits updated.",
+
   // 설정 탭 — 테마 (바탕화면 이름 4종은 파일 사전(en-files)에 있다)
   "테마": "Theme",
   "바탕화면": "Wallpaper",

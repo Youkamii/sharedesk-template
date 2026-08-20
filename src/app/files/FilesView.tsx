@@ -582,9 +582,10 @@ function entryOpenLabel(
   return previewKindOf(entry) ? "ShareDesk에서 열기" : unsupportedLabel;
 }
 
-function searchContextMenuHeight(entry: Entry) {
-  if (entry.isFolder) return 105;
-  return canOpenPreviewInNewTab(entry) ? 183 : 148;
+function searchContextMenuHeight(entry: Entry, allowEdit: boolean) {
+  const shareHeight = allowEdit ? 80 : 0;
+  if (entry.isFolder) return 105 + shareHeight;
+  return (canOpenPreviewInNewTab(entry) ? 183 : 148) + shareHeight;
 }
 
 function itemContextMenuHeight(
@@ -1638,7 +1639,7 @@ export default function FilesView({
             ?.path.at(-2),
       );
       const height = current.searchResult
-        ? searchContextMenuHeight(current.searchResult.entry)
+        ? searchContextMenuHeight(current.searchResult.entry, allowEdit)
         : current.entry
           ? itemContextMenuHeight(
               current.entry,
@@ -5668,7 +5669,7 @@ export default function FilesView({
     event.preventDefault();
     event.stopPropagation();
     const width = 210;
-    const height = searchContextMenuHeight(result.entry);
+    const height = searchContextMenuHeight(result.entry, allowEdit);
     const target = event.target as HTMLElement;
     setContextMenu({
       x: Math.max(
@@ -5694,7 +5695,7 @@ export default function FilesView({
 
   function openSearchKeyboardMenu(target: HTMLElement, result: SearchResult) {
     const rect = target.getBoundingClientRect();
-    const height = searchContextMenuHeight(result.entry);
+    const height = searchContextMenuHeight(result.entry, allowEdit);
     setContextMenu({
       x: Math.min(
         logicalClientCoordinate(rect.left + 24, uiScale),
@@ -8262,9 +8263,10 @@ export default function FilesView({
         </section>
       )}
 
-      {quickLinkWindow && !quickLinkWindow.minimized && (
+      {quickLinkWindow && (
         <QuickLinkWindow
           locale={locale}
+          minimized={quickLinkWindow.minimized}
           maximized={quickLinkWindow.maximized}
           zIndex={quickLinkWindow.z}
           active={quickLinkWindow.z === topManagedWindowZ}
@@ -8689,6 +8691,27 @@ export default function FilesView({
               >
                 {t("원래 위치 열기")}
               </MenuButton>
+              {allowEdit && (
+                <>
+                  <div className={styles.menuSeparator} />
+                  <MenuButton
+                    onClick={() =>
+                      void createFastShareLink(
+                        contextMenu.searchResult!.entry,
+                      )
+                    }
+                  >
+                    {t("1시간 빠른 공유")}
+                  </MenuButton>
+                  <MenuButton
+                    onClick={() =>
+                      openShareLinkDialog(contextMenu.searchResult!.entry)
+                    }
+                  >
+                    {t("공유 링크 관리…")}
+                  </MenuButton>
+                </>
+              )}
             </>
           ) : contextMenu.entry ? (
             <>

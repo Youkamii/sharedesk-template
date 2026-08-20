@@ -23,6 +23,7 @@ type QuickItem = {
 
 type Props = {
   locale: Locale;
+  minimized: boolean;
   maximized: boolean;
   zIndex: number;
   active: boolean;
@@ -53,6 +54,7 @@ function isShareLink(value: unknown): value is ShareLink {
 
 export default function QuickLinkWindow({
   locale,
+  minimized,
   maximized,
   zIndex,
   active,
@@ -237,7 +239,7 @@ export default function QuickLinkWindow({
 
   return (
     <section
-      className={`${styles.folderWindow} ${styles.quickLinkWindow} ${active ? styles.activeWindow : ""} ${maximized ? styles.utilityMaximized : ""}`}
+      className={`${styles.folderWindow} ${styles.quickLinkWindow} ${active ? styles.activeWindow : ""} ${minimized ? styles.utilityHidden : ""} ${maximized ? styles.utilityMaximized : ""}`}
       style={{ zIndex }}
       aria-label={t("간이 링크")}
       onPointerDown={onActivate}
@@ -301,7 +303,11 @@ export default function QuickLinkWindow({
               <label>
                 <input
                   type="checkbox"
-                  checked={item.link?.deleteOnExpire === true}
+                  checked={
+                    item.link
+                      ? item.link.deleteOnExpire
+                      : item.status === "uploading"
+                  }
                   disabled={
                     item.status !== "ready" ||
                     item.keeping ||

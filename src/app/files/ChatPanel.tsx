@@ -13,8 +13,8 @@ import styles from "./desktop.module.css";
 
 const CHAT_MAX_TEXT_LENGTH = 2_000;
 const ACTIVE_POLL_MS = 4_000;
-const IDLE_POLL_MS = 20_000;
-const MINIMIZED_POLL_MS = 60_000;
+const IDLE_POLL_MS = 60_000;
+const MINIMIZED_POLL_MS = 5 * 60_000;
 const ACTIVE_WINDOW_MS = 30_000;
 
 type ClientChatMessage = {
@@ -66,6 +66,7 @@ export default function ChatPanel({
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const lastIdRef = useRef("");
+  const knownIdsRef = useRef(new Set<string>());
   const firstLoadRef = useRef(true);
   const unreadRef = useRef(0);
   const burstUntilRef = useRef(0);
@@ -125,18 +126,27 @@ export default function ChatPanel({
         const incoming: ClientChatMessage[] = Array.isArray(body?.messages)
           ? body.messages.filter(isMessage)
           : [];
-        if (incoming.length > 0) {
+        if (typeof body?.cursor === "string") {
+          lastIdRef.current = body.cursor;
+        }
+        const freshIncoming = incoming.filter(
+          (message) => !knownIdsRef.current.has(message.id),
+        );
+        for (const message of freshIncoming) {
+          knownIdsRef.current.add(message.id);
+        }
+        if (freshIncoming.length > 0) {
           setMessages((current) => {
             const byId = new Map(current.map((message) => [message.id, message]));
-            for (const message of incoming) byId.set(message.id, message);
-            const merged = [...byId.values()]
+            for (const message of freshIncoming) byId.set(message.id, message);
+            return [...byId.values()]
               .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
               .slice(-200);
-            lastIdRef.current = merged.at(-1)?.id ?? "";
-            return merged;
           });
           if (!firstLoadRef.current && minimized) {
-            unreadRef.current += incoming.filter((message) => !message.mine).length;
+            unreadRef.current += freshIncoming.filter(
+              (message) => !message.mine,
+            ).length;
             onUnreadChange(unreadRef.current);
           }
           burstUntilRef.current = Date.now() + ACTIVE_WINDOW_MS;
@@ -199,7 +209,7 @@ export default function ChatPanel({
       if (!response.ok) throw new Error(body?.error ?? t("메시지를 보내지 못했습니다"));
       if (!isMessage(body?.message)) throw new Error(t("메시지를 확인하지 못했습니다"));
       setMessages((current) => [...current.filter((item) => item.id !== body.message.id), body.message].slice(-200));
-      lastIdRef.current = body.message.id;
+      knownIdsRef.current.add(body.message.id);
       burstUntilRef.current = Date.now() + ACTIVE_WINDOW_MS;
       setDraft("");
     } catch (caught) {

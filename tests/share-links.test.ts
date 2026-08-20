@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -57,8 +57,17 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
       state.version,
     );
 
+    // 새 링크 생성이 만료 링크를 버릴 때에도 자동삭제 대상은 장부에 남아야 한다.
+    await shareLinks.createShareLink(
+      storageTypes.ROOT_ID,
+      "ShareDesk",
+      "Tester",
+      1,
+      { kind: "folder", createdByUserId: "user-1" },
+    );
+
     const cleanup = await shareLinks.cleanupExpiredShareLinks();
-    assert.deepEqual(cleanup, { expired: 1, deleted: 1, failed: 0 });
+    assert.deepEqual(cleanup, { expired: 0, deleted: 1, failed: 0 });
     assert.equal(await shareLinks.getShareLink(expiringLink.linkId), null);
     await assert.rejects(() => adapter.getEntry(expiring.id));
 
@@ -89,11 +98,66 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
     assert.equal(updated?.fileId, promoted.id);
     assert.equal((await adapter.list(storageTypes.ROOT_ID))[0]?.name, "keep-me.txt");
 
+    const downloadable = await adapter.uploadTemporary(
+      "pretty-name.txt",
+      "text/plain",
+      new Blob(["download"]).stream(),
+    );
+    const downloadableLink = await shareLinks.createShareLink(
+      downloadable.id,
+      "pretty-name.txt",
+      "Tester",
+      1,
+      {
+        createdByUserId: "user-1",
+        quick: true,
+        deleteOnExpire: true,
+      },
+    );
+    const [{ NextRequest }, publicRoute] = await Promise.all([
+      import("next/server"),
+      import("../src/app/api/share/[linkId]/route"),
+    ]);
+    const response = await publicRoute.GET(
+      new NextRequest(`http://localhost/api/share/${downloadableLink.linkId}`),
+      { params: Promise.resolve({ linkId: downloadableLink.linkId }) },
+    );
+    assert.match(
+      response.headers.get("content-disposition") ?? "",
+      /pretty-name\.txt/,
+    );
+    assert.equal(await response.text(), "download");
+
     const folder = await adapter.createFolder(storageTypes.ROOT_ID, "shared");
     const child = await adapter.createFolder(folder.id, "child");
     const outside = await adapter.createFolder(storageTypes.ROOT_ID, "outside");
     assert.equal(await adapter.isWithin(child.id, folder.id), true);
     assert.equal(await adapter.isWithin(outside.id, folder.id), false);
+    assert.equal(await adapter.isDirectChild(child.id, folder.id), true);
+    assert.equal(await adapter.isDirectChild(child.id, storageTypes.ROOT_ID), false);
+
+    await adapter.upload(
+      outside.id,
+      "secret.txt",
+      "text/plain",
+      new Blob(["secret"]).stream(),
+    );
+    try {
+      await symlink(
+        join(root, "outside"),
+        join(root, "shared", "outside-alias"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      const alias = (await adapter.list(folder.id)).find(
+        (entry) => entry.name === "outside-alias",
+      );
+      assert.ok(alias);
+      const linkedSecret = (await adapter.list(alias.id))[0];
+      assert.ok(linkedSecret);
+      assert.equal(await adapter.isWithin(linkedSecret.id, folder.id), false);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+    }
   } finally {
     if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
     else process.env.STORAGE_DRIVER = previousDriver;
@@ -106,4 +170,17 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
       retryDelay: 50,
     });
   }
+});
+
+test("공유 API는 데스크 루트 전체 공개와 삭제 대기 누락을 막는다", async () => {
+  const [route, ledger] = await Promise.all([
+    readFile(
+      new URL("../src/app/api/drive/share-link/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/lib/share-links.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /body\.id === ROOT_ID/);
+  assert.match(ledger, /reservedDeletes/);
+  assert.match(ledger, /정리 대기 중인 간이 링크가 많습니다/);
 });

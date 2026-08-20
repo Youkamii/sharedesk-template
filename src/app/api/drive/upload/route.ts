@@ -4,8 +4,10 @@ import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import { errorResponse, requireUploadRights } from "@/lib/api";
 import {
+  exactSizeUploadStream,
   finishUploadReservation,
   getUploadReservation,
+  parseUploadContentLength,
   reserveUpload,
 } from "@/lib/storage-quota";
 
@@ -19,11 +21,13 @@ export async function POST(req: NextRequest) {
   if (!req.body) {
     return NextResponse.json({ error: "본문이 없습니다" }, { status: 400 });
   }
-  const declaredSize = Number(req.headers.get("content-length"));
   const requestedReservationId =
     req.nextUrl.searchParams.get("reservationId") ?? "";
   let reservationId: string | null = null;
   try {
+    const declaredSize = parseUploadContentLength(
+      req.headers.get("content-length"),
+    );
     if (requestedReservationId) {
       const reservation = await getUploadReservation(
         requestedReservationId,
@@ -53,7 +57,10 @@ export async function POST(req: NextRequest) {
       parentId,
       name,
       mimeType,
-      req.body as ReadableStream<Uint8Array>,
+      exactSizeUploadStream(
+        req.body as ReadableStream<Uint8Array>,
+        declaredSize,
+      ),
     );
     await finishUploadReservation(reservationId, auth.session.userId, entry);
     recordActivityAfter(auth.session, "upload", entry.name);

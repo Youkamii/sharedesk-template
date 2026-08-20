@@ -25,9 +25,9 @@ ShareDesk is **a shared file space where several people use one person's Google 
 - Bring people in with invitation codes and see who is currently online.
 - Chat with desk members and see how many messages arrived while the chat window was minimized.
 - Right-click a file or folder for a sign-in-free 1-hour share link, then stop any active link from the link list.
-- Drop files into Quick link to receive 1-hour links immediately. Keep the default check to delete each file after an hour, or clear it to keep the file on the desktop.
+- Drop files into Quick link to receive 1-hour links immediately. Access ends exactly after one hour. A default-checked file is then permanently removed by opportunistic cleanup while the desk is active or by the daily scheduled cleanup; clear the check to keep it on the desktop.
 - Let an admin limit both one uploaded file and the total storage used by the current desk.
-- Give each person one of four roles — Admin, Can edit, Can upload, View only — and change it anytime from the admin screen.
+- Set admins through `ADMIN_EMAILS`, then change each participant between Can edit, Can upload, and View only anytime from the admin screen.
 - Five interface languages — English, Korean, Japanese, Hindi, and Chinese. The admin sets the desk language in the Settings tab (English by default), and turning on Allow personal language lets each member pick their own.
 - Pick whichever of the four wallpapers suits your mood; your choice is saved in your own browser.
 

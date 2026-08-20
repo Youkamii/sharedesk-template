@@ -899,7 +899,7 @@ test("미리보기 파일은 기본으로 열고 다운로드 우선 선택은 �
   );
   assert.match(
     source,
-    /current\.searchResult[\s\S]*?searchContextMenuHeight\(current\.searchResult\.entry\)/,
+    /current\.searchResult[\s\S]*?searchContextMenuHeight\(current\.searchResult\.entry, allowEdit\)/,
   );
   assert.match(
     source,

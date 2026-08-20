@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
         messages: messages.map((message) =>
           clientMessage(message, auth.session.userId),
         ),
+        cursor: messages.at(-1)?.id ?? after ?? "",
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

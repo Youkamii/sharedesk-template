@@ -204,6 +204,8 @@ export interface StorageAdapter {
   // 공개 폴더 링크에서 다른 데스크 항목 id를 끼워 넣지 못하게 공유
   // 폴더의 자손인지 저장소 경계에서 확인한다.
   isWithin(id: string, ancestorId: string): Promise<boolean>;
+  // 직접 업로드 완료 요청이 발급된 대상 폴더의 파일을 가리키는지 확인한다.
+  isDirectChild(id: string, parentId: string): Promise<boolean>;
   createPermission(
     id: string,
     email: string,

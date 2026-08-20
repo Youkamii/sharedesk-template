@@ -148,15 +148,50 @@ export async function createShareLink(
       options.quick === true && options.deleteOnExpire === true,
   };
   return mutate((file) => {
-    const links = activeLinks(file);
+    const links = activeLinks(file, now);
     if (links.length >= MAX_LINKS) {
       throw new StorageError(
         "CONFLICT",
         "활성 공유 링크가 너무 많습니다. 쓰지 않는 링크를 취소한 뒤 다시 만들어 주세요",
       );
     }
+    const expiredDeletes = file.links
+      .filter(
+        (existing) =>
+          existing.deleteOnExpire && Date.parse(existing.expiresAt) <= now,
+      )
+      .map((existing) => ({
+        linkId: existing.linkId,
+        fileId: existing.fileId,
+        name: existing.name,
+        deleteAt: existing.expiresAt,
+      }));
+    const pendingByLink = new Map(
+      [...file.pendingDeletes, ...expiredDeletes].map((pending) => [
+        pending.linkId,
+        pending,
+      ]),
+    );
+    const reservedDeletes = links.filter(
+      (existing) => existing.deleteOnExpire,
+    ).length;
+    if (
+      pendingByLink.size +
+        reservedDeletes +
+        (link.deleteOnExpire ? 1 : 0) >
+      MAX_PENDING_DELETES
+    ) {
+      throw new StorageError(
+        "CONFLICT",
+        "정리 대기 중인 간이 링크가 많습니다. 잠시 후 다시 시도해 주세요",
+      );
+    }
     return {
-      file: { ...file, links: [link, ...links] },
+      file: {
+        ...file,
+        links: [link, ...links],
+        pendingDeletes: [...pendingByLink.values()].slice(-MAX_PENDING_DELETES),
+      },
       result: link,
     };
   });

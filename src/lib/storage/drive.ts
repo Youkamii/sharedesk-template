@@ -947,21 +947,35 @@ export class DriveAdapter implements StorageAdapter {
   async isWithin(id: string, ancestorId: string): Promise<boolean> {
     const real = resolveId(id);
     const ancestor = resolveId(ancestorId);
-    await Promise.all([assertInsideRoot(real), assertInsideRoot(ancestor)]);
+    await assertInsideRoot(ancestor);
     if (real === ancestor) return true;
+    assertNotStateArea(real);
     let current = real;
     for (let hop = 0; hop < MAX_ANCESTOR_HOPS; hop += 1) {
       const response = await driveFetch(
         `${API}/files/${current}?fields=id,parents,trashed`,
       );
       const meta = (await response.json()) as AncestryMeta;
+      if (meta.trashed) return false;
       const parent = meta.parents?.[0];
       if (!parent) return false;
+      assertNotStateArea(parent);
       if (parent === ancestor) return true;
       if (parent === rootFolderId()) return false;
       current = parent;
     }
     return false;
+  }
+
+  async isDirectChild(id: string, parentId: string): Promise<boolean> {
+    const real = resolveId(id);
+    const parent = resolveId(parentId);
+    await Promise.all([assertInsideRoot(real), assertInsideRoot(parent)]);
+    const response = await driveFetch(
+      `${API}/files/${real}?fields=id,parents,trashed`,
+    );
+    const meta = (await response.json()) as AncestryMeta;
+    return meta.parents?.includes(parent) === true;
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {
@@ -1483,7 +1497,7 @@ export class DriveAdapter implements StorageAdapter {
       "Content-Type": "application/json; charset=UTF-8",
     };
     // 크기를 미리 알리면 구글이 불일치 업로드를 거부한다.
-    if (size !== undefined && size > 0) {
+    if (size !== undefined && size >= 0) {
       headers["X-Upload-Content-Length"] = String(size);
     }
     if (origin) headers["Origin"] = origin;

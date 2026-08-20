@@ -134,7 +134,7 @@ export interface DeskSettings {
 }
 
 export const MIN_STORAGE_LIMIT_BYTES = 1024 * 1024;
-export const MAX_STORAGE_LIMIT_BYTES = 8 * 1024 ** 5;
+export const MAX_STORAGE_LIMIT_BYTES = Number.MAX_SAFE_INTEGER;
 
 // null은 제한 없음, undefined는 잘못된 입력이다. API와 저장 파일 정규화가
 // 같은 범위를 쓰도록 한 곳에서 판정한다.
@@ -930,6 +930,16 @@ export async function setDeskSettings(
     }
     if (patch.deskStorageLimitBytes !== undefined) {
       file.deskSettings.deskStorageLimitBytes = patch.deskStorageLimitBytes;
+    }
+    if (
+      file.deskSettings.maxUploadBytes !== null &&
+      file.deskSettings.deskStorageLimitBytes !== null &&
+      file.deskSettings.maxUploadBytes > file.deskSettings.deskStorageLimitBytes
+    ) {
+      throw new StorageError(
+        "BAD_ID",
+        "한 번 업로드 제한은 데스크 전체 제한보다 클 수 없습니다",
+      );
     }
     // 끄면 시간대도 지워 다음 켜기에서 그 브라우저 기준으로 다시 잡는다.
     if (patch.autoUpdate === false) {

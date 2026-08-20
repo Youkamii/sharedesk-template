@@ -14,6 +14,7 @@ import {
   revokeShareLink,
 } from "@/lib/share-links";
 import { getAdapter } from "@/lib/storage";
+import { ROOT_ID } from "@/lib/storage/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,7 +56,13 @@ export async function POST(req: NextRequest) {
     expiresInHours?: unknown;
   } | null;
   const expiresInHours = parseExpiryHours(body?.expiresInHours);
-  if (!body || typeof body.id !== "string" || !body.id || !expiresInHours) {
+  if (
+    !body ||
+    typeof body.id !== "string" ||
+    !body.id ||
+    body.id === ROOT_ID ||
+    !expiresInHours
+  ) {
     return badRequest();
   }
   try {

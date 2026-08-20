@@ -6,8 +6,8 @@ import { getDeskSettings, type DeskSettings } from "@/lib/users";
 const FILE = "upload-reservations.json";
 const MAX_RESERVATIONS = 500;
 const RESERVATION_TTL_MS = 60 * 60 * 1000;
-const USAGE_CACHE_MS = 15_000;
 const MAX_ATTEMPTS = 4;
+const MAX_COMPLETED_UPLOADS = 1_000;
 
 export interface UploadReservation {
   id: string;
@@ -19,8 +19,9 @@ export interface UploadReservation {
 }
 
 interface ReservationFile {
-  version: 1;
+  version: 2;
   reservations: UploadReservation[];
+  completedUploads: Array<{ fileId: string; expiresAt: string }>;
 }
 
 export interface StorageStatus extends StorageUsage {
@@ -29,10 +30,11 @@ export interface StorageStatus extends StorageUsage {
   reservedBytes: number;
 }
 
-let usageCache: { at: number; usage: StorageUsage } | null = null;
-
 function normalize(value: unknown, now = Date.now()): ReservationFile {
-  const raw = value as { reservations?: unknown } | null;
+  const raw = value as {
+    reservations?: unknown;
+    completedUploads?: unknown;
+  } | null;
   const reservations = Array.isArray(raw?.reservations)
     ? raw.reservations
         .filter((item): item is UploadReservation => {
@@ -51,24 +53,40 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
         })
         .slice(0, MAX_RESERVATIONS)
     : [];
-  return { version: 1, reservations };
+  const completedUploads = Array.isArray(raw?.completedUploads)
+    ? raw.completedUploads
+        .filter((item): item is { fileId: string; expiresAt: string } => {
+          const completed = item as {
+            fileId?: unknown;
+            expiresAt?: unknown;
+          } | null;
+          return (
+            !!completed &&
+            typeof completed.fileId === "string" &&
+            completed.fileId.length > 0 &&
+            typeof completed.expiresAt === "string" &&
+            Date.parse(completed.expiresAt) > now
+          );
+        })
+        .slice(-MAX_COMPLETED_UPLOADS)
+    : [];
+  return { version: 2, reservations, completedUploads };
 }
 
-async function readUsage(fresh = false): Promise<StorageUsage> {
-  if (!fresh && usageCache && Date.now() - usageCache.at < USAGE_CACHE_MS) {
-    return usageCache.usage;
-  }
-  const usage = await getAdapter().getStorageUsage();
-  usageCache = { at: Date.now(), usage };
-  return usage;
-}
-
-function validateSize(size: unknown, settings: DeskSettings): number {
+function validateSize(
+  size: unknown,
+  settings: DeskSettings,
+  enforceMaxUpload: boolean,
+): number {
   if (!Number.isSafeInteger(size) || (size as number) < 0) {
     throw new StorageError("BAD_ID", "파일 크기를 확인해 주세요");
   }
   const bytes = size as number;
-  if (settings.maxUploadBytes !== null && bytes > settings.maxUploadBytes) {
+  if (
+    enforceMaxUpload &&
+    settings.maxUploadBytes !== null &&
+    bytes > settings.maxUploadBytes
+  ) {
     throw new StorageError(
       "CONFLICT",
       "한 번에 올릴 수 있는 파일 크기를 넘었습니다",
@@ -82,16 +100,23 @@ export async function reserveUpload(input: {
   parentId: string;
   name: string;
   size: unknown;
+  enforceMaxUpload?: boolean;
 }): Promise<string | null> {
   const settings = await getDeskSettings({ fresh: true });
-  const size = validateSize(input.size, settings);
+  const size = validateSize(
+    input.size,
+    settings,
+    input.enforceMaxUpload !== false,
+  );
   if (settings.deskStorageLimitBytes === null) return null;
 
-  const usage = await readUsage();
   const adapter = getAdapter();
   let lastError: unknown = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    // 예약 장부를 먼저 읽고 실제 사용량을 확인한 뒤 그 버전으로 CAS한다.
+    // 사이에 다른 업로드가 예약을 끝내면 CAS가 충돌해 새 사용량부터 다시 읽는다.
     const state = await adapter.readStateVersioned<ReservationFile>(FILE);
+    const usage = await adapter.getStorageUsage();
     const file = normalize(state.value);
     const reservedBytes = file.reservations.reduce(
       (total, reservation) => total + reservation.size,
@@ -101,6 +126,8 @@ export async function reserveUpload(input: {
       usage.deskUsedBytes + reservedBytes + size >
       settings.deskStorageLimitBytes
     ) {
+      const confirmed = await adapter.readStateVersioned<ReservationFile>(FILE);
+      if (confirmed.version !== state.version) continue;
       throw new StorageError(
         "CONFLICT",
         "이 데스크에 남은 저장 용량이 부족합니다",
@@ -114,7 +141,7 @@ export async function reserveUpload(input: {
     }
     const id = randomUUID();
     const next: ReservationFile = {
-      version: 1,
+      version: 2,
       reservations: [
         ...file.reservations,
         {
@@ -126,6 +153,7 @@ export async function reserveUpload(input: {
           expiresAt: new Date(Date.now() + RESERVATION_TTL_MS).toISOString(),
         },
       ],
+      completedUploads: file.completedUploads,
     };
     try {
       await adapter.compareAndSwapState(FILE, next, state.version);
@@ -155,6 +183,7 @@ export async function finishUploadReservation(
   id: string | null,
   userId: string,
   entry?: Entry,
+  options: { ignoreEntryName?: boolean } = {},
 ): Promise<boolean> {
   if (!id) return true;
   const adapter = getAdapter();
@@ -165,23 +194,49 @@ export async function finishUploadReservation(
       (item) => item.id === id && item.userId === userId,
     );
     if (!reservation) return false;
-    if (
-      entry &&
-      (entry.name !== reservation.name ||
-        (entry.size !== null && entry.size !== reservation.size))
-    ) {
-      throw new StorageError("CONFLICT", "업로드된 파일 정보가 일치하지 않습니다");
+    if (entry) {
+      if (
+        entry.isFolder ||
+        entry.size === null ||
+        entry.size !== reservation.size ||
+        (options.ignoreEntryName !== true && entry.name !== reservation.name)
+      ) {
+        throw new StorageError(
+          "CONFLICT",
+          "업로드된 파일 정보가 일치하지 않습니다",
+        );
+      }
+      if (
+        file.completedUploads.some(
+          (completed) => completed.fileId === entry.id,
+        )
+      ) {
+        throw new StorageError(
+          "CONFLICT",
+          "이미 완료 처리한 업로드 파일입니다",
+        );
+      }
     }
     try {
       await adapter.compareAndSwapState(
         FILE,
         {
-          version: 1,
+          version: 2,
           reservations: file.reservations.filter((item) => item.id !== id),
+          completedUploads: entry
+            ? [
+                ...file.completedUploads,
+                {
+                  fileId: entry.id,
+                  expiresAt: new Date(
+                    Date.now() + RESERVATION_TTL_MS,
+                  ).toISOString(),
+                },
+              ].slice(-MAX_COMPLETED_UPLOADS)
+            : file.completedUploads,
         } satisfies ReservationFile,
         state.version,
       );
-      usageCache = null;
       return true;
     } catch (error) {
       if (!(error instanceof StorageError) || error.code !== "CONFLICT") throw error;
@@ -193,7 +248,7 @@ export async function finishUploadReservation(
 export async function getStorageStatus(fresh = false): Promise<StorageStatus> {
   const [settings, usage, reservationState] = await Promise.all([
     getDeskSettings({ fresh }),
-    readUsage(fresh),
+    getAdapter().getStorageUsage(),
     getAdapter().readState<ReservationFile>(FILE),
   ]);
   const reservedBytes = normalize(reservationState).reservations.reduce(
@@ -206,6 +261,68 @@ export async function getStorageStatus(fresh = false): Promise<StorageStatus> {
     deskStorageLimitBytes: settings.deskStorageLimitBytes,
     reservedBytes,
   };
+}
+
+export function parseUploadContentLength(value: string | null): number {
+  if (value === null || !/^\d+$/.test(value)) {
+    throw new StorageError("BAD_ID", "파일 크기를 확인해 주세요");
+  }
+  const size = Number(value);
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new StorageError("BAD_ID", "파일 크기를 확인해 주세요");
+  }
+  return size;
+}
+
+// 프록시 업로드는 Content-Length만 예약하고 더 큰 chunked 본문을 흘리면
+// 용량 제한을 우회할 수 있다. 저장소에 전달되는 스트림 자체를 선언 크기에 묶는다.
+export function exactSizeUploadStream(
+  body: ReadableStream<Uint8Array>,
+  expectedSize: number,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let received = 0;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    reader.releaseLock();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          release();
+          if (received !== expectedSize) {
+            controller.error(
+              new StorageError("CONFLICT", "업로드된 파일 크기가 일치하지 않습니다"),
+            );
+          } else {
+            controller.close();
+          }
+          return;
+        }
+        received += chunk.value.byteLength;
+        if (received > expectedSize) {
+          await reader.cancel("upload size mismatch").catch(() => undefined);
+          release();
+          controller.error(
+            new StorageError("CONFLICT", "업로드된 파일 크기가 일치하지 않습니다"),
+          );
+          return;
+        }
+        controller.enqueue(chunk.value);
+      } catch (error) {
+        release();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason).catch(() => undefined);
+      release();
+    },
+  });
 }
 
 export function uploadLimitError(

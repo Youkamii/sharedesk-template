@@ -7,10 +7,22 @@ import {
   touchPresence,
 } from "@/lib/presence";
 import { StorageError } from "@/lib/storage/types";
+import { cleanupExpiredShareLinks } from "@/lib/share-links";
 
 const MAX_PRESENCE_BODY_BYTES = 512 * 1024;
+const CLEANUP_INTERVAL_MS = 10 * 60 * 1000;
+let cleanupAfter = 0;
 
 class PresenceBodyTooLargeError extends Error {}
+
+async function cleanupIfDue() {
+  const now = Date.now();
+  if (now < cleanupAfter) return;
+  cleanupAfter = now + CLEANUP_INTERVAL_MS;
+  await cleanupExpiredShareLinks(10).catch((error) => {
+    console.error("[presence] 만료 파일 정리 실패", error);
+  });
+}
 
 function noStoreJson(value: unknown): Response {
   return Response.json(value, {
@@ -114,6 +126,7 @@ export async function POST(request: Request) {
       update.tabId === undefined
         ? auth.session.presenceLeaseId
         : presenceTabLeaseId(auth.session.presenceLeaseId, update.tabId);
+    await cleanupIfDue();
     return noStoreJson(
       await touchPresence({
         participantId: auth.session.presenceParticipantId,
