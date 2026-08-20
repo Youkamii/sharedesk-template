@@ -184,3 +184,19 @@ test("공유 API는 데스크 루트 전체 공개와 삭제 대기 누락을 �
   assert.match(ledger, /reservedDeletes/);
   assert.match(ledger, /정리 대기 중인 간이 링크가 많습니다/);
 });
+
+test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 메뉴와 창이다", async () => {
+  const [view, quick, links] = await Promise.all([
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/QuickLinkWindow.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/ShareLinksWindow.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(view, /role="menuitem" onClick=\{openQuickLinkWindow\}/);
+  assert.match(view, /role="menuitem" onClick=\{openShareLinksWindow\}/);
+  assert.ok(view.includes('t("간이 링크 만들기")'));
+  assert.ok(view.includes('t("생성된 링크")'));
+  assert.ok(quick.includes('aria-label={t("간이 링크 만들기")}'));
+  assert.ok(links.includes('aria-label={t("생성된 링크")}'));
+  assert.doesNotMatch(quick, /onOpenLinks|canManageLinks|공유 중인 링크 보기/);
+});

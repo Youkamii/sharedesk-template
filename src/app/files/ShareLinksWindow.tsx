@@ -130,11 +130,11 @@ export default function ShareLinksWindow({
     <section
       className={`${styles.folderWindow} ${styles.shareLinksWindow} ${active ? styles.activeWindow : ""} ${maximized ? styles.utilityMaximized : ""}`}
       style={{ zIndex }}
-      aria-label={t("공유 중인 링크")}
+      aria-label={t("생성된 링크")}
       onPointerDown={onActivate}
     >
       <header className={styles.windowTitlebar}>
-        <strong>{t("공유 중인 링크")}</strong>
+        <strong>{t("생성된 링크")}</strong>
         <span className={styles.windowControls}>
           <button type="button" aria-label={t("최소화")} onClick={onMinimize}>
             <span className={styles.minimizeGlyph} />

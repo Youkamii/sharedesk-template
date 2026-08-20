@@ -57,11 +57,12 @@ test("데스크 채팅은 Drive 상태에 메시지를 충돌 없이 이어 쓴�
   }
 });
 
-test("채팅 API와 창은 서버리스 폴링과 최소화를 사용한다", async () => {
-  const [route, panel, filesView] = await Promise.all([
+test("채팅 API와 창은 서버리스 폴링·독립 버튼·새 메시지 알림을 사용한다", async () => {
+  const [route, panel, filesView, css] = await Promise.all([
     readFile(new URL("../src/app/api/chat/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/ChatPanel.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(route, /requireSession\(\)/);
   assert.match(route, /sendChatMessage/);
@@ -74,6 +75,10 @@ test("채팅 API와 창은 서버리스 폴링과 최소화를 사용한다", as
   assert.match(panel, /knownIdsRef/);
   assert.match(panel, /aria-label=\{t\("최소화"\)\}/);
   assert.doesNotMatch(panel, /aria-label=\{.*"최대화"/);
-  assert.match(filesView, /role="menuitem" onClick=\{openChatWindow\}/);
+  assert.match(filesView, /useState\(\{ minimized: true, z: 0 \}\)/);
+  assert.doesNotMatch(filesView, /role="menuitem" onClick=\{openChatWindow\}/);
+  assert.match(filesView, /styles\.chatTaskUnread/);
+  assert.match(filesView, /styles\.chatUnreadBadge/);
+  assert.match(css, /@keyframes chatTaskBlink/);
   assert.match(filesView, /\{t\("추가기능"\)\}/);
 });

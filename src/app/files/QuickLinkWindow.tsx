@@ -27,11 +27,9 @@ type Props = {
   maximized: boolean;
   zIndex: number;
   active: boolean;
-  canManageLinks: boolean;
   onClose: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
-  onOpenLinks: () => void;
   onDesktopChanged: () => void;
   onNotice: (message: string) => void;
   onActivate: () => void;
@@ -58,11 +56,9 @@ export default function QuickLinkWindow({
   maximized,
   zIndex,
   active,
-  canManageLinks,
   onClose,
   onMinimize,
   onToggleMaximize,
-  onOpenLinks,
   onDesktopChanged,
   onNotice,
   onActivate,
@@ -241,11 +237,11 @@ export default function QuickLinkWindow({
     <section
       className={`${styles.folderWindow} ${styles.quickLinkWindow} ${active ? styles.activeWindow : ""} ${minimized ? styles.utilityHidden : ""} ${maximized ? styles.utilityMaximized : ""}`}
       style={{ zIndex }}
-      aria-label={t("간이 링크")}
+      aria-label={t("간이 링크 만들기")}
       onPointerDown={onActivate}
     >
       <header className={styles.windowTitlebar}>
-        <strong>{t("간이 링크")}</strong>
+        <strong>{t("간이 링크 만들기")}</strong>
         <span className={styles.windowControls}>
           <button type="button" aria-label={t("최소화")} onClick={onMinimize}>
             <span className={styles.minimizeGlyph} />
@@ -278,11 +274,6 @@ export default function QuickLinkWindow({
         <button type="button" onClick={() => inputRef.current?.click()}>
           {t("파일 고르기")}
         </button>
-        {canManageLinks && (
-          <button type="button" onClick={onOpenLinks}>
-            {t("공유 중인 링크 보기")}
-          </button>
-        )}
         <input
           ref={inputRef}
           type="file"

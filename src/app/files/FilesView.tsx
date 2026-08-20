@@ -810,8 +810,9 @@ export default function FilesView({
     useState<UtilityWindowState | null>(null);
   const [shareLinksWindow, setShareLinksWindow] =
     useState<UtilityWindowState | null>(null);
-  const [chatWindow, setChatWindow] =
-    useState<{ minimized: boolean; z: number } | null>(null);
+  // 채팅은 작업표시줄의 독립 기능이다. 처음부터 최소화 상태로 살아 있어야
+  // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
+  const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
   const [chatUnread, setChatUnread] = useState(0);
   const [extraFeaturesOpen, setExtraFeaturesOpen] = useState(false);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -5807,12 +5808,12 @@ export default function FilesView({
   }
 
   function openChatWindow() {
-    setExtraFeaturesOpen(false);
     setChatWindow({ minimized: false, z: ++zRef.current });
     setChatUnread(0);
   }
 
   function openShareLinksWindow() {
+    setExtraFeaturesOpen(false);
     setShareLinksWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
@@ -5837,11 +5838,11 @@ export default function FilesView({
   }
 
   function focusChatWindow() {
-    setChatWindow((current) =>
-      current
-        ? { ...current, minimized: false, z: ++zRef.current }
-        : current,
-    );
+    setChatWindow((current) => ({
+      ...current,
+      minimized: false,
+      z: ++zRef.current,
+    }));
     setChatUnread(0);
   }
 
@@ -8270,7 +8271,6 @@ export default function FilesView({
           maximized={quickLinkWindow.maximized}
           zIndex={quickLinkWindow.z}
           active={quickLinkWindow.z === topManagedWindowZ}
-          canManageLinks={allowUpload}
           onClose={() => setQuickLinkWindow(null)}
           onMinimize={() =>
             setQuickLinkWindow((current) =>
@@ -8282,32 +8282,26 @@ export default function FilesView({
               current ? { ...current, maximized: !current.maximized } : current,
             )
           }
-          onOpenLinks={openShareLinksWindow}
           onDesktopChanged={() => void refreshScope(ROOT_SCOPE)}
           onNotice={setNotice}
           onActivate={focusQuickLinkWindow}
         />
       )}
 
-      {chatWindow && (
-        <ChatPanel
-          locale={locale}
-          minimized={chatWindow.minimized}
-          zIndex={chatWindow.z}
-          active={chatWindow.z === topManagedWindowZ}
-          onClose={() => {
-            setChatWindow(null);
-            setChatUnread(0);
-          }}
-          onMinimize={() =>
-            setChatWindow((current) =>
-              current ? { ...current, minimized: true } : current,
-            )
-          }
-          onUnreadChange={setChatUnread}
-          onActivate={focusChatWindow}
-        />
-      )}
+      <ChatPanel
+        locale={locale}
+        minimized={chatWindow.minimized}
+        zIndex={chatWindow.z}
+        active={chatWindow.z === topManagedWindowZ}
+        onClose={() =>
+          setChatWindow((current) => ({ ...current, minimized: true }))
+        }
+        onMinimize={() =>
+          setChatWindow((current) => ({ ...current, minimized: true }))
+        }
+        onUnreadChange={setChatUnread}
+        onActivate={focusChatWindow}
+      />
 
       {allowUpload && shareLinksWindow && !shareLinksWindow.minimized && (
         <ShareLinksWindow
@@ -8469,19 +8463,7 @@ export default function FilesView({
               onClick={focusQuickLinkWindow}
             >
               <span aria-hidden="true">↗</span>
-              <span className={styles.taskTitle}>{t("간이 링크")}</span>
-            </button>
-          )}
-          {chatWindow && (
-            <button
-              type="button"
-              className={`${styles.taskButton} ${!chatWindow.minimized && chatWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
-              onClick={focusChatWindow}
-            >
-              <span aria-hidden="true">▤</span>
-              <span className={styles.taskTitle}>
-                {t("채팅")}{chatUnread > 0 ? ` (${chatUnread})` : ""}
-              </span>
+              <span className={styles.taskTitle}>{t("간이 링크 만들기")}</span>
             </button>
           )}
           {allowUpload && shareLinksWindow && (
@@ -8491,10 +8473,28 @@ export default function FilesView({
               onClick={focusShareLinksWindow}
             >
               <span aria-hidden="true">☍</span>
-              <span className={styles.taskTitle}>{t("공유 중인 링크")}</span>
+              <span className={styles.taskTitle}>{t("생성된 링크")}</span>
             </button>
           )}
         </div>
+        <button
+          type="button"
+          className={`${styles.taskButton} ${styles.chatTaskButton} ${!chatWindow.minimized && chatWindow.z === topManagedWindowZ ? styles.activeTask : ""} ${chatUnread > 0 ? styles.chatTaskUnread : ""}`}
+          aria-label={
+            chatUnread > 0
+              ? t("읽지 않은 메시지 {count}개", { count: chatUnread })
+              : t("채팅")
+          }
+          onClick={openChatWindow}
+        >
+          <span aria-hidden="true">▤</span>
+          <span className={styles.taskTitle}>{t("채팅")}</span>
+          {chatUnread > 0 && (
+            <span className={styles.chatUnreadBadge} aria-hidden="true">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          )}
+        </button>
         {activeTransfers.length > 0 && (
           <div className={styles.uploadChip} role="status">
             <span className={styles.uploadArrow} aria-hidden="true">↕</span>
@@ -8540,14 +8540,16 @@ export default function FilesView({
           </button>
           {extraFeaturesOpen && (
             <div className={styles.extraFeaturesMenu} role="menu">
-              <button type="button" role="menuitem" onClick={openChatWindow}>
-                <span aria-hidden="true">▤</span>
-                {t("채팅")}
-              </button>
               {allowUpload && (
                 <button type="button" role="menuitem" onClick={openQuickLinkWindow}>
                   <span aria-hidden="true">↗</span>
-                  {t("간이 링크")}
+                  {t("간이 링크 만들기")}
+                </button>
+              )}
+              {allowUpload && (
+                <button type="button" role="menuitem" onClick={openShareLinksWindow}>
+                  <span aria-hidden="true">☍</span>
+                  {t("생성된 링크")}
                 </button>
               )}
               <button

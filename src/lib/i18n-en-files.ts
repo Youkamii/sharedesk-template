@@ -426,6 +426,7 @@ export const EN_FILES: Record<string, string> = {
   // 공개 링크·간이 링크·데스크 채팅
   "추가기능": "More features",
   "채팅": "Chat",
+  "읽지 않은 메시지 {count}개": "{count} unread messages",
   "데스크 채팅": "Desk chat",
   "채팅을 불러오는 중입니다…": "Loading chat…",
   "채팅을 불러오지 못했습니다": "Couldn't load chat",
@@ -439,6 +440,8 @@ export const EN_FILES: Record<string, string> = {
   "1시간 공유 링크를 만들어 복사했습니다.":
     "Created and copied a 1-hour share link.",
   "간이 링크": "Quick link",
+  "간이 링크 만들기": "Create quick link",
+  "생성된 링크": "Created links",
   "파일을 놓으면 바로 1시간 링크를 만듭니다":
     "Drop files to create 1-hour links right away",
   "체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.":

@@ -1720,6 +1720,44 @@
   box-shadow: inset 2px 2px 0 #b9e1cf, inset -2px -2px 0 #2d5c5b, 2px 2px 0 #070b16;
 }
 
+.chatTaskButton {
+  position: relative;
+  min-width: 96px;
+  flex: none;
+}
+
+.chatTaskUnread {
+  animation: chatTaskBlink 1.25s steps(2, end) infinite;
+}
+
+.chatUnreadBadge {
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #0a1020;
+  box-shadow: 1px 1px 0 #070b16;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+  line-height: 1;
+}
+
+@keyframes chatTaskBlink {
+  0%,
+  100% {
+    background: #26385d;
+    box-shadow: inset 2px 2px 0 #59729e, inset -2px -2px 0 #111b33, 2px 2px 0 #070b16;
+  }
+
+  50% {
+    background: #385279;
+    box-shadow: inset 2px 2px 0 #7389b0, inset -2px -2px 0 #172342, 0 0 0 2px #ffd27d;
+  }
+}
+
 .uploadChip {
   display: flex;
   max-width: 220px;
