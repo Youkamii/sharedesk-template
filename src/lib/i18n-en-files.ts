@@ -423,6 +423,48 @@ export const EN_FILES: Record<string, string> = {
     "Access was removed, but the latest permission list couldn't be loaded",
   "공유 권한을 회수하지 못했습니다": "Couldn't remove access",
 
+  // 공개 링크·간이 링크·데스크 채팅
+  "추가기능": "More features",
+  "채팅": "Chat",
+  "데스크 채팅": "Desk chat",
+  "채팅을 불러오는 중입니다…": "Loading chat…",
+  "채팅을 불러오지 못했습니다": "Couldn't load chat",
+  "첫 메시지를 남겨 보세요.": "Send the first message.",
+  "메시지": "Message",
+  "메시지 입력": "Type a message",
+  "메시지를 보내지 못했습니다": "Couldn't send the message",
+  "메시지를 확인하지 못했습니다": "Couldn't confirm the message",
+  "1시간 빠른 공유": "Quick share for 1 hour",
+  "공유 링크 관리…": "Manage share links…",
+  "1시간 공유 링크를 만들어 복사했습니다.":
+    "Created and copied a 1-hour share link.",
+  "간이 링크": "Quick link",
+  "파일을 놓으면 바로 1시간 링크를 만듭니다":
+    "Drop files to create 1-hour links right away",
+  "체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.":
+    "Checked files are also permanently deleted after 1 hour.",
+  "파일 고르기": "Choose files",
+  "공유 중인 링크 보기": "View active links",
+  "아직 만든 간이 링크가 없습니다.": "No quick links yet.",
+  "링크는 만든 시점부터 1시간 동안 열립니다.":
+    "Links stay open for 1 hour after creation.",
+  "업로드 결과를 확인하지 못했습니다": "Couldn't confirm the upload",
+  "공유 링크를 확인하지 못했습니다": "Couldn't confirm the share link",
+  "파일을 옮기지 못했습니다": "Couldn't move the file",
+  "파일을 데스크 바탕화면에 남겼습니다.":
+    "Kept the file on the desk desktop.",
+  "공유 중인 링크": "Active share links",
+  "공유 링크를 멈췄습니다.": "Stopped the share link.",
+  "공유를 멈췄습니다": "Sharing stopped",
+  "공유 멈추기": "Stop sharing",
+  "공유를 멈추지 못했습니다": "Couldn't stop sharing",
+  "멈추는 중…": "Stopping…",
+  "현재 공유 중인 링크가 없습니다.": "There are no active share links.",
+  "활성 링크 {count}개": "{count} active links",
+  "링크를 아는 사람은 로그인 없이 이 폴더 안을 둘러보고 파일을 받을 수 있습니다.":
+    "Anyone with the link can browse this folder and download its files without signing in.",
+  "이 항목의 활성 링크가 없습니다.": "This item has no active links.",
+
   // 공용 오류
   "세션이 만료되었습니다": "Your session has expired",
   "요청에 실패했습니다": "The request failed",

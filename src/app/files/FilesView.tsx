@@ -115,6 +115,7 @@ import ShareDialog from "./ShareDialog";
 import ShareLinkDialog from "./ShareLinkDialog";
 import QuickLinkWindow from "./QuickLinkWindow";
 import ShareLinksWindow from "./ShareLinksWindow";
+import ChatPanel from "./ChatPanel";
 import type { ShareLink } from "@/lib/share-links";
 import styles from "./desktop.module.css";
 import {
@@ -800,6 +801,9 @@ export default function FilesView({
     useState<UtilityWindowState | null>(null);
   const [shareLinksWindow, setShareLinksWindow] =
     useState<UtilityWindowState | null>(null);
+  const [chatWindow, setChatWindow] =
+    useState<{ minimized: boolean } | null>(null);
+  const [chatUnread, setChatUnread] = useState(0);
   const [extraFeaturesOpen, setExtraFeaturesOpen] = useState(false);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -5750,6 +5754,12 @@ export default function FilesView({
     }));
   }
 
+  function openChatWindow() {
+    setExtraFeaturesOpen(false);
+    setChatWindow({ minimized: false });
+    setChatUnread(0);
+  }
+
   function openShareLinksWindow() {
     setShareLinksWindow((current) => ({
       minimized: false,
@@ -8088,6 +8098,23 @@ export default function FilesView({
         />
       )}
 
+      {chatWindow && (
+        <ChatPanel
+          locale={locale}
+          minimized={chatWindow.minimized}
+          onClose={() => {
+            setChatWindow(null);
+            setChatUnread(0);
+          }}
+          onMinimize={() =>
+            setChatWindow((current) =>
+              current ? { ...current, minimized: true } : current,
+            )
+          }
+          onUnreadChange={setChatUnread}
+        />
+      )}
+
       {allowUpload && shareLinksWindow && !shareLinksWindow.minimized && (
         <ShareLinksWindow
           locale={locale}
@@ -8205,6 +8232,21 @@ export default function FilesView({
               <span className={styles.taskTitle}>{t("간이 링크")}</span>
             </button>
           )}
+          {chatWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${!chatWindow.minimized ? styles.activeTask : ""}`}
+              onClick={() => {
+                setChatWindow({ minimized: false });
+                setChatUnread(0);
+              }}
+            >
+              <span aria-hidden="true">▤</span>
+              <span className={styles.taskTitle}>
+                {t("채팅")}{chatUnread > 0 ? ` (${chatUnread})` : ""}
+              </span>
+            </button>
+          )}
           {allowUpload && shareLinksWindow && (
             <button
               type="button"
@@ -8265,6 +8307,10 @@ export default function FilesView({
           </button>
           {extraFeaturesOpen && (
             <div className={styles.extraFeaturesMenu} role="menu">
+              <button type="button" role="menuitem" onClick={openChatWindow}>
+                <span aria-hidden="true">▤</span>
+                {t("채팅")}
+              </button>
               {allowUpload && (
                 <button type="button" role="menuitem" onClick={openQuickLinkWindow}>
                   <span aria-hidden="true">↗</span>
