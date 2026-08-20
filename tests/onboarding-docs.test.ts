@@ -83,6 +83,39 @@ test("README는 영어 메인과 언어판이 같은 구조를 공유한다", as
   }
 });
 
+test("README 다섯 언어판은 최신 기능 묶음을 같은 구조로 설명한다", async () => {
+  const locales = [
+    "README.md",
+    "README.ko.md",
+    "README.ja.md",
+    "README.hi.md",
+    "README.zh.md",
+  ];
+
+  for (const name of locales) {
+    const text = await readFile(new URL(name, root), "utf8");
+    const sections = [...text.matchAll(/^## /gm)];
+
+    assert.equal(sections.length, 4, `${name}: 최상위 설명 묶음이 달라졌습니다.`);
+    const featureBlock = text.slice(
+      sections[1].index,
+      sections[2].index,
+    );
+    assert.equal(
+      featureBlock.match(/^### /gm)?.length ?? 0,
+      4,
+      `${name}: 기능 분류 4개가 모두 있어야 합니다.`,
+    );
+    assert.equal(
+      featureBlock.match(/^- /gm)?.length ?? 0,
+      17,
+      `${name}: 최신 기능 설명이 빠졌습니다.`,
+    );
+    assert.match(featureBlock, /`ADMIN_EMAILS`/);
+    assert.match(text, /WebSocket/);
+  }
+});
+
 test("README와 디자인 문서는 현재 휴지통 배치와 화면 이미지를 설명한다", async () => {
   const wallpaperNames = ["dusk", "night", "dawn", "tide"];
   const [readme, koReadme, design, demo, ...wallpapers] = await Promise.all([
