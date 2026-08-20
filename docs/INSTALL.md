@@ -18,6 +18,8 @@ Follow the steps below to offer your own Google Drive space, create a new ShareD
 
 Each install connects its own host Git repository, Vercel project, Google OAuth client, and Drive root. That separation describes who owns an install; the first value ShareDesk delivers is several people sharing one Drive storage space. If you already set any of these up, carry on with them instead of creating new ones.
 
+**One install address is one desk.** An account does not create or switch between several desks inside one install. The same Google account can be invited to separate ShareDesk addresses, but each address keeps its own members, roles, storage limits, chat, and share links.
+
 ## The quick path for hosts
 
 1. **Create the ShareDesk address:** use [Deploy with Vercel](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FYoukamii%2Fsharedesk-template&project-name=my-sharedesk&repository-name=my-sharedesk) to create your GitHub repository and Vercel project, and write down the Production address.
@@ -336,7 +338,13 @@ An invitation code is not tied to a particular email in advance. The name and em
 
 A role is not a value that gets fixed once at sign-up. You can change it anytime in the `Role` column of the user table in `/admin`.
 
+The role applies across the current desk. There is no separate project model or per-folder ShareDesk access list inside one install: approved users see the same Drive root, while their role controls what they can create or change. Direct Google Drive sharing below is separate from these desk roles.
+
 The admin screen lets you block a user or move them back to pending, and sign out one device or every session of that user. If you changed `ADMIN_EMAILS`, edit the Vercel environment variable and redeploy.
+
+### Desk storage limits
+
+In `/admin`, the **Storage** section lets an admin set a maximum size for one uploaded file and a total limit for the current desk, in GB. For example, the host may have 5 TB while this desk is allowed only 500 GB. A blank value means ShareDesk adds no limit; the host Drive must still have enough real free space. When several files are selected, the per-file limit is checked for each one, and in-progress reservations are counted so concurrent uploads cannot cross the desk limit.
 
 ## Updating after installation
 
@@ -379,8 +387,8 @@ If you replaced the Client secret, or need to receive the refresh token again, u
 - Creating or renaming an item to a name that already exists in the same folder is rejected.
 - Formats that can run scripts, such as HTML and SVG, are downloaded instead of being shown straight in the browser.
 - Google Docs, Sheets, Slides, and Drawings are converted to PDF for preview.
-- Free Google Drive storage and the trash retention period follow the Google policy of the host's account.
+- The host Google Drive's real capacity and trash retention follow Google's policy. Within that capacity, an admin can set a smaller total limit for this desk and a per-file upload limit.
 
-In Drive mode, `ShareDesk/.sharedesk/` stores users and invitations, who is currently online, Drive share permissions, folder notes, and icon layout. The folder is hidden from the normal file list. When the same state is changed at the same time, the first save is kept and the later request ends as a conflict, so that request reads the latest state again.
+In Drive mode, `ShareDesk/.sharedesk/` stores users and invitations, who is currently online, chat, external share links, upload reservations, Drive share permissions, folder notes, and icon layout. The folder is hidden from the normal file list. When the same state is changed at the same time, the first save is kept and the later request ends as a conflict, so that request reads the latest state again.
 
 To install with a coding AI, use the [AI install guide](./AI_INSTALL.md). Development and check commands, and the full environment variable table, are collected separately in [Local personal use](./LOCAL.md#developer-reference).

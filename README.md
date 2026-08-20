@@ -23,6 +23,10 @@ ShareDesk is **a shared file space where several people use one person's Google 
 - View photos, videos, audio, PDFs, and text right away, and edit `.txt` files together.
 - Leave a shared note on every folder.
 - Bring people in with invitation codes and see who is currently online.
+- Chat with desk members and see how many messages arrived while the chat window was minimized.
+- Right-click a file or folder for a sign-in-free 1-hour share link, then stop any active link from the link list.
+- Drop files into Quick link to receive 1-hour links immediately. Keep the default check to delete each file after an hour, or clear it to keep the file on the desktop.
+- Let an admin limit both one uploaded file and the total storage used by the current desk.
 - Give each person one of four roles — Admin, Can edit, Can upload, View only — and change it anytime from the admin screen.
 - Five interface languages — English, Korean, Japanese, Hindi, and Chinese. The admin sets the desk language in the Settings tab (English by default), and turning on Allow personal language lets each member pick their own.
 - Pick whichever of the four wallpapers suits your mood; your choice is saved in your own browser.
@@ -41,6 +45,8 @@ ShareDesk is **a shared file space where several people use one person's Google 
 Only the host's account connects to Google Drive. Participants sign in with their own Google accounts, but inside ShareDesk everyone shares the files and storage of the one Drive folder the host chose. ShareDesk never reads a participant's personal Drive files.
 
 Shared state such as users, invitations, folder notes, and icon layout is also stored in the host's Drive. No separate database is needed.
+
+One install address is one desk. The same Google account can join several separate ShareDesk addresses, but their members, roles, limits, and chat never mix.
 
 ## Getting started
 
