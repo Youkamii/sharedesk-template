@@ -225,6 +225,7 @@ setup 结束后，`.env.local` 中会准备好下面这些值。
 
 - `ADMIN_EMAILS`
 - `SESSION_SECRET`
+- `CRON_SECRET`
 - `STORAGE_DRIVER=drive`
 - `GOOGLE_REFRESH_TOKEN`
 - `DRIVE_ROOT_FOLDER_ID`
@@ -253,6 +254,7 @@ npm run dev
 |---|---|
 | `ADMIN_EMAILS` | 管理员的 Google 邮箱。多个人时用逗号分隔 |
 | `SESSION_SECRET` | setup 生成的长随机值 |
+| `CRON_SECRET` | setup 生成的过期文件清理随机值 |
 | `STORAGE_DRIVER` | `drive` |
 | `GOOGLE_CLIENT_ID` | Web application 的 Client ID |
 | `GOOGLE_CLIENT_SECRET` | Client secret |
@@ -271,7 +273,7 @@ npm run dev
 
 `ACCESS_KEYS` 只在要使用临时访客密钥时才填。在 drive 模式下，用访问密钥进入的访客是 `仅查看`。`LOCAL_STORAGE_ROOT` 和 `SHAREDESK_SHARE_TEST_EMAIL` 不要放进生产环境。任何机密值都不要加 `NEXT_PUBLIC_` 前缀。
 
-一次粘贴多个值时，存在 Key 栏把第一行（`ADMIN_EMAILS`）整个吞进去的陷阱。粘贴之后请务必确认变量是不是 9 个（不含可选项）。值默认以 `Sensitive` 保存，保存之后无法再次查看，这是正常的。
+一次粘贴多个值时，存在 Key 栏把第一行（`ADMIN_EMAILS`）整个吞进去的陷阱。粘贴之后请务必确认变量是不是 10 个（不含可选项）。值默认以 `Sensitive` 保存，保存之后无法再次查看，这是正常的。
 
 填写或修改环境变量之后，请重新部署 Production。环境变量的改动不会自动反映到已有的部署。在 `Deployments` 标签页中，把鼠标悬停在最新的部署行上，点击出现的 `⋯` 菜单 → `Redeploy`。`Create Deployment` 按钮只用于 Preview 部署，不要使用。详细行为请参考 [Vercel 环境变量指南](https://vercel.com/docs/environment-variables)。
 

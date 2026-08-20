@@ -43,6 +43,20 @@ test("데스크 채팅은 Drive 상태에 메시지를 충돌 없이 이어 쓴�
     const afterFirst = await chat.listChatMessages(first.id);
     assert.equal(afterFirst.some((message) => message.id === first.id), false);
     assert.equal(afterFirst.length, 5);
+
+    const { getAdapter } = await import("../src/lib/storage");
+    const retained = Array.from({ length: 500 }, (_, index) => ({
+      id: `message-${index}`,
+      userId: `user-${index}`,
+      name: `사용자 ${index}`,
+      text: `메시지 ${index}`,
+      createdAt: new Date(Date.now() - (500 - index) * 1000).toISOString(),
+    }));
+    await getAdapter().writeState("chat.json", {
+      version: 1,
+      messages: retained,
+    });
+    assert.equal((await chat.listChatMessages("missing-cursor")).length, 500);
   } finally {
     if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
     else process.env.STORAGE_DRIVER = previousDriver;
@@ -65,6 +79,7 @@ test("채팅 API와 창은 서버리스 폴링·독립 버튼·새 메시지 알
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(route, /requireSession\(\)/);
+  assert.match(route, /auth\.session\.isGuest/);
   assert.match(route, /sendChatMessage/);
   assert.match(route, /cursor: messages\.at\(-1\)\?\.id/);
   assert.doesNotMatch(route, /WebSocket|EventSource/);

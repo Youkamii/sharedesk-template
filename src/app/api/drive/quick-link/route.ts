@@ -11,10 +11,14 @@ import {
   updateQuickLinkTarget,
 } from "@/lib/share-links";
 import { getAdapter } from "@/lib/storage";
-import { StorageError, TEMPORARY_FILE_PREFIX } from "@/lib/storage/types";
 import {
+  ROOT_ID,
+  StorageError,
+  TEMPORARY_FILE_PREFIX,
+} from "@/lib/storage/types";
+import {
+  claimUploadReservation,
   finishUploadReservation,
-  getUploadReservation,
 } from "@/lib/storage-quota";
 
 export const dynamic = "force-dynamic";
@@ -48,35 +52,44 @@ export async function POST(req: NextRequest) {
   }
   let deleteOnFailure = false;
   try {
-    const entry = await getAdapter().getEntry(body.fileId);
+    const adapter = getAdapter();
+    const entry = await adapter.getEntry(body.fileId);
     if (
       entry.isFolder ||
-      !entry.name.startsWith(TEMPORARY_FILE_PREFIX)
+      !entry.name.startsWith(TEMPORARY_FILE_PREFIX) ||
+      !(await adapter.isDirectChild(entry.id, ROOT_ID))
     ) {
       return badRequest();
     }
-    deleteOnFailure = true;
     if (body.reservationId) {
-      const reservation = await getUploadReservation(
+      const reservation = await claimUploadReservation(
         body.reservationId,
         auth.session.userId,
+        {
+          parentId: ROOT_ID,
+          name: body.name,
+          size: entry.size ?? -1,
+          transport: "direct",
+        },
       );
-      if (
-        !reservation ||
-        reservation.name !== body.name ||
-        (entry.size !== null && reservation.size !== entry.size)
-      ) {
+      if (!reservation) {
         throw new StorageError(
           "CONFLICT",
           "업로드 예약 정보가 일치하지 않습니다",
         );
       }
-      await finishUploadReservation(
+      deleteOnFailure = true;
+      const completed = await finishUploadReservation(
         body.reservationId,
         auth.session.userId,
         entry,
         { ignoreEntryName: true },
       );
+      if (!completed) {
+        throw new StorageError("CONFLICT", "업로드 예약을 찾지 못했습니다");
+      }
+    } else {
+      deleteOnFailure = true;
     }
     const link = await createShareLink(
       entry.id,

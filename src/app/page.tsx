@@ -15,6 +15,7 @@ import pixel from "./unconfigured.module.css";
 const GOOGLE_LOGIN_ENV = [
   "ADMIN_EMAILS",
   "SESSION_SECRET",
+  "CRON_SECRET",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_REFRESH_TOKEN",

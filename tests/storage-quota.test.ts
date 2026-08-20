@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  claimUploadReservation,
   exactSizeUploadStream,
   finishUploadReservation,
   parseUploadContentLength,
@@ -56,8 +57,76 @@ test("프록시 업로드는 선언 크기가 없거나 실제 본문과 다르�
   );
 });
 
+test("중간에 끊긴 로컬 업로드는 부분 파일을 남기지 않는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sharedesk-partial-upload-"));
+  const previousDriver = process.env.STORAGE_DRIVER;
+  const previousRoot = process.env.LOCAL_STORAGE_ROOT;
+  process.env.STORAGE_DRIVER = "local";
+  process.env.LOCAL_STORAGE_ROOT = root;
+  try {
+    let sent = false;
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!sent) {
+          sent = true;
+          controller.enqueue(new TextEncoder().encode("partial"));
+          return;
+        }
+        controller.error(new Error("broken stream"));
+      },
+    });
+    await assert.rejects(
+      () =>
+        getAdapter().upload(
+          ROOT_ID,
+          "partial.txt",
+          "text/plain",
+          broken,
+        ),
+      /broken stream/,
+    );
+    assert.equal(
+      (await getAdapter().list(ROOT_ID)).some(
+        (entry) => entry.name === "partial.txt",
+      ),
+      false,
+    );
+  } finally {
+    if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
+    else process.env.STORAGE_DRIVER = previousDriver;
+    if (previousRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
+    else process.env.LOCAL_STORAGE_ROOT = previousRoot;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("데스크 파일 사용량은 앱 내부 상태 파일을 빼고 계산한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sharedesk-storage-usage-"));
+  const previousDriver = process.env.STORAGE_DRIVER;
+  const previousRoot = process.env.LOCAL_STORAGE_ROOT;
+  process.env.STORAGE_DRIVER = "local";
+  process.env.LOCAL_STORAGE_ROOT = root;
+  try {
+    const adapter = getAdapter();
+    await adapter.writeState("large-state.json", { text: "x".repeat(10_000) });
+    await adapter.upload(
+      ROOT_ID,
+      "visible.txt",
+      "text/plain",
+      new Blob(["abc"]).stream(),
+    );
+    assert.equal((await adapter.getStorageUsage()).deskUsedBytes, 3);
+  } finally {
+    if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
+    else process.env.STORAGE_DRIVER = previousDriver;
+    if (previousRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
+    else process.env.LOCAL_STORAGE_ROOT = previousRoot;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("모든 파일 증가 경로가 총용량 검사와 완료 위치 확인을 거친다", async () => {
-  const [upload, quickUpload, content, complete] = await Promise.all([
+  const [upload, quickUpload, content, complete, session, quickSession, transfer] = await Promise.all([
     readFile(new URL("../src/app/api/drive/upload/route.ts", import.meta.url), "utf8"),
     readFile(
       new URL("../src/app/api/drive/quick-link/upload/route.ts", import.meta.url),
@@ -68,6 +137,15 @@ test("모든 파일 증가 경로가 총용량 검사와 완료 위치 확인을
       new URL("../src/app/api/drive/upload-complete/route.ts", import.meta.url),
       "utf8",
     ),
+    readFile(
+      new URL("../src/app/api/drive/upload-session/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/api/drive/quick-link/session/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/lib/client/transfer.ts", import.meta.url), "utf8"),
   ]);
   for (const route of [upload, quickUpload]) {
     assert.match(route, /parseUploadContentLength/);
@@ -76,6 +154,17 @@ test("모든 파일 증가 경로가 총용량 검사와 완료 위치 확인을
   assert.match(content, /growth = Math\.max/);
   assert.match(content, /reserveUpload\(/);
   assert.match(complete, /isDirectChild/);
+  assert.match(complete, /reservation\.transport !== "direct"/);
+  assert.match(upload, /claimUploadReservation/);
+  assert.match(quickUpload, /claimUploadReservation/);
+  for (const [source, createCall] of [
+    [session, ".createUploadSession("],
+    [quickSession, ".createTemporaryUploadSession("],
+  ] as const) {
+    assert.match(source, /resolveStorageDriver/);
+    assert.ok(source.indexOf("reserveUpload({") < source.indexOf(createCall));
+  }
+  assert.match(transfer, /startUploadReservationHeartbeat/);
 });
 
 test("한 업로드 파일로 여러 용량 예약을 완료할 수 없다", async () => {
@@ -102,6 +191,7 @@ test("한 업로드 파일로 여러 용량 예약을 완료할 수 없다", asy
       parentId: ROOT_ID,
       name: entry.name,
       size: 3,
+      transport: "proxy",
     });
     assert.ok(first);
     assert.equal(
@@ -114,12 +204,49 @@ test("한 업로드 파일로 여러 용량 예약을 완료할 수 없다", asy
       parentId: ROOT_ID,
       name: entry.name,
       size: 3,
+      transport: "proxy",
     });
     assert.ok(second);
     await assert.rejects(
       () => finishUploadReservation(second, "user-1", entry),
       /이미 완료 처리한 업로드 파일/,
     );
+  } finally {
+    if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
+    else process.env.STORAGE_DRIVER = previousDriver;
+    if (previousRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
+    else process.env.LOCAL_STORAGE_ROOT = previousRoot;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("프록시 예약은 한 요청만 원자적으로 선점한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sharedesk-quota-claim-"));
+  const previousDriver = process.env.STORAGE_DRIVER;
+  const previousRoot = process.env.LOCAL_STORAGE_ROOT;
+  process.env.STORAGE_DRIVER = "local";
+  process.env.LOCAL_STORAGE_ROOT = root;
+  try {
+    await setDeskSettings({ deskStorageLimitBytes: 100 * 1024 * 1024 });
+    const reservationId = await reserveUpload({
+      userId: "user-claim",
+      parentId: ROOT_ID,
+      name: "claim.txt",
+      size: 5,
+      transport: "proxy",
+    });
+    assert.ok(reservationId);
+    const claims = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        claimUploadReservation(reservationId, "user-claim", {
+          parentId: ROOT_ID,
+          name: "claim.txt",
+          size: 5,
+          transport: "proxy",
+        }),
+      ),
+    );
+    assert.equal(claims.filter(Boolean).length, 1);
   } finally {
     if (previousDriver === undefined) delete process.env.STORAGE_DRIVER;
     else process.env.STORAGE_DRIVER = previousDriver;
@@ -140,6 +267,9 @@ test("관리자 용량 설정은 현재 사용량을 디스크형 도넛으로 �
   assert.match(view, /styles\.storageDonut/);
   assert.match(view, /styles\.storageReservedMark/);
   assert.match(view, /styles\.storageFreeMark/);
+  assert.match(view, /activeTab !== "settings"/);
+  assert.match(view, /window\.setInterval\(refresh, 60_000\)/);
+  assert.match(view, /visibilitychange/);
   assert.match(css, /conic-gradient\(/);
   assert.match(css, /\.storageDonutUnlimited/);
   assert.match(css, /\.storageLegend/);

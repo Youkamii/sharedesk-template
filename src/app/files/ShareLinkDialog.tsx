@@ -21,6 +21,7 @@ type ShareLinkDialogProps = {
   };
   locale: Locale;
   onClose: () => void;
+  onLinksChanged: () => void;
   onNotice: (message: string) => void;
 };
 
@@ -89,11 +90,15 @@ export default function ShareLinkDialog({
   entry,
   locale,
   onClose,
+  onLinksChanged,
   onNotice,
 }: ShareLinkDialogProps) {
   const router = useRouter();
-  const t = (text: string, vars?: Record<string, string | number>) =>
-    translate(locale, text, vars);
+  const t = useCallback(
+    (text: string, vars?: Record<string, string | number>) =>
+      translate(locale, text, vars),
+    [locale],
+  );
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement>(null);
@@ -116,11 +121,15 @@ export default function ShareLinkDialog({
       }
       const body = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(body?.error ?? "요청에 실패했습니다");
+        throw new Error(
+          typeof body?.error === "string"
+            ? t(body.error)
+            : t("요청에 실패했습니다"),
+        );
       }
       return body as T;
     },
-    [router],
+    [router, t],
   );
 
   const loadLinks = useCallback(
@@ -191,6 +200,7 @@ export default function ShareLinkDialog({
       });
       if (!controller.signal.aborted && isShareLink(body.link)) {
         setCreatedLinkId(body.link.linkId);
+        onLinksChanged();
       }
       await loadLinks(false);
     } catch (mutationError) {
@@ -229,6 +239,7 @@ export default function ShareLinkDialog({
         body: JSON.stringify({ linkId: link.linkId }),
         signal: controller.signal,
       });
+      if (result?.ok !== false) onLinksChanged();
       if (createdLinkId === link.linkId) setCreatedLinkId(null);
       await loadLinks(false);
       if (!controller.signal.aborted) {

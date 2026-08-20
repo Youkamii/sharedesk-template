@@ -160,27 +160,45 @@ async function safeAbs(
   const realRoot = await realpath(rootDir());
   await assertNotStateAlias(realRoot, rel, allowState);
   let missing: NodeJS.ErrnoException | null = null;
+  let targetStat: Stats | null = null;
 
   try {
-    await lstat(abs);
+    targetStat = await lstat(abs);
   } catch (e) {
     if (!isNoEnt(e)) throw e;
     missing = e as NodeJS.ErrnoException;
   }
 
   if (!missing) {
-    let realTarget: string;
+    let realTarget: string | null = null;
     try {
       realTarget = await realpath(abs);
     } catch (e) {
       // 끊어진 심볼릭 링크를 "새 파일"로 취급하면 링크 바깥에 쓸 수 있다.
       if (isNoEnt(e)) {
-        throw new StorageError("BAD_ID", "저장소 밖의 경로입니다");
+        const current = await lstat(abs).catch((caught) => {
+          if (isNoEnt(caught)) return null;
+          throw caught;
+        });
+        if (targetStat?.isSymbolicLink() || current?.isSymbolicLink()) {
+          throw new StorageError("BAD_ID", "저장소 밖의 경로입니다");
+        }
+        // 잠금 파일처럼 다른 요청이 방금 지운 일반 파일은 생성 가능 경로로
+        // 다시 검사한다. 현재 다른 일반 파일이 생겼다면 그 대상을 처음부터 본다.
+        if (allowMissing) {
+          if (current) return safeAbs(rel, allowMissing, allowState);
+          missing = e as NodeJS.ErrnoException;
+        } else {
+          throw e;
+        }
+      } else {
+        throw e;
       }
-      throw e;
     }
-    await assertSafeRealTarget(realRoot, realTarget, allowState);
-    return abs;
+    if (!missing && realTarget) {
+      await assertSafeRealTarget(realRoot, realTarget, allowState);
+      return abs;
+    }
   }
 
   if (!allowMissing) throw missing;
@@ -353,6 +371,10 @@ export class LocalAdapter implements StorageAdapter {
     }
   }
 
+  async isRoot(id: string): Promise<boolean> {
+    return idToRel(id) === "";
+  }
+
   async list(folderId: string): Promise<Entry[]> {
     await this.ensureRoot();
     const rel = idToRel(folderId);
@@ -390,17 +412,24 @@ export class LocalAdapter implements StorageAdapter {
   async getStorageUsage(): Promise<StorageUsage> {
     await this.ensureRoot();
     const root = rootDir();
-    const sizeOf = async (directory: string): Promise<number> => {
+    const sizeOf = async (
+      directory: string,
+      isDeskRoot = false,
+    ): Promise<number> => {
       const items = await readdir(directory, { withFileTypes: true });
       let total = 0;
       for (const item of items) {
+        if (isDeskRoot && item.name === STATE_DIR) continue;
         const target = path.join(directory, item.name);
         if (item.isDirectory()) total += await sizeOf(target);
         else total += (await lstat(target)).size;
       }
       return total;
     };
-    const [deskUsedBytes, disk] = await Promise.all([sizeOf(root), statfs(root)]);
+    const [deskUsedBytes, disk] = await Promise.all([
+      sizeOf(root, true),
+      statfs(root),
+    ]);
     const hostLimitBytes = disk.blocks * disk.bsize;
     const hostFreeBytes = disk.bavail * disk.bsize;
     return {
@@ -949,13 +978,15 @@ export class LocalAdapter implements StorageAdapter {
       if (!parentStat?.isDirectory())
         throw new StorageError("NOT_FOUND", "상위 폴더가 없습니다");
       // 기존 파일을 말없이 덮어쓰지 않는다 (wx: 존재하면 EEXIST).
+      const target = await safeAbs(childRel, true);
       try {
         await pipeline(
           Readable.fromWeb(data as import("node:stream/web").ReadableStream),
-          createWriteStream(await safeAbs(childRel, true), { flags: "wx" }),
+          createWriteStream(target, { flags: "wx" }),
         );
       } catch (e) {
         if ((e as NodeJS.ErrnoException)?.code === "EEXIST") throw conflictError();
+        await rm(target, { force: true }).catch(() => undefined);
         throw e;
       }
       return toEntry(childRel, clean);
@@ -1014,6 +1045,19 @@ export class LocalAdapter implements StorageAdapter {
       throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
     }
     await rm(await safeAbs(rel), { force: true });
+  }
+
+  async listTemporary(): Promise<Entry[]> {
+    await this.ensureRoot();
+    const items = await readdir(rootDir(), { withFileTypes: true });
+    const entries = await Promise.all(
+      items
+        .filter((item) => item.name.startsWith(TEMPORARY_FILE_PREFIX))
+        .map((item) => toEntry(item.name, item.name).catch(() => null)),
+    );
+    return entries.filter(
+      (entry): entry is Entry => entry !== null && !entry.isFolder,
+    );
   }
 
   async createUploadSession(): Promise<UploadSession> {

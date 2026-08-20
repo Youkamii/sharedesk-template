@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUploadRights } from "@/lib/api";
 import { getAdapter } from "@/lib/storage";
 import {
+  claimUploadReservation,
   finishUploadReservation,
   getUploadReservation,
 } from "@/lib/storage-quota";
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
       body.reservationId,
       auth.session.userId,
     );
-    if (!reservation) {
+    if (!reservation || reservation.transport !== "direct") {
       return NextResponse.json(
         { error: "업로드 예약을 찾지 못했습니다" },
         { status: 409 },
@@ -45,6 +46,22 @@ export async function POST(req: NextRequest) {
     if (!(await adapter.isDirectChild(entry.id, reservation.parentId))) {
       return NextResponse.json(
         { error: "업로드된 파일 위치가 일치하지 않습니다" },
+        { status: 409 },
+      );
+    }
+    const claimed = await claimUploadReservation(
+      body.reservationId,
+      auth.session.userId,
+      {
+        parentId: reservation.parentId,
+        name: reservation.name,
+        size: reservation.size,
+        transport: "direct",
+      },
+    );
+    if (!claimed) {
+      return NextResponse.json(
+        { error: "업로드 예약을 찾지 못했습니다" },
         { status: 409 },
       );
     }

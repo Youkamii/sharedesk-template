@@ -35,6 +35,12 @@ async function cleanupIfDue() {
 export async function GET(req: NextRequest) {
   const auth = await requireSession();
   if ("response" in auth) return auth.response;
+  if (auth.session.isGuest) {
+    return NextResponse.json(
+      { error: "승인된 데스크 참여자만 채팅을 사용할 수 있습니다" },
+      { status: 403 },
+    );
+  }
   const after = req.nextUrl.searchParams.get("after") ?? undefined;
   try {
     await cleanupIfDue();
@@ -56,6 +62,12 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireSession({ fresh: true });
   if ("response" in auth) return auth.response;
+  if (auth.session.isGuest) {
+    return NextResponse.json(
+      { error: "승인된 데스크 참여자만 채팅을 사용할 수 있습니다" },
+      { status: 403 },
+    );
+  }
   const contentLength = Number(req.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > 16_384) {
     return NextResponse.json({ error: "메시지가 너무 깁니다" }, { status: 413 });

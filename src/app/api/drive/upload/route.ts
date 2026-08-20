@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
-import { ROOT_ID } from "@/lib/storage/types";
+import { ROOT_ID, StorageError } from "@/lib/storage/types";
 import { errorResponse, requireUploadRights } from "@/lib/api";
 import {
+  claimUploadReservation,
   exactSizeUploadStream,
   finishUploadReservation,
-  getUploadReservation,
   parseUploadContentLength,
   reserveUpload,
 } from "@/lib/storage-quota";
@@ -29,16 +29,17 @@ export async function POST(req: NextRequest) {
       req.headers.get("content-length"),
     );
     if (requestedReservationId) {
-      const reservation = await getUploadReservation(
+      const reservation = await claimUploadReservation(
         requestedReservationId,
         auth.session.userId,
+        {
+          parentId,
+          name,
+          size: declaredSize,
+          transport: "proxy",
+        },
       );
-      if (
-        !reservation ||
-        reservation.parentId !== parentId ||
-        reservation.name !== name ||
-        reservation.size !== declaredSize
-      ) {
+      if (!reservation) {
         return NextResponse.json(
           { error: "업로드 예약 정보가 일치하지 않습니다" },
           { status: 409 },
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
         parentId,
         name,
         size: declaredSize,
+        transport: "proxy",
       });
     }
     const entry = await getAdapter().upload(
@@ -62,7 +64,14 @@ export async function POST(req: NextRequest) {
         declaredSize,
       ),
     );
-    await finishUploadReservation(reservationId, auth.session.userId, entry);
+    const completed = await finishUploadReservation(
+      reservationId,
+      auth.session.userId,
+      entry,
+    );
+    if (!completed) {
+      throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
+    }
     recordActivityAfter(auth.session, "upload", entry.name);
     return NextResponse.json({ entry }, { status: 201 });
   } catch (e) {

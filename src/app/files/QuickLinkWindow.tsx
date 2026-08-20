@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
-import { uploadWithProgress } from "@/lib/client/transfer";
+import {
+  startUploadReservationHeartbeat,
+  uploadWithProgress,
+} from "@/lib/client/transfer";
 import type { ShareLink } from "@/lib/share-links";
 import styles from "./desktop.module.css";
 
@@ -31,6 +34,8 @@ type Props = {
   onMinimize: () => void;
   onToggleMaximize: () => void;
   onDesktopChanged: () => void;
+  linksRevision: number;
+  onLinksChanged: () => void;
   onNotice: (message: string) => void;
   onActivate: () => void;
 };
@@ -60,14 +65,61 @@ export default function QuickLinkWindow({
   onMinimize,
   onToggleMaximize,
   onDesktopChanged,
+  linksRevision,
+  onLinksChanged,
   onNotice,
   onActivate,
 }: Props) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<QuickItem[]>([]);
-  const t = (text: string, vars?: Record<string, string | number>) =>
-    translate(locale, text, vars);
+  const t = useCallback(
+    (text: string, vars?: Record<string, string | number>) =>
+      translate(locale, text, vars),
+    [locale],
+  );
+
+  useEffect(() => {
+    if (linksRevision === 0) return;
+    const controller = new AbortController();
+    const reconcile = async () => {
+      try {
+        const response = await fetch("/api/drive/share-link", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (response.status === 401) {
+          router.replace("/");
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        if (!response.ok) return;
+        const active = new Map<string, ShareLink>(
+          (Array.isArray(body?.links) ? body.links.filter(isShareLink) : []).map(
+            (link: ShareLink) => [link.linkId, link],
+          ),
+        );
+        setItems((current) =>
+          current.map((item) => {
+            if (item.status !== "ready" || !item.link) return item;
+            const updated = active.get(item.link.linkId);
+            return updated
+              ? { ...item, link: updated }
+              : { ...item, status: "stopped" };
+          }),
+        );
+      } catch (error) {
+        if ((error as Error)?.name !== "AbortError") {
+          console.error("[quick-link] 링크 상태 갱신 실패", error);
+        }
+      }
+    };
+    const timer = window.setTimeout(() => void reconcile(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [linksRevision, router]);
 
   function patchItem(id: string, patch: Partial<QuickItem>) {
     setItems((current) =>
@@ -83,7 +135,11 @@ export default function QuickLinkWindow({
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      throw new Error(body?.error ?? t("요청에 실패했습니다"));
+      throw new Error(
+        typeof body?.error === "string"
+          ? t(body.error)
+          : t("요청에 실패했습니다"),
+      );
     }
     return body as T;
   }
@@ -106,33 +162,40 @@ export default function QuickLinkWindow({
       );
       let linkValue: unknown;
       if (session.mode === "direct") {
-        const upload = await uploadWithProgress(
-          session.url,
-          "PUT",
-          file,
-          null,
-          (sent, total) => patchItem(item.id, { progress: total ? sent / total : 0 }),
+        const stopHeartbeat = startUploadReservationHeartbeat(
+          session.reservationId,
         );
-        if (upload.status < 200 || upload.status >= 300) {
-          throw new Error(t("드라이브 업로드에 실패했습니다"));
+        try {
+          const upload = await uploadWithProgress(
+            session.url,
+            "PUT",
+            file,
+            null,
+            (sent, total) => patchItem(item.id, { progress: total ? sent / total : 0 }),
+          );
+          if (upload.status < 200 || upload.status >= 300) {
+            throw new Error(t("드라이브 업로드에 실패했습니다"));
+          }
+          const uploaded = JSON.parse(upload.responseText || "null") as {
+            id?: string;
+          } | null;
+          if (!uploaded?.id) throw new Error(t("업로드 결과를 확인하지 못했습니다"));
+          const finalized = await apiJson<{ link?: unknown }>(
+            "/api/drive/quick-link",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fileId: uploaded.id,
+                name: file.name,
+                reservationId: session.reservationId,
+              }),
+            },
+          );
+          linkValue = finalized.link;
+        } finally {
+          stopHeartbeat();
         }
-        const uploaded = JSON.parse(upload.responseText || "null") as {
-          id?: string;
-        } | null;
-        if (!uploaded?.id) throw new Error(t("업로드 결과를 확인하지 못했습니다"));
-        const finalized = await apiJson<{ link?: unknown }>(
-          "/api/drive/quick-link",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              fileId: uploaded.id,
-              name: file.name,
-              reservationId: session.reservationId,
-            }),
-          },
-        );
-        linkValue = finalized.link;
       } else {
         const reservation = session.reservationId
           ? `&reservationId=${encodeURIComponent(session.reservationId)}`
@@ -162,6 +225,7 @@ export default function QuickLinkWindow({
         link: linkValue,
         error: null,
       });
+      onLinksChanged();
       await navigator.clipboard.writeText(shareUrl(linkValue.linkId)).catch(() => undefined);
     } catch (error) {
       patchItem(item.id, {
@@ -206,6 +270,7 @@ export default function QuickLinkWindow({
       });
       if (!isShareLink(body.link)) throw new Error(t("파일을 옮기지 못했습니다"));
       patchItem(item.id, { link: body.link, keeping: false });
+      onLinksChanged();
       onDesktopChanged();
       onNotice(t("파일을 데스크 바탕화면에 남겼습니다."));
     } catch (error) {
@@ -225,6 +290,7 @@ export default function QuickLinkWindow({
         body: JSON.stringify({ linkId: item.link.linkId }),
       });
       patchItem(item.id, { status: "stopped" });
+      onLinksChanged();
       onNotice(t("공유 링크를 멈췄습니다."));
     } catch (error) {
       patchItem(item.id, {

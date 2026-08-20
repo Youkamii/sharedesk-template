@@ -36,9 +36,7 @@ export async function GET(req: NextRequest) {
         links: canEdit(auth.session.role)
           ? links
           : links.filter(
-              (link) =>
-                link.quick &&
-                link.createdByUserId === auth.session.userId,
+              (link) => link.createdByUserId === auth.session.userId,
             ),
       },
       { headers: { "Cache-Control": "no-store" } },
@@ -66,7 +64,9 @@ export async function POST(req: NextRequest) {
     return badRequest();
   }
   try {
-    const entry = await getAdapter().getEntry(body.id);
+    const adapter = getAdapter();
+    if (await adapter.isRoot(body.id)) return badRequest();
+    const entry = await adapter.getEntry(body.id);
     const link = await createShareLink(
       body.id,
       entry.name,
@@ -95,7 +95,7 @@ export async function DELETE(req: NextRequest) {
     if (
       !link ||
       (!canEdit(auth.session.role) &&
-        (!link.quick || link.createdByUserId !== auth.session.userId))
+        link.createdByUserId !== auth.session.userId)
     ) {
       return NextResponse.json(
         { error: "이 공유 링크를 멈출 권한이 없습니다" },

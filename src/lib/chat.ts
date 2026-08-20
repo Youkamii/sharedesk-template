@@ -69,7 +69,7 @@ export async function listChatMessages(afterId?: string): Promise<ChatMessage[]>
   const index = messages.findIndex((message) => message.id === afterId);
   return index >= 0
     ? messages.slice(index + 1, index + 1 + MAX_RETURNED_MESSAGES)
-    : messages.slice(-MAX_RETURNED_MESSAGES);
+    : messages;
 }
 
 export async function sendChatMessage(input: {

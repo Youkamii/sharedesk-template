@@ -162,6 +162,7 @@ test("설치 문서는 OAuth부터 운영 확인까지 필요한 계약을 한�
   assert.deepEqual(environmentNames, [
     "ADMIN_EMAILS",
     "SESSION_SECRET",
+    "CRON_SECRET",
     "STORAGE_DRIVER",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",

@@ -27,7 +27,7 @@ Google CloudやVercelに慣れていない場合は、コーディングAIに構
 2. 作業の前に現在の状態を確認せよ。現在のリポジトリ・ブランチ・git status・origin、接続されたGitHubリポジトリとVercelプロジェクト、固定のProductionアドレス、.env.localの必要な項目が埋まっているか、既存のOAuth・Driveの接続の痕跡を、値を露出させずに確認せよ。
 3. すでに終わっている手順を繰り返すな。既存のリポジトリとVercelプロジェクトを作り直さず、既存のOAuthクライアント、Audienceの状態、refresh token、Drive IDを推測で変更したり破棄したりするな。
 4. ユーザーがGoogle CloudやVercelの画面で自分で行う作業が出てきたら、一度に1ステップだけ説明して止まれ。ユーザーが完了したと答えたら、結果を確認したうえで次の1ステップに進め。
-5. Client secret、SESSION_SECRET、refresh token、callback URL、招待コードのような秘密の値を、チャット・Issue・コミット・スクリーンショットで要求したり出力したりするな。ユーザーが.env.local、ローカルのターミナル入力、Google Cloud、Vercelの画面に直接入れるよう案内せよ。callback URLは、npm run setup:finishが尋ねるローカルのターミナルにだけ、ユーザーが自分で貼り付けるようにせよ。
+5. Client secret、SESSION_SECRET、CRON_SECRET、refresh token、callback URL、招待コードのような秘密の値を、チャット・Issue・コミット・スクリーンショットで要求したり出力したりするな。ユーザーが.env.local、ローカルのターミナル入力、Google Cloud、Vercelの画面に直接入れるよう案内せよ。callback URLは、npm run setup:finishが尋ねるローカルのターミナルにだけ、ユーザーが自分で貼り付けるようにせよ。
 6. リポジトリのファイルを変更する必要があるなら、異なる機能や修正ごとにGitHub Issueを先に作り、検証したあとに該当のファイルだけを個別にコミットしてIssue番号を残せ。.env.localと秘密の値は絶対にコミットするな。追跡対象ファイルの変更がないなら、空のIssueや空のコミットを作るな。
 7. この依頼は、いま作業中の自分のShareDeskリポジトリへの必要な変更、機能ごとのGitHub Issueとローカルコミット、現在の作業ブランチのpush、接続された自分のVercelプロジェクトのProductionデプロイを許可する。作業の前に実際の対象リポジトリ・ブランチ・Vercelプロジェクト・Productionアドレスを確認し、元のテンプレートや他人のリポジトリ・プロジェクトには触れるな。
 8. 自動チェックの通過と実際の本番確認を区別せよ。確認していない内容を完了したと報告するな。リポジトリを変更したなら、チェックと機能ごとのコミットを終えたあとにだけpush・デプロイせよ。
@@ -38,7 +38,7 @@ Google CloudやVercelに慣れていない場合は、コーディングAIに構
 3. Google Cloudで、同じプロジェクトのDrive API、Branding、Audience、Data Access、Web applicationのOAuthクライアントを確認せよ。docs/INSTALL.ja.mdのredirect URI 3つとscope 4つが正確に合っているか確認させよ。
 4. リポジトリでnpm ciを実行し、.env.localを安全に準備せよ。Google Client IDとClient secretは、ユーザーがファイルに直接入れるようにせよ。
 5. npm run setupを実行してホストのGoogleの同意を始めよ。同意のあとのcallback URLは、ユーザーがnpm run setup:finishの質問に自分で貼り付けるようにし、AIはその値を読んだり再出力したりするな。
-6. setupが作ったADMIN_EMAILS、SESSION_SECRET、STORAGE_DRIVER=drive、GOOGLE_REFRESH_TOKEN、DRIVE_ROOT_FOLDER_ID、DRIVE_STATE_FOLDER_IDが存在するかだけを、値を露出させずに確認せよ。
+6. setupが作ったADMIN_EMAILS、SESSION_SECRET、CRON_SECRET、STORAGE_DRIVER=drive、GOOGLE_REFRESH_TOKEN、DRIVE_ROOT_FOLDER_ID、DRIVE_STATE_FOLDER_IDが存在するかだけを、値を露出させずに確認せよ。
 7. npm run devでローカルでのホストログイン、フォルダの作成、再読み込み後も残ること、ごみ箱からの復元、/adminへのアクセスを確認せよ。
 8. npm test、npm run lint、npx tsc --noEmit --incremental false、npm run buildを実行し、結果を記録せよ。変更があるなら、機能ごとのコミットを終えたあとに、許可された現在のブランチだけをpushせよ。
 9. 必要な値をVercelのProduction環境変数に移し、Productionを再デプロイせよ。PUBLIC_BASE_URLは固定のProduction originに合わせ、LOCAL_STORAGE_ROOTとSHAREDESK_SHARE_TEST_EMAILは本番環境に入れるな。
@@ -127,7 +127,7 @@ PowerShellでは、`npm run setup -- --finish`は`--finish`がnpmに吸収され
 ## Vercelの環境変数の入力（新しい画面）
 
 - 場所: Vercelプロジェクトの`Settings` → `Environments` → `Production`を押して入った詳細画面の中に、環境変数の入力欄があります。
-- 複数行を一度に貼り付けると、**Key欄が1行目（`ADMIN_EMAILS`）を丸ごと飲み込む落とし穴**があります。貼り付けたあと、変数の数が9個かを必ず数えてください。
+- 複数行を一度に貼り付けると、**Key欄が1行目（`ADMIN_EMAILS`）を丸ごと飲み込む落とし穴**があります。貼り付けたあと、変数の数が10個かを必ず数えてください。
 - 値はデフォルトで`Sensitive`として保存され、保存後は二度と見られません。正常な動作なので、値が消えたと思ってもう一度入れないでください。
 
 ## 環境変数を保存したあとの再デプロイ

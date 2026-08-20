@@ -86,6 +86,7 @@ test("OAuth를 아직 설정하지 않은 새 배포는 실패하는 로그인 �
   for (const name of [
     "ADMIN_EMAILS",
     "SESSION_SECRET",
+    "CRON_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REFRESH_TOKEN",

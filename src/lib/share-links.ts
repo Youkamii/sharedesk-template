@@ -7,6 +7,7 @@ const MAX_LINKS = 200;
 const MAX_PENDING_DELETES = 500;
 const MAX_ATTEMPTS = 4;
 const MAX_EXPIRY_HOURS = 24 * 30;
+const ORPHAN_GRACE_MS = 2 * 60 * 60 * 1000;
 
 export interface ShareLink {
   linkId: string;
@@ -148,6 +149,12 @@ export async function createShareLink(
       options.quick === true && options.deleteOnExpire === true,
   };
   return mutate((file) => {
+    if (file.pendingDeletes.some((pending) => pending.fileId === fileId)) {
+      throw new StorageError(
+        "CONFLICT",
+        "삭제를 기다리는 간이 링크 파일입니다",
+      );
+    }
     const links = activeLinks(file, now);
     if (links.length >= MAX_LINKS) {
       throw new StorageError(
@@ -295,52 +302,116 @@ export async function resolveShareLink(
 
 // 만료된 링크를 먼저 장부에서 떼어 pendingDeletes로 옮긴 뒤 실제 파일을
 // 지운다. 중간에 함수가 끝나도 다음 요청이나 하루 한 번 Cron이 이어서 처리한다.
-export async function cleanupExpiredShareLinks(limit = 20): Promise<{
+export async function cleanupExpiredShareLinks(
+  limit = 20,
+  options: { sweepOrphans?: boolean } = {},
+): Promise<{
   expired: number;
   deleted: number;
   failed: number;
 }> {
   const now = Date.now();
+  const batchLimit = Math.max(1, Math.min(limit, 100));
   const snapshot = await readFile();
   if (
     !snapshot.links.some((link) => Date.parse(link.expiresAt) <= now) &&
-    !snapshot.pendingDeletes.some((item) => Date.parse(item.deleteAt) <= now)
+    !snapshot.pendingDeletes.some((item) => Date.parse(item.deleteAt) <= now) &&
+    options.sweepOrphans !== true
   ) {
     return { expired: 0, deleted: 0, failed: 0 };
   }
-  const claimed = await mutate((file) => {
-    const expired = file.links.filter(
-      (link) => Date.parse(link.expiresAt) <= now,
-    );
-    const additions = expired
-      .filter((link) => link.deleteOnExpire)
-      .map((link) => ({
-        linkId: link.linkId,
-        fileId: link.fileId,
-        name: link.name,
-        deleteAt: link.expiresAt,
-      }));
-    const byLink = new Map(
-      [...file.pendingDeletes, ...additions].map((item) => [item.linkId, item]),
-    );
-    const next: ShareLinkFile = {
-      ...file,
-      links: file.links.filter((link) => Date.parse(link.expiresAt) > now),
-      pendingDeletes: [...byLink.values()].slice(-MAX_PENDING_DELETES),
-    };
-    return {
-      file: next,
-      result: {
-        expired: expired.length,
-        due: next.pendingDeletes
-          .filter((item) => Date.parse(item.deleteAt) <= now)
-          .slice(0, Math.max(1, Math.min(limit, 100))),
-      },
-    };
-  });
+  const claimed =
+    snapshot.links.some((link) => Date.parse(link.expiresAt) <= now) ||
+    snapshot.pendingDeletes.some((item) => Date.parse(item.deleteAt) <= now)
+      ? await mutate((file) => {
+          const expired = file.links.filter(
+            (link) => Date.parse(link.expiresAt) <= now,
+          );
+          const additions = expired
+            .filter((link) => link.deleteOnExpire)
+            .map((link) => ({
+              linkId: link.linkId,
+              fileId: link.fileId,
+              name: link.name,
+              deleteAt: link.expiresAt,
+            }));
+          const byLink = new Map(
+            [...file.pendingDeletes, ...additions].map((item) => [
+              item.linkId,
+              item,
+            ]),
+          );
+          const next: ShareLinkFile = {
+            ...file,
+            links: file.links.filter((link) => Date.parse(link.expiresAt) > now),
+            pendingDeletes: [...byLink.values()].slice(-MAX_PENDING_DELETES),
+          };
+          const protectedFileIds = new Set(next.links.map((link) => link.fileId));
+          return {
+            file: next,
+            result: {
+              expired: expired.length,
+              due: next.pendingDeletes
+                .filter(
+                  (item) =>
+                    Date.parse(item.deleteAt) <= now &&
+                    !protectedFileIds.has(item.fileId),
+                )
+                .slice(0, batchLimit),
+            },
+          };
+        })
+      : { expired: 0, due: [] as PendingDelete[] };
+
+  let failed = 0;
+  if (options.sweepOrphans === true) {
+    try {
+      const temporary = (await getAdapter().listTemporary())
+        .filter(
+          (entry) =>
+            entry.modifiedAt !== null &&
+            Date.parse(entry.modifiedAt) <= now - ORPHAN_GRACE_MS,
+        )
+        .slice(0, batchLimit);
+      if (temporary.length > 0) {
+        const orphanClaims = await mutate((file) => {
+          const linkedFileIds = new Set(file.links.map((link) => link.fileId));
+          const pendingFileIds = new Set(
+            file.pendingDeletes.map((pending) => pending.fileId),
+          );
+          const room = Math.max(
+            0,
+            MAX_PENDING_DELETES - file.pendingDeletes.length,
+          );
+          const additions = temporary
+            .filter(
+              (entry) =>
+                !linkedFileIds.has(entry.id) && !pendingFileIds.has(entry.id),
+            )
+            .slice(0, room)
+            .map<PendingDelete>((entry) => ({
+              linkId: `orphan:${entry.id}`,
+              fileId: entry.id,
+              name: entry.name,
+              deleteAt: new Date(now).toISOString(),
+            }));
+          return {
+            file: {
+              ...file,
+              pendingDeletes: [...file.pendingDeletes, ...additions],
+            },
+            result: additions,
+          };
+        });
+        claimed.due.push(...orphanClaims.slice(0, batchLimit - claimed.due.length));
+      }
+    } catch (error) {
+      failed += 1;
+      console.error("[share-links] 남은 간이 링크 파일 조회 실패", error);
+    }
+  }
 
   const deletedIds: string[] = [];
-  let failed = 0;
   for (const pending of claimed.due) {
     try {
       await getAdapter().deleteTemporary(pending.fileId);

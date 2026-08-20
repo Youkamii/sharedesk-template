@@ -1461,11 +1461,16 @@ async function main() {
   if (sessionSecret.length < 16) {
     sessionSecret = newSessionSecret();
   }
+  let cronSecret = fileEnv["CRON_SECRET"] || "";
+  if (cronSecret.length < 16) {
+    cronSecret = newSessionSecret();
+  }
 
   const merged = mergeEnv(raw, {
     ACCESS_KEYS: accessKeys,
     ADMIN_EMAILS: adminEmails,
     SESSION_SECRET: sessionSecret,
+    CRON_SECRET: cronSecret,
     STORAGE_DRIVER: "drive",
     // 설치 때 고른 데스크 기본 언어. 앱은 새 데스크의 deskSettings.locale 기본값으로 읽는다.
     // Vercel 운영 환경 변수로도 이 값을 함께 옮긴다(docs/INSTALL.md의 재배포 단계).

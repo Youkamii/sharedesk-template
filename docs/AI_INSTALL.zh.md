@@ -27,7 +27,7 @@
 2. 动手之前先确认当前状态。确认当前仓库、分支、git status、origin，已连接的 GitHub 仓库和 Vercel 项目，固定的 Production 地址，.env.local 中需要的项目是否已填好，以及已有的 OAuth、Drive 连接痕迹，确认时不要暴露具体值。
 3. 已经完成的步骤不要重做。不要重新创建已有的仓库和 Vercel 项目，也不要凭猜测更改或作废已有的 OAuth 客户端、Audience 状态、refresh token 和 Drive ID。
 4. 遇到需要用户在 Google Cloud 或 Vercel 界面上亲自操作的事情时，一次只说明一个步骤然后停下来。用户回复完成后，先确认结果，再进入下一个步骤。
-5. 不要在聊天、issue、提交、截图中索要或输出 Client secret、SESSION_SECRET、refresh token、callback URL、邀请码这类机密值。请引导用户自己填进 .env.local、本地终端、Google Cloud 和 Vercel 界面。callback URL 只能由用户亲自粘贴到 npm run setup:finish 询问的本地终端里。
+5. 不要在聊天、issue、提交、截图中索要或输出 Client secret、SESSION_SECRET、CRON_SECRET、refresh token、callback URL、邀请码这类机密值。请引导用户自己填进 .env.local、本地终端、Google Cloud 和 Vercel 界面。callback URL 只能由用户亲自粘贴到 npm run setup:finish 询问的本地终端里。
 6. 如果需要改动仓库文件，先为每一个不同的功能或修复创建 GitHub issue，验证之后只单独提交相关文件，并在提交中留下 issue 编号。绝对不要提交 .env.local 和机密值。如果被跟踪的文件没有变化，就不要创建空 issue 或空提交。
 7. 本请求允许你对我当前正在处理的 ShareDesk 仓库做必要的改动、按功能创建 GitHub issue 和本地提交、push 当前工作分支，以及部署已连接的我自己的 Vercel 项目的 Production。动手之前请确认实际的目标仓库、分支、Vercel 项目和 Production 地址，不要碰原始模板或其他人的仓库和项目。
 8. 请区分自动检查通过和实际生产确认。没有确认过的内容不要报告为已完成。如果改动了仓库，只能在完成检查和按功能提交之后再 push、部署。
@@ -38,7 +38,7 @@
 3. 在 Google Cloud 中确认同一个项目里的 Drive API、Branding、Audience、Data Access 和 Web application OAuth 客户端。让用户确认 docs/INSTALL.zh.md 中的三个 redirect URI 和四个 scope 完全正确。
 4. 在仓库中运行 npm ci，并安全地准备好 .env.local。Google Client ID 和 Client secret 要由用户自己填进文件。
 5. 运行 npm run setup 开始站长的 Google 授权。同意授权后的 callback URL 要由用户自己粘贴到 npm run setup:finish 的提问中，AI 不要读取或再次输出这个值。
-6. 只确认 setup 生成的 ADMIN_EMAILS、SESSION_SECRET、STORAGE_DRIVER=drive、GOOGLE_REFRESH_TOKEN、DRIVE_ROOT_FOLDER_ID、DRIVE_STATE_FOLDER_ID 是否存在，不要暴露具体值。
+6. 只确认 setup 生成的 ADMIN_EMAILS、SESSION_SECRET、CRON_SECRET、STORAGE_DRIVER=drive、GOOGLE_REFRESH_TOKEN、DRIVE_ROOT_FOLDER_ID、DRIVE_STATE_FOLDER_ID 是否存在，不要暴露具体值。
 7. 用 npm run dev 在本地确认站长登录、创建文件夹、刷新后保留、回收站恢复以及 /admin 的访问。
 8. 运行 npm test、npm run lint、npx tsc --noEmit --incremental false、npm run build 并记录结果。如果有改动，在完成按功能提交之后，只 push 被允许的当前分支。
 9. 把需要的值转移到 Vercel Production 环境变量并重新部署 Production。PUBLIC_BASE_URL 要设为固定的 Production origin，LOCAL_STORAGE_ROOT 和 SHAREDESK_SHARE_TEST_EMAIL 不要放进生产环境。
@@ -127,7 +127,7 @@ npm run setup:finish
 ## 填写 Vercel 环境变量（新版界面）
 
 - 路径：进入 Vercel 项目的 `Settings` → `Environments` → 点击 `Production` 打开的详情页面里，才有环境变量的填写栏。
-- 一次粘贴多行时，存在 **Key 栏把第一行（`ADMIN_EMAILS`）整个吞进去的陷阱**。粘贴之后请务必数一数变量是不是 9 个。
+- 一次粘贴多行时，存在 **Key 栏把第一行（`ADMIN_EMAILS`）整个吞进去的陷阱**。粘贴之后请务必数一数变量是不是 10 个。
 - 值默认以 `Sensitive` 保存，保存之后无法再次查看。这是正常行为，不要以为值丢了而重新填写。
 
 ## 保存环境变量之后重新部署

@@ -5,7 +5,8 @@ import { getDeskSettings, type DeskSettings } from "@/lib/users";
 
 const FILE = "upload-reservations.json";
 const MAX_RESERVATIONS = 500;
-const RESERVATION_TTL_MS = 60 * 60 * 1000;
+const PROXY_RESERVATION_TTL_MS = 60 * 60 * 1000;
+const DIRECT_RESERVATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 4;
 const MAX_COMPLETED_UPLOADS = 1_000;
 
@@ -15,11 +16,13 @@ export interface UploadReservation {
   parentId: string;
   name: string;
   size: number;
+  transport: "direct" | "proxy";
+  claimedAt: string | null;
   expiresAt: string;
 }
 
 interface ReservationFile {
-  version: 2;
+  version: 3;
   reservations: UploadReservation[];
   completedUploads: Array<{ fileId: string; expiresAt: string }>;
 }
@@ -47,6 +50,10 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
             typeof entry.name === "string" &&
             Number.isSafeInteger(entry.size) &&
             entry.size >= 0 &&
+            (entry.transport === "direct" || entry.transport === "proxy") &&
+            (entry.claimedAt === null ||
+              (typeof entry.claimedAt === "string" &&
+                Number.isFinite(Date.parse(entry.claimedAt)))) &&
             typeof entry.expiresAt === "string" &&
             Date.parse(entry.expiresAt) > now
           );
@@ -70,7 +77,13 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
         })
         .slice(-MAX_COMPLETED_UPLOADS)
     : [];
-  return { version: 2, reservations, completedUploads };
+  return { version: 3, reservations, completedUploads };
+}
+
+function reservationTtl(transport: UploadReservation["transport"]): number {
+  return transport === "direct"
+    ? DIRECT_RESERVATION_TTL_MS
+    : PROXY_RESERVATION_TTL_MS;
 }
 
 function validateSize(
@@ -100,6 +113,7 @@ export async function reserveUpload(input: {
   parentId: string;
   name: string;
   size: unknown;
+  transport: UploadReservation["transport"];
   enforceMaxUpload?: boolean;
 }): Promise<string | null> {
   const settings = await getDeskSettings({ fresh: true });
@@ -141,7 +155,7 @@ export async function reserveUpload(input: {
     }
     const id = randomUUID();
     const next: ReservationFile = {
-      version: 2,
+      version: 3,
       reservations: [
         ...file.reservations,
         {
@@ -150,7 +164,11 @@ export async function reserveUpload(input: {
           parentId: input.parentId,
           name: input.name,
           size,
-          expiresAt: new Date(Date.now() + RESERVATION_TTL_MS).toISOString(),
+          transport: input.transport,
+          claimedAt: null,
+          expiresAt: new Date(
+            Date.now() + reservationTtl(input.transport),
+          ).toISOString(),
         },
       ],
       completedUploads: file.completedUploads,
@@ -164,6 +182,107 @@ export async function reserveUpload(input: {
     }
   }
   throw lastError ?? new StorageError("CONFLICT", "업로드를 다시 시도해 주세요");
+}
+
+export async function claimUploadReservation(
+  id: string,
+  userId: string,
+  expected: {
+    parentId: string;
+    name: string;
+    size: number;
+    transport: UploadReservation["transport"];
+  },
+): Promise<UploadReservation | null> {
+  const adapter = getAdapter();
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const state = await adapter.readStateVersioned<ReservationFile>(FILE);
+    const file = normalize(state.value);
+    const reservation = file.reservations.find(
+      (item) => item.id === id && item.userId === userId,
+    );
+    if (
+      !reservation ||
+      reservation.claimedAt !== null ||
+      reservation.parentId !== expected.parentId ||
+      reservation.name !== expected.name ||
+      reservation.size !== expected.size ||
+      reservation.transport !== expected.transport
+    ) {
+      return null;
+    }
+    const claimed: UploadReservation = {
+      ...reservation,
+      claimedAt: new Date().toISOString(),
+      expiresAt: new Date(
+        Date.now() + reservationTtl(reservation.transport),
+      ).toISOString(),
+    };
+    try {
+      await adapter.compareAndSwapState(
+        FILE,
+        {
+          version: 3,
+          reservations: file.reservations.map((item) =>
+            item.id === id ? claimed : item,
+          ),
+          completedUploads: file.completedUploads,
+        } satisfies ReservationFile,
+        state.version,
+      );
+      return claimed;
+    } catch (error) {
+      if (!(error instanceof StorageError) || error.code !== "CONFLICT") {
+        throw error;
+      }
+    }
+  }
+  throw new StorageError("CONFLICT", "업로드 예약을 다시 시도해 주세요");
+}
+
+export async function renewUploadReservation(
+  id: string,
+  userId: string,
+): Promise<boolean> {
+  const adapter = getAdapter();
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    const state = await adapter.readStateVersioned<ReservationFile>(FILE);
+    const file = normalize(state.value);
+    const reservation = file.reservations.find(
+      (item) =>
+        item.id === id &&
+        item.userId === userId &&
+        item.transport === "direct" &&
+        item.claimedAt === null,
+    );
+    if (!reservation) return false;
+    try {
+      await adapter.compareAndSwapState(
+        FILE,
+        {
+          version: 3,
+          reservations: file.reservations.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  expiresAt: new Date(
+                    Date.now() + DIRECT_RESERVATION_TTL_MS,
+                  ).toISOString(),
+                }
+              : item,
+          ),
+          completedUploads: file.completedUploads,
+        } satisfies ReservationFile,
+        state.version,
+      );
+      return true;
+    } catch (error) {
+      if (!(error instanceof StorageError) || error.code !== "CONFLICT") {
+        throw error;
+      }
+    }
+  }
+  throw new StorageError("CONFLICT", "업로드 예약 갱신을 다시 시도해 주세요");
 }
 
 export async function getUploadReservation(
@@ -221,7 +340,7 @@ export async function finishUploadReservation(
       await adapter.compareAndSwapState(
         FILE,
         {
-          version: 2,
+          version: 3,
           reservations: file.reservations.filter((item) => item.id !== id),
           completedUploads: entry
             ? [
@@ -229,7 +348,7 @@ export async function finishUploadReservation(
                 {
                   fileId: entry.id,
                   expiresAt: new Date(
-                    Date.now() + RESERVATION_TTL_MS,
+                    Date.now() + DIRECT_RESERVATION_TTL_MS,
                   ).toISOString(),
                 },
               ].slice(-MAX_COMPLETED_UPLOADS)

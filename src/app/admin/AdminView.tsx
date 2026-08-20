@@ -413,13 +413,12 @@ export default function AdminView({ locale }: { locale: Locale }) {
     };
   }, [router, t]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const loadStorage = async () => {
+  const loadStorage = useCallback(
+    async (signal?: AbortSignal) => {
       try {
         const response = await fetch("/api/storage/usage", {
           cache: "no-store",
-          signal: controller.signal,
+          signal,
         });
         if (response.status === 401 || response.status === 403) {
           router.replace("/files");
@@ -445,13 +444,27 @@ export default function AdminView({ locale }: { locale: Locale }) {
             : t("저장 용량을 불러오지 못했습니다"),
         );
       }
+    },
+    [router, t],
+  );
+
+  useEffect(() => {
+    if (activeTab !== "settings") return;
+    const controller = new AbortController();
+    const refresh = () => void loadStorage(controller.signal);
+    const initial = window.setTimeout(refresh, 0);
+    const interval = window.setInterval(refresh, 60_000);
+    const onVisibility = () => {
+      if (!document.hidden) refresh();
     };
-    const initial = window.setTimeout(() => void loadStorage(), 0);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.clearTimeout(initial);
+      window.clearInterval(interval);
       controller.abort();
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [router, t]);
+  }, [activeTab, loadStorage]);
 
   // 바탕화면 선택은 개인 설정 — FilesView와 같은 키의 localStorage에서 읽는다.
   // 렌더 직후 한 틱 미뤄 읽어 effect 안의 동기 setState(연쇄 렌더)를 피한다.
@@ -820,7 +833,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
         !savedLocale ||
         typeof body.allowMemberLocale !== "boolean"
       ) {
-        throw new Error(body?.error ?? t("데스크 설정을 저장하지 못했습니다"));
+        throw new Error(
+          typeof body?.error === "string"
+            ? t(body.error)
+            : t("데스크 설정을 저장하지 못했습니다"),
+        );
       }
       setDeskSettings({
         locale: savedLocale,
@@ -869,10 +886,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
         { maxUploadBytes, deskStorageLimitBytes },
         "저장 용량 제한을 바꿨습니다.",
       );
+      await loadStorage();
     } catch (caught) {
       setError(
         caught instanceof Error
-          ? caught.message
+          ? t(caught.message)
           : t("용량 제한 값을 확인해 주세요"),
       );
     }

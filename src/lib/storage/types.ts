@@ -122,6 +122,7 @@ export function stateAccessDenied(): StorageError {
 export interface StorageAdapter {
   getEntry(id: string): Promise<Entry>;
   list(folderId: string): Promise<Entry[]>;
+  isRoot(id: string): Promise<boolean>;
   // 앱 상태(사용자 명단 등)를 루트 폴더 안 숨김 경로에 JSON으로 보관한다.
   // 별도 DB를 두지 않고 저장소 자체를 쓰는 것이 이 제품의 전제다.
   readState<T>(path: string): Promise<T | null>;
@@ -182,9 +183,8 @@ export interface StorageAdapter {
     size: number,
     origin: string,
   ): Promise<UploadSession>;
-  // 데스크 루트 아래 숨김 파일과 휴지통까지 포함한 실제 사용량, 그리고
-  // 저장소 계정 전체 사용량/한도다. 업로드 제한은 화면이 아니라 서버에서
-  // 이 값을 기준으로 집행한다.
+  // 앱 상태 폴더를 뺀 데스크 파일·휴지통의 실제 사용량, 그리고 저장소 계정
+  // 전체 사용량/한도다. 업로드 제한은 화면이 아니라 서버에서 이 값을 집행한다.
   getStorageUsage(): Promise<StorageUsage>;
   // 간이 링크 파일은 루트에 숨겨 둔 뒤, 사용자가 자동 삭제를 풀 때만
   // 원래 이름으로 바탕화면에 올린다.
@@ -201,6 +201,7 @@ export interface StorageAdapter {
   ): Promise<Entry>;
   promoteTemporary(id: string, name: string): Promise<Entry>;
   deleteTemporary(id: string): Promise<void>;
+  listTemporary(): Promise<Entry[]>;
   // 공개 폴더 링크에서 다른 데스크 항목 id를 끼워 넣지 못하게 공유
   // 폴더의 자손인지 저장소 경계에서 확인한다.
   isWithin(id: string, ancestorId: string): Promise<boolean>;

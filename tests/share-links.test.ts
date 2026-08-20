@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -136,6 +136,88 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
     assert.equal(await adapter.isDirectChild(child.id, folder.id), true);
     assert.equal(await adapter.isDirectChild(child.id, storageTypes.ROOT_ID), false);
 
+    const protectedTemporary = await adapter.uploadTemporary(
+      "protected.txt",
+      "text/plain",
+      new Blob(["protected"]).stream(),
+    );
+    const deletingLink = await shareLinks.createShareLink(
+      protectedTemporary.id,
+      "protected.txt",
+      "Tester",
+      1,
+      {
+        createdByUserId: "user-1",
+        quick: true,
+        deleteOnExpire: true,
+      },
+    );
+    const protectingLink = await shareLinks.createShareLink(
+      protectedTemporary.id,
+      "protected.txt",
+      "Tester",
+      24,
+      { createdByUserId: "user-1" },
+    );
+    const protectedState = await adapter.readStateVersioned<{
+      version: 2;
+      links: Array<{ linkId: string; expiresAt: string }>;
+      pendingDeletes: unknown[];
+    }>("share-links.json");
+    assert.ok(protectedState.value);
+    await adapter.compareAndSwapState(
+      "share-links.json",
+      {
+        ...protectedState.value!,
+        links: protectedState.value!.links.map((link) =>
+          link.linkId === deletingLink.linkId
+            ? { ...link, expiresAt: new Date(0).toISOString() }
+            : link,
+        ),
+      },
+      protectedState.version,
+    );
+    assert.deepEqual(await shareLinks.cleanupExpiredShareLinks(), {
+      expired: 1,
+      deleted: 0,
+      failed: 0,
+    });
+    assert.ok(await adapter.getEntry(protectedTemporary.id));
+
+    const lastState = await adapter.readStateVersioned<{
+      version: 2;
+      links: Array<{ linkId: string; expiresAt: string }>;
+      pendingDeletes: unknown[];
+    }>("share-links.json");
+    await adapter.compareAndSwapState(
+      "share-links.json",
+      {
+        ...lastState.value!,
+        links: lastState.value!.links.map((link) =>
+          link.linkId === protectingLink.linkId
+            ? { ...link, expiresAt: new Date(0).toISOString() }
+            : link,
+        ),
+      },
+      lastState.version,
+    );
+    assert.equal((await shareLinks.cleanupExpiredShareLinks()).deleted, 1);
+    await assert.rejects(() => adapter.getEntry(protectedTemporary.id));
+
+    const orphan = await adapter.uploadTemporary(
+      "orphan.txt",
+      "text/plain",
+      new Blob(["orphan"]).stream(),
+    );
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    await utimes(join(root, orphan.name), old, old);
+    assert.equal(
+      (await shareLinks.cleanupExpiredShareLinks(20, { sweepOrphans: true }))
+        .deleted,
+      1,
+    );
+    await assert.rejects(() => adapter.getEntry(orphan.id));
+
     await adapter.upload(
       outside.id,
       "secret.txt",
@@ -173,16 +255,25 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
 });
 
 test("공유 API는 데스크 루트 전체 공개와 삭제 대기 누락을 막는다", async () => {
-  const [route, ledger] = await Promise.all([
+  const [route, ledger, cron] = await Promise.all([
     readFile(
       new URL("../src/app/api/drive/share-link/route.ts", import.meta.url),
       "utf8",
     ),
     readFile(new URL("../src/lib/share-links.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/api/cron/share-cleanup/route.ts", import.meta.url),
+      "utf8",
+    ),
   ]);
   assert.match(route, /body\.id === ROOT_ID/);
+  assert.match(route, /adapter\.isRoot\(body\.id\)/);
+  assert.doesNotMatch(route, /!link\.quick \|\| link\.createdByUserId/);
   assert.match(ledger, /reservedDeletes/);
   assert.match(ledger, /정리 대기 중인 간이 링크가 많습니다/);
+  assert.match(ledger, /listTemporary\(\)/);
+  assert.match(cron, /sweepOrphans: true/);
+  assert.doesNotMatch(cron, /user-agent|vercel-cron/);
 });
 
 test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 메뉴와 창이다", async () => {
@@ -199,4 +290,7 @@ test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 메뉴
   assert.ok(quick.includes('aria-label={t("간이 링크 만들기")}'));
   assert.ok(links.includes('aria-label={t("생성된 링크")}'));
   assert.doesNotMatch(quick, /onOpenLinks|canManageLinks|공유 중인 링크 보기/);
+  assert.match(view, /shareLinksRevision/);
+  assert.match(quick, /onLinksChanged/);
+  assert.match(links, /onLinksChanged/);
 });

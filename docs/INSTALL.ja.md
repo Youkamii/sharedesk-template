@@ -225,6 +225,7 @@ setupが終わると、`.env.local`に次の値が用意されます。
 
 - `ADMIN_EMAILS`
 - `SESSION_SECRET`
+- `CRON_SECRET`
 - `STORAGE_DRIVER=drive`
 - `GOOGLE_REFRESH_TOKEN`
 - `DRIVE_ROOT_FOLDER_ID`
@@ -253,6 +254,7 @@ npm run dev
 |---|---|
 | `ADMIN_EMAILS` | 管理者のGoogleメール。複数人ならカンマで区切る |
 | `SESSION_SECRET` | setupが作った長いランダムな値 |
+| `CRON_SECRET` | setupが作った期限切れファイル整理用のランダムな値 |
 | `STORAGE_DRIVER` | `drive` |
 | `GOOGLE_CLIENT_ID` | Web applicationのClient ID |
 | `GOOGLE_CLIENT_SECRET` | Client secret |
@@ -271,7 +273,7 @@ npm run dev
 
 `ACCESS_KEYS`は、一時的なゲスト用のキーを使うときだけ入れます。driveモードでアクセスキーで入ったゲストは`閲覧のみ`です。`LOCAL_STORAGE_ROOT`と`SHAREDESK_SHARE_TEST_EMAIL`は本番環境に入れません。どの秘密の値にも`NEXT_PUBLIC_`の接頭辞を付けないでください。
 
-複数の値を一度に貼り付けるときは、Key欄が1行目（`ADMIN_EMAILS`）を丸ごと飲み込む落とし穴があります。貼り付けたあと、変数の数が9個（任意の項目を除く）かを必ず確認してください。値はデフォルトで`Sensitive`として保存され、保存後は二度と見られませんが、これは正常です。
+複数の値を一度に貼り付けるときは、Key欄が1行目（`ADMIN_EMAILS`）を丸ごと飲み込む落とし穴があります。貼り付けたあと、変数の数が10個（任意の項目を除く）かを必ず確認してください。値はデフォルトで`Sensitive`として保存され、保存後は二度と見られませんが、これは正常です。
 
 環境変数を入力したり変更したりしたあとは、Productionを再デプロイします。環境変数の変更は、既存のデプロイには自動で反映されません。`Deployments`タブで最新のデプロイの行にマウスを載せると出てくる`⋯`メニュー → `Redeploy`を押してください。`Create Deployment`ボタンはPreviewデプロイ専用なので、使わないでください。詳しい動作は[Vercelの環境変数ガイド](https://vercel.com/docs/environment-variables)を参照してください。
 

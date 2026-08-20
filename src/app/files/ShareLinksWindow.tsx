@@ -14,6 +14,8 @@ type Props = {
   onClose: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
+  linksRevision: number;
+  onLinksChanged: () => void;
   onNotice: (message: string) => void;
   onActivate: () => void;
 };
@@ -38,6 +40,8 @@ export default function ShareLinksWindow({
   onClose,
   onMinimize,
   onToggleMaximize,
+  linksRevision,
+  onLinksChanged,
   onNotice,
   onActivate,
 }: Props) {
@@ -64,7 +68,13 @@ export default function ShareLinksWindow({
         return;
       }
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? t("공유 링크를 불러오지 못했습니다"));
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? t(body.error)
+            : t("공유 링크를 불러오지 못했습니다"),
+        );
+      }
       setLinks(Array.isArray(body?.links) ? body.links.filter(isShareLink) : []);
     } catch (caught) {
       setError(
@@ -80,7 +90,7 @@ export default function ShareLinksWindow({
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
-  }, [load]);
+  }, [load, linksRevision]);
 
   async function copy(link: ShareLink) {
     const url = `${window.location.origin}/api/share/${link.linkId}`;
@@ -103,8 +113,15 @@ export default function ShareLinksWindow({
         body: JSON.stringify({ linkId: link.linkId }),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? t("공유를 멈추지 못했습니다"));
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? t(body.error)
+            : t("공유를 멈추지 못했습니다"),
+        );
+      }
       setLinks((current) => current.filter((item) => item.linkId !== link.linkId));
+      onLinksChanged();
       onNotice(t("공유 링크를 멈췄습니다."));
     } catch (caught) {
       setError(

@@ -27,7 +27,7 @@ Working principles:
 2. Check the current state before doing anything. Check the current repository, branch, git status, and origin, the connected GitHub repository and Vercel project, the fixed Production address, whether the required entries in .env.local are filled in, and any trace of an existing OAuth or Drive connection — without exposing values.
 3. Do not repeat steps that are already done. Do not recreate an existing repository or Vercel project, and do not change or discard an existing OAuth client, Audience status, refresh token, or Drive ID on a guess.
 4. When something has to be done by the user on the Google Cloud or Vercel screen, explain one step only and stop. When the user says it is done, check the result and then move on to the next single step.
-5. Do not ask for or print secrets such as the Client secret, SESSION_SECRET, the refresh token, the callback URL, or invitation codes in chat, issues, commits, or screenshots. Guide the user to enter them directly in .env.local, the local terminal, Google Cloud, or the Vercel screen. Have the user paste the callback URL only into the local terminal where npm run setup:finish asks for it.
+5. Do not ask for or print secrets such as the Client secret, SESSION_SECRET, CRON_SECRET, the refresh token, the callback URL, or invitation codes in chat, issues, commits, or screenshots. Guide the user to enter them directly in .env.local, the local terminal, Google Cloud, or the Vercel screen. Have the user paste the callback URL only into the local terminal where npm run setup:finish asks for it.
 6. If repository files have to change, create a GitHub issue first for each separate feature or fix, and after verification commit only those files with the issue number recorded. Never commit .env.local or any secret. If no tracked file changed, do not create an empty issue or an empty commit.
 7. This request permits the necessary changes in my ShareDesk repository that you are working in, per-feature GitHub issues and local commits, a push of the current working branch, and a Production deployment of my connected Vercel project. Before working, confirm the actual target repository, branch, Vercel project, and Production address, and do not touch the original template or anyone else's repository or project.
 8. Distinguish passing automated checks from real production verification. Do not report anything as done that you have not verified. If you changed the repository, push and deploy only after the checks and the per-feature commits are finished.
@@ -38,7 +38,7 @@ Order of work:
 3. In Google Cloud, check the Drive API, Branding, Audience, Data Access, and the Web application OAuth client in the same project. Have the user verify that the three redirect URIs and four scopes in docs/INSTALL.md match exactly.
 4. Run npm ci in the repository and prepare .env.local safely. Have the user enter the Google Client ID and Client secret in the file themselves.
 5. Run npm run setup to start the host Google consent. After consent, have the user paste the callback URL themselves into the question from npm run setup:finish, and do not read or reprint that value.
-6. Check only that ADMIN_EMAILS, SESSION_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, and DRIVE_STATE_FOLDER_ID created by setup exist, without exposing the values.
+6. Check only that ADMIN_EMAILS, SESSION_SECRET, CRON_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, and DRIVE_STATE_FOLDER_ID created by setup exist, without exposing the values.
 7. With npm run dev, check host sign-in, folder creation, persistence after a refresh, trash restore, and /admin access locally.
 8. Run npm test, npm run lint, npx tsc --noEmit --incremental false, and npm run build, and record the results. If there are changes, finish the per-feature commits and then push only the permitted current branch.
 9. Move the required values into the Vercel Production environment variables and redeploy Production. Set PUBLIC_BASE_URL to the fixed Production origin, and do not put LOCAL_STORAGE_ROOT or SHAREDESK_SHARE_TEST_EMAIL in the production environment.
@@ -127,7 +127,7 @@ In PowerShell, `npm run setup -- --finish` has a trap: npm swallows `--finish` a
 ## Entering Vercel environment variables (the newer screens)
 
 - Path: in the Vercel project, press `Settings` → `Environments` → `Production`, and the environment variable fields are inside that detail screen.
-- Pasting several lines at once has a trap where **the Key field swallows the whole first line (`ADMIN_EMAILS`)**. After pasting, always count that there are 9 variables.
+- Pasting several lines at once has a trap where **the Key field swallows the whole first line (`ADMIN_EMAILS`)**. After pasting, always count that there are 10 variables.
 - Values are stored as `Sensitive` by default and cannot be viewed again after saving. That is normal behavior — do not re-enter them because the values look gone.
 
 ## Redeploy after saving environment variables

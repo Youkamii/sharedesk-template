@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUploadRights } from "@/lib/api";
-import { getAdapter } from "@/lib/storage";
+import { getAdapter, resolveStorageDriver } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import {
   finishUploadReservation,
@@ -25,29 +25,33 @@ export async function POST(req: NextRequest) {
     typeof body.mimeType === "string" && body.mimeType
       ? body.mimeType
       : "application/octet-stream";
-  let reservationId: string | null = null;
   try {
-    reservationId = await reserveUpload({
+    const reservationId = await reserveUpload({
       userId: auth.session.userId,
       parentId: ROOT_ID,
       name: body.name,
       size: body.size,
+      transport: resolveStorageDriver() === "drive" ? "direct" : "proxy",
     });
-    const session = await getAdapter().createTemporaryUploadSession(
-      body.name,
-      mimeType,
-      body.size as number,
-      req.headers.get("origin") ?? req.nextUrl.origin,
-    );
-    return NextResponse.json({
-      ...session,
-      reservationId: reservationId ?? undefined,
-    });
+    try {
+      const session = await getAdapter().createTemporaryUploadSession(
+        body.name,
+        mimeType,
+        body.size as number,
+        req.headers.get("origin") ?? req.nextUrl.origin,
+      );
+      return NextResponse.json({
+        ...session,
+        reservationId: reservationId ?? undefined,
+      });
+    } catch (error) {
+      await finishUploadReservation(
+        reservationId,
+        auth.session.userId,
+      ).catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
-    await finishUploadReservation(
-      reservationId,
-      auth.session.userId,
-    ).catch(() => undefined);
     return errorResponse(error);
   }
 }

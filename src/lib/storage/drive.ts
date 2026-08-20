@@ -460,6 +460,7 @@ interface DriveFile {
 
 type DriveUsageFile = {
   id: string;
+  name?: string;
   mimeType?: string;
   size?: string;
   parents?: string[];
@@ -472,7 +473,7 @@ async function listUsageFiles(trashed: boolean): Promise<DriveUsageFile[]> {
   do {
     const params = new URLSearchParams({
       q: `trashed=${trashed}`,
-      fields: "nextPageToken,files(id,mimeType,size,parents,trashed)",
+      fields: "nextPageToken,files(id,name,mimeType,size,parents,trashed)",
       pageSize: "1000",
     });
     if (pageToken) params.set("pageToken", pageToken);
@@ -872,6 +873,10 @@ export class DriveAdapter implements StorageAdapter {
     );
   }
 
+  async isRoot(id: string): Promise<boolean> {
+    return resolveId(id) === rootFolderId();
+  }
+
   async list(folderId: string): Promise<Entry[]> {
     const folder = resolveId(folderId);
     await assertInsideRoot(folder);
@@ -920,7 +925,16 @@ export class DriveAdapter implements StorageAdapter {
     const files = [...activeFiles, ...trashedFiles];
     const byId = new Map(files.map((file) => [file.id, file]));
     const root = rootFolderId();
+    const stateRoots = new Set(
+      files
+        .filter(
+          (file) =>
+            file.name === STATE_DIR && file.parents?.includes(root) === true,
+        )
+        .map((file) => file.id),
+    );
     const insideMemo = new Map<string, boolean>();
+    const stateMemo = new Map<string, boolean>();
     const isInsideDesk = (id: string, seen = new Set<string>()): boolean => {
       if (id === root) return true;
       const cached = insideMemo.get(id);
@@ -932,9 +946,26 @@ export class DriveAdapter implements StorageAdapter {
       insideMemo.set(id, inside);
       return inside;
     };
+    const isInsideState = (id: string, seen = new Set<string>()): boolean => {
+      if (stateRoots.has(id)) return true;
+      const cached = stateMemo.get(id);
+      if (cached !== undefined) return cached;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const parent = byId.get(id)?.parents?.[0];
+      const inside = !!parent && isInsideState(parent, seen);
+      stateMemo.set(id, inside);
+      return inside;
+    };
     let deskUsedBytes = 0;
     for (const file of files) {
-      if (file.mimeType === FOLDER_MIME || !isInsideDesk(file.id)) continue;
+      if (
+        file.mimeType === FOLDER_MIME ||
+        !isInsideDesk(file.id) ||
+        isInsideState(file.id)
+      ) {
+        continue;
+      }
       deskUsedBytes += numericBytes(file.size) ?? 0;
     }
     return {
@@ -1616,6 +1647,33 @@ export class DriveAdapter implements StorageAdapter {
       throw new StorageError("BAD_ID", "간이 링크 파일이 아닙니다");
     }
     await driveFetch(`${API}/files/${real}`, { method: "DELETE" });
+  }
+
+  async listTemporary(): Promise<Entry[]> {
+    const files: DriveFile[] = [];
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        q: `'${rootFolderId()}' in parents and name contains '${escapeQuery(TEMPORARY_FILE_PREFIX)}' and trashed=false`,
+        fields: `nextPageToken,files(${FILE_FIELDS})`,
+        pageSize: "1000",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+      const response = await driveFetch(`${API}/files?${params}`);
+      const body = (await response.json()) as {
+        files?: DriveFile[];
+        nextPageToken?: string;
+      };
+      files.push(...(body.files ?? []));
+      pageToken = body.nextPageToken;
+    } while (pageToken);
+    return files
+      .filter(
+        (file) =>
+          file.mimeType !== FOLDER_MIME &&
+          file.name.startsWith(TEMPORARY_FILE_PREFIX),
+      )
+      .map((file) => toEntry(file));
   }
 
   async createUploadSession(

@@ -227,6 +227,7 @@ When setup finishes, these values are ready in `.env.local`.
 
 - `ADMIN_EMAILS`
 - `SESSION_SECRET`
+- `CRON_SECRET`
 - `STORAGE_DRIVER=drive`
 - `GOOGLE_REFRESH_TOKEN`
 - `DRIVE_ROOT_FOLDER_ID`
@@ -255,6 +256,7 @@ Open the existing Vercel project you created in step 1. In `Settings` → `Envir
 |---|---|
 | `ADMIN_EMAILS` | Admin Google email. Separate several with commas |
 | `SESSION_SECRET` | The long random value setup generated |
+| `CRON_SECRET` | The random value setup generated for expired-file cleanup |
 | `STORAGE_DRIVER` | `drive` |
 | `GOOGLE_CLIENT_ID` | The Web application Client ID |
 | `GOOGLE_CLIENT_SECRET` | The Client secret |
@@ -273,7 +275,7 @@ If you leave `PUBLIC_BASE_URL` out, ShareDesk uses `VERCEL_PROJECT_PRODUCTION_UR
 
 Add `ACCESS_KEYS` only when you use temporary guest keys. In drive mode, a guest who comes in with an access key is `View only`. Do not put `LOCAL_STORAGE_ROOT` or `SHAREDESK_SHARE_TEST_EMAIL` in the production environment. Never give any secret the `NEXT_PUBLIC_` prefix.
 
-Pasting several values at once has a trap where the Key field swallows the whole first line (`ADMIN_EMAILS`). After pasting, always check that there are 9 variables (leaving out the optional one). Values are stored as `Sensitive` by default and cannot be viewed again after saving, which is normal.
+Pasting several values at once has a trap where the Key field swallows the whole first line (`ADMIN_EMAILS`). After pasting, always check that there are 10 variables (leaving out the optional one). Values are stored as `Sensitive` by default and cannot be viewed again after saving, which is normal.
 
 Redeploy Production after entering or changing environment variables. Environment variable changes do not reach an existing deployment on their own. In the `Deployments` tab, hover over the latest deployment row, open the `⋯` menu that appears, and press `Redeploy`. The `Create Deployment` button is for Preview deployments only — do not use it. For the details, see the [Vercel environment variables guide](https://vercel.com/docs/environment-variables).
 

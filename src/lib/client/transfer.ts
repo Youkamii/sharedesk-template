@@ -29,6 +29,23 @@ type UploadResult = {
   responseText: string;
 };
 
+const UPLOAD_RESERVATION_HEARTBEAT_MS = 60 * 60 * 1000;
+
+export function startUploadReservationHeartbeat(
+  reservationId: string | undefined,
+): () => void {
+  if (!reservationId) return () => undefined;
+  const timer = window.setInterval(() => {
+    void fetch("/api/drive/upload-reservation", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reservationId }),
+    }).catch(() => undefined);
+  }, UPLOAD_RESERVATION_HEARTBEAT_MS);
+  return () => window.clearInterval(timer);
+}
+
 export function uploadWithProgress(
   url: string,
   method: "POST" | "PUT",

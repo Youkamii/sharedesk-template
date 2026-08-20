@@ -27,7 +27,7 @@ Google Cloud나 Vercel이 낯설다면 코딩 AI에게 구축을 맡길 수 있�
 2. 작업 전에 현재 상태를 확인하라. 현재 저장소·브랜치·git status·origin, 연결된 GitHub 저장소와 Vercel 프로젝트, 고정 Production 주소, .env.local의 필요한 항목이 채워졌는지, 기존 OAuth·Drive 연결 흔적을 값 노출 없이 확인하라.
 3. 이미 끝난 단계는 반복하지 마라. 기존 저장소와 Vercel 프로젝트를 다시 만들지 말고, 기존 OAuth 클라이언트, Audience 상태, refresh token, Drive ID를 추측으로 바꾸거나 폐기하지 마라.
 4. 사용자가 Google Cloud나 Vercel 화면에서 직접 해야 하는 일이 생기면 한 번에 한 단계만 설명하고 멈춰라. 사용자가 완료했다고 답하면 결과를 확인한 뒤 다음 한 단계로 넘어가라.
-5. Client secret, SESSION_SECRET, refresh token, callback URL, 초대 코드 같은 비밀값을 채팅·이슈·커밋·스크린샷에 요구하거나 출력하지 마라. 사용자가 .env.local, 로컬 터미널 입력, Google Cloud, Vercel 화면에 직접 넣도록 안내하라. callback URL은 npm run setup:finish가 묻는 로컬 터미널에만 사용자가 직접 붙여 넣게 하라.
+5. Client secret, SESSION_SECRET, CRON_SECRET, refresh token, callback URL, 초대 코드 같은 비밀값을 채팅·이슈·커밋·스크린샷에 요구하거나 출력하지 마라. 사용자가 .env.local, 로컬 터미널 입력, Google Cloud, Vercel 화면에 직접 넣도록 안내하라. callback URL은 npm run setup:finish가 묻는 로컬 터미널에만 사용자가 직접 붙여 넣게 하라.
 6. 저장소 파일을 바꿔야 한다면 서로 다른 기능이나 수정마다 GitHub 이슈를 먼저 만들고, 검증 뒤 해당 파일만 따로 커밋해 이슈 번호를 남겨라. .env.local과 비밀값은 절대 커밋하지 마라. 추적 파일 변경이 없다면 빈 이슈나 빈 커밋을 만들지 마라.
 7. 이 요청은 현재 작업 중인 내 ShareDesk 저장소의 필요한 변경, 기능별 GitHub 이슈와 로컬 커밋, 현재 작업 브랜치 push, 연결된 내 Vercel 프로젝트의 Production 배포를 허용한다. 작업 전에 실제 대상 저장소·브랜치·Vercel 프로젝트·Production 주소를 확인하고, 원본 템플릿이나 다른 사람의 저장소·프로젝트는 건드리지 마라.
 8. 자동 검사 통과와 실제 운영 확인을 구분하라. 확인하지 않은 내용을 완료했다고 보고하지 마라. 저장소를 바꿨다면 검사와 기능별 커밋을 끝낸 뒤에만 push·배포하라.
@@ -38,7 +38,7 @@ Google Cloud나 Vercel이 낯설다면 코딩 AI에게 구축을 맡길 수 있�
 3. Google Cloud에서 같은 프로젝트의 Drive API, Branding, Audience, Data Access, Web application OAuth 클라이언트를 확인하라. docs/INSTALL.md의 redirect URI 세 개와 scope 네 개가 정확히 맞는지 확인하게 하라.
 4. 저장소에서 npm ci를 실행하고 .env.local을 안전하게 준비하라. Google Client ID와 Client secret은 사용자가 파일에 직접 넣게 하라.
 5. npm run setup을 실행해 호스트 Google 동의를 시작하라. 동의 뒤 callback URL은 사용자가 npm run setup:finish의 질문에 직접 붙여 넣게 하고, AI는 그 값을 읽거나 재출력하지 마라.
-6. setup이 만든 ADMIN_EMAILS, SESSION_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, DRIVE_STATE_FOLDER_ID가 존재하는지만 값 노출 없이 확인하라.
+6. setup이 만든 ADMIN_EMAILS, SESSION_SECRET, CRON_SECRET, STORAGE_DRIVER=drive, GOOGLE_REFRESH_TOKEN, DRIVE_ROOT_FOLDER_ID, DRIVE_STATE_FOLDER_ID가 존재하는지만 값 노출 없이 확인하라.
 7. npm run dev로 로컬에서 호스트 로그인, 폴더 생성, 새로고침 뒤 유지, 휴지통 복원, /admin 접근을 확인하라.
 8. npm test, npm run lint, npx tsc --noEmit --incremental false, npm run build를 실행하고 결과를 기록하라. 변경이 있다면 기능별 커밋을 마친 뒤 허용된 현재 브랜치만 push하라.
 9. 필요한 값을 Vercel Production 환경 변수에 옮기고 Production을 다시 배포하라. PUBLIC_BASE_URL은 고정 Production origin으로 맞추고, LOCAL_STORAGE_ROOT와 SHAREDESK_SHARE_TEST_EMAIL은 운영 환경에 넣지 마라.
@@ -127,7 +127,7 @@ PowerShell에서 `npm run setup -- --finish`는 `--finish`가 npm에 흡수돼 �
 ## Vercel 환경 변수 입력(신형 화면)
 
 - 경로: Vercel 프로젝트의 `Settings` → `Environments` → `Production`을 눌러 들어간 상세 화면 안에 환경 변수 입력란이 있습니다.
-- 여러 줄을 한 번에 붙여 넣으면 **Key 칸이 첫 줄(`ADMIN_EMAILS`)을 통째로 먹는 함정**이 있습니다. 붙여 넣은 뒤 변수 개수가 9개인지 반드시 세어 보세요.
+- 여러 줄을 한 번에 붙여 넣으면 **Key 칸이 첫 줄(`ADMIN_EMAILS`)을 통째로 먹는 함정**이 있습니다. 붙여 넣은 뒤 변수 개수가 10개인지 반드시 세어 보세요.
 - 값은 기본 `Sensitive`로 저장돼 저장 후 다시 볼 수 없습니다. 정상 동작이니 값이 사라졌다고 다시 넣지 마세요.
 
 ## 환경 변수 저장 뒤 재배포

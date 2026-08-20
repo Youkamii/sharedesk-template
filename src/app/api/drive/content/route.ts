@@ -100,6 +100,7 @@ export async function PATCH(req: Request) {
           parentId: value.id,
           name: current.name,
           size: growth,
+          transport: "proxy",
           enforceMaxUpload: false,
         });
       }

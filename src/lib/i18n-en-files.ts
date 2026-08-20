@@ -468,6 +468,38 @@ export const EN_FILES: Record<string, string> = {
     "Anyone with the link can browse this folder and download its files without signing in.",
   "이 항목의 활성 링크가 없습니다.": "This item has no active links.",
 
+  // 업로드·용량·링크 서버 오류
+  "파일 크기를 확인해 주세요": "Check the file size",
+  "한 번에 올릴 수 있는 파일 크기를 넘었습니다":
+    "The file exceeds the per-upload size limit",
+  "이 데스크에 남은 저장 용량이 부족합니다":
+    "This desk does not have enough storage available",
+  "진행 중인 업로드가 너무 많습니다. 잠시 후 다시 시도해 주세요":
+    "Too many uploads are in progress. Try again shortly",
+  "업로드를 다시 시도해 주세요": "Try the upload again",
+  "업로드 예약을 다시 시도해 주세요": "Try reserving the upload again",
+  "업로드 예약 갱신을 다시 시도해 주세요":
+    "Try renewing the upload reservation again",
+  "업로드 예약 정보가 일치하지 않습니다":
+    "The upload reservation does not match",
+  "업로드 예약을 찾지 못했습니다": "The upload reservation was not found",
+  "업로드 완료 예약을 찾지 못했습니다":
+    "The upload completion reservation was not found",
+  "업로드된 파일 정보가 일치하지 않습니다":
+    "The uploaded file information does not match",
+  "업로드된 파일 크기가 일치하지 않습니다":
+    "The uploaded file size does not match",
+  "이미 완료 처리한 업로드 파일입니다":
+    "This uploaded file was already completed",
+  "업로드 완료 처리를 다시 시도해 주세요":
+    "Try completing the upload again",
+  "삭제를 기다리는 간이 링크 파일입니다":
+    "This quick-link file is waiting to be deleted",
+  "활성 공유 링크가 너무 많습니다. 오래된 링크를 취소하고 다시 만들어 주세요":
+    "There are too many active share links. Stop an older link and try again",
+  "정리 대기 중인 간이 링크가 많습니다. 잠시 후 다시 시도해 주세요":
+    "Too many quick-link files are waiting for cleanup. Try again shortly",
+
   // 공용 오류
   "세션이 만료되었습니다": "Your session has expired",
   "요청에 실패했습니다": "The request failed",

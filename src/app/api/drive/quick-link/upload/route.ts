@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, requireUploadRights } from "@/lib/api";
 import { createShareLink } from "@/lib/share-links";
 import { getAdapter } from "@/lib/storage";
-import { ROOT_ID } from "@/lib/storage/types";
+import { ROOT_ID, StorageError } from "@/lib/storage/types";
 import {
+  claimUploadReservation,
   exactSizeUploadStream,
   finishUploadReservation,
-  getUploadReservation,
   parseUploadContentLength,
   reserveUpload,
 } from "@/lib/storage-quota";
@@ -28,16 +28,17 @@ export async function POST(req: NextRequest) {
   try {
     const size = parseUploadContentLength(req.headers.get("content-length"));
     if (requestedReservationId) {
-      const reservation = await getUploadReservation(
+      const reservation = await claimUploadReservation(
         requestedReservationId,
         auth.session.userId,
+        {
+          parentId: ROOT_ID,
+          name,
+          size,
+          transport: "proxy",
+        },
       );
-      if (
-        !reservation ||
-        reservation.parentId !== ROOT_ID ||
-        reservation.name !== name ||
-        reservation.size !== size
-      ) {
+      if (!reservation) {
         return NextResponse.json(
           { error: "업로드 예약 정보가 일치하지 않습니다" },
           { status: 409 },
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
         parentId: ROOT_ID,
         name,
         size,
+        transport: "proxy",
       });
     }
     const entry = await getAdapter().uploadTemporary(
@@ -61,9 +63,15 @@ export async function POST(req: NextRequest) {
       ),
     );
     temporaryId = entry.id;
-    await finishUploadReservation(reservationId, auth.session.userId, entry, {
-      ignoreEntryName: true,
-    });
+    const completed = await finishUploadReservation(
+      reservationId,
+      auth.session.userId,
+      entry,
+      { ignoreEntryName: true },
+    );
+    if (!completed) {
+      throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
+    }
     const link = await createShareLink(
       entry.id,
       name,

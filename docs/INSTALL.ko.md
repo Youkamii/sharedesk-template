@@ -227,6 +227,7 @@ setup이 끝나면 `.env.local`에 다음 값이 준비됩니다.
 
 - `ADMIN_EMAILS`
 - `SESSION_SECRET`
+- `CRON_SECRET`
 - `STORAGE_DRIVER=drive`
 - `GOOGLE_REFRESH_TOKEN`
 - `DRIVE_ROOT_FOLDER_ID`
@@ -255,6 +256,7 @@ npm run dev
 |---|---|
 | `ADMIN_EMAILS` | 관리자 Google 이메일. 여러 명이면 쉼표로 구분 |
 | `SESSION_SECRET` | setup이 만든 긴 무작위 값 |
+| `CRON_SECRET` | setup이 만든 만료 파일 정리용 무작위 값 |
 | `STORAGE_DRIVER` | `drive` |
 | `GOOGLE_CLIENT_ID` | Web application Client ID |
 | `GOOGLE_CLIENT_SECRET` | Client secret |
@@ -273,7 +275,7 @@ npm run dev
 
 `ACCESS_KEYS`는 임시 손님용 키를 쓸 때만 넣습니다. drive 모드에서 접속 키로 들어온 손님은 `보기 전용`입니다. `LOCAL_STORAGE_ROOT`와 `SHAREDESK_SHARE_TEST_EMAIL`은 운영 환경에 넣지 않습니다. 어떤 비밀값에도 `NEXT_PUBLIC_` 접두사를 붙이지 마세요.
 
-여러 값을 한 번에 붙여 넣을 때는 Key 칸이 첫 줄(`ADMIN_EMAILS`)을 통째로 먹는 함정이 있습니다. 붙여 넣은 뒤 변수 개수가 9개(선택 항목 제외)인지 반드시 확인하세요. 값은 기본 `Sensitive`로 저장돼 저장 후 다시 볼 수 없는데, 이것은 정상입니다.
+여러 값을 한 번에 붙여 넣을 때는 Key 칸이 첫 줄(`ADMIN_EMAILS`)을 통째로 먹는 함정이 있습니다. 붙여 넣은 뒤 변수 개수가 10개(선택 항목 제외)인지 반드시 확인하세요. 값은 기본 `Sensitive`로 저장돼 저장 후 다시 볼 수 없는데, 이것은 정상입니다.
 
 환경 변수를 입력하거나 바꾼 뒤 Production을 다시 배포합니다. 환경 변수 변경은 기존 배포에 자동으로 반영되지 않습니다. `Deployments` 탭에서 최신 배포 행에 마우스를 올리면 나오는 `⋯` 메뉴 → `Redeploy`를 누르세요. `Create Deployment` 버튼은 Preview 배포 전용이니 쓰지 마세요. 자세한 동작은 [Vercel 환경 변수 안내](https://vercel.com/docs/environment-variables)를 참고하세요.
 

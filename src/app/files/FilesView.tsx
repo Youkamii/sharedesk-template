@@ -86,6 +86,7 @@ import {
 } from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
+  startUploadReservationHeartbeat,
   streamDownloadToDisk,
   transferProgressText,
   type TransferProgress,
@@ -810,6 +811,7 @@ export default function FilesView({
     useState<UtilityWindowState | null>(null);
   const [shareLinksWindow, setShareLinksWindow] =
     useState<UtilityWindowState | null>(null);
+  const [shareLinksRevision, setShareLinksRevision] = useState(0);
   // 채팅은 작업표시줄의 독립 기능이다. 처음부터 최소화 상태로 살아 있어야
   // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
   const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
@@ -1937,7 +1939,11 @@ export default function FilesView({
     }
     const body = await response.json().catch(() => null);
     if (!response.ok) {
-      const error = new Error(body?.error ?? t("요청에 실패했습니다"));
+      const error = new Error(
+        typeof body?.error === "string"
+          ? t(body.error)
+          : t("요청에 실패했습니다"),
+      );
       // 본문도 함께 넘긴다 — 호출부가 starRequired 같은 부가 정보를 봐야 한다.
       Object.assign(error, { status: response.status, body });
       throw error;
@@ -5786,6 +5792,7 @@ export default function FilesView({
       if (!body.link?.linkId) {
         throw new Error(t("공유 링크를 만들지 못했습니다"));
       }
+      setShareLinksRevision((current) => current + 1);
       const url = `${window.location.origin}/api/share/${body.link.linkId}`;
       try {
         await navigator.clipboard.writeText(url);
@@ -6298,30 +6305,37 @@ export default function FilesView({
         }),
       });
       if (session.mode === "direct") {
-        const response = await uploadWithProgress(
-          session.url,
-          "PUT",
-          file,
-          null,
-          updateTransfer,
+        const stopHeartbeat = startUploadReservationHeartbeat(
+          session.reservationId,
         );
-        if (response.status < 200 || response.status >= 300) {
-          throw new Error(t("드라이브 업로드에 실패했습니다"));
+        try {
+          const response = await uploadWithProgress(
+            session.url,
+            "PUT",
+            file,
+            null,
+            updateTransfer,
+          );
+          if (response.status < 200 || response.status >= 300) {
+            throw new Error(t("드라이브 업로드에 실패했습니다"));
+          }
+          const body = JSON.parse(response.responseText || "null") as {
+            id?: string;
+          } | null;
+          if (session.reservationId && body?.id) {
+            await apiJson("/api/drive/upload-complete", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reservationId: session.reservationId,
+                fileId: body.id,
+              }),
+            });
+          }
+          return body?.id ?? null;
+        } finally {
+          stopHeartbeat();
         }
-        const body = JSON.parse(response.responseText || "null") as {
-          id?: string;
-        } | null;
-        if (session.reservationId && body?.id) {
-          await apiJson("/api/drive/upload-complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              reservationId: session.reservationId,
-              fileId: body.id,
-            }),
-          });
-        }
-        return body?.id ?? null;
       }
       const reservationQuery = session.reservationId
         ? `&reservationId=${encodeURIComponent(session.reservationId)}`
@@ -8283,25 +8297,29 @@ export default function FilesView({
             )
           }
           onDesktopChanged={() => void refreshScope(ROOT_SCOPE)}
+          linksRevision={shareLinksRevision}
+          onLinksChanged={() => setShareLinksRevision((current) => current + 1)}
           onNotice={setNotice}
           onActivate={focusQuickLinkWindow}
         />
       )}
 
-      <ChatPanel
-        locale={locale}
-        minimized={chatWindow.minimized}
-        zIndex={chatWindow.z}
-        active={chatWindow.z === topManagedWindowZ}
-        onClose={() =>
-          setChatWindow((current) => ({ ...current, minimized: true }))
-        }
-        onMinimize={() =>
-          setChatWindow((current) => ({ ...current, minimized: true }))
-        }
-        onUnreadChange={setChatUnread}
-        onActivate={focusChatWindow}
-      />
+      {!isGuest && (
+        <ChatPanel
+          locale={locale}
+          minimized={chatWindow.minimized}
+          zIndex={chatWindow.z}
+          active={chatWindow.z === topManagedWindowZ}
+          onClose={() =>
+            setChatWindow((current) => ({ ...current, minimized: true }))
+          }
+          onMinimize={() =>
+            setChatWindow((current) => ({ ...current, minimized: true }))
+          }
+          onUnreadChange={setChatUnread}
+          onActivate={focusChatWindow}
+        />
+      )}
 
       {allowUpload && shareLinksWindow && !shareLinksWindow.minimized && (
         <ShareLinksWindow
@@ -8320,6 +8338,8 @@ export default function FilesView({
               current ? { ...current, maximized: !current.maximized } : current,
             )
           }
+          linksRevision={shareLinksRevision}
+          onLinksChanged={() => setShareLinksRevision((current) => current + 1)}
           onNotice={setNotice}
           onActivate={focusShareLinksWindow}
         />
@@ -8477,24 +8497,26 @@ export default function FilesView({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          className={`${styles.taskButton} ${styles.chatTaskButton} ${!chatWindow.minimized && chatWindow.z === topManagedWindowZ ? styles.activeTask : ""} ${chatUnread > 0 ? styles.chatTaskUnread : ""}`}
-          aria-label={
-            chatUnread > 0
-              ? t("읽지 않은 메시지 {count}개", { count: chatUnread })
-              : t("채팅")
-          }
-          onClick={openChatWindow}
-        >
-          <span aria-hidden="true">▤</span>
-          <span className={styles.taskTitle}>{t("채팅")}</span>
-          {chatUnread > 0 && (
-            <span className={styles.chatUnreadBadge} aria-hidden="true">
-              {chatUnread > 99 ? "99+" : chatUnread}
-            </span>
-          )}
-        </button>
+        {!isGuest && (
+          <button
+            type="button"
+            className={`${styles.taskButton} ${styles.chatTaskButton} ${!chatWindow.minimized && chatWindow.z === topManagedWindowZ ? styles.activeTask : ""} ${chatUnread > 0 ? styles.chatTaskUnread : ""}`}
+            aria-label={
+              chatUnread > 0
+                ? t("읽지 않은 메시지 {count}개", { count: chatUnread })
+                : t("채팅")
+            }
+            onClick={openChatWindow}
+          >
+            <span aria-hidden="true">▤</span>
+            <span className={styles.taskTitle}>{t("채팅")}</span>
+            {chatUnread > 0 && (
+              <span className={styles.chatUnreadBadge} aria-hidden="true">
+                {chatUnread > 99 ? "99+" : chatUnread}
+              </span>
+            )}
+          </button>
+        )}
         {activeTransfers.length > 0 && (
           <div className={styles.uploadChip} role="status">
             <span className={styles.uploadArrow} aria-hidden="true">↕</span>
@@ -8919,6 +8941,7 @@ export default function FilesView({
           entry={shareLinkEntry}
           locale={locale}
           onClose={closeShareLinkDialog}
+          onLinksChanged={() => setShareLinksRevision((current) => current + 1)}
           onNotice={setNotice}
         />
       )}
