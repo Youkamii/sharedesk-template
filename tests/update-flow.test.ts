@@ -1802,6 +1802,23 @@ test("manual update workflow verifies without write credentials before a sealed 
   }
 });
 
+test("update workflows use Node 24 artifact actions", async () => {
+  for (const workflowPath of [
+    "../.github/workflows/sharedesk-update.yml",
+    "../.github/workflows/sharedesk-auto-update.yml",
+  ]) {
+    const workflow = await readFile(new URL(workflowPath, import.meta.url), "utf8");
+    assert.match(
+      workflow,
+      /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7\.0\.1/,
+    );
+    assert.match(
+      workflow,
+      /actions\/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8\.0\.1/,
+    );
+  }
+});
+
 test("updated release controls the Node version and verification commands", async () => {
   assert.equal(
     (await readFile(new URL("../.node-version", import.meta.url), "utf8")).trim(),
@@ -1829,6 +1846,10 @@ test("updated release controls the Node version and verification commands", asyn
     verifier,
     /\["\/d", "\/s", "\/c", `\$\{command\}\.cmd`, \.\.\.args\]/,
   );
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.match(packageJson.scripts.test, /tsx --test --test-concurrency=1/);
 });
 
 test("all release clients follow GitHub pagination to the 101st stable release", async () => {
