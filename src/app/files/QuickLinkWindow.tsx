@@ -24,6 +24,8 @@ type QuickItem = {
 type Props = {
   locale: Locale;
   maximized: boolean;
+  zIndex: number;
+  active: boolean;
   canManageLinks: boolean;
   onClose: () => void;
   onMinimize: () => void;
@@ -31,6 +33,7 @@ type Props = {
   onOpenLinks: () => void;
   onDesktopChanged: () => void;
   onNotice: (message: string) => void;
+  onActivate: () => void;
 };
 
 function shareUrl(linkId: string): string {
@@ -51,6 +54,8 @@ function isShareLink(value: unknown): value is ShareLink {
 export default function QuickLinkWindow({
   locale,
   maximized,
+  zIndex,
+  active,
   canManageLinks,
   onClose,
   onMinimize,
@@ -58,6 +63,7 @@ export default function QuickLinkWindow({
   onOpenLinks,
   onDesktopChanged,
   onNotice,
+  onActivate,
 }: Props) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -231,8 +237,10 @@ export default function QuickLinkWindow({
 
   return (
     <section
-      className={`${styles.folderWindow} ${styles.quickLinkWindow} ${maximized ? styles.utilityMaximized : ""}`}
+      className={`${styles.folderWindow} ${styles.quickLinkWindow} ${active ? styles.activeWindow : ""} ${maximized ? styles.utilityMaximized : ""}`}
+      style={{ zIndex }}
       aria-label={t("간이 링크")}
+      onPointerDown={onActivate}
     >
       <header className={styles.windowTitlebar}>
         <strong>{t("간이 링크")}</strong>

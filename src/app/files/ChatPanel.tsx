@@ -28,9 +28,12 @@ type ClientChatMessage = {
 type Props = {
   locale: Locale;
   minimized: boolean;
+  zIndex: number;
+  active: boolean;
   onClose: () => void;
   onMinimize: () => void;
   onUnreadChange: (count: number) => void;
+  onActivate: () => void;
 };
 
 function isMessage(value: unknown): value is ClientChatMessage {
@@ -48,9 +51,12 @@ function isMessage(value: unknown): value is ClientChatMessage {
 export default function ChatPanel({
   locale,
   minimized,
+  zIndex,
+  active,
   onClose,
   onMinimize,
   onUnreadChange,
+  onActivate,
 }: Props) {
   const router = useRouter();
   const [messages, setMessages] = useState<ClientChatMessage[]>([]);
@@ -214,8 +220,10 @@ export default function ChatPanel({
 
   return (
     <section
-      className={`${styles.folderWindow} ${styles.chatWindow} ${minimized ? styles.utilityHidden : ""}`}
+      className={`${styles.folderWindow} ${styles.chatWindow} ${active ? styles.activeWindow : ""} ${minimized ? styles.utilityHidden : ""}`}
+      style={{ zIndex }}
       aria-label={t("데스크 채팅")}
+      onPointerDown={onActivate}
     >
       <header className={styles.windowTitlebar}>
         <strong>{t("데스크 채팅")}</strong>

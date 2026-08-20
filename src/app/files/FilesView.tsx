@@ -171,6 +171,8 @@ type PreviewWindowState = {
   x: number;
   y: number;
   z: number;
+  minimized: boolean;
+  maximized: boolean;
   text: string | null;
   originalText: string | null;
   textLoading: boolean;
@@ -189,6 +191,8 @@ type FolderNoteWindowState = {
   x: number;
   y: number;
   z: number;
+  minimized: boolean;
+  maximized: boolean;
   content: string;
   originalContent: string;
   version: string | null;
@@ -257,6 +261,8 @@ type TrashWindowState = {
   x: number;
   y: number;
   z: number;
+  minimized: boolean;
+  maximized: boolean;
   entries: TrashEntry[];
   loading: boolean;
   error: string | null;
@@ -280,6 +286,7 @@ type SearchWindowState = {
   y: number;
   z: number;
   minimized: boolean;
+  maximized: boolean;
   results: SearchResult[];
   loading: boolean;
   error: string | null;
@@ -340,6 +347,7 @@ type DialogState =
 type UtilityWindowState = {
   minimized: boolean;
   maximized: boolean;
+  z: number;
 };
 
 const DIALOG_FOCUSABLE_SELECTOR =
@@ -802,7 +810,7 @@ export default function FilesView({
   const [shareLinksWindow, setShareLinksWindow] =
     useState<UtilityWindowState | null>(null);
   const [chatWindow, setChatWindow] =
-    useState<{ minimized: boolean } | null>(null);
+    useState<{ minimized: boolean; z: number } | null>(null);
   const [chatUnread, setChatUnread] = useState(0);
   const [extraFeaturesOpen, setExtraFeaturesOpen] = useState(false);
   const [dialogBusy, setDialogBusy] = useState(false);
@@ -1591,6 +1599,16 @@ export default function FilesView({
       );
       return { ...current, x: fitted.x, y: fitted.y };
     });
+    setSearchWindow((current) => {
+      if (!current) return current;
+      const fitted = fitFloatingWindow(
+        current.x,
+        current.y,
+        Math.max(390, Math.min(760, resizedViewport.width - 32)),
+        Math.max(300, Math.min(470, resizedViewport.height - 122)),
+      );
+      return { ...current, x: fitted.x, y: fitted.y };
+    });
     setPreviewWindow((current) => {
       if (!current) return current;
       const fitted = fitFloatingWindow(
@@ -1970,6 +1988,7 @@ export default function FilesView({
           ),
         z: ++zRef.current,
         minimized: false,
+        maximized: current?.maximized ?? false,
         results: [],
         loading: true,
         error: null,
@@ -2051,7 +2070,11 @@ export default function FilesView({
   }
 
   function moveSearchWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!searchWindow || (event.target as HTMLElement).closest("button")) {
+    if (
+      !searchWindow ||
+      searchWindow.maximized ||
+      (event.target as HTMLElement).closest("button")
+    ) {
       return;
     }
     event.preventDefault();
@@ -3443,6 +3466,8 @@ export default function FilesView({
         ),
       ),
       z,
+      minimized: false,
+      maximized: previewWindow?.maximized ?? false,
       text: null,
       originalText: null,
       textLoading: kind === "text",
@@ -3595,7 +3620,7 @@ export default function FilesView({
   }
 
   function movePreviewWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!previewWindow) return;
+    if (!previewWindow || previewWindow.maximized) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     const z = ++zRef.current;
@@ -3916,6 +3941,8 @@ export default function FilesView({
       x,
       y,
       z: ++zRef.current,
+      minimized: false,
+      maximized: folderNoteWindow?.maximized ?? false,
       content: "",
       originalContent: "",
       version: null,
@@ -4039,7 +4066,7 @@ export default function FilesView({
   }
 
   function moveFolderNoteWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!folderNoteWindow) return;
+    if (!folderNoteWindow || folderNoteWindow.maximized) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     const startX = event.clientX;
@@ -5151,7 +5178,7 @@ export default function FilesView({
     setContextMenu(null);
     const z = ++zRef.current;
     setTrashWindow((current) => {
-      if (current) return { ...current, z };
+      if (current) return { ...current, z, minimized: false };
       const width = Math.min(
         480,
         Math.max(320, logicalViewport.width - 32),
@@ -5168,6 +5195,8 @@ export default function FilesView({
           logicalViewport.height / 2,
         ),
         z,
+        minimized: false,
+        maximized: false,
         entries: [],
         loading: true,
         error: null,
@@ -5176,6 +5205,27 @@ export default function FilesView({
       };
     });
     void loadTrash();
+  }
+
+  function focusTrashWindow() {
+    const z = ++zRef.current;
+    setTrashWindow((current) =>
+      current ? { ...current, z, minimized: false } : current,
+    );
+  }
+
+  function focusPreviewWindow() {
+    const z = ++zRef.current;
+    setPreviewWindow((current) =>
+      current ? { ...current, z, minimized: false } : current,
+    );
+  }
+
+  function focusFolderNoteWindow() {
+    const z = ++zRef.current;
+    setFolderNoteWindow((current) =>
+      current ? { ...current, z, minimized: false } : current,
+    );
   }
 
   async function refreshEverything() {
@@ -5239,7 +5289,7 @@ export default function FilesView({
   }
 
   function moveTrashWindow(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!trashWindow) return;
+    if (!trashWindow || trashWindow.maximized) return;
     if ((event.target as HTMLElement).closest("button")) return;
     event.preventDefault();
     const z = ++zRef.current;
@@ -5751,12 +5801,13 @@ export default function FilesView({
     setQuickLinkWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
+      z: ++zRef.current,
     }));
   }
 
   function openChatWindow() {
     setExtraFeaturesOpen(false);
-    setChatWindow({ minimized: false });
+    setChatWindow({ minimized: false, z: ++zRef.current });
     setChatUnread(0);
   }
 
@@ -5764,7 +5815,33 @@ export default function FilesView({
     setShareLinksWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
+      z: ++zRef.current,
     }));
+  }
+
+  function focusQuickLinkWindow() {
+    setQuickLinkWindow((current) =>
+      current
+        ? { ...current, minimized: false, z: ++zRef.current }
+        : current,
+    );
+  }
+
+  function focusShareLinksWindow() {
+    setShareLinksWindow((current) =>
+      current
+        ? { ...current, minimized: false, z: ++zRef.current }
+        : current,
+    );
+  }
+
+  function focusChatWindow() {
+    setChatWindow((current) =>
+      current
+        ? { ...current, minimized: false, z: ++zRef.current }
+        : current,
+    );
+    setChatUnread(0);
   }
 
   async function loadUpdateStatus() {
@@ -6989,6 +7066,16 @@ export default function FilesView({
       .filter((item) => !item.minimized)
       .map((item) => item.z),
     searchWindow && !searchWindow.minimized ? searchWindow.z : 0,
+    trashWindow && !trashWindow.minimized ? trashWindow.z : 0,
+    previewWindow && !previewWindow.minimized ? previewWindow.z : 0,
+    folderNoteWindow && !folderNoteWindow.minimized
+      ? folderNoteWindow.z
+      : 0,
+    quickLinkWindow && !quickLinkWindow.minimized ? quickLinkWindow.z : 0,
+    shareLinksWindow && !shareLinksWindow.minimized
+      ? shareLinksWindow.z
+      : 0,
+    chatWindow && !chatWindow.minimized ? chatWindow.z : 0,
   );
 
   return (
@@ -7449,10 +7536,11 @@ export default function FilesView({
         <section
           className={`${styles.folderWindow} ${styles.searchWindow} ${
             searchWindow.z === topManagedWindowZ ? styles.activeWindow : ""
-          }`}
+          } ${searchWindow.maximized ? styles.utilityMaximized : ""}`}
           style={{
-            left: searchWindow.x,
-            top: searchWindow.y,
+            ...(searchWindow.maximized
+              ? {}
+              : { left: searchWindow.x, top: searchWindow.y }),
             zIndex: searchWindow.z,
           }}
           aria-label={t("{query} 검색 결과 창", { query: searchWindow.query })}
@@ -7480,6 +7568,23 @@ export default function FilesView({
                 }
               >
                 <span className={styles.minimizeGlyph} />
+              </button>
+              <button
+                type="button"
+                aria-label={searchWindow.maximized ? t("복원") : t("최대화")}
+                onClick={() =>
+                  setSearchWindow((current) =>
+                    current
+                      ? {
+                          ...current,
+                          maximized: !current.maximized,
+                          z: ++zRef.current,
+                        }
+                      : current,
+                  )
+                }
+              >
+                <span className={styles.maximizeGlyph} />
               </button>
               <button
                 type="button"
@@ -7636,21 +7741,19 @@ export default function FilesView({
         </section>
       )}
 
-      {trashWindow && (
+      {trashWindow && !trashWindow.minimized && (
         <section
-          className={`${styles.folderWindow} ${styles.trashWindow}`}
+          className={`${styles.folderWindow} ${styles.trashWindow} ${
+            trashWindow.z === topManagedWindowZ ? styles.activeWindow : ""
+          } ${trashWindow.maximized ? styles.utilityMaximized : ""}`}
           style={{
-            left: trashWindow.x,
-            top: trashWindow.y,
+            ...(trashWindow.maximized
+              ? {}
+              : { left: trashWindow.x, top: trashWindow.y }),
             zIndex: trashWindow.z,
           }}
           aria-label={t("휴지통 창")}
-          onPointerDown={() => {
-            const z = ++zRef.current;
-            setTrashWindow((current) =>
-              current ? { ...current, z } : current,
-            );
-          }}
+          onPointerDown={focusTrashWindow}
         >
           <div
             className={styles.windowTitlebar}
@@ -7662,6 +7765,34 @@ export default function FilesView({
               <span className={styles.titleLoading}>{t("여는 중")}</span>
             )}
             <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label={t("최소화")}
+                onClick={() =>
+                  setTrashWindow((current) =>
+                    current ? { ...current, minimized: true } : current,
+                  )
+                }
+              >
+                <span className={styles.minimizeGlyph} />
+              </button>
+              <button
+                type="button"
+                aria-label={trashWindow.maximized ? t("복원") : t("최대화")}
+                onClick={() =>
+                  setTrashWindow((current) =>
+                    current
+                      ? {
+                          ...current,
+                          maximized: !current.maximized,
+                          z: ++zRef.current,
+                        }
+                      : current,
+                  )
+                }
+              >
+                <span className={styles.maximizeGlyph} />
+              </button>
               <button
                 type="button"
                 aria-label={t("닫기")}
@@ -7810,13 +7941,16 @@ export default function FilesView({
         </section>
       )}
 
-      {previewWindow && (
+      {previewWindow && !previewWindow.minimized && (
         <section
           ref={previewRef}
-          className={`${styles.folderWindow} ${styles.previewWindow}`}
+          className={`${styles.folderWindow} ${styles.previewWindow} ${
+            previewWindow.z === topManagedWindowZ ? styles.activeWindow : ""
+          } ${previewWindow.maximized ? styles.utilityMaximized : ""}`}
           style={{
-            left: previewWindow.x,
-            top: previewWindow.y,
+            ...(previewWindow.maximized
+              ? {}
+              : { left: previewWindow.x, top: previewWindow.y }),
             zIndex: previewWindow.z,
           }}
           role="dialog"
@@ -7827,12 +7961,7 @@ export default function FilesView({
             event.stopPropagation();
             closePreview();
           }}
-          onPointerDown={() => {
-            const z = ++zRef.current;
-            setPreviewWindow((current) =>
-              current ? { ...current, z } : current,
-            );
-          }}
+          onPointerDown={focusPreviewWindow}
         >
           <div
             className={styles.windowTitlebar}
@@ -7843,6 +7972,34 @@ export default function FilesView({
               {previewWindow.entry.name}
             </strong>
             <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label={t("최소화")}
+                onClick={() =>
+                  setPreviewWindow((current) =>
+                    current ? { ...current, minimized: true } : current,
+                  )
+                }
+              >
+                <span className={styles.minimizeGlyph} />
+              </button>
+              <button
+                type="button"
+                aria-label={previewWindow.maximized ? t("복원") : t("최대화")}
+                onClick={() =>
+                  setPreviewWindow((current) =>
+                    current
+                      ? {
+                          ...current,
+                          maximized: !current.maximized,
+                          z: ++zRef.current,
+                        }
+                      : current,
+                  )
+                }
+              >
+                <span className={styles.maximizeGlyph} />
+              </button>
               <button
                 type="button"
                 aria-label={t("닫기")}
@@ -7972,12 +8129,15 @@ export default function FilesView({
         </section>
       )}
 
-      {folderNoteWindow && (
+      {folderNoteWindow && !folderNoteWindow.minimized && (
         <section
-          className={`${styles.folderWindow} ${styles.noteWindow}`}
+          className={`${styles.folderWindow} ${styles.noteWindow} ${
+            folderNoteWindow.z === topManagedWindowZ ? styles.activeWindow : ""
+          } ${folderNoteWindow.maximized ? styles.utilityMaximized : ""}`}
           style={{
-            left: folderNoteWindow.x,
-            top: folderNoteWindow.y,
+            ...(folderNoteWindow.maximized
+              ? {}
+              : { left: folderNoteWindow.x, top: folderNoteWindow.y }),
             zIndex: folderNoteWindow.z,
           }}
           role="dialog"
@@ -7985,11 +8145,7 @@ export default function FilesView({
             name: folderNoteWindow.folderName,
           })}
           data-testid="folder-note-window"
-          onPointerDown={() =>
-            setFolderNoteWindow((current) =>
-              current ? { ...current, z: ++zRef.current } : current,
-            )
-          }
+          onPointerDown={focusFolderNoteWindow}
         >
           <div
             className={styles.windowTitlebar}
@@ -8000,6 +8156,36 @@ export default function FilesView({
               {t("{name} · 폴더 메모", { name: folderNoteWindow.folderName })}
             </strong>
             <div className={styles.windowControls}>
+              <button
+                type="button"
+                aria-label={t("최소화")}
+                onClick={() =>
+                  setFolderNoteWindow((current) =>
+                    current ? { ...current, minimized: true } : current,
+                  )
+                }
+              >
+                <span className={styles.minimizeGlyph} />
+              </button>
+              <button
+                type="button"
+                aria-label={
+                  folderNoteWindow.maximized ? t("복원") : t("최대화")
+                }
+                onClick={() =>
+                  setFolderNoteWindow((current) =>
+                    current
+                      ? {
+                          ...current,
+                          maximized: !current.maximized,
+                          z: ++zRef.current,
+                        }
+                      : current,
+                  )
+                }
+              >
+                <span className={styles.maximizeGlyph} />
+              </button>
               <button
                 type="button"
                 aria-label={t("닫기")}
@@ -8080,6 +8266,8 @@ export default function FilesView({
         <QuickLinkWindow
           locale={locale}
           maximized={quickLinkWindow.maximized}
+          zIndex={quickLinkWindow.z}
+          active={quickLinkWindow.z === topManagedWindowZ}
           canManageLinks={allowUpload}
           onClose={() => setQuickLinkWindow(null)}
           onMinimize={() =>
@@ -8095,6 +8283,7 @@ export default function FilesView({
           onOpenLinks={openShareLinksWindow}
           onDesktopChanged={() => void refreshScope(ROOT_SCOPE)}
           onNotice={setNotice}
+          onActivate={focusQuickLinkWindow}
         />
       )}
 
@@ -8102,6 +8291,8 @@ export default function FilesView({
         <ChatPanel
           locale={locale}
           minimized={chatWindow.minimized}
+          zIndex={chatWindow.z}
+          active={chatWindow.z === topManagedWindowZ}
           onClose={() => {
             setChatWindow(null);
             setChatUnread(0);
@@ -8112,6 +8303,7 @@ export default function FilesView({
             )
           }
           onUnreadChange={setChatUnread}
+          onActivate={focusChatWindow}
         />
       )}
 
@@ -8119,6 +8311,8 @@ export default function FilesView({
         <ShareLinksWindow
           locale={locale}
           maximized={shareLinksWindow.maximized}
+          zIndex={shareLinksWindow.z}
+          active={shareLinksWindow.z === topManagedWindowZ}
           onClose={() => setShareLinksWindow(null)}
           onMinimize={() =>
             setShareLinksWindow((current) =>
@@ -8131,6 +8325,7 @@ export default function FilesView({
             )
           }
           onNotice={setNotice}
+          onActivate={focusShareLinksWindow}
         />
       )}
 
@@ -8218,15 +8413,58 @@ export default function FilesView({
               </span>
             </button>
           )}
+          {trashWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${
+                !trashWindow.minimized &&
+                trashWindow.z === topManagedWindowZ
+                  ? styles.activeTask
+                  : ""
+              }`}
+              onClick={focusTrashWindow}
+            >
+              <span className={styles.trashGlyph} aria-hidden="true" />
+              <span className={styles.taskTitle}>{t("휴지통")}</span>
+            </button>
+          )}
+          {previewWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${
+                !previewWindow.minimized &&
+                previewWindow.z === topManagedWindowZ
+                  ? styles.activeTask
+                  : ""
+              }`}
+              onClick={focusPreviewWindow}
+            >
+              <PixelFileIcon entry={previewWindow.entry} size={18} />
+              <span className={styles.taskTitle}>{previewWindow.entry.name}</span>
+            </button>
+          )}
+          {folderNoteWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${
+                !folderNoteWindow.minimized &&
+                folderNoteWindow.z === topManagedWindowZ
+                  ? styles.activeTask
+                  : ""
+              }`}
+              onClick={focusFolderNoteWindow}
+            >
+              <span className={styles.folderNoteGlyph} aria-hidden="true" />
+              <span className={styles.taskTitle}>
+                {t("{name} 메모", { name: folderNoteWindow.folderName })}
+              </span>
+            </button>
+          )}
           {quickLinkWindow && (
             <button
               type="button"
-              className={`${styles.taskButton} ${!quickLinkWindow.minimized ? styles.activeTask : ""}`}
-              onClick={() =>
-                setQuickLinkWindow((current) =>
-                  current ? { ...current, minimized: false } : current,
-                )
-              }
+              className={`${styles.taskButton} ${!quickLinkWindow.minimized && quickLinkWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
+              onClick={focusQuickLinkWindow}
             >
               <span aria-hidden="true">↗</span>
               <span className={styles.taskTitle}>{t("간이 링크")}</span>
@@ -8235,11 +8473,8 @@ export default function FilesView({
           {chatWindow && (
             <button
               type="button"
-              className={`${styles.taskButton} ${!chatWindow.minimized ? styles.activeTask : ""}`}
-              onClick={() => {
-                setChatWindow({ minimized: false });
-                setChatUnread(0);
-              }}
+              className={`${styles.taskButton} ${!chatWindow.minimized && chatWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
+              onClick={focusChatWindow}
             >
               <span aria-hidden="true">▤</span>
               <span className={styles.taskTitle}>
@@ -8250,12 +8485,8 @@ export default function FilesView({
           {allowUpload && shareLinksWindow && (
             <button
               type="button"
-              className={`${styles.taskButton} ${!shareLinksWindow.minimized ? styles.activeTask : ""}`}
-              onClick={() =>
-                setShareLinksWindow((current) =>
-                  current ? { ...current, minimized: false } : current,
-                )
-              }
+              className={`${styles.taskButton} ${!shareLinksWindow.minimized && shareLinksWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
+              onClick={focusShareLinksWindow}
             >
               <span aria-hidden="true">☍</span>
               <span className={styles.taskTitle}>{t("공유 중인 링크")}</span>

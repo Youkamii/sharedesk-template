@@ -2460,7 +2460,7 @@
   grid-template-rows: 32px minmax(0, 1fr) 28px;
 }
 
-.utilityMaximized {
+.folderWindow.utilityMaximized {
   inset: 42px 8px 56px;
   width: auto;
   height: auto;

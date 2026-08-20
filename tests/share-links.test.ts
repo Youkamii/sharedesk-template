@@ -99,6 +99,11 @@ test("간이 링크 파일은 숨겨지고 보관하거나 만료 시 삭제할 
     else process.env.STORAGE_DRIVER = previousDriver;
     if (previousRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
     else process.env.LOCAL_STORAGE_ROOT = previousRoot;
-    await rm(root, { recursive: true, force: true });
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 50,
+    });
   }
 });

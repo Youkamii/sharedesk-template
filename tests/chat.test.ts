@@ -48,7 +48,12 @@ test("데스크 채팅은 Drive 상태에 메시지를 충돌 없이 이어 쓴�
     else process.env.STORAGE_DRIVER = previousDriver;
     if (previousRoot === undefined) delete process.env.LOCAL_STORAGE_ROOT;
     else process.env.LOCAL_STORAGE_ROOT = previousRoot;
-    await rm(root, { recursive: true, force: true });
+    await rm(root, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 50,
+    });
   }
 });
 

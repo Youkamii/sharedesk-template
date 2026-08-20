@@ -9,10 +9,13 @@ import styles from "./desktop.module.css";
 type Props = {
   locale: Locale;
   maximized: boolean;
+  zIndex: number;
+  active: boolean;
   onClose: () => void;
   onMinimize: () => void;
   onToggleMaximize: () => void;
   onNotice: (message: string) => void;
+  onActivate: () => void;
 };
 
 function isShareLink(value: unknown): value is ShareLink {
@@ -30,10 +33,13 @@ function isShareLink(value: unknown): value is ShareLink {
 export default function ShareLinksWindow({
   locale,
   maximized,
+  zIndex,
+  active,
   onClose,
   onMinimize,
   onToggleMaximize,
   onNotice,
+  onActivate,
 }: Props) {
   const router = useRouter();
   const [links, setLinks] = useState<ShareLink[]>([]);
@@ -122,8 +128,10 @@ export default function ShareLinksWindow({
 
   return (
     <section
-      className={`${styles.folderWindow} ${styles.shareLinksWindow} ${maximized ? styles.utilityMaximized : ""}`}
+      className={`${styles.folderWindow} ${styles.shareLinksWindow} ${active ? styles.activeWindow : ""} ${maximized ? styles.utilityMaximized : ""}`}
+      style={{ zIndex }}
       aria-label={t("공유 중인 링크")}
+      onPointerDown={onActivate}
     >
       <header className={styles.windowTitlebar}>
         <strong>{t("공유 중인 링크")}</strong>

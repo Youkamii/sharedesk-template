@@ -618,7 +618,7 @@ test("레이아웃 저장은 폴더 식별값을 보내고 닫힌 창의 이전 
   );
 });
 
-test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이콘으로 연다", async () => {
+test("휴지통은 우측 하단 아이콘으로 열고 열린 뒤 작업 표시줄에서 복원한다", async () => {
   const [source, css] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
@@ -633,6 +633,7 @@ test("휴지통은 작업 표시줄이 아닌 화면 우측 하단 고정 아이
 
   assert.ok(launcherIndex >= 0 && launcherIndex < taskbarStart);
   assert.doesNotMatch(source.slice(taskbarStart, taskbarEnd), /onClick=\{openTrash\}/);
+  assert.match(source.slice(taskbarStart, taskbarEnd), /onClick=\{focusTrashWindow\}/);
   assert.match(source, /aria-label=\{t\("휴지통 열기"\)\}/);
   assert.match(source, /function TrashCanIcon\(\)/);
   assert.match(source, /shapeRendering="crispEdges"/);
