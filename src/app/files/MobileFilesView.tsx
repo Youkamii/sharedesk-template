@@ -152,9 +152,7 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
               "Content-Length": String(file.size),
             },
             body: file,
-            // 스트림 본문을 보내려면 필요하다.
-            duplex: "half",
-          } as RequestInit & { duplex: "half" },
+          },
         );
         if (!response.ok) failed += 1;
       } catch {

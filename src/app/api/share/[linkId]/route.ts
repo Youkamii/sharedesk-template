@@ -94,7 +94,14 @@ function manifestResponse(
     {
       kind: entry.isFolder ? "folder" : "file",
       expiresAt,
-      ...describe(entry),
+      // 가리키는 항목 자신의 id는 싣지 않는다. 받는 쪽은 링크 주소로 바로
+      // 받으므로 쓰지 않고, local 저장소의 id는 base64url로 감싼 경로라
+      // 링크만 아는 외부에 폴더 구조를 흘리게 된다. 하위 목록의 id는
+      // entryId로 지목하는 데 필요해 그대로 둔다.
+      name: entry.name,
+      isFolder: entry.isFolder,
+      size: entry.size,
+      mimeType: entry.mimeType,
       ...(children ? { entries: children.map(describe) } : {}),
     },
     {

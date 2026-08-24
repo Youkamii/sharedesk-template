@@ -132,3 +132,62 @@ test("폴더 항목 주소는 보내는 데스크가 알려 준 id 형태만 받
     );
   }
 });
+
+// --- 적대 리뷰에서 잡힌 결함들의 재발 방지 ---
+
+// 후행 점을 하나만 지우면 점 두 개로 "단일 라벨"과 "로컬 접미사" 검사를
+// 동시에 빠져나갔다.
+test("후행 점을 여러 개 붙여도 로컬 이름을 통과시키지 않는다", () => {
+  for (const host of [
+    "localhost.",
+    "localhost..",
+    "localhost...",
+    "svc.internal..",
+    "desk.local..",
+    "router..",
+  ]) {
+    assert.equal(
+      parseDeskTransferLink(`https://${host}/api/share/${LINK_ID}`),
+      null,
+      `통과하면 안 됨: ${host}`,
+    );
+  }
+  // 정상 도메인은 후행 점이 붙어도 그대로 통과해야 한다.
+  assert.ok(
+    parseDeskTransferLink(`https://desk.example.com./api/share/${LINK_ID}`),
+  );
+});
+
+// 이름 모양만으로는 127.0.0.1.nip.io 같은 주소를 막지 못한다. 실제 해석되는
+// IP를 보고 판단해야 한다.
+test("사설·루프백·클라우드 메타데이터 대역을 거부한다", async () => {
+  const { isBlockedIpv4, isBlockedIpv6 } = await import(
+    "../src/lib/desk-transfer-source"
+  );
+  for (const ip of [
+    "127.0.0.1",
+    "127.1.2.3",
+    "10.0.0.5",
+    "172.16.0.1",
+    "172.31.255.254",
+    "192.168.1.1",
+    // 클라우드 인스턴스 메타데이터
+    "169.254.169.254",
+    // 통신사 대규모 NAT
+    "100.64.0.1",
+    "0.0.0.0",
+    "224.0.0.1",
+    "255.255.255.255",
+  ]) {
+    assert.equal(isBlockedIpv4(ip), true, `막아야 함: ${ip}`);
+  }
+  for (const ip of ["8.8.8.8", "1.1.1.1", "93.184.216.34", "172.32.0.1"]) {
+    assert.equal(isBlockedIpv4(ip), false, `막으면 안 됨: ${ip}`);
+  }
+  for (const ip of ["::1", "::", "fe80::1", "fc00::1", "fd12::3", "::ffff:127.0.0.1"]) {
+    assert.equal(isBlockedIpv6(ip), true, `막아야 함: ${ip}`);
+  }
+  for (const ip of ["2606:4700:4700::1111", "2001:4860:4860::8888"]) {
+    assert.equal(isBlockedIpv6(ip), false, `막으면 안 됨: ${ip}`);
+  }
+});

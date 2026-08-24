@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MAX_ATTEMPTS,
   MAX_DEPTH,
+  MAX_FOLDER_READS,
   MAX_TASKS,
   planDeskImport,
   runDeskImport,
@@ -102,8 +103,12 @@ test("항목이 너무 많으면 상한에서 끊고 잘렸음을 알린다", as
   assert.equal(plan.truncated, true);
 });
 
-function planOf(tasks: ImportTask[], isFolder = true): ImportPlan {
-  return { rootName: "묶음", isFolder, tasks, truncated: false };
+function planOf(
+  tasks: ImportTask[],
+  isFolder = true,
+  folders: string[][] = [],
+): ImportPlan {
+  return { rootName: "묶음", isFolder, tasks, folders, truncated: false };
 }
 
 function recordingDeps(
@@ -255,4 +260,104 @@ test("받기 창은 서버를 거쳐 목록과 파일을 가져온다", async ()
   assert.doesNotMatch(source, /fetch\(\s*link\b/);
   // 세션이 끊기면 로그인 화면으로 보낸다.
   assert.match(source, /status === 401[\s\S]{0,80}router\.replace\("\/"\)/);
+});
+
+// --- 적대 리뷰에서 잡힌 결함들의 재발 방지 ---
+
+// 파일 개수만 세면 폴더만 있는 트리에서 상한이 발동하지 않는다. 레벨마다
+// 폴더 수가 곱해져 호출이 폭발했다.
+test("파일이 하나도 없고 폴더만 갈라지는 트리도 반드시 끝난다", async () => {
+  let reads = 0;
+  const plan = await planDeskImport({
+    readManifest: async () => {
+      reads += 1;
+      // 매 응답이 하위 폴더 5개를 내놓고 파일은 하나도 주지 않는다.
+      return folder(
+        "폭발",
+        Array.from({ length: 5 }, (_, index) =>
+          folderEntry(`d${reads}-${index}`, `${reads}-${index}`),
+        ),
+      );
+    },
+  });
+  assert.ok(plan);
+  assert.equal(plan.tasks.length, 0);
+  assert.equal(plan.truncated, true);
+  // 상한이 없으면 5^12까지 갔다.
+  assert.ok(
+    reads <= MAX_FOLDER_READS + 1,
+    `폴더 펼치기가 상한을 넘었다: ${reads}`,
+  );
+});
+
+test("빈 폴더도 만들 목록에 들어가고, 그것 때문에 잘렸다고 하지 않는다", async () => {
+  const tree: Record<string, RemoteManifest> = {
+    root: folder("묶음", [folderEntry("d1", "빈폴더"), fileEntry("f1", "a.txt")]),
+    d1: folder("빈폴더", []),
+  };
+  const plan = await planDeskImport({
+    readManifest: async (entryId) => tree[entryId ?? "root"] ?? null,
+  });
+  assert.ok(plan);
+  // 파일이 없어도 폴더는 만들어져야 구조가 유지된다.
+  assert.deepEqual(plan.folders, [["빈폴더"]]);
+  assert.deepEqual(plan.tasks.map((task) => task.name), ["a.txt"]);
+  // 빈 폴더는 더 펼칠 것이 없으므로 잘림 경고를 켜지 않는다.
+  assert.equal(plan.truncated, false);
+});
+
+test("계획에 담긴 빈 폴더는 파일이 없어도 실제로 만들어진다", async () => {
+  const deps = recordingDeps(async () => {});
+  const result = await runDeskImport(
+    planOf([], true, [["빈폴더"], ["빈폴더", "더빈폴더"]]),
+    "root",
+    deps,
+  );
+  assert.equal(result.copied, 0);
+  assert.deepEqual(result.failed, []);
+  assert.deepEqual(deps.created, [
+    "root/묶음",
+    "folder-1/빈폴더",
+    "folder-2/더빈폴더",
+  ]);
+});
+
+// 루트 폴더 생성이 try 밖이라 예외가 그대로 터졌고, 화면은 몇 개까지 옮겼는지도
+// 알 수 없었다.
+test("루트 폴더를 못 만들면 예외 대신 전부 실패로 보고한다", async () => {
+  const failures: string[] = [];
+  const deps: RunDeps = {
+    ensureFolder: async () => {
+      throw new Error("이미 있음");
+    },
+    importFile: async () => {
+      throw new Error("여기까지 오면 안 된다");
+    },
+  };
+  const result = await runDeskImport(
+    planOf([
+      { entryId: "f1", name: "a.txt", size: 1, parentPath: [] },
+      { entryId: "f2", name: "b.txt", size: 1, parentPath: [] },
+    ]),
+    "root",
+    deps,
+    { onFailure: (task) => failures.push(task.name) },
+  );
+  assert.equal(result.copied, 0);
+  assert.deepEqual(result.failed.map((task) => task.name), ["a.txt", "b.txt"]);
+  assert.deepEqual(failures, ["a.txt", "b.txt"]);
+});
+
+test("받기 창은 폴더가 이미 있으면 그 폴더에 합친다", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/DeskImportWindow.tsx", import.meta.url),
+    "utf8",
+  );
+  // mkdir 409를 그냥 실패로 두면 같은 링크를 두 번 받을 수 없다.
+  assert.match(source, /isFolderExistsConflict/);
+  assert.match(source, /matchExistingFolder/);
+  // 창이 사라지면 복사 루프도 멈춰야 진행률 없이 계속 받는 일이 없다.
+  assert.match(source, /return\s*\(\)\s*=>\s*\{\s*stopRef\.current = true;/);
+  // 확인이 도는 동안 주소가 바뀌면 그 결과는 버린다.
+  assert.match(source, /linkRef\.current !== target/);
 });

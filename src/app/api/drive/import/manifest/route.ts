@@ -4,7 +4,10 @@ import {
   deskTransferEntryUrls,
   parseDeskTransferLink,
 } from "@/lib/desk-transfer";
-import { readManifest } from "@/lib/desk-transfer-source";
+import {
+  readManifest,
+  resolvesToPublicAddress,
+} from "@/lib/desk-transfer-source";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -32,6 +35,14 @@ export async function POST(req: NextRequest) {
 
   const source = parseDeskTransferLink(body.url);
   if (!source) {
+    return NextResponse.json(
+      { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
+      { status: 400 },
+    );
+  }
+
+  // 이름 모양을 통과해도 실제로 내부망을 가리키면 거부한다.
+  if (!(await resolvesToPublicAddress(new URL(source.origin).hostname))) {
     return NextResponse.json(
       { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
       { status: 400 },

@@ -31,6 +31,9 @@ export interface ImportPlan {
   rootName: string;
   isFolder: boolean;
   tasks: ImportTask[];
+  // 만들어야 할 폴더 경로. 파일이 하나도 없는 폴더도 구조를 지키려면 만들어야
+  // 하는데, 파일 작업만 훑으면 그런 폴더가 조용히 사라진다.
+  folders: string[][];
   // 훑다가 상한에 걸려 목록이 잘렸는지. 조용히 일부만 옮기지 않으려고 알린다.
   truncated: boolean;
 }
@@ -39,6 +42,10 @@ export interface ImportPlan {
 export const MAX_DEPTH = 12;
 export const MAX_TASKS = 2000;
 export const MAX_ATTEMPTS = 3;
+// 파일 개수만으로는 순회가 끝나지 않는다. 파일이 하나도 없고 폴더만 있는
+// 트리에서는 tasks가 계속 0이라 MAX_TASKS가 발동하지 않고, 레벨마다 폴더 수가
+// 곱해져 호출이 폭발한다. 폴더를 펼친 횟수 자체에 상한을 둔다.
+export const MAX_FOLDER_READS = 300;
 
 export interface PlanDeps {
   // entryId가 null이면 링크 루트를 읽는다.
@@ -58,11 +65,14 @@ export async function planDeskImport(deps: PlanDeps): Promise<ImportPlan | null>
       rootName: root.name,
       isFolder: false,
       tasks: [{ entryId: null, name: root.name, size: root.size, parentPath: [] }],
+      folders: [],
       truncated: false,
     };
   }
 
   const tasks: ImportTask[] = [];
+  const folders: string[][] = [];
+  let folderReads = 0;
   let truncated = false;
 
   // 너비 우선으로 훑는다 — 얕은 파일이 먼저 도착해 진행이 눈에 보인다.
@@ -71,10 +81,12 @@ export async function planDeskImport(deps: PlanDeps): Promise<ImportPlan | null>
   ];
   for (let depth = 0; depth < MAX_DEPTH && frontier.length > 0; depth += 1) {
     const next: { entries: RemoteEntry[]; path: string[] }[] = [];
+    let exhausted = false;
     for (const level of frontier) {
       for (const entry of level.entries) {
-        if (tasks.length >= MAX_TASKS) {
+        if (tasks.length >= MAX_TASKS || folderReads >= MAX_FOLDER_READS) {
           truncated = true;
+          exhausted = true;
           break;
         }
         if (!entry.isFolder) {
@@ -86,24 +98,29 @@ export async function planDeskImport(deps: PlanDeps): Promise<ImportPlan | null>
           });
           continue;
         }
+        const path = [...level.path, entry.name];
+        // 파일이 없는 폴더도 구조를 지키려면 만들어야 한다.
+        folders.push(path);
+        folderReads += 1;
         const child = await deps.readManifest(entry.id);
         // 하위 폴더를 못 읽으면 그 가지만 건너뛴다. 전체를 실패로 만들지 않는다.
         if (!child) {
           truncated = true;
           continue;
         }
-        next.push({
-          entries: child.entries ?? [],
-          path: [...level.path, entry.name],
-        });
+        // 빈 폴더는 더 펼칠 것이 없다. next에 넣으면 다음 깊이가 있는 것처럼
+        // 보여 truncated가 잘못 켜진다.
+        if (child.entries && child.entries.length > 0) {
+          next.push({ entries: child.entries, path });
+        }
       }
-      if (tasks.length >= MAX_TASKS) break;
+      if (exhausted) break;
     }
     if (next.length > 0 && depth + 1 >= MAX_DEPTH) truncated = true;
     frontier = next;
   }
 
-  return { rootName: root.name, isFolder: true, tasks, truncated };
+  return { rootName: root.name, isFolder: true, tasks, folders, truncated };
 }
 
 export interface RunDeps {
@@ -142,9 +159,32 @@ export async function runDeskImport(
   const folderIds = new Map<string, string>([["", rootParentId]]);
   let copied = 0;
 
-  // 링크 루트가 폴더면 그 이름으로 감싸는 폴더를 먼저 만든다.
+  // 링크 루트가 폴더면 그 이름으로 감싸는 폴더를 먼저 만든다. 여기서 실패하면
+  // 아무 데도 넣을 수 없으므로 전부 실패로 돌려준다 — 예외로 터뜨리면 화면이
+  // 몇 개까지 옮겼는지조차 알 수 없다.
   if (plan.isFolder) {
-    folderIds.set("", await deps.ensureFolder(plan.rootName, rootParentId));
+    try {
+      folderIds.set("", await deps.ensureFolder(plan.rootName, rootParentId));
+    } catch (error) {
+      for (const task of plan.tasks) {
+        failed.push(task);
+        handlers.onFailure?.(task, error);
+      }
+      return { copied: 0, failed, stopped: false };
+    }
+  }
+
+  // 파일이 없는 폴더도 구조를 지키려면 먼저 만들어 둔다. 여기서 실패한 가지는
+  // 그 아래 파일이 개별 실패로 잡히므로 통째로 중단하지 않는다.
+  for (const path of plan.folders) {
+    if (handlers.shouldStop?.()) {
+      return { copied, failed, stopped: true };
+    }
+    try {
+      await resolveFolder(path, folderIds, deps);
+    } catch {
+      // 아래 파일 처리에서 다시 시도되고, 거기서 실패로 기록된다.
+    }
   }
 
   for (const task of plan.tasks) {

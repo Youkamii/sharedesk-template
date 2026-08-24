@@ -5,7 +5,11 @@ import {
   deskTransferEntryUrls,
   parseDeskTransferLink,
 } from "@/lib/desk-transfer";
-import { DESK_FETCH_BASE, readManifest } from "@/lib/desk-transfer-source";
+import {
+  DESK_FETCH_BASE,
+  readManifest,
+  resolvesToPublicAddress,
+} from "@/lib/desk-transfer-source";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID, StorageError } from "@/lib/storage/types";
 import {
@@ -16,6 +20,13 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+// 파일 본문을 받는 시간의 상한. 느리게 흘리는 상대가 저장소의 전역 쓰기
+// 잠금을 무기한 붙잡지 못하게 한다.
+const FILE_TIMEOUT_MS = 4 * 60 * 1000;
+
+// 보내는 쪽 문제를 catch까지 올려 예약이 반드시 정리되게 하는 표식.
+class UpstreamFailure extends Error {}
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
@@ -50,6 +61,10 @@ export async function POST(req: NextRequest) {
   if (!source) {
     return badRequest("다른 데스크의 공개 링크 주소가 아닙니다");
   }
+  // 이름 모양을 통과해도 실제로 내부망을 가리키면 거부한다.
+  if (!(await resolvesToPublicAddress(new URL(source.origin).hostname))) {
+    return badRequest("다른 데스크의 공개 링크 주소가 아닙니다");
+  }
 
   // 폴더 링크 안의 특정 파일을 지정한 경우.
   let fileUrl = source.fileUrl;
@@ -79,27 +94,41 @@ export async function POST(req: NextRequest) {
     if (manifest.size === null) {
       throw new StorageError("BAD_ID", "파일 크기를 확인하지 못했습니다");
     }
+    // 저장소가 이름을 trim해서 돌려주므로 예약도 같은 값으로 잡아야 한다.
+    // 다르면 정산 단계의 이름 비교가 어긋나, 파일은 저장됐는데 실패로 보고된다.
+    const name = manifest.name.trim();
     reservationId = await reserveUpload({
       userId: auth.session.userId,
       parentId,
-      name: manifest.name,
+      name,
       size: manifest.size,
       transport: "proxy",
     });
 
+    // 실패를 예외로 올린다. 여기서 그냥 return하면 catch를 타지 않아 예약이
+    // 1시간(PROXY_RESERVATION_TTL_MS) 동안 남고, 반복되면 데스크 전체의
+    // 업로드가 용량 부족으로 막힌다.
     let response: Response;
     try {
-      response = await fetch(fileUrl, DESK_FETCH_BASE);
+      response = await fetch(fileUrl, {
+        ...DESK_FETCH_BASE,
+        // 느리게 흘리는 상대가 저장소 잠금을 무기한 쥐지 못하게 상한을 둔다.
+        signal: AbortSignal.timeout(FILE_TIMEOUT_MS),
+      });
     } catch {
-      return upstreamFailed();
+      throw new UpstreamFailure();
     }
-    if (!response.ok || !response.body) return upstreamFailed();
+    if (!response.ok || !response.body) {
+      // 소켓을 붙잡지 않도록 본문을 버린다.
+      await response.body?.cancel().catch(() => undefined);
+      throw new UpstreamFailure();
+    }
 
     // 받은 스트림을 그대로 저장소로 흘린다. 파일 전체를 메모리에 담지 않으며,
     // 선언한 크기와 실제 바이트가 다르면 exactSizeUploadStream이 끊는다.
     const entry = await getAdapter().upload(
       parentId,
-      manifest.name,
+      name,
       manifest.mimeType || "application/octet-stream",
       exactSizeUploadStream(response.body, manifest.size),
     );
@@ -108,6 +137,7 @@ export async function POST(req: NextRequest) {
       auth.session.userId,
       entry,
     );
+    reservationId = null;
     if (!completed) {
       throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
     }
@@ -118,6 +148,7 @@ export async function POST(req: NextRequest) {
       reservationId,
       auth.session.userId,
     ).catch(() => undefined);
+    if (e instanceof UpstreamFailure) return upstreamFailed();
     return errorResponse(e);
   }
 }

@@ -28,6 +28,8 @@ export function formatSize(size: number | null): string {
 export function sortEntries(entries: MobileEntry[]): MobileEntry[] {
   return [...entries].sort((left, right) => {
     if (left.isFolder !== right.isFolder) return left.isFolder ? -1 : 1;
-    return left.name.localeCompare(right.name);
+    // 데스크탑(FilesView의 sortedEntries)과 같은 기준이어야 PC와 폰의
+    // 순서가 갈리지 않는다.
+    return left.name.localeCompare(right.name, "ko");
   });
 }

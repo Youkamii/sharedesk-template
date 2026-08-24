@@ -35,7 +35,7 @@ function isIpLiteralHost(hostname: string): boolean {
 // 공개 인터넷에서 접근할 수 있는 이름인지 본다. IP 리터럴, 점 없는 단일 라벨,
 // 로컬 전용 접미사를 모두 거른다.
 function isPubliclyRoutableHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const host = hostname.toLowerCase().replace(/\.+$/, "");
   if (!host || isIpLiteralHost(host)) return false;
   if (!host.includes(".")) return false;
   return !LOCAL_SUFFIXES.some((suffix) => host.endsWith(suffix));

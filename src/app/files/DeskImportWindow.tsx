@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
 import {
@@ -9,6 +9,10 @@ import {
   type ImportPlan,
   type ImportTask,
 } from "@/lib/client/desk-import";
+import {
+  isFolderExistsConflict,
+  matchExistingFolder,
+} from "@/lib/client/folder-upload";
 import styles from "./desktop.module.css";
 
 type Props = {
@@ -56,7 +60,22 @@ export default function DeskImportWindow({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(0);
   const [failed, setFailed] = useState<ImportTask[]>([]);
+  const [checking, setChecking] = useState(false);
   const stopRef = useRef(false);
+  // 확인이 도는 동안 주소가 바뀌었는지 보려고 최신 값을 따로 들고 있는다.
+  const linkRef = useRef("");
+  useEffect(() => {
+    linkRef.current = link;
+  }, [link]);
+
+  // 창을 닫거나 최소화하면 이 컴포넌트가 사라지는데 복사 루프는 클로저를 붙잡고
+  // 계속 돈다. 그러면 진행률도 멈춤 버튼도 없이 파일이 계속 들어온다.
+  // 사라질 때 루프도 함께 멈춘다.
+  useEffect(() => {
+    return () => {
+      stopRef.current = true;
+    };
+  }, []);
 
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
@@ -86,10 +105,17 @@ export default function DeskImportWindow({
   );
 
   async function checkLink() {
+    // 연타하면 순회가 겹치고, 도는 동안 주소를 바꾸면 계획과 입력이 어긋난 채
+    // 복사가 시작된다.
+    if (checking) return;
+    const target = link;
+    setChecking(true);
     setError(null);
     setPlan(null);
     try {
       const next = await planDeskImport({ readManifest });
+      // 확인하는 사이 주소가 바뀌었으면 이 결과는 버린다.
+      if (linkRef.current !== target) return;
       if (!next) {
         setError(t("링크를 확인하지 못했습니다. 주소와 만료 여부를 살펴 주세요."));
         return;
@@ -97,7 +123,10 @@ export default function DeskImportWindow({
       setPlan(next);
       setPhase("planned");
     } catch {
+      if (linkRef.current !== target) return;
       setError(t("링크를 확인하지 못했습니다. 주소와 만료 여부를 살펴 주세요."));
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -117,9 +146,27 @@ export default function DeskImportWindow({
               name,
               parentId: folderParentId,
             });
-            if (!response.ok) throw new Error("mkdir");
-            const body = (await response.json()) as { entry: { id: string } };
-            return body.entry.id;
+            if (response.ok) {
+              const body = (await response.json()) as { entry: { id: string } };
+              return body.entry.id;
+            }
+            // 같은 이름 폴더가 이미 있으면 그 안으로 합친다. 그러지 않으면 같은
+            // 링크를 두 번 받거나 이름이 겹치기만 해도 한 개도 못 옮긴다.
+            const body = await response.json().catch(() => null);
+            if (isFolderExistsConflict({ status: response.status, body })) {
+              const listed = await fetch(
+                `/api/drive/list?folderId=${encodeURIComponent(folderParentId)}`,
+                { cache: "no-store" },
+              );
+              if (listed.ok) {
+                const data = (await listed.json()) as {
+                  entries?: { id: string; name: string; isFolder: boolean }[];
+                };
+                const existing = matchExistingFolder(data.entries ?? [], name);
+                if (existing) return existing;
+              }
+            }
+            throw new Error("mkdir");
           },
           importFile: async (task, folderParentId) => {
             const response = await postJson(
@@ -265,8 +312,12 @@ export default function DeskImportWindow({
               {t("이 데스크로 받기")}
             </button>
           ) : (
-            <button type="button" onClick={checkLink} disabled={!link.trim()}>
-              {t("링크 확인")}
+            <button
+              type="button"
+              onClick={checkLink}
+              disabled={!link.trim() || checking}
+            >
+              {checking ? t("확인하는 중…") : t("링크 확인")}
             </button>
           )}
         </div>

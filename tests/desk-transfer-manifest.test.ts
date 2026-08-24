@@ -183,3 +183,54 @@ test("링크 밖 항목과 만료·없는 링크는 목록을 주지 않는다",
     assert.equal(missing.status, 404);
   });
 });
+
+// 파일 링크가 저장소 내부 id를 새로 흘리면, local 저장소에서는 base64url을
+// 풀어 폴더 경로까지 드러난다. 받는 쪽은 이 값을 쓰지 않는다.
+test("목록 응답은 가리키는 항목 자신의 id를 싣지 않는다", async () => {
+  await withLocalDesk(async ({ adapter, types, shareLinks, route }) => {
+    const file = await adapter.upload(
+      types.ROOT_ID,
+      "note.txt",
+      "text/plain",
+      new Blob(["hello"]).stream(),
+    );
+    const link = await shareLinks.createShareLink(
+      file.id,
+      "note.txt",
+      "Tester",
+      1,
+      { createdByUserId: "user-1" },
+    );
+    const response = await route.GET(manifestRequest(link.linkId), {
+      params: Promise.resolve({ linkId: link.linkId }),
+    });
+    const body = (await response.json()) as Record<string, unknown>;
+    assert.equal(body.kind, "file");
+    assert.equal(body.name, "note.txt");
+    assert.ok(!("id" in body), "파일 링크 목록에 id가 있으면 안 된다");
+
+    // 폴더 링크의 하위 항목 id는 entryId로 지목하는 데 필요해 그대로 둔다.
+    const folder = await adapter.createFolder(types.ROOT_ID, "묶음");
+    await adapter.upload(
+      folder.id,
+      "a.txt",
+      "text/plain",
+      new Blob(["a"]).stream(),
+    );
+    const folderLink = await shareLinks.createShareLink(
+      folder.id,
+      "묶음",
+      "Tester",
+      1,
+      { kind: "folder", createdByUserId: "user-1" },
+    );
+    const folderResponse = await route.GET(manifestRequest(folderLink.linkId), {
+      params: Promise.resolve({ linkId: folderLink.linkId }),
+    });
+    const folderBody = (await folderResponse.json()) as {
+      entries: { id?: string; name: string }[];
+    };
+    assert.ok(!("id" in folderBody), "폴더 링크 자신의 id도 싣지 않는다");
+    assert.ok(folderBody.entries[0]?.id, "하위 항목 id는 있어야 한다");
+  });
+});
