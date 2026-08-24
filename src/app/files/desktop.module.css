@@ -58,16 +58,22 @@
   inset: 0;
   background-image: url("/art/wall-tide.png");
   background-position: center center;
+  background-repeat: no-repeat;
   background-size: cover;
   clip-path: polygon(0 51%, 61% 51%, 61% 66%, 58% 74%, 53% 82%, 46% 89%, 0 89%);
-  filter: brightness(1.32) saturate(0.82);
   image-rendering: pixelated;
-  mask-image: radial-gradient(ellipse 24% 40% at 22% 69%, #000 0 52%, transparent 78%);
-  mix-blend-mode: screen;
-  opacity: 0.12;
+  mask-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 1px,
+    #000 1px 3px,
+    transparent 3px 7px
+  );
+  mask-position: 0 0;
+  opacity: 0.52;
   pointer-events: none;
-  will-change: background-position, opacity;
-  animation: tideShimmer 7.2s steps(6, end) infinite;
+  transform-origin: 24% 70%;
+  will-change: background-position, mask-position, transform;
+  animation: tideWaves 8.4s steps(14, end) infinite;
 }
 
 .wallpaper::after {
@@ -78,28 +84,37 @@
   pointer-events: none;
 }
 
-@keyframes tideShimmer {
+@keyframes tideWaves {
   0%,
   100% {
     background-position: center center;
-    opacity: 0.08;
+    mask-position: 0 0;
+    transform: translateY(0) scaleX(1);
   }
 
-  34% {
-    background-position: calc(50% + 1px) calc(50% - 1px);
-    opacity: 0.2;
+  24% {
+    background-position: calc(50% + 4px) calc(50% + 1px);
+    mask-position: 0 2px;
+    transform: translateY(-1px) scaleX(1.003);
   }
 
-  67% {
-    background-position: calc(50% - 2px) calc(50% + 1px);
-    opacity: 0.13;
+  52% {
+    background-position: calc(50% - 2px) calc(50% + 2px);
+    mask-position: 0 4px;
+    transform: translateY(1px) scaleX(0.998);
+  }
+
+  76% {
+    background-position: calc(50% - 5px) calc(50% + 1px);
+    mask-position: 0 6px;
+    transform: translateY(0) scaleX(1.004);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .wallpaper[style*="wall-tide.png"]::before {
     animation: none;
-    opacity: 0.12;
+    opacity: 0;
   }
 }
 

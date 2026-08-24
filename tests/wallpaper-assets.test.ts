@@ -42,7 +42,7 @@ for (const name of ["wall-night.png", "wall-dawn.png", "wall-tide.png"]) {
   });
 }
 
-test("night tide animates only its moonlit water reflection", async () => {
+test("night tide animates horizontal water bands without moving the sky", async () => {
   const css = await readFile(
     new URL("src/app/files/desktop.module.css", root),
     "utf8",
@@ -50,7 +50,8 @@ test("night tide animates only its moonlit water reflection", async () => {
 
   assert.match(css, /\.wallpaper\[style\*="wall-tide\.png"\]::before/);
   assert.match(css, /background-image: url\("\/art\/wall-tide\.png"\)/);
-  assert.match(css, /@keyframes tideShimmer/);
-  assert.match(css, /animation: tideShimmer [^;]+ steps\(6, end\) infinite/);
+  assert.match(css, /mask-image: repeating-linear-gradient/);
+  assert.match(css, /@keyframes tideWaves/);
+  assert.match(css, /animation: tideWaves [^;]+ steps\(14, end\) infinite/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
