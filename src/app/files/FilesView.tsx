@@ -7159,10 +7159,72 @@ export default function FilesView({
         aria-hidden="true"
       >
         {wallpaperId === "tide" && (
-          <>
-            <span className={styles.tideStars} data-testid="tide-stars" />
-            <span className={styles.tideWaves} data-testid="tide-waves" />
-          </>
+          <svg
+            className={styles.tideObjects}
+            viewBox="0 0 1536 1024"
+            preserveAspectRatio="xMidYMid slice"
+            data-testid="tide-objects"
+          >
+            <defs>
+              <clipPath id="tide-sky-clip" clipPathUnits="userSpaceOnUse">
+                <rect width="1000" height="510" />
+              </clipPath>
+              <clipPath id="tide-ocean-clip" clipPathUnits="userSpaceOnUse">
+                <path d="M0 550H810V700L785 780L745 860L680 925H320L260 880L210 820L140 760L0 730Z" />
+              </clipPath>
+              <clipPath id="tide-wave-far-clip" clipPathUnits="userSpaceOnUse">
+                <rect y="550" width="820" height="110" />
+              </clipPath>
+              <clipPath id="tide-wave-mid-clip" clipPathUnits="userSpaceOnUse">
+                <rect y="640" width="800" height="145" />
+              </clipPath>
+              <clipPath id="tide-wave-near-clip" clipPathUnits="userSpaceOnUse">
+                <rect y="760" width="760" height="165" />
+              </clipPath>
+            </defs>
+
+            <image
+              className={styles.tideStars}
+              href="/art/wall-tide-stars.png"
+              width="1536"
+              height="1024"
+              clipPath="url(#tide-sky-clip)"
+              data-testid="tide-stars"
+            />
+
+            <g clipPath="url(#tide-ocean-clip)">
+              <g clipPath="url(#tide-wave-far-clip)">
+                <g className={styles.tideWaveFar} data-testid="tide-wave-far">
+                  <image
+                    className={styles.tideWaveTexture}
+                    href="/art/wall-tide-waves.png"
+                    width="1536"
+                    height="1024"
+                  />
+                </g>
+              </g>
+              <g clipPath="url(#tide-wave-mid-clip)">
+                <g className={styles.tideWaveMid} data-testid="tide-wave-mid">
+                  <image
+                    className={styles.tideWaveTexture}
+                    href="/art/wall-tide-waves.png"
+                    width="1536"
+                    height="1024"
+                  />
+                </g>
+              </g>
+              <g clipPath="url(#tide-wave-near-clip)">
+                <g className={styles.tideWaveNear} data-testid="tide-wave-near">
+                  <image
+                    className={styles.tideWaveTexture}
+                    href="/art/wall-tide-waves.png"
+                    width="1536"
+                    height="1024"
+                  />
+                </g>
+              </g>
+            </g>
+          </svg>
         )}
       </div>
 

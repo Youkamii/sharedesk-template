@@ -52,33 +52,45 @@
   image-rendering: pixelated;
 }
 
-.tideStars,
-.tideWaves {
+.tideObjects {
   position: absolute;
   inset: 0;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-size: cover;
-  image-rendering: pixelated;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   mix-blend-mode: screen;
   pointer-events: none;
 }
 
-.tideStars {
-  background-image: url("/art/wall-tide-stars.png");
-  clip-path: polygon(0 0, 76% 0, 76% 52%, 0 52%);
-  opacity: 0.48;
-  will-change: filter, opacity;
-  animation: tideStars 6.8s steps(8, end) infinite;
+.tideStars,
+.tideWaveTexture {
+  image-rendering: pixelated;
 }
 
-.tideWaves {
-  background-image: url("/art/wall-tide-waves.png");
-  clip-path: polygon(0 51%, 61% 51%, 61% 66%, 58% 74%, 53% 82%, 46% 89%, 0 89%);
-  opacity: 0.72;
-  transform-origin: 24% 70%;
-  will-change: background-position, transform;
-  animation: tideWaves 8.4s steps(14, end) infinite;
+.tideStars {
+  opacity: 0.36;
+  will-change: opacity;
+  animation: tideStars 8.6s steps(12, end) infinite;
+}
+
+.tideWaveFar,
+.tideWaveMid,
+.tideWaveNear {
+  transform-box: fill-box;
+  transform-origin: 24% 0;
+  will-change: opacity, transform;
+}
+
+.tideWaveFar {
+  animation: tideWaveFar 7.8s steps(16, end) infinite;
+}
+
+.tideWaveMid {
+  animation: tideWaveMid 6.6s steps(16, end) -2.2s infinite;
+}
+
+.tideWaveNear {
+  animation: tideWaveNear 5.6s steps(16, end) -3.7s infinite;
 }
 
 .wallpaper::after {
@@ -89,61 +101,116 @@
   pointer-events: none;
 }
 
-@keyframes tideWaves {
-  0%,
+@keyframes tideWaveFar {
+  0% {
+    opacity: 0;
+    transform: translateY(-2px) scaleY(0.99);
+  }
+
+  18% {
+    opacity: 0.22;
+  }
+
+  54% {
+    opacity: 0.56;
+    transform: translateY(2px) scaleY(1.01);
+  }
+
+  78% {
+    opacity: 0.3;
+  }
+
   100% {
-    background-position: center center;
-    transform: translateY(0) scaleX(1);
+    opacity: 0;
+    transform: translateY(7px) scaleY(1.025);
+  }
+}
+
+@keyframes tideWaveMid {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px) scaleY(0.985);
   }
 
-  24% {
-    background-position: calc(50% + 4px) calc(50% + 1px);
-    transform: translateY(-1px) scaleX(1.003);
+  20% {
+    opacity: 0.28;
   }
 
-  52% {
-    background-position: calc(50% - 2px) calc(50% + 2px);
-    transform: translateY(1px) scaleX(0.998);
+  56% {
+    opacity: 0.64;
+    transform: translateY(5px) scaleY(1.02);
   }
 
-  76% {
-    background-position: calc(50% - 5px) calc(50% + 1px);
-    transform: translateY(0) scaleX(1.004);
+  80% {
+    opacity: 0.34;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(13px) scaleY(1.055);
+  }
+}
+
+@keyframes tideWaveNear {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scaleY(0.98);
+  }
+
+  22% {
+    opacity: 0.3;
+  }
+
+  58% {
+    opacity: 0.66;
+    transform: translateY(8px) scaleY(1.035);
+  }
+
+  82% {
+    opacity: 0.36;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(22px) scaleY(1.09);
   }
 }
 
 @keyframes tideStars {
   0%,
   100% {
-    filter: brightness(0.78);
-    opacity: 0.36;
+    opacity: 0.3;
   }
 
-  27% {
-    filter: brightness(1.2);
-    opacity: 0.68;
+  31% {
+    opacity: 0.42;
   }
 
-  54% {
-    filter: brightness(0.92);
-    opacity: 0.46;
+  59% {
+    opacity: 0.34;
   }
 
-  79% {
-    filter: brightness(1.08);
-    opacity: 0.6;
+  83% {
+    opacity: 0.39;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .tideStars,
-  .tideWaves {
+  .tideWaveFar,
+  .tideWaveMid,
+  .tideWaveNear {
     animation: none;
   }
 
   .tideStars {
-    filter: none;
-    opacity: 0.48;
+    opacity: 0.36;
+  }
+
+  .tideWaveFar,
+  .tideWaveMid,
+  .tideWaveNear {
+    opacity: 0.5;
   }
 }
 

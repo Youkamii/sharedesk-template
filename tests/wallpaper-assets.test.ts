@@ -54,17 +54,33 @@ test("night tide keeps its base, stars, and waves in separate layers", async () 
     readFile(new URL("src/app/files/FilesView.tsx", root), "utf8"),
     readFile(new URL("src/app/files/desktop.module.css", root), "utf8"),
   ]);
+  const tideWaveKeyframes = css.slice(
+    css.indexOf("@keyframes tideWaveFar"),
+    css.indexOf("@keyframes tideStars"),
+  );
 
   assert.match(
     source,
     /\{ id: "tide", name: "밤바다", src: "\/art\/wall-tide-base\.png" \}/,
   );
+  assert.match(source, /viewBox="0 0 1536 1024"/);
+  assert.match(source, /preserveAspectRatio="xMidYMid slice"/);
+  assert.match(source, /id="tide-ocean-clip"/);
+  assert.match(
+    source,
+    /M0 550H810V700L785 780L745 860L680 925H320L260 880L210 820L140 760L0 730Z/,
+  );
   assert.match(source, /className=\{styles\.tideStars\}/);
-  assert.match(source, /className=\{styles\.tideWaves\}/);
-  assert.match(css, /background-image: url\("\/art\/wall-tide-stars\.png"\)/);
-  assert.match(css, /background-image: url\("\/art\/wall-tide-waves\.png"\)/);
+  assert.match(source, /className=\{styles\.tideWaveFar\}/);
+  assert.match(source, /className=\{styles\.tideWaveMid\}/);
+  assert.match(source, /className=\{styles\.tideWaveNear\}/);
+  assert.match(source, /href="\/art\/wall-tide-stars\.png"/);
+  assert.match(source, /href="\/art\/wall-tide-waves\.png"/);
   assert.match(css, /@keyframes tideStars/);
-  assert.match(css, /@keyframes tideWaves/);
-  assert.match(css, /animation: tideWaves [^;]+ steps\(14, end\) infinite/);
+  assert.match(css, /@keyframes tideWaveFar/);
+  assert.match(css, /@keyframes tideWaveMid/);
+  assert.match(css, /@keyframes tideWaveNear/);
+  assert.match(css, /transform: translateY\(22px\) scaleY\(1\.09\)/);
+  assert.doesNotMatch(tideWaveKeyframes, /scaleX|translateX|background-position/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
 });
