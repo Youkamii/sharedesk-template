@@ -1,0 +1,211 @@
+/* 좁은 화면 전용 목록 화면. 팔레트와 2px 빛/어둠 프레임 문법은 Dusk Room OS
+   (DESIGN.md, desktop.module.css)를 그대로 따르고, 터치 대상은 44px 이상으로
+   잡는다(DESIGN.md: 터치 화면은 comfortable). */
+
+.screen {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: #10172b;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+}
+
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 10px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  border-bottom: 2px solid #10172b;
+}
+
+.title {
+  overflow: hidden;
+  color: #ffd27d;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  text-shadow: 1px 1px 0 #10172b;
+  white-space: nowrap;
+}
+
+.backButton {
+  display: flex;
+  min-width: 44px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 13px;
+}
+
+.brandMark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+}
+
+.brandMark i {
+  background: #ffd27d;
+}
+
+.brandMark i:nth-child(2) {
+  background: #f2a56f;
+}
+
+.brandMark i:nth-child(3) {
+  background: #61b3a6;
+}
+
+.brandMark i:nth-child(4) {
+  background: #fff4d2;
+}
+
+.notice,
+.error {
+  flex: none;
+  margin: 0;
+  padding: 8px 12px;
+  color: #10172b;
+  background: #ffd27d;
+  border-bottom: 2px solid #10172b;
+  font-size: 13px;
+}
+
+.error {
+  color: #fff4d2;
+  background: #a3323c;
+}
+
+.list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: #f4e7c5;
+}
+
+.empty {
+  padding: 32px 16px;
+  color: #686474;
+  font-size: 13px;
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid #d8c7a5;
+  border-radius: 0;
+  background: transparent;
+  color: #1b1b2f;
+  font: inherit;
+  text-align: left;
+}
+
+.row:active {
+  background: #ffd27d;
+}
+
+.rowIcon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.rowText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowName {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  color: #686474;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.rowChevron {
+  flex: 0 0 auto;
+  color: #7d7180;
+  font-size: 11px;
+}
+
+.dock {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 8px 10px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  background: #10172b;
+  border-top: 2px solid #080d1c;
+}
+
+.dock button {
+  display: flex;
+  min-height: 44px;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #080d1c;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
+  font: inherit;
+  font-size: 13px;
+}
+
+.dock button:disabled {
+  color: #686474;
+  background: #9c8c78;
+}
+
+.dock button:active:not(:disabled) {
+  box-shadow: inset -2px -2px 0 #fff8e7, inset 2px 2px 0 #9c8c78;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.logoutButton {
+  min-width: 44px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 8px;
+  color: #fff4d2;
+  background: #182446;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 12px;
+}

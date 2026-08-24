@@ -2,6 +2,11 @@ export const BASE_DESKTOP_WIDTH = 1280;
 export const BASE_DESKTOP_HEIGHT = 720;
 export const MAX_UI_SCALE = 1.5;
 
+// 이 너비 미만에서는 자유 배치 데스크탑 대신 세로 목록을 쓴다. 데스크탑은
+// 논리 좌표를 화면에 맞춰 축소하는데, 세로 모바일에서는 배율이 0.3까지
+// 떨어져 글자를 읽을 수 없다. /admin의 브레이크포인트(720px)와 맞춘다.
+export const MOBILE_LAYOUT_MAX_WIDTH = 720;
+
 export type ViewportSize = { width: number; height: number };
 
 export type LogicalRect = {

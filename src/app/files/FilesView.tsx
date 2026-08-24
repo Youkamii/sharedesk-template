@@ -116,6 +116,7 @@ import ShareDialog from "./ShareDialog";
 import ShareLinkDialog from "./ShareLinkDialog";
 import QuickLinkWindow from "./QuickLinkWindow";
 import DeskImportWindow from "./DeskImportWindow";
+import MobileFilesView from "./MobileFilesView";
 import ShareLinksWindow from "./ShareLinksWindow";
 import ChatPanel from "./ChatPanel";
 import type { ShareLink } from "@/lib/share-links";
@@ -126,6 +127,7 @@ import {
   logicalClientCoordinate,
   logicalPointerDelta,
   logicalViewportFor,
+  MOBILE_LAYOUT_MAX_WIDTH,
   nextNotepadName,
   reconcileSavedDraft,
   renamedCrumbsFromEntries,
@@ -7117,6 +7119,19 @@ export default function FilesView({
       : 0,
     chatWindow && !chatWindow.minimized ? chatWindow.z : 0,
   );
+
+  // 좁은 화면에서는 자유 배치 캔버스 대신 세로 목록을 쓴다. 데스크탑은 1280x720
+  // 논리 좌표를 화면에 맞춰 축소하는데, 세로 모바일에서는 그 배율이 0.3까지
+  // 떨어져 글자를 읽을 수 없다. 훅 순서를 지키려고 모든 훅 뒤에서 갈라진다.
+  if (viewport.width > 0 && viewport.width < MOBILE_LAYOUT_MAX_WIDTH) {
+    return (
+      <MobileFilesView
+        locale={locale}
+        rootId={ROOT_ID}
+        allowUpload={allowUpload}
+      />
+    );
+  }
 
   return (
     <main

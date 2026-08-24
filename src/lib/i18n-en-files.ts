@@ -443,6 +443,17 @@ export const EN_FILES: Record<string, string> = {
   "간이 링크 만들기": "Create quick link",
   "생성된 링크": "Created links",
 
+  // 좁은 화면 목록
+  "올리기": "Upload",
+  "목록을 불러오지 못했습니다": "Couldn't load the list",
+  "불러오는 중입니다…": "Loading…",
+  "이 폴더는 비어 있습니다.": "This folder is empty.",
+  "새 폴더 이름": "New folder name",
+  "폴더를 만들었습니다.": "Folder created.",
+  "폴더를 만들지 못했습니다": "Couldn't create the folder",
+  "올렸습니다.": "Uploaded.",
+  "{count}개를 올리지 못했습니다.": "{count} items couldn't be uploaded.",
+
   // 데스크 간 받기
   "다른 데스크에서 받기": "Receive from another desk",
   "다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다. 보내는 쪽 파일은 그대로 남습니다.":
