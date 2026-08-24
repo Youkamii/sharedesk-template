@@ -30,7 +30,14 @@ test("dawn wallpaper keeps its id while using the accurate dawn-light label", as
   assert.doesNotMatch(koReadme, /새벽 바탕화면/);
 });
 
-for (const name of ["wall-night.png", "wall-dawn.png", "wall-tide.png"]) {
+for (const name of [
+  "wall-night.png",
+  "wall-dawn.png",
+  "wall-tide.png",
+  "wall-tide-base.png",
+  "wall-tide-stars.png",
+  "wall-tide-waves.png",
+]) {
   test(`${name} is a full-size PNG wallpaper`, async () => {
     const image = await readFile(new URL(`public/art/${name}`, root));
 
@@ -42,15 +49,21 @@ for (const name of ["wall-night.png", "wall-dawn.png", "wall-tide.png"]) {
   });
 }
 
-test("night tide animates horizontal water bands without moving the sky", async () => {
-  const css = await readFile(
-    new URL("src/app/files/desktop.module.css", root),
-    "utf8",
-  );
+test("night tide keeps its base, stars, and waves in separate layers", async () => {
+  const [source, css] = await Promise.all([
+    readFile(new URL("src/app/files/FilesView.tsx", root), "utf8"),
+    readFile(new URL("src/app/files/desktop.module.css", root), "utf8"),
+  ]);
 
-  assert.match(css, /\.wallpaper\[style\*="wall-tide\.png"\]::before/);
-  assert.match(css, /background-image: url\("\/art\/wall-tide\.png"\)/);
-  assert.match(css, /mask-image: repeating-linear-gradient/);
+  assert.match(
+    source,
+    /\{ id: "tide", name: "밤바다", src: "\/art\/wall-tide-base\.png" \}/,
+  );
+  assert.match(source, /className=\{styles\.tideStars\}/);
+  assert.match(source, /className=\{styles\.tideWaves\}/);
+  assert.match(css, /background-image: url\("\/art\/wall-tide-stars\.png"\)/);
+  assert.match(css, /background-image: url\("\/art\/wall-tide-waves\.png"\)/);
+  assert.match(css, /@keyframes tideStars/);
   assert.match(css, /@keyframes tideWaves/);
   assert.match(css, /animation: tideWaves [^;]+ steps\(14, end\) infinite/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);

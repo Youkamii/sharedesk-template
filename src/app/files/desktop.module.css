@@ -52,27 +52,32 @@
   image-rendering: pixelated;
 }
 
-.wallpaper[style*="wall-tide.png"]::before {
-  content: "";
+.tideStars,
+.tideWaves {
   position: absolute;
   inset: 0;
-  background-image: url("/art/wall-tide.png");
   background-position: center center;
   background-repeat: no-repeat;
   background-size: cover;
-  clip-path: polygon(0 51%, 61% 51%, 61% 66%, 58% 74%, 53% 82%, 46% 89%, 0 89%);
   image-rendering: pixelated;
-  mask-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0 1px,
-    #000 1px 3px,
-    transparent 3px 7px
-  );
-  mask-position: 0 0;
-  opacity: 0.52;
+  mix-blend-mode: screen;
   pointer-events: none;
+}
+
+.tideStars {
+  background-image: url("/art/wall-tide-stars.png");
+  clip-path: polygon(0 0, 76% 0, 76% 52%, 0 52%);
+  opacity: 0.48;
+  will-change: filter, opacity;
+  animation: tideStars 6.8s steps(8, end) infinite;
+}
+
+.tideWaves {
+  background-image: url("/art/wall-tide-waves.png");
+  clip-path: polygon(0 51%, 61% 51%, 61% 66%, 58% 74%, 53% 82%, 46% 89%, 0 89%);
+  opacity: 0.72;
   transform-origin: 24% 70%;
-  will-change: background-position, mask-position, transform;
+  will-change: background-position, transform;
   animation: tideWaves 8.4s steps(14, end) infinite;
 }
 
@@ -88,33 +93,57 @@
   0%,
   100% {
     background-position: center center;
-    mask-position: 0 0;
     transform: translateY(0) scaleX(1);
   }
 
   24% {
     background-position: calc(50% + 4px) calc(50% + 1px);
-    mask-position: 0 2px;
     transform: translateY(-1px) scaleX(1.003);
   }
 
   52% {
     background-position: calc(50% - 2px) calc(50% + 2px);
-    mask-position: 0 4px;
     transform: translateY(1px) scaleX(0.998);
   }
 
   76% {
     background-position: calc(50% - 5px) calc(50% + 1px);
-    mask-position: 0 6px;
     transform: translateY(0) scaleX(1.004);
   }
 }
 
+@keyframes tideStars {
+  0%,
+  100% {
+    filter: brightness(0.78);
+    opacity: 0.36;
+  }
+
+  27% {
+    filter: brightness(1.2);
+    opacity: 0.68;
+  }
+
+  54% {
+    filter: brightness(0.92);
+    opacity: 0.46;
+  }
+
+  79% {
+    filter: brightness(1.08);
+    opacity: 0.6;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wallpaper[style*="wall-tide.png"]::before {
+  .tideStars,
+  .tideWaves {
     animation: none;
-    opacity: 0;
+  }
+
+  .tideStars {
+    filter: none;
+    opacity: 0.48;
   }
 }
 

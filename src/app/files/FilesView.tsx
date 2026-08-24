@@ -369,7 +369,7 @@ const WALLPAPERS = [
   { id: "dusk", name: "해 질 녘", src: "/art/sharedesk-dusk.png" },
   { id: "night", name: "깊은 밤", src: "/art/wall-night.png" },
   { id: "dawn", name: "여명", src: "/art/wall-dawn.png" },
-  { id: "tide", name: "밤바다", src: "/art/wall-tide.png" },
+  { id: "tide", name: "밤바다", src: "/art/wall-tide-base.png" },
 ] as const;
 type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 const TOP_BAR = 34;
@@ -7157,7 +7157,14 @@ export default function FilesView({
           })`,
         }}
         aria-hidden="true"
-      />
+      >
+        {wallpaperId === "tide" && (
+          <>
+            <span className={styles.tideStars} data-testid="tide-stars" />
+            <span className={styles.tideWaves} data-testid="tide-waves" />
+          </>
+        )}
+      </div>
 
       <header className={styles.topBar}>
         <div className={styles.brand}>
