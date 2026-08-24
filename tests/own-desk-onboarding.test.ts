@@ -86,7 +86,6 @@ test("OAuth를 아직 설정하지 않은 새 배포는 실패하는 로그인 �
   for (const name of [
     "ADMIN_EMAILS",
     "SESSION_SECRET",
-    "CRON_SECRET",
     "GOOGLE_CLIENT_ID",
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REFRESH_TOKEN",
@@ -95,6 +94,17 @@ test("OAuth를 아직 설정하지 않은 새 배포는 실패하는 로그인 �
   ]) {
     assert.ok(source.includes(`"${name}"`), `필수 설정 누락: ${name}`);
   }
+  // 로그인과 무관한 설정을 게이트에 넣으면 기존 설치본이 업데이트만으로
+  // 로그인 화면을 잃는다. CRON_SECRET은 만료 링크 정리 cron 인증 전용이며
+  // 없어도 관리자 수동 실행으로 fail-closed 동작하므로 여기 넣지 않는다.
+  const loginEnvBlock = source.slice(
+    source.indexOf("const GOOGLE_LOGIN_ENV = ["),
+    source.indexOf("] as const;"),
+  );
+  assert.ok(
+    !loginEnvBlock.includes("CRON_SECRET"),
+    "CRON_SECRET은 로그인 게이트의 필수 조건이 아니다",
+  );
   assert.match(source, /googleLoginEnabled \? \([\s\S]*?href="\/api\/auth\/google"/);
   assert.match(source, /이 ShareDesk는 아직 설치가 끝나지 않았습니다/);
   assert.match(source, /설치 안내 열기/);
