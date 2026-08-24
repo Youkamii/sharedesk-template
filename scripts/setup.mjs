@@ -66,6 +66,17 @@ export const SETUP_COMPLETION_NEXT_STEPS = [
 // 없어 대신 눌러 줄 수 없으므로, 동의하면 저장소 페이지를 열어 준다.
 export const STAR_REPOSITORY_URL = "https://github.com/Youkamii/sharedesk-template";
 
+// 설정을 마친 사람이 다음에 무엇을 열어야 하는지 주소로 알려 준다. 파일 경로만
+// 알려 주면 어디를 클릭할지 알 수 없다. 문서 URL 규약은 앱의 src/lib/i18n.ts
+// docUrl과 같다 — 영어가 메인이고 나머지 언어는 접미사를 붙인다.
+export const LOCAL_CHECK_URL = "http://localhost:3000";
+const INSTALL_DOC_BASE =
+  "https://github.com/Youkamii/sharedesk-template/blob/main/docs";
+export function installDocUrl(locale) {
+  const resolved = SETUP_LOCALES.includes(locale) ? locale : "en";
+  return `${INSTALL_DOC_BASE}/INSTALL${resolved === "en" ? "" : `.${resolved}`}.md`;
+}
+
 // ---------------------------------------------------------------------------
 // setup 전용 다국어 사전 — 앱의 src/lib/i18n.ts(TS)는 여기서 import할 수 없으므로
 // 같은 규칙(한국어 원문이 키, 번역이 없으면 영어 → 한국어 순 폴백)을 자체 구현한다.
@@ -149,6 +160,9 @@ const SETUP_MESSAGES = {
       "Could not open the browser. Please press Star at {url} .",
     "별은 {url} 에서 언제든 남길 수 있습니다.":
       "You can always leave a star at {url} .",
+    "지금 확인: {url} (npm run dev 실행 후)":
+      "Check it now: {url} (after running npm run dev)",
+    "다음 단계 문서: {url}": "Next step guide: {url}",
     "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
       "The callback URL is not accepted as an argument so it never lands in the shell history. Run npm run setup:finish only.",
     [CALLBACK_URL_SECURITY_WARNING]: [
@@ -213,6 +227,9 @@ const SETUP_MESSAGES = {
       "ブラウザを開けませんでした。{url} で Star を押してください。",
     "별은 {url} 에서 언제든 남길 수 있습니다.":
       "スターはいつでも {url} で残せます。",
+    "지금 확인: {url} (npm run dev 실행 후)":
+      "今すぐ確認: {url}（npm run dev を実行してから）",
+    "다음 단계 문서: {url}": "次のステップの案内: {url}",
     "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
       "callback URL はコマンド履歴に残らないよう引数では受け取りません。npm run setup:finish だけを実行してください。",
     [CALLBACK_URL_SECURITY_WARNING]: [
@@ -277,6 +294,9 @@ const SETUP_MESSAGES = {
       "ब्राउज़र नहीं खुल सका। {url} पर जाकर Star दबाएँ।",
     "별은 {url} 에서 언제든 남길 수 있습니다.":
       "आप कभी भी {url} पर स्टार दे सकते हैं।",
+    "지금 확인: {url} (npm run dev 실행 후)":
+      "अभी जाँचें: {url} (npm run dev चलाने के बाद)",
+    "다음 단계 문서: {url}": "अगले चरण की गाइड: {url}",
     "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
       "callback URL को आर्ग्युमेंट के रूप में स्वीकार नहीं किया जाता ताकि वह कमांड इतिहास में न रहे। केवल npm run setup:finish चलाएँ।",
     [CALLBACK_URL_SECURITY_WARNING]: [
@@ -340,6 +360,9 @@ const SETUP_MESSAGES = {
       "未能打开浏览器。请到 {url} 点击 Star。",
     "별은 {url} 에서 언제든 남길 수 있습니다.":
       "你随时可以在 {url} 留下星标。",
+    "지금 확인: {url} (npm run dev 실행 후)":
+      "立即查看：{url}（运行 npm run dev 后）",
+    "다음 단계 문서: {url}": "下一步指南：{url}",
     "callback URL은 명령 기록에 남지 않도록 인자로 받지 않습니다. npm run setup:finish만 실행하세요.":
       "为避免留在命令历史中，callback URL 不作为参数接收。请只运行 npm run setup:finish。",
     [CALLBACK_URL_SECURITY_WARNING]: [
@@ -1495,6 +1518,13 @@ async function main() {
   console.log(t(".env.local 갱신됨 (refresh token은 파일에만 저장, 화면에 출력하지 않음)"));
   console.log(t("루트 폴더 ID:"), rootId);
   console.log("\n" + t(SETUP_COMPLETION_NEXT_STEPS));
+  // 파일 경로만 알려 주면 어디를 열지 알 수 없다. 지금 바로 열 수 있는 주소를 준다.
+  console.log(
+    "\n" + t("지금 확인: {url} (npm run dev 실행 후)", { url: LOCAL_CHECK_URL }),
+  );
+  console.log(
+    t("다음 단계 문서: {url}", { url: installDocUrl(setupLocale) }),
+  );
 
   const starPrompt = createInterface({
     input: process.stdin,

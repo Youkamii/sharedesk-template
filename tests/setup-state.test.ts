@@ -15,15 +15,20 @@ import {
   CALLBACK_URL_SECURITY_WARNING,
   GOOGLE_AUTH_PLATFORM_GUIDANCE,
   HOST_OAUTH_SCOPES,
+  LOCAL_CHECK_URL,
   REFRESH_TOKEN_RECOVERY_GUIDANCE,
   SETUP_COMPLETION_NEXT_STEPS,
+  SETUP_LOCALES,
   browserOpenCommand,
   ensureCoreStateFiles,
+  installDocUrl,
   openBrowser,
   parseCallbackUrl,
   parseWhoamiUserSid,
   prepareEnvFile,
   protectPrivateDirectory,
+  setSetupLocale,
+  t,
   writePrivateFile,
 } from "../scripts/setup.mjs";
 
@@ -550,9 +555,9 @@ test("setup 시작과 finish에서 재사용하는 callback 경고는 공유 금
 });
 
 test("잘못된 callback URL 오류에는 사용자가 붙여넣은 값이 포함되지 않는다", () => {
-  const pastedSecret = "not-a-url?code=one-time-secret-value";
+  const pastedValue = "not-a-url?code=one-time-secret-value";
   assert.throws(
-    () => parseCallbackUrl(pastedSecret),
+    () => parseCallbackUrl(pastedValue),
     (error: unknown) => {
       assert.ok(error instanceof Error);
       assert.match(error.message, /callback URL 형식이 올바르지 않습니다/);
@@ -592,4 +597,49 @@ test("setup 완료 안내는 설치 문서의 다음 단계와 남은 현장 검
     SETUP_COMPLETION_NEXT_STEPS,
     /PUBLIC_BASE_URL=|VERCEL_PROJECT_PRODUCTION_URL|Fixed Window|\/api\/invitations\/code|IP당 60초/,
   );
+});
+
+// 구축을 마친 사람에게 파일 경로만 알려 주면 어디를 열지 알 수 없다.
+// 완료 안내는 지금 열 수 있는 주소를 반드시 함께 준다.
+test("setup 완료 안내는 로컬 확인 주소와 설치 문서 URL을 준다", () => {
+  assert.equal(LOCAL_CHECK_URL, "http://localhost:3000");
+  assert.equal(
+    installDocUrl("en"),
+    "https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.md",
+  );
+  for (const locale of SETUP_LOCALES.filter((value) => value !== "en")) {
+    assert.equal(
+      installDocUrl(locale),
+      `https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.${locale}.md`,
+    );
+  }
+  // 알 수 없는 값은 영어 문서로 떨어뜨린다 — 깨진 주소를 주지 않는다.
+  for (const bogus of ["xx", "", undefined, null]) {
+    assert.equal(
+      installDocUrl(bogus as never),
+      "https://github.com/Youkamii/sharedesk-template/blob/main/docs/INSTALL.md",
+    );
+  }
+  // 다섯 언어 모두 자리표시자가 실제 주소로 채워진다.
+  for (const locale of SETUP_LOCALES) {
+    setSetupLocale(locale);
+    const localLine = t("지금 확인: {url} (npm run dev 실행 후)", {
+      url: LOCAL_CHECK_URL,
+    });
+    const docLine = t("다음 단계 문서: {url}", { url: installDocUrl(locale) });
+    assert.ok(localLine.includes(LOCAL_CHECK_URL), `${locale}: 로컬 주소 누락`);
+    assert.ok(docLine.includes(installDocUrl(locale)), `${locale}: 문서 주소 누락`);
+    assert.doesNotMatch(localLine, /\{url\}/, `${locale}: 치환되지 않은 자리표시자`);
+    assert.doesNotMatch(docLine, /\{url\}/, `${locale}: 치환되지 않은 자리표시자`);
+  }
+  // 한국어 원문이 키이므로 나머지 네 언어는 번역이 실제로 채워져 있어야 한다.
+  for (const locale of ["en", "ja", "hi", "zh"]) {
+    setSetupLocale(locale);
+    assert.notEqual(
+      t("다음 단계 문서: {url}", { url: "U" }),
+      "다음 단계 문서: U",
+      `${locale}: 번역 누락`,
+    );
+  }
+  setSetupLocale("ko");
 });
