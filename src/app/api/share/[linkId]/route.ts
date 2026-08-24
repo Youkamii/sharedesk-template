@@ -75,6 +75,37 @@ function folderPage(
   });
 }
 
+// 받는 데스크가 복사에 필요한 최소 정보만 담는다. 폴더면 바로 아래 항목까지
+// 알려 주고, 하위 폴더는 받는 쪽이 entryId로 다시 물어본다 — 한 응답에 전체
+// 트리를 담으면 큰 폴더에서 응답이 무한정 커진다.
+function manifestResponse(
+  expiresAt: string,
+  entry: Entry,
+  children: Entry[] | null,
+): Response {
+  const describe = (value: Entry) => ({
+    id: value.id,
+    name: value.name,
+    isFolder: value.isFolder,
+    size: value.size,
+    mimeType: value.mimeType,
+  });
+  return NextResponse.json(
+    {
+      kind: entry.isFolder ? "folder" : "file",
+      expiresAt,
+      ...describe(entry),
+      ...(children ? { entries: children.map(describe) } : {}),
+    },
+    {
+      headers: {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    },
+  );
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ linkId: string }> },
@@ -88,6 +119,9 @@ export async function GET(
     rawRange && rawRange.length <= 100 && /^bytes=[\d,\s-]+$/.test(rawRange)
       ? rawRange
       : undefined;
+  // 다른 데스크가 복사해 갈 때는 사람이 보는 HTML 대신 기계가 읽을 목록이
+  // 필요하다. 노출 범위는 HTML 목록과 같다 — 링크를 아는 쪽만 볼 수 있다.
+  const wantsManifest = req.nextUrl.searchParams.get("format") === "json";
   try {
     const adapter = getAdapter();
     if (link.kind === "folder") {
@@ -95,14 +129,19 @@ export async function GET(
       if (!(await adapter.isWithin(targetId, link.fileId))) return missing();
       const entry = await adapter.getEntry(targetId);
       if (entry.isFolder) {
-        return folderPage(
-          link.linkId,
-          link.name,
-          entry,
-          await adapter.list(entry.id),
-        );
+        const children = await adapter.list(entry.id);
+        if (wantsManifest) {
+          return manifestResponse(link.expiresAt, entry, children);
+        }
+        return folderPage(link.linkId, link.name, entry, children);
       }
+      if (wantsManifest) return manifestResponse(link.expiresAt, entry, null);
       return downloadResponse(await adapter.download(entry.id, range));
+    }
+    if (wantsManifest) {
+      const entry = await adapter.getEntry(link.fileId);
+      // 파일 링크의 표시 이름은 링크에 적힌 값을 그대로 쓴다 (다운로드와 동일).
+      return manifestResponse(link.expiresAt, { ...entry, name: link.name }, null);
     }
     return downloadResponse(
       await adapter.download(link.fileId, range),
