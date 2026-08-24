@@ -115,6 +115,7 @@ import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import ShareLinkDialog from "./ShareLinkDialog";
 import QuickLinkWindow from "./QuickLinkWindow";
+import DeskImportWindow from "./DeskImportWindow";
 import ShareLinksWindow from "./ShareLinksWindow";
 import ChatPanel from "./ChatPanel";
 import type { ShareLink } from "@/lib/share-links";
@@ -812,6 +813,9 @@ export default function FilesView({
   const [shareLinksWindow, setShareLinksWindow] =
     useState<UtilityWindowState | null>(null);
   const [shareLinksRevision, setShareLinksRevision] = useState(0);
+  // 다른 데스크의 공유 링크를 받아 이 데스크로 복사하는 창.
+  const [deskImportWindow, setDeskImportWindow] =
+    useState<UtilityWindowState | null>(null);
   // 채팅은 작업표시줄의 독립 기능이다. 처음부터 최소화 상태로 살아 있어야
   // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
   const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
@@ -5844,6 +5848,23 @@ export default function FilesView({
     );
   }
 
+  function openDeskImportWindow() {
+    setExtraFeaturesOpen(false);
+    setDeskImportWindow((current) => ({
+      minimized: false,
+      maximized: current?.maximized ?? false,
+      z: ++zRef.current,
+    }));
+  }
+
+  function focusDeskImportWindow() {
+    setDeskImportWindow((current) =>
+      current
+        ? { ...current, minimized: false, z: ++zRef.current }
+        : current,
+    );
+  }
+
   function focusChatWindow() {
     setChatWindow((current) => ({
       ...current,
@@ -7090,6 +7111,9 @@ export default function FilesView({
     quickLinkWindow && !quickLinkWindow.minimized ? quickLinkWindow.z : 0,
     shareLinksWindow && !shareLinksWindow.minimized
       ? shareLinksWindow.z
+      : 0,
+    deskImportWindow && !deskImportWindow.minimized
+      ? deskImportWindow.z
       : 0,
     chatWindow && !chatWindow.minimized ? chatWindow.z : 0,
   );
@@ -8342,6 +8366,32 @@ export default function FilesView({
         />
       )}
 
+      {allowUpload && deskImportWindow && !deskImportWindow.minimized && (
+        <DeskImportWindow
+          locale={locale}
+          maximized={deskImportWindow.maximized}
+          zIndex={deskImportWindow.z}
+          active={deskImportWindow.z === topManagedWindowZ}
+          // 받은 파일은 바탕화면에 도착한다 — 데스크에는 열린 폴더 창이 여럿일
+          // 수 있어 "지금 폴더"가 하나로 정해지지 않는다.
+          parentId={ROOT_ID}
+          onClose={() => setDeskImportWindow(null)}
+          onMinimize={() =>
+            setDeskImportWindow((current) =>
+              current ? { ...current, minimized: true } : current,
+            )
+          }
+          onToggleMaximize={() =>
+            setDeskImportWindow((current) =>
+              current ? { ...current, maximized: !current.maximized } : current,
+            )
+          }
+          onNotice={setNotice}
+          onImported={() => router.refresh()}
+          onActivate={focusDeskImportWindow}
+        />
+      )}
+
       {allowUpload && (
         <input
           ref={fileInputRef}
@@ -8493,6 +8543,18 @@ export default function FilesView({
               <span className={styles.taskTitle}>{t("생성된 링크")}</span>
             </button>
           )}
+          {allowUpload && deskImportWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${!deskImportWindow.minimized && deskImportWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
+              onClick={focusDeskImportWindow}
+            >
+              <span aria-hidden="true">⇱</span>
+              <span className={styles.taskTitle}>
+                {t("다른 데스크에서 받기")}
+              </span>
+            </button>
+          )}
         </div>
         {!isGuest && (
           <button
@@ -8569,6 +8631,12 @@ export default function FilesView({
                 <button type="button" role="menuitem" onClick={openShareLinksWindow}>
                   <span aria-hidden="true">☍</span>
                   {t("생성된 링크")}
+                </button>
+              )}
+              {allowUpload && (
+                <button type="button" role="menuitem" onClick={openDeskImportWindow}>
+                  <span aria-hidden="true">⇱</span>
+                  {t("다른 데스크에서 받기")}
                 </button>
               )}
               <button

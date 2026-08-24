@@ -442,6 +442,28 @@ export const EN_FILES: Record<string, string> = {
   "간이 링크": "Quick link",
   "간이 링크 만들기": "Create quick link",
   "생성된 링크": "Created links",
+
+  // 데스크 간 받기
+  "다른 데스크에서 받기": "Receive from another desk",
+  "다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다. 보내는 쪽 파일은 그대로 남습니다.":
+    "Paste a share link created on another ShareDesk to copy it here. The files stay on the sending desk.",
+  "링크 확인": "Check link",
+  "이 데스크로 받기": "Receive to this desk",
+  "멈추기": "Stop",
+  "링크를 확인하지 못했습니다. 주소와 만료 여부를 살펴 주세요.":
+    "Could not read that link. Check the address and whether it has expired.",
+  "폴더 “{name}” · 파일 {count}개": "Folder “{name}” · {count} files",
+  "파일 “{name}”": "File “{name}”",
+  "항목이 너무 많거나 깊어 일부만 목록에 담았습니다. 나머지는 다시 받아 주세요.":
+    "There were too many or too deeply nested items, so only part of the list was collected. Please receive the rest separately.",
+  "받는 중 {done}/{total}": "Receiving {done}/{total}",
+  "받지 못한 항목 {count}개": "{count} items could not be received",
+  "{count}개를 받았습니다.": "Received {count} items.",
+  "받기를 멈췄습니다. {count}개까지 옮겼습니다.":
+    "Stopped receiving. {count} items were copied.",
+  "{count}개를 받고 {failed}개를 실패했습니다.":
+    "Received {count} items; {failed} failed.",
+  "받는 중 문제가 생겼습니다.": "Something went wrong while receiving.",
   "파일을 놓으면 바로 1시간 링크를 만듭니다":
     "Drop files to create 1-hour links right away",
   "체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.":

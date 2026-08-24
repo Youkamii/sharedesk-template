@@ -2668,6 +2668,73 @@
   text-align: center;
 }
 
+/* 데스크 간 받기 창 — 설명과 입력이 이어지는 폼이라 가운데 정렬을 쓰지 않는다. */
+.deskImportBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.deskImportBody > p {
+  margin: 0;
+  color: #3d3a4d;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.deskImportBody > p[role="alert"] {
+  color: #a3323c;
+}
+
+.deskImportField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deskImportField > span {
+  color: #10172b;
+  font-size: 12px;
+}
+
+.deskImportField input {
+  min-height: 32px;
+  padding: 4px 8px;
+  color: #10172b;
+  background: #fff4d2;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 12px;
+}
+
+.deskImportField input:disabled {
+  color: #686474;
+  background: #ece0c4;
+}
+
+.deskImportSummary {
+  padding: 8px;
+  background: #f4e7c5;
+  border: 2px solid #7d7180;
+}
+
+.deskImportSummary > p {
+  margin: 0;
+  text-align: left;
+}
+
+.deskImportSummary > p[role="alert"] {
+  margin-top: 4px;
+  color: #a3323c;
+}
+
+.deskImportActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .quickLinkRow {
   display: grid;
   gap: 8px;

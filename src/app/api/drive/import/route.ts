@@ -5,6 +5,7 @@ import {
   deskTransferEntryUrls,
   parseDeskTransferLink,
 } from "@/lib/desk-transfer";
+import { DESK_FETCH_BASE, readManifest } from "@/lib/desk-transfer-source";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID, StorageError } from "@/lib/storage/types";
 import {
@@ -16,17 +17,6 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// 목록 응답은 짧다. 오래 매달리거나 거대한 본문을 받아 줄 이유가 없다.
-const MANIFEST_TIMEOUT_MS = 15_000;
-const MANIFEST_MAX_BYTES = 256 * 1024;
-
-interface Manifest {
-  kind: "file" | "folder";
-  name: string;
-  size: number | null;
-  mimeType: string | null;
-}
-
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
@@ -36,57 +26,6 @@ function upstreamFailed() {
     { error: "보내는 데스크에서 파일을 가져오지 못했습니다" },
     { status: 502 },
   );
-}
-
-// 검증을 통과한 주소가 내부망으로 리다이렉트하면 검증이 무의미해진다.
-// 리다이렉트는 따라가지 않고 실패로 본다.
-const FETCH_BASE = {
-  redirect: "error" as const,
-  cache: "no-store" as const,
-};
-
-async function readManifest(url: string): Promise<Manifest | null> {
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      ...FETCH_BASE,
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS),
-    });
-  } catch {
-    return null;
-  }
-  if (!response.ok) return null;
-  const declared = Number(response.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MANIFEST_MAX_BYTES) return null;
-
-  let text: string;
-  try {
-    text = await response.text();
-  } catch {
-    return null;
-  }
-  if (text.length > MANIFEST_MAX_BYTES) return null;
-
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  const raw = value as Partial<Manifest>;
-  if (raw?.kind !== "file" && raw?.kind !== "folder") return null;
-  if (typeof raw.name !== "string" || !raw.name.trim()) return null;
-  const size =
-    typeof raw.size === "number" && Number.isSafeInteger(raw.size) && raw.size >= 0
-      ? raw.size
-      : null;
-  return {
-    kind: raw.kind,
-    name: raw.name,
-    size,
-    mimeType: typeof raw.mimeType === "string" ? raw.mimeType : null,
-  };
 }
 
 /**
@@ -150,7 +89,7 @@ export async function POST(req: NextRequest) {
 
     let response: Response;
     try {
-      response = await fetch(fileUrl, FETCH_BASE);
+      response = await fetch(fileUrl, DESK_FETCH_BASE);
     } catch {
       return upstreamFailed();
     }
