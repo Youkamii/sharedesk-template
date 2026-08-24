@@ -52,12 +52,55 @@
   image-rendering: pixelated;
 }
 
+.wallpaper[style*="wall-tide.png"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/art/wall-tide.png");
+  background-position: center center;
+  background-size: cover;
+  clip-path: polygon(0 51%, 61% 51%, 61% 66%, 58% 74%, 53% 82%, 46% 89%, 0 89%);
+  filter: brightness(1.32) saturate(0.82);
+  image-rendering: pixelated;
+  mask-image: radial-gradient(ellipse 24% 40% at 22% 69%, #000 0 52%, transparent 78%);
+  mix-blend-mode: screen;
+  opacity: 0.12;
+  pointer-events: none;
+  will-change: background-position, opacity;
+  animation: tideShimmer 7.2s steps(6, end) infinite;
+}
+
 .wallpaper::after {
   content: "";
   position: absolute;
   inset: 0;
   background: rgb(8 13 31 / 12%);
   pointer-events: none;
+}
+
+@keyframes tideShimmer {
+  0%,
+  100% {
+    background-position: center center;
+    opacity: 0.08;
+  }
+
+  34% {
+    background-position: calc(50% + 1px) calc(50% - 1px);
+    opacity: 0.2;
+  }
+
+  67% {
+    background-position: calc(50% - 2px) calc(50% + 1px);
+    opacity: 0.13;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wallpaper[style*="wall-tide.png"]::before {
+    animation: none;
+    opacity: 0.12;
+  }
 }
 
 .topBar {
