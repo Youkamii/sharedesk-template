@@ -21,7 +21,14 @@ export function formatSize(size: number | null): string {
     unit += 1;
   }
   // 한 자리 수는 소수점까지 보여 줘야 1.2 MB와 9.8 MB가 구분된다.
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${UNITS[unit]}`;
+  let shown = value < 10 ? value.toFixed(1) : String(Math.round(value));
+  // 반올림 결과가 1024가 되면 한 단계 올린다. 그러지 않으면 1MiB보다 1바이트
+  // 작은 값이 "1024 KB"로 나와 "1.0 MB"보다 큰 것처럼 보인다.
+  if (Number(shown) >= 1024 && unit < UNITS.length - 1) {
+    unit += 1;
+    shown = (value / 1024).toFixed(1);
+  }
+  return `${shown} ${UNITS[unit]}`;
 }
 
 /** 폴더를 위로 올리고 그 안에서 이름순으로 정렬한다. 원본은 건드리지 않는다. */

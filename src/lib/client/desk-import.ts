@@ -1,8 +1,13 @@
+import { folderPathKey } from "./folder-upload";
+
 // 데스크 간 복사의 순회 규칙. 서버는 파일 하나만 담당하므로 폴더를 훑어
 // 작업 목록을 만들고 하나씩 부르는 일은 받는 쪽 화면이 한다.
 //
-// 목록 길이가 곧 반복 상한이라 종료가 구조적으로 보장된다. 다만 같은 항목에서
-// 실패-재시도가 돌면 인덱스가 전진하지 않으므로 항목별 재시도 상한을 둔다.
+// 종료는 세 상한이 함께 보장한다. 파일 수(MAX_TASKS), 폴더를 펼친 횟수
+// (MAX_FOLDER_READS), 깊이(MAX_DEPTH)다. 파일 수만 세면 파일이 없고 폴더만
+// 갈라지는 트리에서 상한이 발동하지 않아 호출이 폭발한다.
+// 옮기는 단계에서는 같은 항목에서 실패-재시도가 돌지 않도록 항목별 재시도
+// 상한(MAX_ATTEMPTS)을 둔다.
 
 export interface RemoteEntry {
   id: string;
@@ -84,7 +89,7 @@ export async function planDeskImport(deps: PlanDeps): Promise<ImportPlan | null>
     let exhausted = false;
     for (const level of frontier) {
       for (const entry of level.entries) {
-        if (tasks.length >= MAX_TASKS || folderReads >= MAX_FOLDER_READS) {
+        if (tasks.length >= MAX_TASKS) {
           truncated = true;
           exhausted = true;
           break;
@@ -101,6 +106,17 @@ export async function planDeskImport(deps: PlanDeps): Promise<ImportPlan | null>
         const path = [...level.path, entry.name];
         // 파일이 없는 폴더도 구조를 지키려면 만들어야 한다.
         folders.push(path);
+        // 폴더를 펼치는 것만 비용이다. 상한에 걸려도 같은 목록의 파일은 계속
+        // 담는다 — 여기서 통째로 끊으면 목록 순서에 따라 결과가 달라진다.
+        if (folderReads >= MAX_FOLDER_READS) {
+          truncated = true;
+          continue;
+        }
+        // 마지막 깊이에서 읽어 봐야 결과는 버려진다. 예산만 축낸다.
+        if (depth + 1 >= MAX_DEPTH) {
+          truncated = true;
+          continue;
+        }
         folderReads += 1;
         const child = await deps.readManifest(entry.id);
         // 하위 폴더를 못 읽으면 그 가지만 건너뛴다. 전체를 실패로 만들지 않는다.
@@ -228,11 +244,12 @@ async function resolveFolder(
   folderIds: Map<string, string>,
   deps: RunDeps,
 ): Promise<string> {
-  let key = "";
+  const walked: string[] = [];
   let parentId = folderIds.get("");
   if (parentId === undefined) throw new Error("루트 폴더를 찾지 못했습니다");
   for (const name of path) {
-    key = key ? `${key}/${name}` : name;
+    walked.push(name);
+    const key = folderPathKey(walked);
     const known = folderIds.get(key);
     if (known !== undefined) {
       parentId = known;

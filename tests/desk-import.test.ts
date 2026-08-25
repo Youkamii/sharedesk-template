@@ -361,3 +361,25 @@ test("받기 창은 폴더가 이미 있으면 그 폴더에 합친다", async (
   // 확인이 도는 동안 주소가 바뀌면 그 결과는 버린다.
   assert.match(source, /linkRef\.current !== target/);
 });
+
+// 폴더 읽기 상한은 폴더를 펼치는 비용에만 걸려야 한다. 파일까지 버리면 같은
+// 트리라도 목록에서 파일이 폴더보다 뒤에 있으면 사라진다.
+test("폴더 읽기 상한에 걸려도 같은 목록의 파일은 담는다", async () => {
+  const many = [
+    ...Array.from({ length: MAX_FOLDER_READS + 20 }, (_, index) =>
+      folderEntry(`d${index}`, `폴더${index}`),
+    ),
+    fileEntry("f1", "뒤에있는파일.txt"),
+  ];
+  const plan = await planDeskImport({
+    readManifest: async (entryId) =>
+      entryId === null ? folder("많음", many) : folder("빈", []),
+  });
+  assert.ok(plan);
+  // 폴더 뒤에 있어도 파일은 계획에 들어간다.
+  assert.deepEqual(
+    plan.tasks.map((task) => task.name),
+    ["뒤에있는파일.txt"],
+  );
+  assert.equal(plan.truncated, true);
+});

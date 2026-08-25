@@ -26,7 +26,13 @@ export function isBlockedIpv4(address: string): boolean {
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0) return true;
+  // 192.0.0.0/24(IETF 프로토콜 할당)와 192.0.2.0/24(문서용)만 예약이다.
+  // 192.0.0.0/16 전체를 막으면 정상 공개 주소까지 걸린다.
+  if (a === 192 && b === 0 && (parts[2] === 0 || parts[2] === 2)) return true;
+  // 문서용 TEST-NET-2/3과 6to4 릴레이 애니캐스트.
+  if (a === 198 && b === 51 && parts[2] === 100) return true;
+  if (a === 203 && b === 0 && parts[2] === 113) return true;
+  if (a === 192 && b === 88 && parts[2] === 99) return true;
   // 통신사 대규모 NAT.
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
@@ -38,11 +44,37 @@ export function isBlockedIpv4(address: string): boolean {
 export function isBlockedIpv6(address: string): boolean {
   const host = address.toLowerCase().split("%")[0];
   if (host === "::1" || host === "::") return true;
-  // 링크로컬(fe80::/10)과 유니크 로컬(fc00::/7).
-  if (/^fe[89ab]/.test(host) || /^f[cd]/.test(host)) return true;
+  // 링크로컬(fe80::/10), 사이트로컬(fec0::/10, 폐기됐지만 아직 쓰인다),
+  // 유니크 로컬(fc00::/7).
+  if (/^fe[89abcdef]/.test(host) || /^f[cd]/.test(host)) return true;
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host);
   if (mapped) return isBlockedIpv4(mapped[1]);
+  // 6to4(2002::/16)와 NAT64(64:ff9b::/96)는 IPv4를 안에 품는다. 그 주소가
+  // 내부망이면 결국 내부로 나간다.
+  const embedded = embeddedIpv4(host);
+  if (embedded) return isBlockedIpv4(embedded);
   return false;
+}
+
+// 2002:AABB:CCDD::/ 형태와 64:ff9b::a.b.c.d / 64:ff9b::AABB:CCDD에서 IPv4를 꺼낸다.
+function embeddedIpv4(host: string): string | null {
+  const sixToFour = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4})/.exec(host);
+  if (sixToFour) {
+    const high = Number.parseInt(sixToFour[1].padStart(4, "0"), 16);
+    const low = Number.parseInt(sixToFour[2].padStart(4, "0"), 16);
+    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+  }
+  if (host.startsWith("64:ff9b:")) {
+    const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(host);
+    if (dotted) return dotted[1];
+    const hex = /([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+    if (hex) {
+      const high = Number.parseInt(hex[1].padStart(4, "0"), 16);
+      const low = Number.parseInt(hex[2].padStart(4, "0"), 16);
+      return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+    }
+  }
+  return null;
 }
 
 /**
@@ -138,11 +170,30 @@ async function readLimitedText(
   return new TextDecoder().decode(merged);
 }
 
+// 상대는 남의 서버다. 경로 구분자나 제어문자가 든 이름을 받아 두면 받는 쪽에서
+// 경로를 조립할 때 서로 다른 위치가 같은 키로 뭉쳐 엉뚱한 폴더에 저장된다.
+function hasControlChar(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+function isSafeRemoteName(name: string): boolean {
+  if (!name || name.length > 255) return false;
+  if (name.includes("/") || name.includes("\\")) return false;
+  if (hasControlChar(name)) return false;
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === "." || trimmed === "..") return false;
+  return true;
+}
+
 function describeEntry(value: unknown): ManifestEntry | null {
   const raw = value as Partial<ManifestEntry>;
   if (!raw || typeof raw !== "object") return null;
   if (typeof raw.id !== "string" || !raw.id) return null;
-  if (typeof raw.name !== "string" || !raw.name) return null;
+  if (typeof raw.name !== "string" || !isSafeRemoteName(raw.name)) return null;
   return {
     id: raw.id,
     name: raw.name,

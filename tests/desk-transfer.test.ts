@@ -123,7 +123,7 @@ test("폴더 항목 주소는 보내는 데스크가 알려 준 id 형태만 받
     "a?format=html",
     "a b",
     "a/b",
-    "a".repeat(257),
+    "a".repeat(1025),
   ]) {
     assert.equal(
       deskTransferEntryUrls(source, bogus),
@@ -190,4 +190,72 @@ test("사설·루프백·클라우드 메타데이터 대역을 거부한다", a
   for (const ip of ["2606:4700:4700::1111", "2001:4860:4860::8888"]) {
     assert.equal(isBlockedIpv6(ip), false, `막으면 안 됨: ${ip}`);
   }
+});
+
+// --- 2라운드 리뷰에서 잡힌 결함들의 재발 방지 ---
+
+// 공유 폴더 페이지는 하위 항목을 ?entryId=로 가리키는 링크로 보여 준다. 그
+// 주소를 붙여넣었을 때 쿼리를 버리면 고른 것과 다른 대상(루트 전체)이 복사된다.
+test("주소에 붙은 항목 지정을 버리지 않는다", () => {
+  const source = parseDeskTransferLink(`${VALID}?entryId=abc123`);
+  assert.ok(source);
+  assert.equal(source.entryId, "abc123");
+  assert.equal(source.fileUrl, `${VALID}?entryId=abc123`);
+  assert.equal(source.manifestUrl, `${VALID}?format=json&entryId=abc123`);
+
+  // 항목 지정이 없으면 링크 루트를 가리킨다.
+  const plain = parseDeskTransferLink(VALID);
+  assert.ok(plain);
+  assert.equal(plain.entryId, null);
+  assert.equal(plain.fileUrl, VALID);
+
+  // 형태가 어긋난 항목 지정은 조용히 무시하지 않고 통째로 거부한다.
+  assert.equal(parseDeskTransferLink(`${VALID}?entryId=a/b`), null);
+  assert.equal(parseDeskTransferLink(`${VALID}?entryId=`), null);
+});
+
+// 이미 쿼리가 붙은 주소에 항목 지정을 덧붙이면 ?가 두 번 들어간다.
+test("항목 주소는 이미 쿼리가 있어도 올바르게 조립된다", () => {
+  const source = parseDeskTransferLink(`${VALID}?entryId=first`);
+  assert.ok(source);
+  const urls = deskTransferEntryUrls(source, "second");
+  assert.ok(urls);
+  assert.equal(urls.fileUrl, `${VALID}?entryId=second`);
+  assert.equal(urls.manifestUrl, `${VALID}?format=json&entryId=second`);
+});
+
+// 로컬 저장소는 상대경로를 base64url로 감싼 id를 쓴다. 한글 폴더 몇 단계면
+// 256자를 넘어 정상 트리가 복사되지 않았다.
+test("긴 항목 id도 받아들인다", () => {
+  const source = parseDeskTransferLink(VALID);
+  assert.ok(source);
+  // 한글 15자 폴더 5단계를 base64url로 감싼 정도의 길이.
+  assert.ok(deskTransferEntryUrls(source, "a".repeat(400)));
+  assert.ok(deskTransferEntryUrls(source, "a".repeat(1024)));
+  assert.equal(deskTransferEntryUrls(source, "a".repeat(1025)), null);
+});
+
+test("IPv4에 숨긴 IPv6 주소와 예약 대역도 거부한다", async () => {
+  const { isBlockedIpv4, isBlockedIpv6 } = await import(
+    "../src/lib/desk-transfer-source"
+  );
+  // 6to4(2002::/16)와 NAT64(64:ff9b::/96)는 IPv4를 안에 품는다.
+  assert.equal(isBlockedIpv6("2002:0a00:0001::"), true, "6to4로 감싼 10.0.0.1");
+  assert.equal(isBlockedIpv6("2002:7f00:0001::"), true, "6to4로 감싼 127.0.0.1");
+  assert.equal(isBlockedIpv6("64:ff9b::10.0.0.1"), true, "NAT64 점표기");
+  assert.equal(isBlockedIpv6("64:ff9b::a00:1"), true, "NAT64 16진 표기");
+  // 폐기됐지만 아직 쓰이는 사이트로컬.
+  assert.equal(isBlockedIpv6("fec0::1"), true);
+  // 6to4로 감싼 공개 주소는 막지 않는다.
+  assert.equal(isBlockedIpv6("2002:0808:0808::"), false, "6to4로 감싼 8.8.8.8");
+
+  // 문서용·릴레이 대역
+  assert.equal(isBlockedIpv4("198.51.100.1"), true);
+  assert.equal(isBlockedIpv4("203.0.113.1"), true);
+  assert.equal(isBlockedIpv4("192.88.99.1"), true);
+  assert.equal(isBlockedIpv4("192.0.0.1"), true);
+  assert.equal(isBlockedIpv4("192.0.2.1"), true);
+  // 192.0.0.0/16 전체를 막으면 정상 공개 주소까지 걸린다.
+  assert.equal(isBlockedIpv4("192.0.66.1"), false);
+  assert.equal(isBlockedIpv4("198.51.99.1"), false);
 });

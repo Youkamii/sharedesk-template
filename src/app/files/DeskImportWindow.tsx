@@ -205,6 +205,8 @@ export default function DeskImportWindow({
   }
 
   const total = plan?.tasks.length ?? 0;
+  // 파일이 하나도 없고 폴더 구조만 있는 링크도 받을 수 있어야 한다.
+  const movable = total + (plan?.folders.length ?? 0);
 
   return (
     <section
@@ -308,7 +310,7 @@ export default function DeskImportWindow({
               {t("멈추기")}
             </button>
           ) : plan ? (
-            <button type="button" onClick={startImport} disabled={total === 0}>
+            <button type="button" onClick={startImport} disabled={movable === 0}>
               {t("이 데스크로 받기")}
             </button>
           ) : (

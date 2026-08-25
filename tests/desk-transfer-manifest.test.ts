@@ -234,3 +234,39 @@ test("목록 응답은 가리키는 항목 자신의 id를 싣지 않는다", as
     assert.ok(folderBody.entries[0]?.id, "하위 항목 id는 있어야 한다");
   });
 });
+
+// 원격 이름을 그대로 믿으면, 경로 구분자가 든 이름이 받는 쪽에서 경로 키를
+// 뭉개 엉뚱한 폴더에 저장된다.
+test("경로 구분자나 제어문자가 든 원격 이름은 목록에서 걸러진다", async () => {
+  const { readManifest } = await import("../src/lib/desk-transfer-source");
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        kind: "folder",
+        name: "묶음",
+        size: null,
+        entries: [
+          { id: "ok", name: "정상 파일-이름.txt", isFolder: false, size: 1 },
+          { id: "slash", name: "a/b", isFolder: true, size: null },
+          { id: "back", name: "a\b", isFolder: true, size: null },
+          { id: "tab", name: "a\u0009b", isFolder: false, size: 1 },
+          { id: "nul", name: "a\u0000b", isFolder: false, size: 1 },
+          { id: "dots", name: "..", isFolder: true, size: null },
+          { id: "blank", name: "   ", isFolder: false, size: 1 },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )) as typeof globalThis.fetch;
+  try {
+    const manifest = await readManifest("https://desk.example.com/api/share/x");
+    assert.ok(manifest);
+    // 공백과 하이픈이 든 평범한 이름은 그대로 살아야 한다.
+    assert.deepEqual(
+      manifest.entries?.map((entry) => entry.name),
+      ["정상 파일-이름.txt"],
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});

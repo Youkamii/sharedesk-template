@@ -8,6 +8,10 @@
 // 붙여넣기 실수로 들어오는 긴 쓰레기 값을 파싱 전에 자른다.
 const MAX_INPUT_LENGTH = 2048;
 const SHARE_PATH = /^\/api\/share\/([0-9a-f]{48})$/;
+// 항목 id는 보내는 데스크가 목록으로 알려 준 값이다. 로컬 저장소는 상대경로를
+// base64url로 감싼 id를 쓰는데(3바이트가 4자), 한글 폴더 몇 단계면 256자를
+// 쉽게 넘어 정상 트리가 복사되지 않았다.
+const ENTRY_ID = /^[A-Za-z0-9_-]{1,1024}$/;
 
 // 호스트가 IP 리터럴이면 도메인 검사를 건너뛴 사설·루프백 지정이 가능해진다.
 // 데스크는 사람이 쓰는 도메인으로 배포되므로 IP 형태는 받지 않는다.
@@ -20,6 +24,9 @@ const LOCAL_SUFFIXES = [".localhost", ".local", ".internal", ".home.arpa"];
 export interface DeskTransferSource {
   origin: string;
   linkId: string;
+  // 주소에 이미 들어 있던 항목 지정. 공유 폴더 페이지가 보여 주는 링크를 그대로
+  // 붙여넣어도 그 항목만 받도록 살려 둔다.
+  entryId: string | null;
   // 파일 바이트를 받는 주소. 폴더 링크는 entryId로 내부 항목을 지정한다.
   fileUrl: string;
   // 링크 메타와 폴더 목록을 받는 주소.
@@ -69,11 +76,23 @@ export function parseDeskTransferLink(input: unknown): DeskTransferSource | null
   if (!matched) return null;
   const linkId = matched[1];
 
+  // 주소에 붙은 항목 지정을 읽는다. 형태가 어긋나면 통째로 거부한다 — 조용히
+  // 무시하면 사용자가 고른 것과 다른 대상을 복사하게 된다.
+  const rawEntryId = url.searchParams.get("entryId");
+  if (rawEntryId !== null && !ENTRY_ID.test(rawEntryId)) return null;
+
+  const base = `${url.origin}/api/share/${linkId}`;
+  const suffix = rawEntryId
+    ? `&entryId=${encodeURIComponent(rawEntryId)}`
+    : "";
   return {
     origin: url.origin,
     linkId,
-    fileUrl: `${url.origin}/api/share/${linkId}`,
-    manifestUrl: `${url.origin}/api/share/${linkId}?format=json`,
+    entryId: rawEntryId,
+    fileUrl: rawEntryId
+      ? `${base}?entryId=${encodeURIComponent(rawEntryId)}`
+      : base,
+    manifestUrl: `${base}?format=json${suffix}`,
   };
 }
 
@@ -85,10 +104,12 @@ export function deskTransferEntryUrls(
   source: DeskTransferSource,
   entryId: string,
 ): { fileUrl: string; manifestUrl: string } | null {
-  if (!/^[A-Za-z0-9_-]{1,256}$/.test(entryId)) return null;
+  if (!ENTRY_ID.test(entryId)) return null;
+  // source.fileUrl에는 이미 쿼리가 붙어 있을 수 있으므로 주소를 다시 조립한다.
+  const base = `${source.origin}/api/share/${source.linkId}`;
   const query = `entryId=${encodeURIComponent(entryId)}`;
   return {
-    fileUrl: `${source.fileUrl}?${query}`,
-    manifestUrl: `${source.fileUrl}?format=json&${query}`,
+    fileUrl: `${base}?${query}`,
+    manifestUrl: `${base}?format=json&${query}`,
   };
 }
