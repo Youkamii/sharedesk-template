@@ -3,8 +3,6 @@ import {
   type SessionInfo,
 } from "@/lib/auth";
 import {
-  currentSpaceFolderId,
-  currentSpaceSlug,
   runWithSpace,
   type SpaceContext,
 } from "@/lib/space-store";
@@ -16,8 +14,11 @@ import { findUserById } from "@/lib/users";
 // (runWithSession 계열)다 — 러너가 스페이스를 해석해 이 판정을 부른 뒤, 요청
 // 핸들러 본문 전체를 runWithSpace로 감싼다. 여기는 next/headers를 모르는
 // 순수 판정 계층이라 테스트가 실제 함수를 그대로 돌릴 수 있다.
+//
+// 어댑터가 읽는 currentSpaceFolderId/currentSpaceSlug는 space-store에서 직접
+// import한다 — 여기서 재수출하지 않는다(재설계 후 재수출 소비자가 사라졌다).
 
-export { currentSpaceFolderId, currentSpaceSlug, runWithSpace };
+export { runWithSpace };
 
 /** 등록부의 스페이스를 저장고 문맥으로 바꾼다. null이면 기본 데스크. */
 export function toSpaceContext(

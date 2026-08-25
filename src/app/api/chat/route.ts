@@ -6,6 +6,7 @@ import {
   type ChatMessage,
 } from "@/lib/chat";
 import { cleanupExpiredShareLinks } from "@/lib/share-links";
+import { resolveDisplayName } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -80,7 +81,8 @@ export async function POST(req: NextRequest) {
     try {
       const message = await sendChatMessage({
         userId: session.userId,
-        name: session.name,
+        // 채팅에도 닉네임을 쓴다(#13) — presence와 같은 표시 이름.
+        name: await resolveDisplayName(session),
         text: body?.text,
       });
       return NextResponse.json(

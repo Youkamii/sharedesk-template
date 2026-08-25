@@ -34,10 +34,14 @@ export default async function AdminPage() {
           : "/",
     );
   }
-  // 관리 화면은 관리자만 — 스페이스 멤버라도 관리자 아니면 그 데스크 화면으로.
   if (result.kind === "not-member") redirect("/files");
-  if (!result.session.isAdmin) {
-    redirect(space ? `/${space.slug}/files` : "/files");
-  }
+  // 스페이스에는 관리 화면이 없다(#12). 관리는 멀티데스크 관리 창(/spaces)에서
+  // 하고, 스페이스별 사용자 명단·역할은 거기 멤버 패널에서 다룬다. 기존
+  // AdminView의 초대·세션 철회·데스크 설정은 기본 데스크가 진실 원천이라
+  // 스페이스 문맥에서 열면 저장은 되지만 소비되지 않아(무음 오작동) 관리자를
+  // 오도한다 — 아예 스페이스 파일 화면으로 돌려보낸다.
+  if (space) redirect(`/${space.slug}/files`);
+  // 관리 화면은 관리자만 — 일반 멤버는 자기 데스크 화면으로.
+  if (!result.session.isAdmin) redirect("/files");
   return <AdminView locale={locale} />;
 }

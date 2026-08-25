@@ -26,7 +26,8 @@ export function currentSpaceFolderId(): string | null {
   return storage.getStore()?.folderId ?? null;
 }
 
-/** 화면·API가 읽는 값 — 현재 스페이스 슬러그. null이면 기본(레거시) 데스크. */
+/** 현재 스페이스 슬러그. null이면 기본(레거시) 데스크. 주로 테스트·진단용 —
+ *  판정은 resolveSpaceSession이 명시 인자로 받는다. */
 export function currentSpaceSlug(): string | null {
   return storage.getStore()?.slug ?? null;
 }

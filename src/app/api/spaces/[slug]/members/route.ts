@@ -17,6 +17,11 @@ export const runtime = "nodejs";
 async function requireSpace(slug: string) {
   const space = await runWithSpace(null, () => getSpace(slug));
   if (!space) return null;
+  // folderId가 null인 스페이스는 저장소 루트(=기본 데스크)를 가리킨다. 그
+  // 문맥에서 멤버를 관리하면 upsert/remove가 기본 데스크 users.json을 고쳐
+  // (removeUser는 실제 계정 삭제) 진짜 계정을 파괴한다. 기본 데스크 사용자
+  // 관리는 /admin이 하므로, 스페이스 멤버 관리 대상에서 제외한다(#12).
+  if (space.folderId === null) return null;
   return { slug: space.slug, folderId: space.folderId };
 }
 

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiPath } from "@/lib/client/api-path";
 import { translate, type Locale } from "@/lib/i18n";
 import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/lib/roles";
 import type { AccessibleSpace } from "@/lib/space-access";
@@ -55,7 +54,9 @@ export default function SpacesView({
 
   const apiJson = useCallback(
     async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-      const response = await fetch(apiPath(path), {
+      // 이 화면은 /spaces(기본 문맥)에서만 렌더되고 관리 API는 기본 데스크
+      // 등록부를 대상으로 하므로 스페이스 프리픽스를 붙이지 않는다.
+      const response = await fetch(path, {
         cache: "no-store",
         ...init,
       });

@@ -668,6 +668,7 @@ export default function FilesView({
   autoUpdate,
   canLeave = false,
   initialNickname = null,
+  isSpace = false,
 }: {
   userName: string;
   userEmail: string;
@@ -686,6 +687,11 @@ export default function FilesView({
   // 데스크 표시용 닉네임(#13). 기본 데스크 명단이 진실 원천이고, null이면
   // 입장 때 정하라는 다이얼로그를 연다. 손님은 항상 null.
   initialNickname?: string | null;
+  // 스페이스(비기본) 데스크인가(#12). 기본 데스크 전용이거나 아직 스페이스
+  // 지원이 없는 기능(관리자 화면 진입, 공유·간이 링크, 다른 데스크에서 받기)을
+  // 스페이스에서는 숨긴다 — 공유 링크는 소비 라우트가 기본 데스크만 봐서
+  // 스페이스에서 만들면 죽은 링크가 되기 때문이다(인수인계 "나중에 다룰 것").
+  isSpace?: boolean;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -8754,19 +8760,21 @@ export default function FilesView({
           </button>
           {extraFeaturesOpen && (
             <div className={styles.extraFeaturesMenu} role="menu">
-              {allowUpload && (
+              {/* 공유·간이 링크와 데스크 임포트는 소비 라우트가 기본 데스크만
+                  보므로 스페이스에서는 죽은 링크가 된다 — 스페이스에서 숨긴다(#12). */}
+              {allowUpload && !isSpace && (
                 <button type="button" role="menuitem" onClick={openQuickLinkWindow}>
                   <span aria-hidden="true">↗</span>
                   {t("간이 링크 만들기")}
                 </button>
               )}
-              {allowUpload && (
+              {allowUpload && !isSpace && (
                 <button type="button" role="menuitem" onClick={openShareLinksWindow}>
                   <span aria-hidden="true">☍</span>
                   {t("생성된 링크")}
                 </button>
               )}
-              {allowUpload && (
+              {allowUpload && !isSpace && (
                 <button type="button" role="menuitem" onClick={openDeskImportWindow}>
                   <span aria-hidden="true">⇱</span>
                   {t("다른 데스크에서 받기")}
@@ -8826,9 +8834,12 @@ export default function FilesView({
                 )}
               </button>
               )}
-              <a href="/admin" className={styles.trayLink}>
-                {t("관리자")}
-              </a>
+              {/* 관리 화면은 기본 데스크 전용(#12) — 스페이스에는 없다. */}
+              {!isSpace && (
+                <a href="/admin" className={styles.trayLink}>
+                  {t("관리자")}
+                </a>
+              )}
             </>
           )}
           {isGuest ? (
@@ -8848,11 +8859,18 @@ export default function FilesView({
               {nickname ?? userName}
             </button>
           )}
-          {canLeave && (
+          {/* 관리자는 스페이스가 0개여도 관리 창(/spaces)에서 첫 스페이스를
+              만들어야 하므로 진입 링크가 항상 필요하다. 일반 멤버는 갈 곳이
+              둘 이상일 때만 "나가기"가 보인다(#12 — 역할 아닌 목적지 수). */}
+          {isAdmin ? (
+            <a href="/spaces" className={styles.trayLink}>
+              {t("스페이스 관리")}
+            </a>
+          ) : canLeave ? (
             <a href="/spaces" className={styles.trayLink}>
               {t("나가기")}
             </a>
-          )}
+          ) : null}
           <button type="button" className={styles.trayLink} onClick={() => void logout()}>
             {t("로그아웃")}
           </button>
@@ -8931,7 +8949,7 @@ export default function FilesView({
               >
                 {t("원래 위치 열기")}
               </MenuButton>
-              {allowEdit && (
+              {allowEdit && !isSpace && (
                 <>
                   <div className={styles.menuSeparator} />
                   <MenuButton
@@ -9058,14 +9076,17 @@ export default function FilesView({
                   {t("이름 바꾸기")} <kbd>F2</kbd>
                 </MenuButton>
               )}
-              {allowEdit && (
+              {/* 공유·간이 링크는 스페이스에서 죽은 링크가 되므로 숨긴다(#12).
+                  아래 Google Drive 공유는 실제 Drive 권한이라 스페이스에서도
+                  동작해 그대로 둔다. */}
+              {allowEdit && !isSpace && (
                 <MenuButton
                   onClick={() => void createFastShareLink(contextMenu.entry!)}
                 >
                   {t("1시간 빠른 공유")}
                 </MenuButton>
               )}
-              {allowEdit && (
+              {allowEdit && !isSpace && (
                 <MenuButton
                   onClick={() => openShareLinkDialog(contextMenu.entry!)}
                 >

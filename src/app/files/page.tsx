@@ -51,7 +51,9 @@ export default async function FilesPage() {
   if (result.kind === "not-member") redirect("/files");
   const session = result.session;
   // 나가기 버튼: 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상일 때만(#12).
-  const accessible = await listAccessibleSpaces(session);
+  // fresh:true — 로그인 목적지·/spaces와 같은 신선도를 써 방금 초대된
+  // 사용자에게도 나가기 버튼이 곧바로 뜬다.
+  const accessible = await listAccessibleSpaces(session, { fresh: true });
   // 닉네임(#13): 진실 원천은 기본 데스크 명단 — 스페이스 화면에서도 같다.
   const baseUser = session.isGuest
     ? null
@@ -59,6 +61,7 @@ export default async function FilesPage() {
   return (
     <FilesView
       canLeave={hasMultipleDestinations(accessible.length)}
+      isSpace={space !== null}
       initialNickname={baseUser?.nickname ?? null}
       userName={session.name}
       userEmail={session.email}
