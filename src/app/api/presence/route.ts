@@ -1,4 +1,4 @@
-import { errorResponse, requireSession } from "@/lib/api";
+import { errorResponse, runWithSession } from "@/lib/api";
 import {
   leavePresenceGroup,
   listPresence,
@@ -31,15 +31,13 @@ function noStoreJson(value: unknown): Response {
 }
 
 export async function GET() {
-  const auth = await requireSession();
-  if ("response" in auth) return auth.response;
-  try {
-    return noStoreJson(
-      await listPresence(auth.session.presenceParticipantId),
-    );
-  } catch (error) {
-    return errorResponse(error);
-  }
+  return runWithSession(null, async ({ session }) => {
+    try {
+      return noStoreJson(await listPresence(session.presenceParticipantId));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
 }
 
 interface PresenceUpdate {
@@ -118,51 +116,51 @@ async function readUpdate(
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSession();
-  if ("response" in auth) return auth.response;
-  try {
-    const update = await readUpdate(request);
-    const leaseId =
-      update.tabId === undefined
-        ? auth.session.presenceLeaseId
-        : presenceTabLeaseId(auth.session.presenceLeaseId, update.tabId);
-    await cleanupIfDue();
-    return noStoreJson(
-      await touchPresence({
-        participantId: auth.session.presenceParticipantId,
-        leaseId,
-        name: auth.session.name,
-        ...(update.transfers === undefined
-          ? {}
-          : { transfers: update.transfers }),
-      }),
-    );
-  } catch (error) {
-    if (error instanceof PresenceBodyTooLargeError) {
-      return Response.json(
-        { error: "요청 본문이 너무 큽니다" },
-        {
-          status: 413,
-          headers: { "Cache-Control": "private, no-store" },
-        },
+  return runWithSession(null, async ({ session }) => {
+    try {
+      const update = await readUpdate(request);
+      const leaseId =
+        update.tabId === undefined
+          ? session.presenceLeaseId
+          : presenceTabLeaseId(session.presenceLeaseId, update.tabId);
+      await cleanupIfDue();
+      return noStoreJson(
+        await touchPresence({
+          participantId: session.presenceParticipantId,
+          leaseId,
+          name: session.name,
+          ...(update.transfers === undefined
+            ? {}
+            : { transfers: update.transfers }),
+        }),
       );
+    } catch (error) {
+      if (error instanceof PresenceBodyTooLargeError) {
+        return Response.json(
+          { error: "요청 본문이 너무 큽니다" },
+          {
+            status: 413,
+            headers: { "Cache-Control": "private, no-store" },
+          },
+        );
+      }
+      return errorResponse(error);
     }
-    return errorResponse(error);
-  }
+  });
 }
 
 export async function DELETE() {
-  const auth = await requireSession();
-  if ("response" in auth) return auth.response;
-  try {
-    return noStoreJson(
-      await leavePresenceGroup({
-        participantId: auth.session.presenceParticipantId,
-        leaseId: auth.session.presenceLeaseId,
-        name: auth.session.name,
-      }),
-    );
-  } catch (error) {
-    return errorResponse(error);
-  }
+  return runWithSession(null, async ({ session }) => {
+    try {
+      return noStoreJson(
+        await leavePresenceGroup({
+          participantId: session.presenceParticipantId,
+          leaseId: session.presenceLeaseId,
+          name: session.name,
+        }),
+      );
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
 }

@@ -31,15 +31,11 @@ export function currentSpaceSlug(): string | null {
   return storage.getStore()?.slug ?? null;
 }
 
-/** 주어진 문맥 안에서 fn을 돌린다. 테스트·백그라운드 작업용. */
+/**
+ * 주어진 문맥 안에서 fn을 돌린다. 문맥을 세우는 방법은 이것 하나뿐이다 —
+ * run()은 fn이 끝나면 바깥 문맥을 복원하므로 요청·작업 사이에 새지 않는다.
+ * enterWith는 되돌림 지점이 없어 요청 경계를 보장하지 못하므로 쓰지 않는다.
+ */
 export function runWithSpace<T>(context: SpaceContext | null, fn: () => T): T {
   return storage.run(context ?? DEFAULT_SPACE_CONTEXT, fn);
-}
-
-/**
- * 현재 비동기 흐름의 남은 구간에 문맥을 얹는다. 요청마다 핸들러가 새 문맥에서
- * 시작하므로 요청 사이에 새지 않는다.
- */
-export function enterSpace(context: SpaceContext): void {
-  storage.enterWith(context);
 }

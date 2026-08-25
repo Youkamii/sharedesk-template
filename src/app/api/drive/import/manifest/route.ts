@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireUploadRights } from "@/lib/api";
+import { runWithUploadRights } from "@/lib/api";
 import {
   deskTransferEntryUrls,
   parseDeskTransferLink,
@@ -20,62 +20,61 @@ export const runtime = "nodejs";
  * 남의 데스크 목록만 들여다보는 경로를 열지 않는다.
  */
 export async function POST(req: NextRequest) {
-  const auth = await requireUploadRights({ fresh: true });
-  if ("response" in auth) return auth.response;
-
-  let body: { url?: unknown; entryId?: unknown };
-  try {
-    body = (await req.json()) as { url?: unknown; entryId?: unknown };
-  } catch {
-    return NextResponse.json(
-      { error: "요청 본문을 읽지 못했습니다" },
-      { status: 400 },
-    );
-  }
-
-  const source = parseDeskTransferLink(body.url);
-  if (!source) {
-    return NextResponse.json(
-      { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
-      { status: 400 },
-    );
-  }
-
-  // 이름 모양을 통과해도 실제로 내부망을 가리키면 거부한다.
-  if (!(await resolvesToPublicAddress(new URL(source.origin).hostname))) {
-    return NextResponse.json(
-      { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
-      { status: 400 },
-    );
-  }
-
-  let manifestUrl = source.manifestUrl;
-  if (body.entryId !== undefined && body.entryId !== null) {
-    if (typeof body.entryId !== "string") {
+  return runWithUploadRights({ fresh: true }, async () => {
+    let body: { url?: unknown; entryId?: unknown };
+    try {
+      body = (await req.json()) as { url?: unknown; entryId?: unknown };
+    } catch {
       return NextResponse.json(
-        { error: "항목 id가 올바르지 않습니다" },
+        { error: "요청 본문을 읽지 못했습니다" },
         { status: 400 },
       );
     }
-    const urls = deskTransferEntryUrls(source, body.entryId);
-    if (!urls) {
+
+    const source = parseDeskTransferLink(body.url);
+    if (!source) {
       return NextResponse.json(
-        { error: "항목 id가 올바르지 않습니다" },
+        { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
         { status: 400 },
       );
     }
-    manifestUrl = urls.manifestUrl;
-  }
 
-  const manifest = await readManifest(manifestUrl);
-  if (!manifest) {
-    return NextResponse.json(
-      { error: "보내는 데스크에서 목록을 가져오지 못했습니다" },
-      { status: 502 },
-    );
-  }
+    // 이름 모양을 통과해도 실제로 내부망을 가리키면 거부한다.
+    if (!(await resolvesToPublicAddress(new URL(source.origin).hostname))) {
+      return NextResponse.json(
+        { error: "다른 데스크의 공개 링크 주소가 아닙니다" },
+        { status: 400 },
+      );
+    }
 
-  return NextResponse.json(manifest, {
-    headers: { "Cache-Control": "private, no-store" },
+    let manifestUrl = source.manifestUrl;
+    if (body.entryId !== undefined && body.entryId !== null) {
+      if (typeof body.entryId !== "string") {
+        return NextResponse.json(
+          { error: "항목 id가 올바르지 않습니다" },
+          { status: 400 },
+        );
+      }
+      const urls = deskTransferEntryUrls(source, body.entryId);
+      if (!urls) {
+        return NextResponse.json(
+          { error: "항목 id가 올바르지 않습니다" },
+          { status: 400 },
+        );
+      }
+      manifestUrl = urls.manifestUrl;
+    }
+
+    const manifest = await readManifest(manifestUrl);
+    if (!manifest) {
+      return NextResponse.json(
+        { error: "보내는 데스크에서 목록을 가져오지 못했습니다" },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json(manifest, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   });
 }

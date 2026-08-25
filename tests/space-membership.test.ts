@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,8 +11,8 @@ import test from "node:test";
 // - 관리자 → 모든 스페이스, role admin
 // - 일반 사용자 → 그 스페이스 명단에 approved로 있어야 하고 역할은 그 명단의 것
 //
-// resolveSpaceSession은 cookies()를 읽는 요청 전용이라, 같은 판정 순서를
-// resolveSession + findUserById로 재현해 검증한다.
+// 문맥 재설계 이후 resolveSpaceSession은 (token, space) 를 명시 인자로 받고
+// next/headers를 모른다 — 실제 함수를 그대로 돌려 검증한다.
 
 const SESSION_SECRET = ["test-", "session-secret-32-characters-long"].join("");
 
@@ -55,6 +56,7 @@ function makeUser(
 
 type Mods = {
   space: typeof import("../src/lib/space-store");
+  context: typeof import("../src/lib/space-context");
   token: typeof import("../src/lib/session-token");
   auth: typeof import("../src/lib/auth");
   users: typeof import("../src/lib/users");
@@ -80,6 +82,7 @@ async function withEnv(
   try {
     await run({
       space: await import("../src/lib/space-store"),
+      context: await import("../src/lib/space-context"),
       token: await import("../src/lib/session-token"),
       auth: await import("../src/lib/auth"),
       users: await import("../src/lib/users"),
@@ -95,20 +98,6 @@ async function withEnv(
 }
 
 const SPACE_A = { slug: "a", folderId: ".spaces/a" };
-
-// resolveSpaceSession과 같은 판정 순서.
-async function resolveForSpace(mods: Mods, token: string) {
-  const base = await mods.space.runWithSpace(null, () =>
-    mods.auth.resolveSession(token, { fresh: true }),
-  );
-  if (!base) return null;
-  if (base.isAdmin) return { via: "admin", session: base };
-  const member = await mods.space.runWithSpace(SPACE_A, () =>
-    mods.users.findUserById(base.userId, { fresh: true }),
-  );
-  if (!member || member.status !== "approved") return null;
-  return { via: "member", session: { ...base, role: member.role } };
-}
 
 test("멤버는 스페이스 명단의 역할로 세션을 얻는다", async () => {
   await withEnv({ ADMIN_EMAILS: "boss@example.com" }, async (mods) => {
@@ -132,11 +121,20 @@ test("멤버는 스페이스 명단의 역할로 세션을 얻는다", async () 
       iat: Math.floor(Date.now() / 1000),
     });
 
-    const result = await resolveForSpace(mods, cookie);
-    assert.ok(result, "멤버는 세션을 얻어야 한다");
-    assert.equal(result.via, "member");
+    const result = await mods.context.resolveSpaceSession(cookie, SPACE_A, {
+      fresh: true,
+    });
+    assert.equal(result.kind, "ok", "멤버는 세션을 얻어야 한다");
+    assert.ok(result.kind === "ok");
     // 역할은 스페이스 명단의 것 — 같은 사람이 스페이스마다 다른 역할.
     assert.equal(result.session.role, "viewer");
+
+    // 같은 토큰이 기본 데스크(space null)에서는 기본 명단의 역할을 받는다.
+    const base = await mods.context.resolveSpaceSession(cookie, null, {
+      fresh: true,
+    });
+    assert.ok(base.kind === "ok");
+    assert.equal(base.session.role, "editor");
   });
 });
 
@@ -154,7 +152,10 @@ test("스페이스 명단에 없는 일반 사용자는 세션을 얻지 못한�
       sub: "u-2",
       iat: Math.floor(Date.now() / 1000),
     });
-    assert.equal(await resolveForSpace(mods, cookie), null);
+    const result = await mods.context.resolveSpaceSession(cookie, SPACE_A, {
+      fresh: true,
+    });
+    assert.equal(result.kind, "not-member");
   });
 });
 
@@ -176,9 +177,11 @@ test("관리자는 스페이스 명단에 없어도 admin으로 들어간다", a
       iat: Math.floor(Date.now() / 1000),
     });
 
-    const result = await resolveForSpace(mods, cookie);
-    assert.ok(result, "관리자는 세션을 얻어야 한다");
-    assert.equal(result.via, "admin");
+    const result = await mods.context.resolveSpaceSession(cookie, SPACE_A, {
+      fresh: true,
+    });
+    assert.equal(result.kind, "ok", "관리자는 세션을 얻어야 한다");
+    assert.ok(result.kind === "ok");
     assert.equal(result.session.role, "admin");
   });
 });
@@ -208,6 +211,92 @@ test("기본 데스크에서 철회한 세션은 스페이스에서도 죽는다
     });
     // 정체 판정이 기본 데스크 기준이므로 스페이스에서도 거부된다. 스페이스
     // 명단의 옛 sv로 판정했다면 이 토큰이 살아남았을 것이다 — 그게 보안 갭.
-    assert.equal(await resolveForSpace(mods, stale), null);
+    const result = await mods.context.resolveSpaceSession(stale, SPACE_A, {
+      fresh: true,
+    });
+    assert.equal(result.kind, "unauthenticated");
   });
+});
+
+test("판정은 호출 시점의 주변 문맥과 무관하게 같은 답을 낸다", async () => {
+  await withEnv({ ADMIN_EMAILS: "boss@example.com" }, async (mods) => {
+    const adapter = mods.storage.getAdapter();
+    await mods.space.runWithSpace(null, () =>
+      adapter.writeState(
+        "users.json",
+        usersFile([makeUser("u-4", "member@example.com", "editor")]),
+      ),
+    );
+    await mods.space.runWithSpace(SPACE_A, () =>
+      adapter.writeState(
+        "users.json",
+        usersFile([makeUser("u-4", "member@example.com", "viewer")]),
+      ),
+    );
+    const cookie = await mods.token.signPayload({
+      t: "user",
+      sub: "u-4",
+      iat: Math.floor(Date.now() / 1000),
+    });
+
+    // 엉뚱한 스페이스 문맥 안에서 불러도(=이전 요청의 문맥이 남아 있던 상황을
+    // 흉내) 판정 인자가 명시적이므로 결과가 흔들리지 않는다.
+    const insideForeign = await mods.space.runWithSpace(
+      { slug: "z", folderId: ".spaces/z" },
+      () => mods.context.resolveSpaceSession(cookie, SPACE_A, { fresh: true }),
+    );
+    assert.ok(insideForeign.kind === "ok");
+    assert.equal(insideForeign.session.role, "viewer");
+  });
+});
+
+// ---- 요청 경계: 문맥은 run() 블록 밖으로 새지 않는다 ----
+
+test("runWithSpace 문맥은 await를 지나도 유지되고 블록이 끝나면 복원된다", async () => {
+  const space = await import("../src/lib/space-store");
+  assert.equal(space.currentSpaceSlug(), null);
+
+  const seen = await space.runWithSpace(
+    { slug: "a", folderId: ".spaces/a" },
+    async () => {
+      const before = space.currentSpaceSlug();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // await 뒤에도 같은 문맥이 보인다 — enterWith와 달리 run()은 이 구간을
+      // 자기 문맥으로 감싼다.
+      const after = space.currentSpaceSlug();
+      // 중첩: 안쪽이 이기고,
+      const nested = space.runWithSpace(
+        { slug: "b", folderId: ".spaces/b" },
+        () => space.currentSpaceSlug(),
+      );
+      // 끝나면 바깥 문맥이 복원된다.
+      const restored = space.currentSpaceSlug();
+      return { before, after, nested, restored };
+    },
+  );
+  assert.deepEqual(seen, {
+    before: "a",
+    after: "a",
+    nested: "b",
+    restored: "a",
+  });
+
+  // 블록 밖 — 다음 요청에 해당하는 위치 — 에는 아무 문맥도 남지 않는다.
+  assert.equal(space.currentSpaceSlug(), null);
+});
+
+test("문맥 세우기는 run()뿐이다 — enterWith 금지", async () => {
+  const store = await readFile(
+    new URL("../src/lib/space-store.ts", import.meta.url),
+    "utf8",
+  );
+  // 주석의 언급은 허용하고 실제 호출(.enterWith( )만 금지한다.
+  assert.doesNotMatch(store, /\.enterWith\(/, "enterWith 호출이 되살아났다");
+  const api = await readFile(
+    new URL("../src/lib/api.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(api, /\.enterWith\(/);
+  // 러너가 핸들러 본문 전체를 스페이스 문맥으로 감싼다.
+  assert.match(api, /runWithSpace\(toSpaceContext\(resolved\.space\)/);
 });

@@ -4,6 +4,7 @@ import {
   openSigned,
 } from "@/lib/session-token";
 import { parseInvitationCode } from "@/lib/invite-token";
+import { runWithSpace } from "@/lib/space-context";
 import { redeemInvitationForUser } from "@/lib/users";
 
 const MAX_BODY_BYTES = 4_096;
@@ -86,25 +87,29 @@ async function readCode(req: NextRequest): Promise<string | null> {
   }
 }
 
+// 공개 라우트(가입 절차) — 초대 소비는 언제나 기본 데스크에서 일어나므로
+// 기본 문맥을 명시한다.
 export async function POST(req: NextRequest) {
-  const claims = await openSigned(req.cookies.get(COOKIE_NAME)?.value);
-  if (!claims || claims.t !== "user") {
-    return redirect(req, "/", "invite_required");
-  }
-  if (tooManyAttempts(claims.sub)) {
-    return redirect(req, "/join", "invite_rate_limited");
-  }
-  const invitation = parseInvitationCode(await readCode(req));
-  if (!invitation) return redirect(req, "/join", "invite_invalid");
-  const redeemed = await redeemInvitationForUser(
-    claims.sub,
-    invitation,
-    {
-      issuedAtSeconds: claims.iat,
-      sessionVersion: claims.sv,
-      sessionId: claims.sid,
-    },
-  );
-  if (!redeemed.ok) return redirect(req, "/join", redeemed.reason);
-  return redirect(req, "/files");
+  return runWithSpace(null, async () => {
+    const claims = await openSigned(req.cookies.get(COOKIE_NAME)?.value);
+    if (!claims || claims.t !== "user") {
+      return redirect(req, "/", "invite_required");
+    }
+    if (tooManyAttempts(claims.sub)) {
+      return redirect(req, "/join", "invite_rate_limited");
+    }
+    const invitation = parseInvitationCode(await readCode(req));
+    if (!invitation) return redirect(req, "/join", "invite_invalid");
+    const redeemed = await redeemInvitationForUser(
+      claims.sub,
+      invitation,
+      {
+        issuedAtSeconds: claims.iat,
+        sessionVersion: claims.sv,
+        sessionId: claims.sid,
+      },
+    );
+    if (!redeemed.ok) return redirect(req, "/join", redeemed.reason);
+    return redirect(req, "/files");
+  });
 }

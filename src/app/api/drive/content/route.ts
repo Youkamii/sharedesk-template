@@ -1,7 +1,7 @@
 import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
-import { errorResponse, requireEditRights } from "@/lib/api";
+import { errorResponse, runWithEditRights } from "@/lib/api";
 import {
   finishUploadReservation,
   reserveUpload,
@@ -60,67 +60,69 @@ async function readJsonBody(req: Request): Promise<unknown> {
 }
 
 export async function PATCH(req: Request) {
-  const auth = await requireEditRights({ fresh: true });
-  if ("response" in auth) return auth.response;
-
-  try {
-    const body = await readJsonBody(req);
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      throw new StorageError("BAD_ID", "잘못된 요청입니다");
-    }
-    const value = body as Record<string, unknown>;
-    if (
-      typeof value.id !== "string" ||
-      !value.id ||
-      value.id.length > 1024 ||
-      typeof value.expectedVersion !== "string" ||
-      !value.expectedVersion ||
-      value.expectedVersion.length > 1024 ||
-      typeof value.mimeType !== "string" ||
-      !/^text\/plain(?:\s*;\s*charset=utf-8)?$/i.test(value.mimeType) ||
-      typeof value.content !== "string"
-    ) {
-      throw new StorageError("BAD_ID", "잘못된 요청입니다");
-    }
-    const encoded = new TextEncoder().encode(value.content);
-    if (encoded.byteLength > MAX_TEXT_BYTES) {
-      throw new StorageError("BAD_ID", "텍스트 파일은 1 MiB까지 편집할 수 있습니다");
-    }
-    const adapter = getAdapter();
-    const current = await adapter.getEntry(value.id);
-    if (current.isFolder || !current.name.toLowerCase().endsWith(".txt")) {
-      throw new StorageError("BAD_ID", ".txt 파일만 편집할 수 있습니다");
-    }
-    const growth = Math.max(0, encoded.byteLength - (current.size ?? 0));
-    let reservationId: string | null = null;
+  return runWithEditRights({ fresh: true }, async ({ session }) => {
     try {
-      if (growth > 0) {
-        reservationId = await reserveUpload({
-          userId: auth.session.userId,
-          parentId: value.id,
-          name: current.name,
-          size: growth,
-          transport: "proxy",
-          enforceMaxUpload: false,
-        });
+      const body = await readJsonBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new StorageError("BAD_ID", "잘못된 요청입니다");
       }
-      const entry = await adapter.replaceContent(
-        value.id,
-        value.expectedVersion,
-        "text/plain",
-        new Response(encoded).body as ReadableStream<Uint8Array>,
-      );
-      await finishUploadReservation(reservationId, auth.session.userId);
-      recordActivityAfter(auth.session, "edit", entry.name);
-      return Response.json({ entry });
+      const value = body as Record<string, unknown>;
+      if (
+        typeof value.id !== "string" ||
+        !value.id ||
+        value.id.length > 1024 ||
+        typeof value.expectedVersion !== "string" ||
+        !value.expectedVersion ||
+        value.expectedVersion.length > 1024 ||
+        typeof value.mimeType !== "string" ||
+        !/^text\/plain(?:\s*;\s*charset=utf-8)?$/i.test(value.mimeType) ||
+        typeof value.content !== "string"
+      ) {
+        throw new StorageError("BAD_ID", "잘못된 요청입니다");
+      }
+      const encoded = new TextEncoder().encode(value.content);
+      if (encoded.byteLength > MAX_TEXT_BYTES) {
+        throw new StorageError(
+          "BAD_ID",
+          "텍스트 파일은 1 MiB까지 편집할 수 있습니다",
+        );
+      }
+      const adapter = getAdapter();
+      const current = await adapter.getEntry(value.id);
+      if (current.isFolder || !current.name.toLowerCase().endsWith(".txt")) {
+        throw new StorageError("BAD_ID", ".txt 파일만 편집할 수 있습니다");
+      }
+      const growth = Math.max(0, encoded.byteLength - (current.size ?? 0));
+      let reservationId: string | null = null;
+      try {
+        if (growth > 0) {
+          reservationId = await reserveUpload({
+            userId: session.userId,
+            parentId: value.id,
+            name: current.name,
+            size: growth,
+            transport: "proxy",
+            enforceMaxUpload: false,
+          });
+        }
+        const entry = await adapter.replaceContent(
+          value.id,
+          value.expectedVersion,
+          "text/plain",
+          new Response(encoded).body as ReadableStream<Uint8Array>,
+        );
+        await finishUploadReservation(reservationId, session.userId);
+        recordActivityAfter(session, "edit", entry.name);
+        return Response.json({ entry });
+      } catch (error) {
+        await finishUploadReservation(
+          reservationId,
+          session.userId,
+        ).catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
-      await finishUploadReservation(
-        reservationId,
-        auth.session.userId,
-      ).catch(() => undefined);
-      throw error;
+      return errorResponse(error);
     }
-  } catch (error) {
-    return errorResponse(error);
-  }
+  });
 }

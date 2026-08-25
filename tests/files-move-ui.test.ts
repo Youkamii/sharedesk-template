@@ -1680,8 +1680,8 @@ test("다중 선택 다운로드(#103)는 목록 패널을 거치고 기존 다�
     source,
     /`\/api\/drive\/download\?id=\$\{encodeURIComponent\(item\.entryId\)\}`/,
   );
-  assert.match(route, /const auth = await requireSession\(/);
-  assert.match(route, /if \("response" in auth\) return auth\.response;/);
+  assert.match(route, /runWithSession\(\{ fresh: wantsInline \}/);
+  assert.doesNotMatch(route, /runWithUploadRights|runWithEditRights|runWithAdmin/);
   assert.doesNotMatch(roles, /canDownload/);
   assert.doesNotMatch(source, /allow(Edit|Upload) && \(\s*<MenuButton[^>]*>\s*\{t\("선택한/);
 

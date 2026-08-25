@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { runWithSpace } from "@/lib/space-context";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import packageJson from "../../../../package.json";
 
@@ -13,26 +14,29 @@ export const runtime = "nodejs";
 // 지연이 흔하다) 그날 업데이트를 놓치지 않는다. 두 번 걸려도 두 번째
 // 실행은 바뀐 것이 없어 그대로 끝난다.
 export async function GET() {
-  const settings = await getDeskSettingsOrDefault();
-  let midnight = false;
-  if (settings.autoUpdate && settings.autoUpdateTimezone) {
-    try {
-      const hour = new Intl.DateTimeFormat("en-GB", {
-        timeZone: settings.autoUpdateTimezone,
-        hour: "2-digit",
-        hourCycle: "h23",
-      }).format(new Date());
-      midnight = hour === "00" || hour === "01";
-    } catch {
-      midnight = false;
+  // 공개 라우트 — 설정은 기본 데스크의 것이므로 기본 문맥을 명시한다.
+  return runWithSpace(null, async () => {
+    const settings = await getDeskSettingsOrDefault();
+    let midnight = false;
+    if (settings.autoUpdate && settings.autoUpdateTimezone) {
+      try {
+        const hour = new Intl.DateTimeFormat("en-GB", {
+          timeZone: settings.autoUpdateTimezone,
+          hour: "2-digit",
+          hourCycle: "h23",
+        }).format(new Date());
+        midnight = hour === "00" || hour === "01";
+      } catch {
+        midnight = false;
+      }
     }
-  }
-  return NextResponse.json(
-    {
-      autoUpdate: settings.autoUpdate,
-      midnight,
-      currentVersion: packageJson.version,
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+    return NextResponse.json(
+      {
+        autoUpdate: settings.autoUpdate,
+        midnight,
+        currentVersion: packageJson.version,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  });
 }

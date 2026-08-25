@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/api";
+import { runWithSession } from "@/lib/api";
 import { sendOwnerFeedback } from "@/lib/owner-registry";
 
 export const runtime = "nodejs";
@@ -126,35 +126,38 @@ function json(value: unknown, status = 200) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireSession({ fresh: true });
-  if ("response" in auth) return auth.response;
-  if (!auth.session.email.trim()) {
-    return json({ error: "Google 로그인 사용자만 피드백을 보낼 수 있습니다" }, 403);
-  }
-  if (!isSameOrigin(request)) {
-    return json({ error: "같은 사이트에서만 요청할 수 있습니다" }, 403);
-  }
-
-  let feedback: { feedbackId: string; subject: string; message: string };
-  try {
-    feedback = await readFeedback(request);
-  } catch (error) {
-    if (error instanceof FeedbackBodyTooLargeError) {
-      return json({ error: "피드백 내용이 너무 깁니다" }, 413);
+  return runWithSession({ fresh: true }, async ({ session }) => {
+    if (!session.email.trim()) {
+      return json(
+        { error: "Google 로그인 사용자만 피드백을 보낼 수 있습니다" },
+        403,
+      );
     }
-    if (error instanceof InvalidContentTypeError) {
-      return json({ error: "JSON 요청만 사용할 수 있습니다" }, 415);
+    if (!isSameOrigin(request)) {
+      return json({ error: "같은 사이트에서만 요청할 수 있습니다" }, 403);
     }
-    return json({ error: "제목과 내용을 확인해 주세요" }, 400);
-  }
 
-  const result = await sendOwnerFeedback(
-    request.nextUrl.origin,
-    { email: auth.session.email, name: auth.session.name },
-    feedback,
-  );
-  return json(
-    result,
-    result.ok ? 200 : result.reason === "disabled" ? 409 : 502,
-  );
+    let feedback: { feedbackId: string; subject: string; message: string };
+    try {
+      feedback = await readFeedback(request);
+    } catch (error) {
+      if (error instanceof FeedbackBodyTooLargeError) {
+        return json({ error: "피드백 내용이 너무 깁니다" }, 413);
+      }
+      if (error instanceof InvalidContentTypeError) {
+        return json({ error: "JSON 요청만 사용할 수 있습니다" }, 415);
+      }
+      return json({ error: "제목과 내용을 확인해 주세요" }, 400);
+    }
+
+    const result = await sendOwnerFeedback(
+      request.nextUrl.origin,
+      { email: session.email, name: session.name },
+      feedback,
+    );
+    return json(
+      result,
+      result.ok ? 200 : result.reason === "disabled" ? 409 : 502,
+    );
+  });
 }

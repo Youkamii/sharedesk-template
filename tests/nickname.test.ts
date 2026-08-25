@@ -282,16 +282,16 @@ test("라우트 배선: 본인 확인·게스트 403·검증 400·관리자 응�
   assert.match(nicknameRoute, /export async function PATCH/);
   assert.match(
     nicknameRoute,
-    /requireSession\(\{ fresh: true \}\)/,
-    "본인 확인은 requireSession으로 한다",
+    /runWithSession\(\{ fresh: true \}/,
+    "본인 확인은 runWithSession으로 한다",
   );
-  assert.match(nicknameRoute, /auth\.session\.isGuest/, "게스트를 판별한다");
+  assert.match(nicknameRoute, /session\.isGuest/, "게스트를 판별한다");
   assert.match(nicknameRoute, /status: 403/, "게스트는 403으로 거절한다");
   assert.match(nicknameRoute, /parseNickname/, "공용 검증 모듈을 쓴다");
   assert.match(nicknameRoute, /status: 400/, "검증 실패는 400이다");
   assert.match(
     nicknameRoute,
-    /setUserNickname\(auth\.session\.userId/,
+    /setUserNickname\(session\.userId/,
     "세션 주인의 닉만 바꾼다 — 대상 id를 입력으로 받지 않는다",
   );
   assert.doesNotMatch(
@@ -305,7 +305,7 @@ test("라우트 배선: 본인 확인·게스트 403·검증 400·관리자 응�
     new URL("../src/app/api/admin/users/route.ts", import.meta.url),
     "utf8",
   );
-  assert.match(adminRoute, /requireAdmin/);
+  assert.match(adminRoute, /runWithAdmin/);
   assert.match(adminRoute, /listUsers/);
   assert.match(
     adminRoute,

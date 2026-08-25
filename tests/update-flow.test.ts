@@ -1241,7 +1241,7 @@ test("update status reports the installed workflow and handles GitHub errors", a
     new URL("../src/app/api/admin/update/route.ts", import.meta.url),
     "utf8",
   );
-  assert.match(route, /requireAdmin\(\{ fresh: true \}\)/);
+  assert.match(route, /runWithAdmin\(\{ fresh: true \}/);
   assert.match(route, /"Cache-Control": "no-store"/);
 });
 
@@ -1470,7 +1470,7 @@ test("the admin update route exposes a guarded dispatch POST and a run scope", a
   );
   assert.match(route, /export async function POST/);
   const postSource = route.slice(route.indexOf("export async function POST"));
-  assert.match(postSource, /requireAdmin\(\{ fresh: true \}\)/);
+  assert.match(postSource, /runWithAdmin\(\{ fresh: true \}/);
   assert.match(route, /searchParams\.get\("scope"\) === "run"/);
   assert.match(postSource, /이미 업데이트가 진행 중입니다/);
   assert.match(postSource, /status: 409/);
@@ -2046,7 +2046,7 @@ test("the public update policy exposes only what the scheduler needs", async () 
   );
   // 키 없는 워크플로가 읽어야 하므로 인증을 걸지 않되, 내려 주는 값은
   // 자동 업데이트 여부·시간대·버전뿐이어야 한다.
-  assert.doesNotMatch(route, /requireAdmin|requireSession/);
+  assert.doesNotMatch(route, /runWithAdmin|runWithSession/);
   assert.match(route, /autoUpdate: settings\.autoUpdate/);
   // 시간대는 노출하지 않는다 — 자정(00~01시) 여부만 내려 준다.
   assert.doesNotMatch(route, /timezone:/);
@@ -2126,7 +2126,7 @@ test("desk activity is recorded after responses and never blocks the operation",
     new URL("../src/app/api/admin/activity/route.ts", import.meta.url),
     "utf8",
   );
-  assert.match(adminRoute, /requireAdmin/);
+  assert.match(adminRoute, /runWithAdmin/);
 });
 
 test("external share links are scoped, expiring, and revocable", async () => {
@@ -2145,7 +2145,7 @@ test("external share links are scoped, expiring, and revocable", async () => {
     "utf8",
   );
   // 만들기·거두기는 관리자·수정 가능 역할만, 폴더는 거부.
-  assert.match(manage, /requireEditRights/);
+  assert.match(manage, /runWithEditRights/);
   assert.match(manage, /kind: entry\.isFolder \? "folder" : "file"/);
   const publicRoute = await readFile(
     new URL("../src/app/api/share/[linkId]/route.ts", import.meta.url),
@@ -2155,7 +2155,7 @@ test("external share links are scoped, expiring, and revocable", async () => {
   assert.match(publicRoute, /attachment; filename/);
   assert.match(publicRoute, /adapter\.isWithin\(targetId, link\.fileId\)/);
   assert.match(publicRoute, /folderPage\(/);
-  assert.doesNotMatch(publicRoute, /requireSession|requireEditRights/);
+  assert.doesNotMatch(publicRoute, /runWithSession|runWithEditRights/);
   // 공개 경로는 proxy 보호 접두사(/api/drive, /api/admin) 밖에 있어야 한다.
   const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");
   assert.match(proxy, /\/api\/drive\/:path\*/);

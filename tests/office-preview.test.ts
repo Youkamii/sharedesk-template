@@ -110,7 +110,7 @@ test("inline 요청은 preview 경로를 쓰고 TXT 편집 계약은 유지한�
   ]);
 
   assert.match(downloadRoute, /wantsInline\s*\? await adapter\.preview\(id, range\)/);
-  assert.match(downloadRoute, /requireSession\(\{ fresh: wantsInline \}\)/);
+  assert.match(downloadRoute, /runWithSession\(\{ fresh: wantsInline \}/);
   assert.match(
     downloadRoute,
     /inlineContentType\(file\.mimeType, file\.name\)/,
@@ -252,7 +252,7 @@ test("Office 실패 Route Handler만 안전한 HTML로 응답하고 일반 HTML�
   process.env.STORAGE_DRIVER = "local";
   process.env.LOCAL_STORAGE_ROOT = root;
   process.env.ACCESS_KEYS = accessKey;
-  process.env.SESSION_SECRET = "office-preview-route-secret-at-least-32-chars";
+  process.env.SESSION_SECRET = "test-office-preview-secret-at-least-32-chars";
 
   try {
     const adapter = new LocalAdapter();
@@ -414,7 +414,7 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     stateId: process.env.DRIVE_STATE_FOLDER_ID,
   };
   process.env.GOOGLE_CLIENT_ID = "preview-client";
-  process.env.GOOGLE_CLIENT_SECRET = "preview-secret";
+  process.env.GOOGLE_CLIENT_SECRET = "test-preview-secret";
   process.env.GOOGLE_REFRESH_TOKEN = "preview-refresh";
   process.env.DRIVE_ROOT_FOLDER_ID = "root-folder";
   process.env.DRIVE_STATE_FOLDER_ID = "state-folder";
@@ -485,7 +485,7 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     });
 
     if (url === "https://oauth2.googleapis.com/token") {
-      return Response.json({ access_token: "host-token", expires_in: 3600 });
+      return Response.json({ access_token: "test-host-token", expires_in: 3600 });
     }
     if (url.includes("/files/state-folder?fields=id,name,mimeType,parents,trashed")) {
       return Response.json({
@@ -708,7 +708,7 @@ test("Drive Office 미리보기는 호스트 권한으로 변환하고 매번 �
     assert.ok(
       calls
         .filter((call) => call.url.startsWith("https://www.googleapis.com"))
-        .every((call) => call.authorization === "Bearer host-token"),
+        .every((call) => call.authorization === "Bearer test-host-token"),
       "변환과 export는 참가자 권한이 아니라 서버의 호스트 토큰을 쓴다",
     );
   } finally {

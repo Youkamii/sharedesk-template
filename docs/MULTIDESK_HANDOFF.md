@@ -51,9 +51,11 @@ https://<주소>/sea/files   → sea 스페이스
 - 테스트가 끝나면 **1.0.0으로 승격**. 그때부터 기존 데스크들이 업데이트를 받는다
 - **사용자 데스크(Youkamii/sharedesk)의 업데이트 워크플로는 실행하지 않는다.** 사용자가 손수 한다
 
-## 지금까지 만든 것 (커밋 8개, 푸시 안 함)
+## 지금까지 만든 것 (로컬 커밋, 푸시 안 함)
 
 ```
+(최신)   0번 — 문맥 러너 재설계: enterWith 폐기, 러너가 핸들러 전체를 감쌈
+c4ae49e  인수인계 문서
 eb67c18  격리 우회 차단 (교차 리뷰 지적 수정)
 051b509  5단계 서버부 — 스페이스 관리 API + 멤버십 모델 확정
 923d605  닉네임 테스트 등록
@@ -64,15 +66,17 @@ eb67c18  격리 우회 차단 (교차 리뷰 지적 수정)
 dbdd10d  1단계 — 스페이스 등록부
 ```
 
-전체 337개 테스트 통과, `next build` 성공 상태.
+전체 340개 테스트 통과(339 + owner-registry), `next build` 성공, 런타임 스모크
+18항목 통과(아래 "0번 완료" 참조) 상태.
 
 ### 구조
 
 | 파일 | 역할 |
 |---|---|
 | `src/lib/space-slug.ts` | 슬러그·이름 순수 규칙, 예약어, `SPACE_HEADER` 상수 |
-| `src/lib/space-store.ts` | AsyncLocalStorage 문맥. 어댑터가 읽으므로 다른 모듈 import 금지 |
-| `src/lib/space-context.ts` | 헤더 → 등록부 대조 → 문맥 얹기, 멤버십 판정 |
+| `src/lib/space-store.ts` | AsyncLocalStorage 문맥. `runWithSpace`(run 기반)가 유일한 진입점 — enterWith 금지. 어댑터가 읽으므로 다른 모듈 import 금지 |
+| `src/lib/space-context.ts` | 순수 판정 계층: `resolveSpaceSession(token, space)` — next/headers를 모르고 주변 문맥도 안 읽어 테스트가 실제 함수를 돌린다 |
+| `src/lib/api.ts` | 요청 러너 `runWithSession / runWithUploadRights / runWithEditRights / runWithAdmin` — 헤더에서 스페이스 해석 → 세션 판정 → 핸들러 본문 전체를 `runWithSpace`로 감쌈 |
 | `src/lib/space-routing.ts` | proxy 경로 판정 순수 함수 |
 | `src/lib/spaces.ts` | 등록부 CRUD (`.sharedesk/spaces.json`, 설치 루트에만) |
 | `src/proxy.ts` | `/sea/files` → `/files` rewrite + 헤더 주입, 클라 헤더 제거 |
@@ -88,19 +92,43 @@ dbdd10d  1단계 — 스페이스 등록부
 
 **주의: `folderId`의 의미가 어댑터마다 다르다.** local은 루트 기준 상대경로, drive는 폴더 id다.
 
+## 완료된 작업
+
+### 0. 문맥 전달 방식 재설계 — 완료 (2026-08-26)
+
+`enterWith`(`enterSpace`)를 완전히 제거했다. 문맥은 `AsyncLocalStorage.run()` 기반
+`runWithSpace` 하나로만 세워진다.
+
+- **러너 4종** (`src/lib/api.ts`): `runWithSession(options, body)` /
+  `runWithUploadRights` / `runWithEditRights` / `runWithAdmin`.
+  라우트는 `export async function GET(req) { return runWithSession(null, async ({ session, space }) => {...}); }`
+  형태로 본문 전체를 러너에 넘긴다. 러너가 헤더의 스페이스를 등록부와 대조(미등록 404)
+  → `resolveSpaceSession`으로 세션 판정(미인증 401 / 비멤버 403) → 본문을
+  `runWithSpace(스페이스)`로 감싸 돌린다. run()이 끝나면 문맥이 복원되므로 요청
+  사이에 새지 않는다. 기존 `requireSession` 계열과 `establishSpaceContext`는 삭제.
+- **판정 순수화**: `resolveSpaceSession(token, space, options)`가 명시 인자만 받고
+  주변 ALS·next/headers를 안 읽는다. `tests/space-membership.test.ts`가 이제 실제
+  함수를 직접 돌린다(전에는 판정 순서를 재현만 했다). 경계 테스트(문맥이 run 블록
+  밖으로 안 샘, enterWith 호출 금지 소스 검사)도 추가.
+- **공개 라우트 6개**(`api/auth/*` 3, `api/share/[linkId]`, `api/invitations/code`,
+  `api/update-policy`)는 본문을 `runWithSpace(null, ...)`로 감싸 기본 문맥을 명시.
+  cron(`api/cron/share-cleanup`)은 예약 실행이면 기본 문맥, 수동이면 `runWithAdmin`.
+- **`after()` 문맥 보존 확인됨**: Next 16.3의 `after()`는 콜백을
+  `AsyncLocalStorage.bind`(전체 ALS 스냅샷)로 감싼다
+  (`node_modules/next/dist/server/after/after-context.js`의 `bindSnapshot`).
+  `recordActivityAfter`가 응답 뒤에 돌아도 스페이스 문맥을 유지한다 — 스모크에서
+  스페이스 업로드 기록이 스페이스 activity.json에 정확히 남는 것을 실측 확인.
+- **런타임 스모크 18항목 통과**: 로컬 드라이버 + `next start`로 실서버를 띄우고
+  401/403/404 판정, 스페이스별 역할 분리(기본 editor / 스페이스 viewer), 파일 물리
+  격리, 번갈아 6회·동시 20요청 문맥 오염 없음, 비 matcher 라우트(chat·presence)
+  분리, 기본 목록의 `.spaces` 미노출을 확인했다.
+- 부수 정리: 죽은 코드 `getSession` 삭제, `drive/move`의 리터럴 제어문자 정규식을
+  `\uXXXX` 표기로 교체(동일 문자 집합), 라우트 소스를 검사하던 테스트 7개 파일의
+  패턴을 새 러너 이름으로 갱신.
+
 ## 남은 작업 — 반드시 이 순서로
 
-### 0. [최우선] 문맥 전달 방식 재설계
-
-**이걸 먼저 하지 않으면 그 위에 쌓는 모든 UI가 흔들린다.**
-
-현재 `space-context.ts`의 `establishSpaceContext`가 `AsyncLocalStorage.enterWith`를 쓴다. `enterWith`는 되돌림 지점이 없어 요청 경계를 보장하지 않는다. Next는 자기 ALS만 `run()`으로 감싸고 이 프로젝트의 `space-store`는 별개 ALS라, 요청 A의 문맥이 다음 요청에 남거나 `await` 뒤에 문맥이 사라질 수 있다.
-
-교차 리뷰에서 두 모델이 정반대로 평가한 지점이고, Next 소스를 확인한 결과 위험 쪽이 맞다.
-
-**해야 할 일**: `enterWith`를 버리고 요청 핸들러 전체를 `runWithSpace(...)`로 감싸는 래퍼를 만든다. `requireSession`이 문맥과 세션을 함께 돌려주는 형태로 바꾸고, 보호 라우트 38개가 그 안에서 돌게 한다. 공개 라우트 6개(`api/auth/*`, `api/share/[linkId]`, `api/invitations/code`, `api/update-policy`)는 명시적으로 기본 문맥으로 감싼다.
-
-### 1. 클라이언트 배선
+### 1. [다음 작업] 클라이언트 배선
 
 `src/app/files/`와 `src/lib/client/` 어디에도 스페이스 헤더를 붙이는 코드가 **없다**. 주소창이 `/sea/files`여도 API 호출에는 헤더가 없어 기본 데스크를 읽고 쓴다. 지금 멀티 데스크가 반쪽인 이유다.
 
@@ -108,7 +136,13 @@ dbdd10d  1단계 — 스페이스 등록부
 
 ### 2. proxy matcher 정리
 
-matcher 밖 라우트(`/api/chat`, `/api/presence`, `/api/share`, `/api/me/nickname` 등)는 클라이언트가 보낸 헤더를 그대로 받는다. 라우트마다 같은 헤더가 "신뢰되는 값" 또는 "무시되는 값"으로 갈려 상태가 섞일 수 있다. matcher를 넓히거나, 0번 래퍼가 모든 라우트에서 문맥을 명시적으로 정하게 한다.
+0번 러너 도입으로 "라우트마다 헤더 처리 방식이 갈리는" 문제는 해소됐다 — 모든
+보호 라우트가 같은 경로(등록부 대조 → 멤버십 검사)로 헤더를 소비하고, 공개
+라우트는 기본 문맥에 고정돼 헤더의 영향을 받지 않는다. 남은 것은 일관성 문제다:
+matcher 밖 라우트(`/api/chat`, `/api/presence`, `/api/me/nickname` 등)는 proxy의
+서명 사전 검사와 헤더 정규화(형태 검증·소문자 접기)를 거치지 않는다. 위조 헤더도
+멤버십 검사에서 막히지만, matcher를 넓혀 모든 API가 같은 전처리를 받게 할지
+결정한다. 이때 "나중에 다룰 것"의 닉네임 저장 위치(기본 문맥 고정)도 같이 보라.
 
 ### 3. UI
 
@@ -121,7 +155,7 @@ matcher 밖 라우트(`/api/chat`, `/api/presence`, `/api/share`, `/api/me/nickn
 
 - **스페이스 공유 링크**: 소비 라우트 `/api/share/[linkId]`가 항상 기본 데스크를 본다. 링크에 스페이스가 인코딩돼 있지 않아 구조적으로 스페이스 링크를 못 연다. desk2desk(#7)도 같은 영향을 받는다
 - **삭제 후 슬러그 재생성**: 등록만 지우고 폴더·명단이 남아, 같은 슬러그를 다시 만들면 옛 멤버가 approved 그대로 접근을 되찾고 옛 파일이 붙는다
-- **cron·인증 콜백**: 문맥 없이 돌아 기본 데스크만 본다. 스페이스의 만료 링크는 영원히 청소되지 않는다
+- **cron의 스페이스 청소**: cron·인증 콜백은 이제 명시적으로 기본 문맥에서 돈다(0번). 다만 cron이 스페이스들을 순회하지 않으므로 스페이스의 만료 링크는 여전히 청소되지 않는다 — 등록부를 돌며 스페이스별로 `runWithSpace`를 걸어 주면 된다
 - **닉네임 저장 위치**: 정체는 기본 데스크가 진실 원천인데 `setUserNickname`이 스페이스 문맥에서 돌면 스페이스 명단에 쓴다. 기본 문맥으로 고정해야 한다
 - **drive 루트 생성 경합**: eventual consistency 상황에서 두 요청이 서로의 폴더를 canonical로 골라 각자 삭제할 수 있다
 - **등록부 무결성**: 서로 다른 슬러그가 같은 `folderId`를 갖는 상태를 막지 않는다

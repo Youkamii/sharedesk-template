@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/api";
+import { runWithAdmin } from "@/lib/api";
 import {
   getOwnerRegistryStatus,
   recordOwnerRegistryObservation,
@@ -106,36 +106,37 @@ function json(value: unknown, status = 200) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await requireAdmin({ fresh: true });
-  if ("response" in auth) return auth.response;
-
-  return NextResponse.json(getOwnerRegistryStatus(req.nextUrl.origin), {
-    headers: { "Cache-Control": "private, no-store" },
+  return runWithAdmin({ fresh: true }, async () => {
+    return NextResponse.json(getOwnerRegistryStatus(req.nextUrl.origin), {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   });
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin({ fresh: true });
-  if ("response" in auth) return auth.response;
-
-  if (!isSameOrigin(req)) {
-    return json({ error: "같은 사이트에서만 요청할 수 있습니다" }, 403);
-  }
-  try {
-    await readConfirmation(req);
-  } catch (error) {
-    if (error instanceof ConfirmationBodyTooLargeError) {
-      return json({ error: "확인 요청이 너무 큽니다" }, 413);
+  return runWithAdmin({ fresh: true }, async ({ session }) => {
+    if (!isSameOrigin(req)) {
+      return json({ error: "같은 사이트에서만 요청할 수 있습니다" }, 403);
     }
-    if (error instanceof InvalidContentTypeError) {
-      return json({ error: "JSON 요청만 사용할 수 있습니다" }, 415);
+    try {
+      await readConfirmation(req);
+    } catch (error) {
+      if (error instanceof ConfirmationBodyTooLargeError) {
+        return json({ error: "확인 요청이 너무 큽니다" }, 413);
+      }
+      if (error instanceof InvalidContentTypeError) {
+        return json({ error: "JSON 요청만 사용할 수 있습니다" }, 415);
+      }
+      return json({ error: "설치 등록 확인 값을 확인해 주세요" }, 400);
     }
-    return json({ error: "설치 등록 확인 값을 확인해 주세요" }, 400);
-  }
 
-  const result = await recordOwnerRegistryObservation(
-    req.nextUrl.origin,
-    auth.session.email,
-  );
-  return json(result, result.ok ? 200 : result.reason === "disabled" ? 409 : 502);
+    const result = await recordOwnerRegistryObservation(
+      req.nextUrl.origin,
+      session.email,
+    );
+    return json(
+      result,
+      result.ok ? 200 : result.reason === "disabled" ? 409 : 502,
+    );
+  });
 }

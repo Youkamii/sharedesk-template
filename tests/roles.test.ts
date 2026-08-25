@@ -66,64 +66,64 @@ async function routeSource(relative: string): Promise<string> {
 }
 
 test("가드 적용: 쓰기 라우트는 역할 가드를, 읽기 라우트는 기존 가드를 쓴다", async () => {
-  // 새 항목 생성 계열 → requireUploadRights
+  // 새 항목 생성 계열 → runWithUploadRights
   for (const route of ["drive/upload", "drive/upload-session", "drive/mkdir"]) {
     const source = await routeSource(route);
     assert.match(
       handlerSource(source, "POST"),
-      /requireUploadRights\(\{ fresh: true \}\)/,
-      `${route} POST는 requireUploadRights를 쓴다`,
+      /runWithUploadRights\(\{ fresh: true \}/,
+      `${route} POST는 runWithUploadRights를 쓴다`,
     );
-    assert.doesNotMatch(source, /requireSession/, `${route}에 requireSession이 남아 있다`);
+    assert.doesNotMatch(source, /runWithSession/, `${route}에 runWithSession이 남아 있다`);
   }
 
-  // 기존 항목 변경 계열 → requireEditRights
+  // 기존 항목 변경 계열 → runWithEditRights
   for (const route of ["drive/content", "drive/delete", "drive/move", "drive/rename"]) {
     const source = await routeSource(route);
     assert.match(
       handlerSource(source, route === "drive/content" ? "PATCH" : "POST"),
-      /requireEditRights\(\{ fresh: true \}\)/,
-      `${route}는 requireEditRights를 쓴다`,
+      /runWithEditRights\(\{ fresh: true \}/,
+      `${route}는 runWithEditRights를 쓴다`,
     );
-    assert.doesNotMatch(source, /requireSession/, `${route}에 requireSession이 남아 있다`);
+    assert.doesNotMatch(source, /runWithSession/, `${route}에 runWithSession이 남아 있다`);
   }
 
-  // GET·쓰기가 한 파일에 있는 라우트 — 읽기는 그대로, 쓰기만 교체
+  // GET·쓰기가 한 파일에 있는 라우트 — 읽기는 세션만, 쓰기는 역할 가드
   const layout = await routeSource("desktop/layout");
-  assert.match(handlerSource(layout, "PATCH"), /requireUploadRights\(\{ fresh: true \}\)/);
-  assert.match(handlerSource(layout, "GET"), /requireSession\(\)/);
-  assert.doesNotMatch(handlerSource(layout, "GET"), /requireUploadRights|requireEditRights/);
+  assert.match(handlerSource(layout, "PATCH"), /runWithUploadRights\(\{ fresh: true \}/);
+  assert.match(handlerSource(layout, "GET"), /runWithSession\(null,/);
+  assert.doesNotMatch(handlerSource(layout, "GET"), /runWithUploadRights|runWithEditRights/);
 
   const trash = await routeSource("drive/trash");
-  assert.match(handlerSource(trash, "POST"), /requireEditRights\(\{ fresh: true \}\)/);
-  assert.match(handlerSource(trash, "GET"), /requireSession\(\)/);
-  assert.doesNotMatch(handlerSource(trash, "GET"), /requireUploadRights|requireEditRights/);
+  assert.match(handlerSource(trash, "POST"), /runWithEditRights\(\{ fresh: true \}/);
+  assert.match(handlerSource(trash, "GET"), /runWithSession\(null,/);
+  assert.doesNotMatch(handlerSource(trash, "GET"), /runWithUploadRights|runWithEditRights/);
 
   const folderNote = await routeSource("folder-note");
-  assert.match(handlerSource(folderNote, "PATCH"), /requireEditRights\(\{ fresh: true \}\)/);
-  assert.match(handlerSource(folderNote, "GET"), /requireSession\(\)/);
-  assert.doesNotMatch(handlerSource(folderNote, "GET"), /requireUploadRights|requireEditRights/);
+  assert.match(handlerSource(folderNote, "PATCH"), /runWithEditRights\(\{ fresh: true \}/);
+  assert.match(handlerSource(folderNote, "GET"), /runWithSession\(null,/);
+  assert.doesNotMatch(handlerSource(folderNote, "GET"), /runWithUploadRights|runWithEditRights/);
 
   // 읽기 전용·presence 라우트는 역할 가드를 쓰지 않는다
   for (const route of ["drive/list", "drive/download", "drive/path", "drive/search", "presence"]) {
     const source = await routeSource(route);
-    assert.match(source, /requireSession/, `${route}는 기존 requireSession을 유지한다`);
+    assert.match(source, /runWithSession/, `${route}는 세션 러너를 유지한다`);
     assert.doesNotMatch(
       source,
-      /requireUploadRights|requireEditRights/,
+      /runWithUploadRights|runWithEditRights/,
       `${route}에 역할 가드를 넣지 않는다`,
     );
   }
 
-  // 관리자 전용 라우트는 기존 requireAdmin 그대로
+  // 관리자 전용 라우트는 runWithAdmin 그대로
   const share = await routeSource("drive/share");
-  assert.match(share, /requireAdmin/);
-  assert.doesNotMatch(share, /requireUploadRights|requireEditRights/);
+  assert.match(share, /runWithAdmin/);
+  assert.doesNotMatch(share, /runWithUploadRights|runWithEditRights/);
 
   // 가드 헬퍼 본문: 계약 문구의 403
   const api = await readFile(new URL("../src/lib/api.ts", import.meta.url), "utf8");
-  assert.match(api, /export async function requireUploadRights/);
-  assert.match(api, /export async function requireEditRights/);
+  assert.match(api, /export async function runWithUploadRights/);
+  assert.match(api, /export async function runWithEditRights/);
   assert.match(api, /이 작업을 할 권한이 없습니다/);
   assert.match(api, /status: 403/);
 

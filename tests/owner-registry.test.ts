@@ -211,12 +211,12 @@ test("설치별 증명으로 등록하고 승인된 Google 사용자가 피드�
   assert.match(source, /\^\[A-Za-z0-9_-\]\{43\}\$/);
   assert.doesNotMatch(source, /env\.SHAREDESK_INSTALLATION_ID/);
   assert.equal(
-    routeSource.match(/requireAdmin\(\{ fresh: true \}\)/g)?.length,
+    routeSource.match(/runWithAdmin\(\{ fresh: true \}/g)?.length,
     2,
   );
   assert.match(routeSource, /Object\.keys\(body\)\.join\("\\n"\) !== "confirm"/);
-  assert.match(feedbackRouteSource, /requireSession\(\{ fresh: true \}\)/);
-  assert.doesNotMatch(feedbackRouteSource, /requireAdmin/);
+  assert.match(feedbackRouteSource, /runWithSession\(\{ fresh: true \}/);
+  assert.doesNotMatch(feedbackRouteSource, /runWithAdmin/);
   assert.match(
     feedbackRouteSource,
     /"feedbackId\\nmessage\\nsubject"/,

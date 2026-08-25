@@ -1,4 +1,4 @@
-import { errorResponse, requireEditRights, requireSession } from "@/lib/api";
+import { errorResponse, runWithEditRights, runWithSession } from "@/lib/api";
 import {
   getFolderNote,
   MAX_FOLDER_NOTE_BYTES,
@@ -58,43 +58,43 @@ async function readJsonBody(req: Request): Promise<unknown> {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireSession();
-  if ("response" in auth) return auth.response;
-  const folderId = new URL(req.url).searchParams.get("folderId") ?? ROOT_ID;
-  try {
-    return Response.json(await getFolderNote(folderId));
-  } catch (error) {
-    return errorResponse(error);
-  }
+  return runWithSession(null, async () => {
+    const folderId = new URL(req.url).searchParams.get("folderId") ?? ROOT_ID;
+    try {
+      return Response.json(await getFolderNote(folderId));
+    } catch (error) {
+      return errorResponse(error);
+    }
+  });
 }
 
 export async function PATCH(req: Request) {
-  const auth = await requireEditRights({ fresh: true });
-  if ("response" in auth) return auth.response;
-  try {
-    const body = await readJsonBody(req);
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      throw new StorageError("BAD_ID", "잘못된 요청입니다");
+  return runWithEditRights({ fresh: true }, async () => {
+    try {
+      const body = await readJsonBody(req);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        throw new StorageError("BAD_ID", "잘못된 요청입니다");
+      }
+      const value = body as Record<string, unknown>;
+      if (
+        typeof value.folderId !== "string" ||
+        typeof value.content !== "string" ||
+        !(
+          value.expectedVersion === null ||
+          typeof value.expectedVersion === "string"
+        )
+      ) {
+        throw new StorageError("BAD_ID", "잘못된 요청입니다");
+      }
+      return Response.json(
+        await updateFolderNote(
+          value.folderId,
+          value.content,
+          value.expectedVersion as string | null,
+        ),
+      );
+    } catch (error) {
+      return errorResponse(error);
     }
-    const value = body as Record<string, unknown>;
-    if (
-      typeof value.folderId !== "string" ||
-      typeof value.content !== "string" ||
-      !(
-        value.expectedVersion === null ||
-        typeof value.expectedVersion === "string"
-      )
-    ) {
-      throw new StorageError("BAD_ID", "잘못된 요청입니다");
-    }
-    return Response.json(
-      await updateFolderNote(
-        value.folderId,
-        value.content,
-        value.expectedVersion as string | null,
-      ),
-    );
-  } catch (error) {
-    return errorResponse(error);
-  }
+  });
 }

@@ -78,8 +78,8 @@ test("채팅 API와 창은 서버리스 폴링·독립 버튼·새 메시지 알
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
   ]);
-  assert.match(route, /requireSession\(\)/);
-  assert.match(route, /auth\.session\.isGuest/);
+  assert.match(route, /runWithSession\(null,/);
+  assert.match(route, /session\.isGuest/);
   assert.match(route, /sendChatMessage/);
   assert.match(route, /cursor: messages\.at\(-1\)\?\.id/);
   assert.doesNotMatch(route, /WebSocket|EventSource/);
