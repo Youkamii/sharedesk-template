@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -565,7 +566,7 @@ function resolveStarPageUrl(value: unknown): string {
 }
 
 function previewUrl(entry: Entry) {
-  return `/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`;
+  return apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`);
 }
 
 function isEditableTextEntry(entry: Entry) {
@@ -927,7 +928,7 @@ export default function FilesView({
   const fetchFolder = useCallback(
     async (folderId: string, signal: AbortSignal): Promise<FolderData> => {
       const listResponse = await fetch(
-        `/api/drive/list?folderId=${encodeURIComponent(folderId)}`,
+        apiPath(`/api/drive/list?folderId=${encodeURIComponent(folderId)}`),
         { cache: "no-store", signal },
       );
       if (listResponse.status === 401) {
@@ -1131,7 +1132,7 @@ export default function FilesView({
       const request = beginScopedRequest(layoutRequestsRef.current, scopeId);
       try {
         const response = await fetch(
-          `/api/desktop/layout?folderId=${encodeURIComponent(folderId)}`,
+          apiPath(`/api/desktop/layout?folderId=${encodeURIComponent(folderId)}`),
           { cache: "no-store", signal: request.controller.signal },
         );
         if (response.status === 401) {
@@ -1257,7 +1258,7 @@ export default function FilesView({
     presenceControllerRef.current = controller;
     setPresence((current) => ({ ...current, loading: true, error: null }));
     try {
-      const response = await fetch("/api/presence", {
+      const response = await fetch(apiPath("/api/presence"), {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
@@ -1303,7 +1304,7 @@ export default function FilesView({
     const controller = new AbortController();
     presenceReadControllerRef.current = controller;
     try {
-      const response = await fetch("/api/presence", {
+      const response = await fetch(apiPath("/api/presence"), {
         cache: "no-store",
         signal: controller.signal,
       });
@@ -1772,7 +1773,7 @@ export default function FilesView({
 
     void (async () => {
       try {
-        const response = await fetch("/api/admin/update", {
+        const response = await fetch(apiPath("/api/admin/update"), {
           method: "GET",
           cache: "no-store",
           signal: controller.signal,
@@ -1829,7 +1830,7 @@ export default function FilesView({
       updateRunControllerRef.current = controller;
       updateRunRequestIdRef.current = requestId;
       try {
-        const response = await fetch("/api/admin/update?scope=run", {
+        const response = await fetch(apiPath("/api/admin/update?scope=run"), {
           method: "GET",
           cache: "no-store",
           signal: controller.signal,
@@ -2017,7 +2018,7 @@ export default function FilesView({
         results: SearchResult[];
         truncated: boolean;
         explored: number;
-      }>(`/api/drive/search?${params}`, {
+      }>(apiPath(`/api/drive/search?${params}`), {
         method: "GET",
         cache: "no-store",
         signal: controller.signal,
@@ -2789,7 +2790,7 @@ export default function FilesView({
 
   function nativeDownload(entry: Entry) {
     const anchor = document.createElement("a");
-    anchor.href = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
+    anchor.href = apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
     anchor.download = downloadFileName(entry);
     document.body.appendChild(anchor);
     anchor.click();
@@ -2798,7 +2799,7 @@ export default function FilesView({
 
   async function downloadEntry(entry: Entry) {
     const id = crypto.randomUUID();
-    const url = `/api/drive/download?id=${encodeURIComponent(entry.id)}`;
+    const url = apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
     const suggestedName = downloadFileName(entry);
     try {
       const result = await streamDownloadToDisk(
@@ -2900,7 +2901,7 @@ export default function FilesView({
       // 맡긴다(디스크 스트리밍, 진행률은 브라우저 쪽에 보인다).
       if (item.size !== null && item.size > LARGE_DOWNLOAD_BYTES) {
         const anchor = document.createElement("a");
-        anchor.href = `/api/drive/download?id=${encodeURIComponent(item.entryId)}`;
+        anchor.href = apiPath(`/api/drive/download?id=${encodeURIComponent(item.entryId)}`);
         anchor.download = item.fileName;
         anchor.rel = "noopener";
         document.body.append(anchor);
@@ -2914,7 +2915,7 @@ export default function FilesView({
         return;
       }
       const response = await fetch(
-        `/api/drive/download?id=${encodeURIComponent(item.entryId)}`,
+        apiPath(`/api/drive/download?id=${encodeURIComponent(item.entryId)}`),
         { cache: "no-store" },
       );
       if (!response.ok || !response.body) {
@@ -3228,7 +3229,7 @@ export default function FilesView({
       groups.map(async (group) => {
         try {
           const snapshot = await apiJson<LayoutSnapshot>(
-            "/api/desktop/layout",
+            apiPath("/api/desktop/layout"),
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
@@ -3324,7 +3325,7 @@ export default function FilesView({
     const controller = new AbortController();
     previewSaveControllerRef.current = controller;
     try {
-      const result = await apiJson<{ entry: Entry }>("/api/drive/content", {
+      const result = await apiJson<{ entry: Entry }>(apiPath("/api/drive/content"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -3867,7 +3868,7 @@ export default function FilesView({
     }));
     try {
       const result = await apiJson<{ folderId: string; crumbs: Crumb[] }>(
-        `/api/drive/path?path=${encodeURIComponent(requestedPath)}`,
+        apiPath(`/api/drive/path?path=${encodeURIComponent(requestedPath)}`),
         {
           method: "GET",
           cache: "no-store",
@@ -3967,7 +3968,7 @@ export default function FilesView({
     });
     try {
       const result = await apiJson<{ content: string; version: string | null }>(
-        `/api/folder-note?folderId=${encodeURIComponent(folder.id)}`,
+        apiPath(`/api/folder-note?folderId=${encodeURIComponent(folder.id)}`),
         { method: "GET", cache: "no-store", signal: controller.signal },
       );
       if (folderNoteInstanceRef.current !== instanceId) return;
@@ -4018,7 +4019,7 @@ export default function FilesView({
     folderNoteSaveControllerRef.current = controller;
     try {
       const result = await apiJson<{ content: string; version: string | null }>(
-        "/api/folder-note",
+        apiPath("/api/folder-note"),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -4627,7 +4628,7 @@ export default function FilesView({
         offset += MAX_LAYOUT_BATCH_UPDATES
       ) {
         const chunk = nodes.slice(offset, offset + MAX_LAYOUT_BATCH_UPDATES);
-        const snapshot = await apiJson<LayoutSnapshot>("/api/desktop/layout", {
+        const snapshot = await apiJson<LayoutSnapshot>(apiPath("/api/desktop/layout"), {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           signal: first.node.controller?.signal,
@@ -4735,7 +4736,7 @@ export default function FilesView({
     const controller = new AbortController();
     node.controller = controller;
     try {
-      const snapshot = await apiJson<LayoutSnapshot>("/api/desktop/layout", {
+      const snapshot = await apiJson<LayoutSnapshot>(apiPath("/api/desktop/layout"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
@@ -4924,7 +4925,7 @@ export default function FilesView({
     removeFolderEntry(sourceFolderId, entry.id);
     upsertFolderEntry(targetFolderId, entry);
     try {
-      const body = await apiJson<{ entry: Entry }>("/api/drive/move", {
+      const body = await apiJson<{ entry: Entry }>(apiPath("/api/drive/move"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -5059,7 +5060,7 @@ export default function FilesView({
 
     let succeeded = false;
     try {
-      await apiJson("/api/drive/delete", {
+      await apiJson(apiPath("/api/drive/delete"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: entry.id }),
@@ -5167,7 +5168,7 @@ export default function FilesView({
   async function loadTrash() {
     try {
       const body = await apiJson<{ entries: TrashEntry[] }>(
-        "/api/drive/trash",
+        apiPath("/api/drive/trash"),
         { method: "GET" },
       );
       setTrashWindow((current) =>
@@ -5265,7 +5266,7 @@ export default function FilesView({
     );
     try {
       const result = await apiJson<{ warning?: string | null }>(
-        "/api/drive/trash",
+        apiPath("/api/drive/trash"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -5788,7 +5789,7 @@ export default function FilesView({
     setContextMenu(null);
     try {
       const body = await apiJson<{ link?: ShareLink }>(
-        "/api/drive/share-link",
+        apiPath("/api/drive/share-link"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -5893,7 +5894,7 @@ export default function FilesView({
     );
     setUpdatePanel({ loading: true, status: null, loadError: null });
     try {
-      const status = await apiJson<UpdateStatusResponse>("/api/admin/update", {
+      const status = await apiJson<UpdateStatusResponse>(apiPath("/api/admin/update"), {
         method: "GET",
         cache: "no-store",
         signal: controller.signal,
@@ -5970,7 +5971,7 @@ export default function FilesView({
     });
     try {
       await apiJson<{ ok: boolean; workflowUrl: string | null }>(
-        "/api/admin/update",
+        apiPath("/api/admin/update"),
         {
           method: "POST",
           cache: "no-store",
@@ -6317,7 +6318,7 @@ export default function FilesView({
     };
     updateTransfer(0, file.size);
     try {
-      const session = await apiJson<UploadSession>("/api/drive/upload-session", {
+      const session = await apiJson<UploadSession>(apiPath("/api/drive/upload-session"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6346,7 +6347,7 @@ export default function FilesView({
             id?: string;
           } | null;
           if (session.reservationId && body?.id) {
-            await apiJson("/api/drive/upload-complete", {
+            await apiJson(apiPath("/api/drive/upload-complete"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -6364,7 +6365,7 @@ export default function FilesView({
         ? `&reservationId=${encodeURIComponent(session.reservationId)}`
         : "";
       const response = await uploadWithProgress(
-        `/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}${reservationQuery}`,
+        apiPath(`/api/drive/upload?parentId=${encodeURIComponent(folderId)}&name=${encodeURIComponent(file.name)}${reservationQuery}`),
         "POST",
         file,
         mimeType,
@@ -6414,7 +6415,7 @@ export default function FilesView({
   // 같은 이름의 폴더가 이미 있으면 새로 만들지 않고 그 폴더 안으로 병합한다.
   async function ensureUploadFolder(parentId: string, name: string) {
     try {
-      const created = await apiJson<{ entry: Entry }>("/api/drive/mkdir", {
+      const created = await apiJson<{ entry: Entry }>(apiPath("/api/drive/mkdir"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ parentId, name }),
@@ -6423,7 +6424,7 @@ export default function FilesView({
     } catch (error) {
       if (!isFolderExistsConflict(error)) throw error;
       const listing = await apiJson<{ entries: Entry[] }>(
-        `/api/drive/list?folderId=${encodeURIComponent(parentId)}`,
+        apiPath(`/api/drive/list?folderId=${encodeURIComponent(parentId)}`),
         { cache: "no-store" },
       );
       // 같은 이름의 파일 때문에 난 충돌이면 못 찾는다 — 원래 오류를 그대로 남긴다.
@@ -6651,7 +6652,7 @@ export default function FilesView({
       feedbackRequestIdRef.current ?? window.crypto.randomUUID();
     feedbackRequestIdRef.current = feedbackId;
     try {
-      const result = await apiJson<{ ok?: boolean }>("/api/feedback", {
+      const result = await apiJson<{ ok?: boolean }>(apiPath("/api/feedback"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -6711,7 +6712,7 @@ export default function FilesView({
     try {
       const folderId = scopeFolderId(dialog.scopeId);
       if (dialog.kind === "create") {
-        await apiJson("/api/drive/mkdir", {
+        await apiJson(apiPath("/api/drive/mkdir"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ parentId: folderId, name: dialog.value }),
@@ -6720,7 +6721,7 @@ export default function FilesView({
           t("‘{name}’ 폴더를 만들었습니다", { name: dialog.value.trim() }),
         );
       } else if (dialog.kind === "rename") {
-        const result = await apiJson<{ entry: Entry }>("/api/drive/rename", {
+        const result = await apiJson<{ entry: Entry }>(apiPath("/api/drive/rename"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -6769,7 +6770,7 @@ export default function FilesView({
                   (id): id is string => !!id,
                 ),
         };
-        await apiJson("/api/drive/delete", {
+        await apiJson(apiPath("/api/drive/delete"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: dialog.entry.id }),
@@ -6818,12 +6819,12 @@ export default function FilesView({
   async function logout() {
     if (!confirmPreviewDiscard()) return;
     if (activePreviewDiscardReason()) discardActivePreview();
-    await fetch("/api/presence", {
+    await fetch(apiPath("/api/presence"), {
       method: "DELETE",
       cache: "no-store",
       keepalive: true,
     }).catch(() => undefined);
-    await fetch("/api/auth", { method: "DELETE" });
+    await fetch(apiPath("/api/auth"), { method: "DELETE" });
     router.replace("/");
     router.refresh();
   }

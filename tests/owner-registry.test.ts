@@ -227,7 +227,7 @@ test("설치별 증명으로 등록하고 승인된 Google 사용자가 피드�
   assert.match(adminSource, /"현재 설치 등록"/);
   assert.match(
     adminSource,
-    /fetch\("\/api\/admin\/owner-registry", \{\s*method: "POST",\s*headers: \{ "Content-Type": "application\/json" \},\s*body: JSON\.stringify\(\{ confirm: true \}\)/,
+    /fetch\(apiPath\("\/api\/admin\/owner-registry"\), \{\s*method: "POST",\s*headers: \{ "Content-Type": "application\/json" \},\s*body: JSON\.stringify\(\{ confirm: true \}\)/,
   );
   assert.doesNotMatch(envSource, /SHAREDESK_INSTALLATION_ID/);
   assert.equal(

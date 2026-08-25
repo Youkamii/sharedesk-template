@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -84,7 +85,7 @@ export default function QuickLinkWindow({
     const controller = new AbortController();
     const reconcile = async () => {
       try {
-        const response = await fetch("/api/drive/share-link", {
+        const response = await fetch(apiPath("/api/drive/share-link"), {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -149,7 +150,7 @@ export default function QuickLinkWindow({
     const mimeType = file.type || "application/octet-stream";
     try {
       const session = await apiJson<UploadSession>(
-        "/api/drive/quick-link/session",
+        apiPath("/api/drive/quick-link/session"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -181,7 +182,7 @@ export default function QuickLinkWindow({
           } | null;
           if (!uploaded?.id) throw new Error(t("업로드 결과를 확인하지 못했습니다"));
           const finalized = await apiJson<{ link?: unknown }>(
-            "/api/drive/quick-link",
+            apiPath("/api/drive/quick-link"),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -201,7 +202,7 @@ export default function QuickLinkWindow({
           ? `&reservationId=${encodeURIComponent(session.reservationId)}`
           : "";
         const upload = await uploadWithProgress(
-          `/api/drive/quick-link/upload?name=${encodeURIComponent(file.name)}${reservation}`,
+          apiPath(`/api/drive/quick-link/upload?name=${encodeURIComponent(file.name)}${reservation}`),
           "POST",
           file,
           mimeType,
@@ -263,7 +264,7 @@ export default function QuickLinkWindow({
     if (!item.link || item.keeping || !item.link.deleteOnExpire) return;
     patchItem(item.id, { keeping: true, error: null });
     try {
-      const body = await apiJson<{ link?: unknown }>("/api/drive/quick-link", {
+      const body = await apiJson<{ link?: unknown }>(apiPath("/api/drive/quick-link"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ linkId: item.link.linkId }),
@@ -284,7 +285,7 @@ export default function QuickLinkWindow({
   async function stop(item: QuickItem) {
     if (!item.link) return;
     try {
-      await apiJson("/api/drive/quick-link", {
+      await apiJson(apiPath("/api/drive/quick-link"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ linkId: item.link.linkId }),

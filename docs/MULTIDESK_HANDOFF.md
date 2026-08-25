@@ -54,7 +54,8 @@ https://<주소>/sea/files   → sea 스페이스
 ## 지금까지 만든 것 (로컬 커밋, 푸시 안 함)
 
 ```
-(최신)   0번 — 문맥 러너 재설계: enterWith 폐기, 러너가 핸들러 전체를 감쌈
+(최신)   1번 — 클라이언트 배선: /slug/api 경로 프리픽스 + 페이지 게이트
+64b7673  0번 — 문맥 러너 재설계: enterWith 폐기, 러너가 핸들러 전체를 감쌈
 c4ae49e  인수인계 문서
 eb67c18  격리 우회 차단 (교차 리뷰 지적 수정)
 051b509  5단계 서버부 — 스페이스 관리 API + 멤버십 모델 확정
@@ -77,7 +78,8 @@ dbdd10d  1단계 — 스페이스 등록부
 | `src/lib/space-store.ts` | AsyncLocalStorage 문맥. `runWithSpace`(run 기반)가 유일한 진입점 — enterWith 금지. 어댑터가 읽으므로 다른 모듈 import 금지 |
 | `src/lib/space-context.ts` | 순수 판정 계층: `resolveSpaceSession(token, space)` — next/headers를 모르고 주변 문맥도 안 읽어 테스트가 실제 함수를 돌린다 |
 | `src/lib/api.ts` | 요청 러너 `runWithSession / runWithUploadRights / runWithEditRights / runWithAdmin` — 헤더에서 스페이스 해석 → 세션 판정 → 핸들러 본문 전체를 `runWithSpace`로 감쌈 |
-| `src/lib/space-routing.ts` | proxy 경로 판정 순수 함수 |
+| `src/lib/space-routing.ts` | proxy 경로 판정 순수 함수 (`files`·`admin`·`api` 서브패스) |
+| `src/lib/client/api-path.ts` | 클라이언트 `apiPath()` — 주소창 경로에서 스페이스를 파생해 API 경로에 프리픽스 |
 | `src/lib/spaces.ts` | 등록부 CRUD (`.sharedesk/spaces.json`, 설치 루트에만) |
 | `src/proxy.ts` | `/sea/files` → `/files` rewrite + 헤더 주입, 클라 헤더 제거 |
 | `src/lib/storage/{local,drive}.ts` | 루트 해석이 문맥 우선, 상태 캐시 스페이스별 분리, `createSpaceRoot` |
@@ -126,23 +128,48 @@ dbdd10d  1단계 — 스페이스 등록부
   `\uXXXX` 표기로 교체(동일 문자 집합), 라우트 소스를 검사하던 테스트 7개 파일의
   패턴을 새 러너 이름으로 갱신.
 
+### 1. 클라이언트 배선 — 완료 (2026-08-26)
+
+헤더 대신 **경로 프리픽스**로 확정했다: 스페이스 화면의 API 호출은
+`/sea/api/...` 로 나가고, proxy가 `/api/...` 로 rewrite하며 스페이스 헤더를
+심는다. 헤더 방식은 iframe·anchor.href·window.open(미리보기·다운로드)에 헤더를
+실을 수 없어 전 경로를 덮지 못한다 — 프리픽스는 fetch와 URL 내비게이션을 한
+메커니즘으로 덮고, 스페이스 요청이 전부 proxy 정규화를 거치게 된다.
+
+- `src/lib/client/api-path.ts` 신설: `apiPath("/api/x")`가 주소창 경로에서
+  스페이스를 파생(`matchSpaceRoute` 재사용 — proxy와 같은 판정)해 프리픽스를
+  붙인다. 서버 렌더 중(window 없음)에는 그대로.
+- 클라이언트 `/api/` 리터럴 77곳 전부 `apiPath(...)`로 감쌈(FilesView 37,
+  AdminView 14, 창·다이얼로그 25, transfer.ts 1). apiJson 헬퍼는 그대로 두고
+  리터럴 발생 지점에서 감쌌다 — 이중 프리픽스가 원천 차단된다.
+- `space-routing.ts`: `/slug/api`도 스페이스 경로로 인정. `proxy.ts`: matcher에
+  `/:slug/api/:path*` 추가, 스페이스 api 경로 미인증은 redirect 대신 401 JSON.
+- 페이지 게이트: `files/page.tsx`·`admin/page.tsx`가 러너와 같은
+  `resolveSpaceSession`으로 판정 — 미등록 스페이스 `notFound()`, 비멤버는
+  `/files`로 리다이렉트("주소를 알아도 거부" 요구사항), 스페이스의 비관리자가
+  `/sea/admin`에 오면 `/sea/files`로. 로케일·데스크 설정 표시는 기본 데스크
+  기준(스페이스 설정 화면이 아직 없다).
+- 검증: 전체 340+1 테스트 통과(종료 코드 직접 확인), tsc·eslint 깨끗,
+  `next build` 성공. 런타임 스모크 — 0번의 18항목 회귀 통과 + 1번 신규 13항목
+  (`/sea/api` 목록·다운로드 내용 일치, 위조 헤더를 프리픽스가 덮음, 미인증
+  401 JSON, 미등록 404, 비멤버 페이지 리다이렉트, 관리자/비관리자 admin 게이트,
+  기본 데스크 경로 무영향) 통과.
+- 주의: 스모크 서버를 TaskStop으로 죽여도 npx의 node 자식이 살아남아 포트를
+  쥔다 — 재검증 전에 3777 리스너를 확인하고 죽일 것(한 번 옛 빌드에 대고
+  스모크를 돌릴 뻔했다).
+
 ## 남은 작업 — 반드시 이 순서로
-
-### 1. [다음 작업] 클라이언트 배선
-
-`src/app/files/`와 `src/lib/client/` 어디에도 스페이스 헤더를 붙이는 코드가 **없다**. 주소창이 `/sea/files`여도 API 호출에는 헤더가 없어 기본 데스크를 읽고 쓴다. 지금 멀티 데스크가 반쪽인 이유다.
-
-`fetch` 호출을 한 곳으로 모으고 거기서 헤더를 넣는 게 낫다. FilesView가 9600줄이라 호출부가 흩어져 있다.
 
 ### 2. proxy matcher 정리
 
-0번 러너 도입으로 "라우트마다 헤더 처리 방식이 갈리는" 문제는 해소됐다 — 모든
-보호 라우트가 같은 경로(등록부 대조 → 멤버십 검사)로 헤더를 소비하고, 공개
-라우트는 기본 문맥에 고정돼 헤더의 영향을 받지 않는다. 남은 것은 일관성 문제다:
-matcher 밖 라우트(`/api/chat`, `/api/presence`, `/api/me/nickname` 등)는 proxy의
-서명 사전 검사와 헤더 정규화(형태 검증·소문자 접기)를 거치지 않는다. 위조 헤더도
-멤버십 검사에서 막히지만, matcher를 넓혀 모든 API가 같은 전처리를 받게 할지
-결정한다. 이때 "나중에 다룰 것"의 닉네임 저장 위치(기본 문맥 고정)도 같이 보라.
+1번에서 스페이스 트래픽이 전부 `/slug/api` 프리픽스로 proxy를 거치게 되면서
+사실상 정리됐다. 남은 결정 하나: matcher 밖 라우트(`/api/chat`,
+`/api/presence`, `/api/me/nickname` 등)로 **직접**(프리픽스 없이) 스페이스
+헤더를 보내는 클라이언트를 계속 허용할지다. 지금은 러너가 등록부 대조·멤버십
+검사로 막고 있어 위조로는 아무것도 얻지 못한다 — 남은 건 "정식 클라이언트는
+프리픽스만 쓴다"는 규약을 서버가 강제할지(비 matcher 라우트에서 클라이언트
+직접 헤더를 무시할지) 여부. 이때 "나중에 다룰 것"의 닉네임 저장 위치(기본
+문맥 고정)도 같이 보라.
 
 ### 3. UI
 

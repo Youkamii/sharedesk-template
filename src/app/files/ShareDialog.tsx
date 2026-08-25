@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   useCallback,
@@ -164,7 +165,7 @@ export default function ShareDialog({
       setError(null);
       try {
         const body = await apiJson<ShareResponse>(
-          `/api/drive/share?id=${encodeURIComponent(entry.id)}`,
+          apiPath(`/api/drive/share?id=${encodeURIComponent(entry.id)}`),
           { method: "GET", cache: "no-store", signal: controller.signal },
         );
         if (loadControllerRef.current !== controller) return;
@@ -253,7 +254,7 @@ export default function ShareDialog({
     setBusyKey("create");
     setError(null);
     try {
-      await apiJson("/api/drive/share", {
+      await apiJson(apiPath("/api/drive/share"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,7 +296,7 @@ export default function ShareDialog({
     setBusyKey(`update:${permission.permissionId}`);
     setError(null);
     try {
-      await apiJson("/api/drive/share", {
+      await apiJson(apiPath("/api/drive/share"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -334,7 +335,7 @@ export default function ShareDialog({
     setBusyKey(`delete:${permission.permissionId}`);
     setError(null);
     try {
-      await apiJson("/api/drive/share", {
+      await apiJson(apiPath("/api/drive/share"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

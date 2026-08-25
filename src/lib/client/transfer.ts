@@ -1,3 +1,5 @@
+import { apiPath } from "@/lib/client/api-path";
+
 export type TransferKind = "upload" | "download";
 
 export type TransferProgress = {
@@ -36,7 +38,7 @@ export function startUploadReservationHeartbeat(
 ): () => void {
   if (!reservationId) return () => undefined;
   const timer = window.setInterval(() => {
-    void fetch("/api/drive/upload-reservation", {
+    void fetch(apiPath("/api/drive/upload-reservation"), {
       method: "POST",
       cache: "no-store",
       headers: { "Content-Type": "application/json" },

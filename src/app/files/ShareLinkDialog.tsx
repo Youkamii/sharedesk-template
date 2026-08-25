@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -141,7 +142,7 @@ export default function ShareLinkDialog({
       setError(null);
       try {
         const body = await apiJson<{ links: unknown }>(
-          `/api/drive/share-link?fileId=${encodeURIComponent(entry.id)}`,
+          apiPath(`/api/drive/share-link?fileId=${encodeURIComponent(entry.id)}`),
           { method: "GET", cache: "no-store", signal: controller.signal },
         );
         if (loadControllerRef.current !== controller) return;
@@ -192,7 +193,7 @@ export default function ShareLinkDialog({
     setBusyKey("create");
     setError(null);
     try {
-      const body = await apiJson<{ link: unknown }>("/api/drive/share-link", {
+      const body = await apiJson<{ link: unknown }>(apiPath("/api/drive/share-link"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: entry.id, expiresInHours }),
@@ -233,7 +234,7 @@ export default function ShareLinkDialog({
     setBusyKey(`revoke:${link.linkId}`);
     setError(null);
     try {
-      const result = await apiJson<{ ok?: boolean }>("/api/drive/share-link", {
+      const result = await apiJson<{ ok?: boolean }>(apiPath("/api/drive/share-link"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ linkId: link.linkId }),

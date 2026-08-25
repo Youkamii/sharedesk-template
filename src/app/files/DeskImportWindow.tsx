@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -85,7 +86,7 @@ export default function DeskImportWindow({
 
   const readManifest = useCallback(
     async (entryId: string | null) => {
-      const response = await postJson("/api/drive/import/manifest", {
+      const response = await postJson(apiPath("/api/drive/import/manifest"), {
         url: link,
         entryId,
       });
@@ -142,7 +143,7 @@ export default function DeskImportWindow({
         parentId,
         {
           ensureFolder: async (name, folderParentId) => {
-            const response = await postJson("/api/drive/mkdir", {
+            const response = await postJson(apiPath("/api/drive/mkdir"), {
               name,
               parentId: folderParentId,
             });
@@ -155,7 +156,7 @@ export default function DeskImportWindow({
             const body = await response.json().catch(() => null);
             if (isFolderExistsConflict({ status: response.status, body })) {
               const listed = await fetch(
-                `/api/drive/list?folderId=${encodeURIComponent(folderParentId)}`,
+                apiPath(`/api/drive/list?folderId=${encodeURIComponent(folderParentId)}`),
                 { cache: "no-store" },
               );
               if (listed.ok) {
@@ -170,7 +171,7 @@ export default function DeskImportWindow({
           },
           importFile: async (task, folderParentId) => {
             const response = await postJson(
-              `/api/drive/import?parentId=${encodeURIComponent(folderParentId)}`,
+              apiPath(`/api/drive/import?parentId=${encodeURIComponent(folderParentId)}`),
               { url: link, entryId: task.entryId },
             );
             if (!response.ok) throw new Error("import");

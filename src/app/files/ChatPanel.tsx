@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import {
   type FormEvent,
   useCallback,
@@ -109,7 +110,7 @@ export default function ChatPanel({
         const query = lastIdRef.current
           ? `?after=${encodeURIComponent(lastIdRef.current)}`
           : "";
-        const response = await fetch(`/api/chat${query}`, {
+        const response = await fetch(apiPath(`/api/chat${query}`), {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -194,7 +195,7 @@ export default function ChatPanel({
     setSending(true);
     setError(null);
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch(apiPath("/api/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),

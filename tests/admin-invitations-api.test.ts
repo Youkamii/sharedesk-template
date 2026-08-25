@@ -123,7 +123,10 @@ test("관리자 화면은 역할 열과 역할 변경 PATCH를 제공한다", as
   assert.match(userSection, /changeRole\(\s*user\.id/);
 
   // 역할 변경은 admin/users PATCH action=role 로 보내고 busy 처리를 같이 쓴다
-  assert.match(source, /fetch\("\/api\/admin\/users", \{\s*method: "PATCH"/);
+  assert.match(
+    source,
+    /fetch\(apiPath\("\/api\/admin\/users"\), \{\s*method: "PATCH"/,
+  );
   assert.match(source, /action: "role"/);
   assert.match(source, /if \(!beginMutation\(`user:\$\{id\}`\)\) return;/);
 

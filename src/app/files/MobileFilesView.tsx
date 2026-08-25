@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -64,7 +65,7 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
     void (async () => {
       try {
         const response = await fetch(
-          `/api/drive/list?folderId=${encodeURIComponent(currentId)}`,
+          apiPath(`/api/drive/list?folderId=${encodeURIComponent(currentId)}`),
           { cache: "no-store" },
         );
         if (!alive) return;
@@ -108,7 +109,7 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
     // 모바일에서는 창을 띄우는 대신 브라우저에 맡긴다 — 이미지·PDF는 바로
     // 열리고 나머지는 내려받는다.
     window.open(
-      `/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`,
+      apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}&disposition=inline`),
       "_blank",
       "noopener,noreferrer",
     );
@@ -123,7 +124,7 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
     if (!name?.trim()) return;
     setBusy(true);
     try {
-      const response = await fetch("/api/drive/mkdir", {
+      const response = await fetch(apiPath("/api/drive/mkdir"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), parentId: currentId }),
@@ -144,7 +145,7 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
     for (const file of Array.from(files)) {
       try {
         const response = await fetch(
-          `/api/drive/upload?parentId=${encodeURIComponent(currentId)}&name=${encodeURIComponent(file.name)}`,
+          apiPath(`/api/drive/upload?parentId=${encodeURIComponent(currentId)}&name=${encodeURIComponent(file.name)}`),
           {
             method: "POST",
             headers: {

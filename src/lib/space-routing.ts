@@ -1,8 +1,11 @@
 import { parseSpaceSlug } from "@/lib/space-slug";
 
 // proxy의 경로 판정만 떼어 낸 순수 함수. NextRequest 없이 테스트한다.
-// /<slug>/files, /<slug>/admin 만 스페이스 라우팅으로 본다.
-const SPACE_SUBPATHS = new Set(["files", "admin"]);
+// /<slug>/files, /<slug>/admin, /<slug>/api 만 스페이스 라우팅으로 본다.
+// api를 포함하는 이유(#12 1번): iframe·anchor·window.open처럼 헤더를 실을 수
+// 없는 호출이 있어, 클라이언트는 스페이스 API를 경로 프리픽스로 부른다 —
+// /sea/api/drive/list → proxy가 /api/drive/list 로 rewrite하며 헤더를 심는다.
+const SPACE_SUBPATHS = new Set(["files", "admin", "api"]);
 
 export interface SpaceRoute {
   slug: string;

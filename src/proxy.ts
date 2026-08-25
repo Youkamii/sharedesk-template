@@ -22,12 +22,15 @@ export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const signed = await openSigned(req.cookies.get(COOKIE_NAME)?.value);
 
-  // /<slug>/(files|admin)... 형태면 스페이스 라우팅으로 본다.
+  // /<slug>/(files|admin|api)... 형태면 스페이스 라우팅으로 본다.
   const spaceRoute = matchSpaceRoute(pathname);
 
   if (spaceRoute) {
     if (!signed) {
-      return NextResponse.redirect(new URL("/", req.url));
+      // API 호출에는 화면 리다이렉트 대신 JSON을 준다 — fetch가 삼킬 수 있게.
+      return spaceRoute.rewritePath.startsWith("/api/")
+        ? NextResponse.json({ error: "인증이 필요합니다" }, { status: 401 })
+        : NextResponse.redirect(new URL("/", req.url));
     }
     // /sea/files/x → /files/x 로 rewrite하고 슬러그를 헤더에 싣는다.
     const url = req.nextUrl.clone();
@@ -70,8 +73,10 @@ export const config = {
     "/api/admin/:path*",
     "/api/spaces/:path*",
     "/api/spaces",
-    // 스페이스 경로도 잡는다.
+    // 스페이스 경로도 잡는다. api 프리픽스는 헤더를 실을 수 없는 호출
+    // (iframe·anchor·window.open)까지 스페이스로 보내는 통로다.
     "/:slug/files/:path*",
     "/:slug/admin/:path*",
+    "/:slug/api/:path*",
   ],
 };

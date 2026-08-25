@@ -8,7 +8,7 @@ import test from "node:test";
 
 Object.assign(globalThis, { AsyncLocalStorage });
 
-const SESSION_SECRET = "presence-route-test-secret-with-32-characters";
+const SESSION_SECRET = "test-presence-route-secret-with-32-characters";
 const ACCESS_KEY = "presence-route-access-key";
 
 test("현재 접속 인원은 공유 상태에서 계정별로 집계한다", async () => {
@@ -648,14 +648,17 @@ test("상단 접속 상태는 실제 인원 목록을 열고 로그아웃 때 �
     readFile("src/app/files/desktop.module.css", "utf8"),
   ]);
 
-  assert.match(view, /fetch\("\/api\/presence", \{\s*method: "POST"/);
+  assert.match(
+    view,
+    /fetch\(apiPath\("\/api\/presence"\), \{\s*method: "POST"/,
+  );
   assert.match(view, /document\.visibilityState === "visible"/);
   assert.match(view, /aria-controls="presence-panel"/);
   assert.match(view, /현재 접속 인원/);
   assert.match(view, /presence\.members\.map/);
   assert.match(
     view,
-    /fetch\("\/api\/presence", \{\s*method: "DELETE"[\s\S]*?keepalive: true/,
+    /fetch\(apiPath\("\/api\/presence"\), \{\s*method: "DELETE"[\s\S]*?keepalive: true/,
   );
   assert.match(css, /\.presencePanel\s*\{/);
   assert.match(css, /\.liveDotError\s*\{/);

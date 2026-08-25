@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import {
   type CSSProperties,
   type FormEvent,
@@ -254,8 +255,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     try {
       const [userResponse, inviteResponse] = await Promise.all([
-        fetch("/api/admin/users"),
-        fetch("/api/admin/invitations"),
+        fetch(apiPath("/api/admin/users")),
+        fetch(apiPath("/api/admin/invitations")),
       ]);
       if (
         userResponse.status === 401 ||
@@ -309,7 +310,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
   useEffect(() => {
     const controller = new AbortController();
     const initial = window.setTimeout(() => {
-      void fetch("/api/admin/owner-registry", {
+      void fetch(apiPath("/api/admin/owner-registry"), {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -351,7 +352,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
   useEffect(() => {
     const controller = new AbortController();
     const initial = window.setTimeout(() => {
-      void fetch("/api/admin/desk-settings", {
+      void fetch(apiPath("/api/admin/desk-settings"), {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -416,7 +417,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
   const loadStorage = useCallback(
     async (signal?: AbortSignal) => {
       try {
-        const response = await fetch("/api/storage/usage", {
+        const response = await fetch(apiPath("/api/storage/usage"), {
           cache: "no-store",
           signal,
         });
@@ -491,7 +492,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     const controller = new AbortController();
     const initial = window.setTimeout(() => {
       void Promise.all([
-        fetch("/api/update-policy", {
+        fetch(apiPath("/api/update-policy"), {
           cache: "no-store",
           signal: controller.signal,
         })
@@ -534,7 +535,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     if (activeTab !== "activity") return;
     const controller = new AbortController();
     const initial = window.setTimeout(() => {
-      void fetch("/api/admin/activity", {
+      void fetch(apiPath("/api/admin/activity"), {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -573,7 +574,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/owner-registry", {
+      const response = await fetch(apiPath("/api/admin/owner-registry"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ confirm: true }),
@@ -632,7 +633,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await fetch(apiPath("/api/admin/users"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action, sessionId }),
@@ -657,7 +658,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await fetch(apiPath("/api/admin/users"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, action: "role", role }),
@@ -678,7 +679,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/invitations", {
+      const response = await fetch(apiPath("/api/admin/invitations"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(inviteForm),
@@ -722,7 +723,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/invitations", {
+      const response = await fetch(apiPath("/api/admin/invitations"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
@@ -809,7 +810,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
     setError(null);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/desk-settings", {
+      const response = await fetch(apiPath("/api/admin/desk-settings"), {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
@@ -899,7 +900,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
   // 자동 업데이트 켜기 한 번의 시도. 결과만 돌려주고 알림·상태는 호출부가 정한다.
   async function tryEnableAutoUpdate(): Promise<"on" | "waiting" | "failed"> {
     try {
-      const response = await fetch("/api/admin/desk-settings", {
+      const response = await fetch(apiPath("/api/admin/desk-settings"), {
         method: "PATCH",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },

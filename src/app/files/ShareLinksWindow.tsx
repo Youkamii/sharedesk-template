@@ -1,5 +1,6 @@
 "use client";
 
+import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
@@ -60,7 +61,7 @@ export default function ShareLinksWindow({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/drive/share-link", {
+      const response = await fetch(apiPath("/api/drive/share-link"), {
         cache: "no-store",
       });
       if (response.status === 401) {
@@ -107,7 +108,7 @@ export default function ShareLinksWindow({
     setBusyId(link.linkId);
     setError(null);
     try {
-      const response = await fetch("/api/drive/share-link", {
+      const response = await fetch(apiPath("/api/drive/share-link"), {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ linkId: link.linkId }),

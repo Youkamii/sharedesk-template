@@ -1087,7 +1087,7 @@ test("업로드 세션 생성이 실패해도 전송 표시를 정리한다", as
   assert.ok(uploadStart >= 0 && uploadEnd > uploadStart);
   assert.match(
     uploadOne,
-    /updateTransfer\(0, file\.size\);\s*try \{[\s\S]*?await apiJson<UploadSession>\("\/api\/drive\/upload-session"[\s\S]*?finally \{\s*reportTransferProgress\(null, transferId\);/,
+    /updateTransfer\(0, file\.size\);\s*try \{[\s\S]*?await apiJson<UploadSession>\(apiPath\("\/api\/drive\/upload-session"\)[\s\S]*?finally \{\s*reportTransferProgress\(null, transferId\);/,
   );
 });
 
@@ -1192,14 +1192,14 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
 
   assert.match(
     source,
-    /apiJson<UpdateStatusResponse>\("\/api\/admin\/update", \{[\s\S]*?method: "GET",[\s\S]*?cache: "no-store",[\s\S]*?signal: controller\.signal/,
+    /apiJson<UpdateStatusResponse>\(apiPath\("\/api\/admin\/update"\), \{[\s\S]*?method: "GET",[\s\S]*?cache: "no-store",[\s\S]*?signal: controller\.signal/,
   );
   assert.match(source, /updateControllerRef\.current\?\.abort\(\)/);
   assert.match(source, /updateRequestIdRef\.current !== requestId/);
   assert.match(source, /if \(!isAdmin\) return;/);
   assert.match(
     source,
-    /if \(!isAdmin \|\| autoUpdate\) return;[\s\S]*?fetch\("\/api\/admin\/update", \{[\s\S]*?cache: "no-store"/,
+    /if \(!isAdmin \|\| autoUpdate\) return;[\s\S]*?fetch\(apiPath\("\/api\/admin\/update"\), \{[\s\S]*?cache: "no-store"/,
   );
   assert.match(
     source,
@@ -1374,7 +1374,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   assert.ok(submitStart >= 0 && submitEnd > submitStart);
   assert.match(
     submitFeedback,
-    /apiJson<\{ ok\?: boolean \}>\("\/api\/feedback", \{[\s\S]*?method: "POST"/,
+    /apiJson<\{ ok\?: boolean \}>\(apiPath\("\/api\/feedback"\), \{[\s\S]*?method: "POST"/,
   );
   assert.match(
     submitFeedback,
