@@ -29,3 +29,24 @@ export function matchSpaceRoute(pathname: string): SpaceRoute | null {
     rewritePath: "/" + segments.slice(1).join("/"),
   };
 }
+
+// proxy의 서명 사전 검사를 면제받는 공개 API. 서버 러너 쪽의 공개 라우트
+// 목록과 정확히 대칭이다(runWithSpace(null)로 기본 문맥을 고정하는 라우트들):
+// - /api/auth*            로그인·로그아웃·구글 콜백 — 세션이 생기기 전이다
+// - /api/share/<linkId>   외부 공유 링크 — 링크만 알면 연다
+// - /api/invitations/code 가입 절차 — 승인 전 사용자가 부른다
+// - /api/update-policy    자동 업데이트 워크플로가 키 없이 읽는다
+// - /api/cron/*           예약 실행 — 세션 대신 CRON_SECRET으로 판정한다
+// 최종 판정은 언제나 각 라우트가 한다 — 이 목록은 어디까지나 사전 거름망의
+// 면제 목록이지 허가 목록이 아니다.
+const PUBLIC_API_PREFIXES = ["/api/auth", "/api/share/", "/api/cron/"];
+const PUBLIC_API_EXACT = new Set(["/api/invitations/code", "/api/update-policy"]);
+
+export function isPublicApiPath(pathname: string): boolean {
+  if (PUBLIC_API_EXACT.has(pathname)) return true;
+  return PUBLIC_API_PREFIXES.some(
+    (prefix) =>
+      pathname === prefix ||
+      pathname.startsWith(prefix.endsWith("/") ? prefix : prefix + "/"),
+  );
+}

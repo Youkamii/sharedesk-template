@@ -2156,9 +2156,16 @@ test("external share links are scoped, expiring, and revocable", async () => {
   assert.match(publicRoute, /adapter\.isWithin\(targetId, link\.fileId\)/);
   assert.match(publicRoute, /folderPage\(/);
   assert.doesNotMatch(publicRoute, /runWithSession|runWithEditRights/);
-  // 공개 경로는 proxy 보호 접두사(/api/drive, /api/admin) 밖에 있어야 한다.
+  // 공유 소비 경로는 proxy의 공개 API 목록에 들어 서명 사전 검사를 면제받는다
+  // (matcher가 /api 전체를 잡으므로 목록에 없으면 링크가 401로 죽는다).
   const proxy = await readFile(new URL("../src/proxy.ts", import.meta.url), "utf8");
-  assert.match(proxy, /\/api\/drive\/:path\*/);
+  assert.match(proxy, /"\/api\/:path\*"/);
+  assert.match(proxy, /isPublicApiPath/);
+  const routing = await readFile(
+    new URL("../src/lib/space-routing.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(routing, /"\/api\/share\/"/);
   assert.ok(!publicRoute.includes("api/drive/"));
 });
 

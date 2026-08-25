@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchSpaceRoute } from "../src/lib/space-routing";
+import { isPublicApiPath, matchSpaceRoute } from "../src/lib/space-routing";
 import { apiPath, spaceSlugFromPathname } from "../src/lib/client/api-path";
 
 test("스페이스 경로를 슬러그와 rewrite 대상으로 가른다", () => {
@@ -49,6 +49,35 @@ test("스페이스가 아닌 경로는 null", () => {
     "",
   ]) {
     assert.equal(matchSpaceRoute(path), null, `null이어야 함: ${path}`);
+  }
+});
+
+test("공개 API 판정 — 러너의 공개 라우트 목록과 대칭이다", () => {
+  // 세션 없이 열려야 하는 경로들. proxy가 서명 사전 검사를 면제한다.
+  for (const path of [
+    "/api/auth",
+    "/api/auth/google",
+    "/api/auth/google/callback",
+    "/api/share/abc123",
+    "/api/invitations/code",
+    "/api/update-policy",
+    "/api/cron/share-cleanup",
+  ]) {
+    assert.equal(isPublicApiPath(path), true, `공개여야 함: ${path}`);
+  }
+  // 보호 경로는 공개가 아니다 — 접두사가 비슷해도 갈라야 한다.
+  for (const path of [
+    "/api/drive/list",
+    "/api/admin/users",
+    "/api/spaces",
+    "/api/chat",
+    "/api/presence",
+    "/api/me/nickname",
+    "/api/share", // 소비 경로는 /api/share/<linkId> 뿐이다
+    "/api/authx", // 접두사 흉내
+    "/api/update-policyx",
+  ]) {
+    assert.equal(isPublicApiPath(path), false, `보호여야 함: ${path}`);
   }
 });
 
