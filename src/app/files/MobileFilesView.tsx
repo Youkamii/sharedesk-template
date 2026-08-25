@@ -21,12 +21,19 @@ type Props = {
   locale: Locale;
   rootId: string;
   allowUpload: boolean;
+  // 나가기(데스크 목록) 링크 표시 — 갈 곳이 둘 이상일 때만(#12).
+  canLeave?: boolean;
 };
 
 // 들어온 폴더를 쌓아 두고 뒤로가기로 하나씩 벗긴다.
 type Crumb = { id: string; name: string };
 
-export default function MobileFilesView({ locale, rootId, allowUpload }: Props) {
+export default function MobileFilesView({
+  locale,
+  rootId,
+  allowUpload,
+  canLeave = false,
+}: Props) {
   const router = useRouter();
   const [trail, setTrail] = useState<Crumb[]>([]);
   // 불러온 폴더를 함께 담아 둔다. "지금 폴더와 다르면 로딩"으로 파생시키면
@@ -194,6 +201,11 @@ export default function MobileFilesView({ locale, rootId, allowUpload }: Props) 
         )}
         <strong className={styles.title}>{currentName}</strong>
         {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다. */}
+        {canLeave && (
+          <a href="/spaces" className={styles.logoutButton}>
+            {t("나가기")}
+          </a>
+        )}
         <LogoutButton locale={locale} className={styles.logoutButton} />
       </header>
 

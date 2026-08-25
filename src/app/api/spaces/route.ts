@@ -1,36 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, runWithAdmin, runWithSession } from "@/lib/api";
+import { listAccessibleSpaces } from "@/lib/space-access";
 import { runWithSpace } from "@/lib/space-context";
-import { addSpace, listSpaces, parseSpaceSlug } from "@/lib/spaces";
+import { addSpace, parseSpaceSlug } from "@/lib/spaces";
 import { getAdapter } from "@/lib/storage";
-import { findUserById } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // 스페이스 목록·생성 (#12). 목록은 "내가 들어갈 수 있는 곳"만 준다 —
-// 초대받지 않은 스페이스는 존재도 알리지 않는다.
+// 초대받지 않은 스페이스는 존재도 알리지 않는다. 판정은 space-access의
+// 공용 함수 — 로그인 목적지·/spaces 화면과 같은 답을 내야 한다.
 export async function GET() {
   return runWithSession({ fresh: true }, async ({ session }) => {
-    // 목록·멤버십 판정은 기본 문맥 기준으로 시작한다.
-    const spaces = await runWithSpace(null, () => listSpaces());
-
-    const accessible: { slug: string; name: string }[] = [];
-    for (const space of spaces) {
-      if (session.isAdmin) {
-        accessible.push({ slug: space.slug, name: space.name });
-        continue;
-      }
-      if (session.isGuest) continue;
-      const member = await runWithSpace(
-        { slug: space.slug, folderId: space.folderId },
-        () => findUserById(session.userId, { fresh: true }),
-      );
-      if (member && member.status === "approved") {
-        accessible.push({ slug: space.slug, name: space.name });
-      }
-    }
-
+    const accessible = await listAccessibleSpaces(session, { fresh: true });
     return NextResponse.json(
       {
         spaces: accessible,

@@ -2,6 +2,10 @@ import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
+import {
+  hasMultipleDestinations,
+  listAccessibleSpaces,
+} from "@/lib/space-access";
 import { resolveSpaceSession, runWithSpace } from "@/lib/space-context";
 import { SPACE_HEADER } from "@/lib/space-slug";
 import { getSpace } from "@/lib/spaces";
@@ -46,8 +50,11 @@ export default async function FilesPage() {
   // 로그인은 되어 있으므로 자기(기본) 데스크로 돌려보낸다.
   if (result.kind === "not-member") redirect("/files");
   const session = result.session;
+  // 나가기 버튼: 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상일 때만(#12).
+  const accessible = await listAccessibleSpaces(session);
   return (
     <FilesView
+      canLeave={hasMultipleDestinations(accessible.length)}
       userName={session.name}
       userEmail={session.email}
       isAdmin={session.isAdmin}

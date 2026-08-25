@@ -666,6 +666,7 @@ export default function FilesView({
   locale,
   allowMemberLocale,
   autoUpdate,
+  canLeave = false,
 }: {
   userName: string;
   userEmail: string;
@@ -678,6 +679,9 @@ export default function FilesView({
   // 자동 업데이트가 켜진 데스크에서는 수동 업데이트 버튼을 숨긴다 —
   // 업데이트 내용은 관리자 설정 화면이 보여 준다.
   autoUpdate: boolean;
+  // 나가기(데스크 목록으로) 버튼 표시 — 갈 곳이 둘 이상일 때만(#12).
+  // 역할이 아니라 목적지 수 기준이라 서버(page)가 계산해 내려준다.
+  canLeave?: boolean;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -7130,6 +7134,7 @@ export default function FilesView({
         locale={locale}
         rootId={ROOT_ID}
         allowUpload={allowUpload}
+        canLeave={canLeave}
       />
     );
   }
@@ -8787,8 +8792,13 @@ export default function FilesView({
             {userName}
             {isGuest ? ` · ${t("손님")}` : ""}
           </span>
+          {canLeave && (
+            <a href="/spaces" className={styles.trayLink}>
+              {t("나가기")}
+            </a>
+          )}
           <button type="button" className={styles.trayLink} onClick={() => void logout()}>
-            {t("나가기")}
+            {t("로그아웃")}
           </button>
           <time className={styles.clock} dateTime={clock?.toISOString()}>
             {clock

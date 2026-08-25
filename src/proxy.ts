@@ -70,6 +70,7 @@ export const config = {
   matcher: [
     "/files/:path*",
     "/admin/:path*",
+    "/spaces",
     // API 전체를 잡는다(#12 2번). 위조 스페이스 헤더 제거가 전 라우트에
     // 적용되고, 공개 API(isPublicApiPath)만 서명 사전 검사를 면제받는다.
     "/api/:path*",

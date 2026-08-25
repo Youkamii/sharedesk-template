@@ -57,6 +57,7 @@ function makeUser(
 type Mods = {
   space: typeof import("../src/lib/space-store");
   context: typeof import("../src/lib/space-context");
+  access: typeof import("../src/lib/space-access");
   token: typeof import("../src/lib/session-token");
   auth: typeof import("../src/lib/auth");
   users: typeof import("../src/lib/users");
@@ -83,6 +84,7 @@ async function withEnv(
     await run({
       space: await import("../src/lib/space-store"),
       context: await import("../src/lib/space-context"),
+      access: await import("../src/lib/space-access"),
       token: await import("../src/lib/session-token"),
       auth: await import("../src/lib/auth"),
       users: await import("../src/lib/users"),
@@ -247,6 +249,76 @@ test("판정은 호출 시점의 주변 문맥과 무관하게 같은 답을 낸
     );
     assert.ok(insideForeign.kind === "ok");
     assert.equal(insideForeign.session.role, "viewer");
+  });
+});
+
+test("들어갈 수 있는 스페이스 판정과 로그인 목적지 (#12 목록·나가기 기준)", async () => {
+  await withEnv({ ADMIN_EMAILS: "boss@example.com" }, async (mods) => {
+    const adapter = mods.storage.getAdapter();
+    await mods.space.runWithSpace(null, async () => {
+      await adapter.writeState(
+        "users.json",
+        usersFile([makeUser("u-m", "member@example.com", "editor")]),
+      );
+      await adapter.writeState("spaces.json", {
+        version: 1,
+        spaces: [
+          {
+            slug: "a",
+            name: "가",
+            folderId: ".spaces/a",
+            createdAt: new Date().toISOString(),
+            createdByUserId: "u-boss",
+          },
+          {
+            slug: "b",
+            name: "나",
+            folderId: ".spaces/b",
+            createdAt: new Date().toISOString(),
+            createdByUserId: "u-boss",
+          },
+        ],
+      });
+    });
+    // u-m은 a에만 멤버다.
+    await mods.space.runWithSpace(SPACE_A, () =>
+      adapter.writeState(
+        "users.json",
+        usersFile([makeUser("u-m", "member@example.com", "viewer")]),
+      ),
+    );
+
+    const admin = await mods.access.listAccessibleSpaces(
+      { userId: "u-boss", isAdmin: true, isGuest: false },
+      { fresh: true },
+    );
+    assert.deepEqual(
+      admin.map((space) => space.slug),
+      ["a", "b"],
+      "관리자는 모든 스페이스",
+    );
+
+    const member = await mods.access.listAccessibleSpaces(
+      { userId: "u-m", isAdmin: false, isGuest: false },
+      { fresh: true },
+    );
+    assert.deepEqual(
+      member.map((space) => space.slug),
+      ["a"],
+      "일반 사용자는 명단에 approved로 있는 곳만",
+    );
+
+    const guest = await mods.access.listAccessibleSpaces(
+      { userId: "key:x", isAdmin: false, isGuest: true },
+      { fresh: true },
+    );
+    assert.deepEqual(guest, [], "손님은 스페이스 없음");
+
+    // 목적지·나가기 기준: 갈 곳(기본+스페이스)이 둘 이상인가.
+    assert.equal(mods.access.landingPathFor(member.length), "/spaces");
+    assert.equal(mods.access.landingPathFor(guest.length), "/files");
+    assert.equal(mods.access.hasMultipleDestinations(member.length), true);
+    assert.equal(mods.access.hasMultipleDestinations(0), false);
   });
 });
 

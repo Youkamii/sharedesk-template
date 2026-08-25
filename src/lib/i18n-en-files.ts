@@ -177,7 +177,7 @@ export const EN_FILES: Record<string, string> = {
   // "관리자"는 EN_ADMIN에도 있는 키 — 값이 반드시 같아야 한다 (tests/i18n.test.ts).
   "관리자": "Admin",
   "손님": "Guest",
-  "나가기": "Sign out",
+  "나가기": "Leave",
 
   // 컨텍스트 메뉴
   "바탕화면 메뉴": "Desktop menu",

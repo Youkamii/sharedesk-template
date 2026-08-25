@@ -89,4 +89,26 @@ export const EN_COMMON: Record<string, string> = {
   "잘못된 요청입니다": "Invalid request",
   "언어 값을 확인해 주세요": "Please check the language value",
 
+  // 데스크 목록·멀티 데스크 관리 (#12)
+  "데스크 목록": "Desks",
+  "들어갈 데스크를 고르세요.": "Choose a desk to enter.",
+  "기본 데스크": "Main desk",
+  "입장": "Enter",
+  "아직 들어갈 수 있는 스페이스가 없습니다.": "No spaces you can enter yet.",
+  "스페이스 관리": "Manage spaces",
+  "주소": "Address",
+  "이름": "Name",
+  "주소는 영문 소문자·숫자·하이픈 1~32자입니다.":
+    "The address is 1-32 characters of lowercase letters, digits, and hyphens.",
+  "멤버 관리": "Manage members",
+  "멤버 추가": "Add member",
+  "추가": "Add",
+  "제거": "Remove",
+  "등록 해제": "Unregister",
+  "정말 해제할까요?": "Really unregister?",
+  "등록만 해제하며 파일은 저장소에 남습니다.":
+    "Only the registration is removed; files stay in storage.",
+  "구성원이 없습니다.": "No members.",
+  "기본 데스크의 승인된 사용자만 추가할 수 있습니다.":
+    "Only approved users of the main desk can be added.",
 };
