@@ -24,6 +24,7 @@ import {
   EmptyTrashResult,
   Entry,
   ROOT_ID,
+  SPACES_DIR,
   STATE_DIR,
   StateRead,
   StorageAdapter,
@@ -72,13 +73,15 @@ function idToRel(id: string): string {
   ) {
     throw new StorageError("BAD_ID", "잘못된 id입니다");
   }
-  // 로컬 id는 경로의 base64url이라 누구나 계산할 수 있다. 앱 내부 영역(.sharedesk)은
-  // 파일 API로 열람·수정·삭제할 수 없어야 한다 — 명단이 곧 접근 권한이기 때문이다.
+  // 로컬 id는 경로의 base64url이라 누구나 계산할 수 있다. 앱 내부 영역
+  // (.sharedesk = 명단, .spaces = 다른 스페이스 저장소)은 파일 API로 열람·수정·
+  // 삭제할 수 없어야 한다. .spaces를 빼먹으면 기본 데스크 사용자가
+  // base64url(".spaces/sea/secret.pdf")로 남의 스페이스 파일에 그대로 닿는다.
   const firstSegment =
     process.platform === "win32"
       ? segments[0].split(":", 1)[0].replace(/[ .]+$/g, "").toLowerCase()
       : segments[0].toLowerCase();
-  if (firstSegment === STATE_DIR) {
+  if (firstSegment === STATE_DIR || firstSegment === SPACES_DIR) {
     throw stateAccessDenied();
   }
   return rel;
@@ -119,14 +122,18 @@ async function assertSafeRealTarget(
   }
   if (allowState) return;
 
-  const realState = await realpath(
-    path.join(/* turbopackIgnore: true */ realRoot, STATE_DIR),
-  ).catch((error: unknown) => {
-    if (isNoEnt(error)) return null;
-    throw error;
-  });
-  if (realState && isInside(realState, realTarget)) {
-    throw stateAccessDenied();
+  // 상태 폴더와 스페이스 컨테이너 안으로 실제 경로가 떨어지면 거부한다.
+  // .spaces를 빼면 심볼릭 링크로 남의 스페이스 파일에 닿을 수 있다.
+  for (const guarded of [STATE_DIR, SPACES_DIR]) {
+    const realGuarded = await realpath(
+      path.join(/* turbopackIgnore: true */ realRoot, guarded),
+    ).catch((error: unknown) => {
+      if (isNoEnt(error)) return null;
+      throw error;
+    });
+    if (realGuarded && isInside(realGuarded, realTarget)) {
+      throw stateAccessDenied();
+    }
   }
 }
 
@@ -137,8 +144,16 @@ async function assertNotStateAlias(
 ): Promise<void> {
   if (allowState || !rel) return;
   const firstSegment = rel.split("/", 1)[0];
-  const [stateStats, firstStats] = await Promise.all([
+  // 심볼릭 링크가 이름만 바꿔 .sharedesk나 .spaces를 가리키는 우회를 inode
+  // 비교로 잡는다. idToRel은 이름으로만 막으므로 별칭은 여기서 걸러야 한다.
+  const [stateStats, spacesStats, firstStats] = await Promise.all([
     stat(path.join(/* turbopackIgnore: true */ realRoot, STATE_DIR)).catch(
+      (error: unknown) => {
+        if (isNoEnt(error)) return null;
+        throw error;
+      },
+    ),
+    stat(path.join(/* turbopackIgnore: true */ realRoot, SPACES_DIR)).catch(
       (error: unknown) => {
         if (isNoEnt(error)) return null;
         throw error;
@@ -151,11 +166,15 @@ async function assertNotStateAlias(
       },
     ),
   ]);
+  const aliases = (
+    [stateStats, spacesStats].filter(Boolean) as import("node:fs").Stats[]
+  );
   if (
-    stateStats &&
     firstStats &&
-    stateStats.dev === firstStats.dev &&
-    stateStats.ino === firstStats.ino
+    aliases.some(
+      (target) =>
+        target.dev === firstStats.dev && target.ino === firstStats.ino,
+    )
   ) {
     throw stateAccessDenied();
   }
@@ -429,7 +448,12 @@ export class LocalAdapter implements StorageAdapter {
       const items = await readdir(directory, { withFileTypes: true });
       let total = 0;
       for (const item of items) {
-        if (isDeskRoot && item.name === STATE_DIR) continue;
+        // 데스크 루트에서는 상태 폴더와 스페이스 컨테이너를 뺀다. .spaces를
+        // 합산하면 스페이스가 채운 용량 때문에 기본 데스크 업로드가 한도
+        // 초과로 막힌다 — 스페이스는 자기 용량을 자기 문맥에서 따로 센다.
+        if (isDeskRoot && (item.name === STATE_DIR || item.name === SPACES_DIR)) {
+          continue;
+        }
         const target = path.join(directory, item.name);
         if (item.isDirectory()) total += await sizeOf(target);
         else total += (await lstat(target)).size;

@@ -149,3 +149,69 @@ test("스페이스 루트 생성은 기본 문맥에서만 되고 숨김 컨테�
     await assert.rejects(adapter.createSpaceRoot("UPPER"), /올바르지 않습니다/);
   });
 });
+
+// 적대 리뷰(Fable) 발견: 기본 데스크 사용자가 base64url(".spaces/sea/...")를
+// id로 넘겨 남의 스페이스 파일을 읽는 격리 우회. idToRel이 .sharedesk만 막고
+// .spaces를 안 막았다.
+test("기본 데스크에서 .spaces 컨테이너와 스페이스 파일에 파일 API로 닿을 수 없다", async () => {
+  await withLocal(async ({ storage, types, space }) => {
+    const adapter = storage.getAdapter();
+    // sea 스페이스에 비밀 파일을 하나 만든다.
+    const rel = await adapter.createSpaceRoot("sea");
+    await space.runWithSpace({ slug: "sea", folderId: rel }, () =>
+      adapter.upload(
+        types.ROOT_ID,
+        "secret.txt",
+        "text/plain",
+        new Blob(["top secret"]).stream(),
+      ),
+    );
+
+    // 기본 데스크에서 그 파일 id를 손으로 계산한다.
+    const b64 = (path: string) => Buffer.from(path, "utf8").toString("base64url");
+    const spacesId = b64(".spaces");
+    const spaceRootId = b64(".spaces/sea");
+    const secretId = b64(".spaces/sea/secret.txt");
+
+    // 컨테이너 목록·다운로드·삭제가 모두 막혀야 한다.
+    for (const id of [spacesId, spaceRootId, secretId]) {
+      await assert.rejects(adapter.list(id), /찾을 수 없습니다|없습니다/);
+      await assert.rejects(adapter.download(id), /찾을 수 없습니다|없습니다/);
+      await assert.rejects(adapter.getEntry(id), /찾을 수 없습니다|없습니다/);
+    }
+    // 컨테이너 안에 업로드도 막혀야 한다.
+    await assert.rejects(
+      adapter.upload(spaceRootId, "x.txt", "text/plain", new Blob(["x"]).stream()),
+      /찾을 수 없습니다|없습니다/,
+    );
+    // 기본 데스크 목록에는 .spaces가 아예 안 보인다.
+    const baseListed = await adapter.list(types.ROOT_ID);
+    assert.deepEqual(baseListed.map((e) => e.name), []);
+  });
+});
+
+// 발견 4: 기본 데스크 용량 집계가 .spaces 하위를 합산하면 안 된다.
+test("기본 데스크 용량 집계는 스페이스가 쓴 용량을 포함하지 않는다", async () => {
+  await withLocal(async ({ storage, types, space }) => {
+    const adapter = storage.getAdapter();
+    const rel = await adapter.createSpaceRoot("sea");
+    // sea 스페이스에 큰 파일.
+    await space.runWithSpace({ slug: "sea", folderId: rel }, () =>
+      adapter.upload(
+        types.ROOT_ID,
+        "big.bin",
+        "application/octet-stream",
+        new Blob(["x".repeat(10000)]).stream(),
+      ),
+    );
+    // 기본 데스크 용량은 0이어야 한다 — 스페이스 파일은 안 센다.
+    const usage = await adapter.getStorageUsage();
+    assert.equal(usage.deskUsedBytes, 0);
+    // 스페이스 문맥에서는 자기 파일이 잡힌다.
+    const spaceUsage = await space.runWithSpace(
+      { slug: "sea", folderId: rel },
+      () => adapter.getStorageUsage(),
+    );
+    assert.equal(spaceUsage.deskUsedBytes, 10000);
+  });
+});

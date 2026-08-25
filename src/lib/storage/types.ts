@@ -1,6 +1,10 @@
 export const ROOT_ID = "root";
 // 앱 내부 파일이 담기는 폴더. 탐색기 목록에서는 숨긴다.
 export const STATE_DIR = ".sharedesk";
+// 멀티 데스크(#12): 스페이스 루트를 담는 숨김 컨테이너. 파일 API로는 절대
+// 닿을 수 없어야 한다 — 기본 데스크 사용자가 base64url(".spaces/sea/...")를
+// id로 넘겨 남의 스페이스 파일을 읽는 격리 우회를 막는다.
+export const SPACES_DIR = ".spaces";
 export const TEMPORARY_FILE_PREFIX = ".sharedesk-quick-";
 
 export interface Entry {

@@ -5,6 +5,7 @@ import {
   EmptyTrashResult,
   Entry,
   ROOT_ID,
+  SPACES_DIR,
   STATE_DIR,
   StateRead,
   StorageAdapter,
@@ -1004,11 +1005,15 @@ export class DriveAdapter implements StorageAdapter {
     const files = [...activeFiles, ...trashedFiles];
     const byId = new Map(files.map((file) => [file.id, file]));
     const root = rootFolderId();
+    // 상태 폴더와 스페이스 컨테이너(.spaces)를 기본 데스크 용량 집계에서 뺀다.
+    // .spaces를 합산하면 스페이스가 채운 용량 때문에 기본 데스크 업로드가
+    // 한도 초과로 막힌다 — 스페이스는 자기 문맥에서 자기 용량을 센다.
     const stateRoots = new Set(
       files
         .filter(
           (file) =>
-            file.name === STATE_DIR && file.parents?.includes(root) === true,
+            (file.name === STATE_DIR || file.name === SPACES_DIR) &&
+            file.parents?.includes(root) === true,
         )
         .map((file) => file.id),
     );
