@@ -235,9 +235,7 @@ export default function DeskImportWindow({
       </header>
       <div className={`${styles.shareLinksBody} ${styles.deskImportBody}`}>
         <p>
-          {t(
-            "다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다. 보내는 쪽 파일은 그대로 남습니다.",
-          )}
+          {t("다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다.")}
         </p>
         <label className={styles.deskImportField}>
           <span>{t("공유 링크 주소")}</span>

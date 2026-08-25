@@ -456,8 +456,8 @@ export const EN_FILES: Record<string, string> = {
 
   // 데스크 간 받기
   "다른 데스크에서 받기": "Receive from another desk",
-  "다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다. 보내는 쪽 파일은 그대로 남습니다.":
-    "Paste a share link created on another ShareDesk to copy it here. The files stay on the sending desk.",
+  "다른 ShareDesk에서 만든 공유 링크를 붙여넣으면 이 데스크로 복사합니다.":
+    "Paste a share link created on another ShareDesk to copy it here.",
   "링크 확인": "Check link",
   "이 데스크로 받기": "Receive to this desk",
   "멈추기": "Stop",
