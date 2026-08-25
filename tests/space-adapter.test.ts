@@ -115,3 +115,37 @@ test("스페이스 루트가 저장소 밖을 가리키면 거부한다", async 
     });
   });
 });
+
+test("스페이스 루트 생성은 기본 문맥에서만 되고 숨김 컨테이너 아래에 만든다", async () => {
+  await withLocal(async ({ storage, types, space }) => {
+    const adapter = storage.getAdapter();
+    const rel = await adapter.createSpaceRoot("sea");
+    assert.equal(rel, ".spaces/sea");
+    // 같은 슬러그를 다시 만들어도 같은 곳을 준다.
+    assert.equal(await adapter.createSpaceRoot("sea"), ".spaces/sea");
+    // 만든 스페이스가 실제로 격리된 루트로 동작한다.
+    await space.runWithSpace({ slug: "sea", folderId: rel }, async () => {
+      await adapter.upload(
+        types.ROOT_ID,
+        "hello.txt",
+        "text/plain",
+        new Blob(["hi"]).stream(),
+      );
+      const listed = await adapter.list(types.ROOT_ID);
+      assert.deepEqual(listed.map((e) => e.name), ["hello.txt"]);
+    });
+    // 기본 데스크 목록에는 스페이스 컨테이너가 안 보인다.
+    const baseListed = await adapter.list(types.ROOT_ID);
+    assert.deepEqual(baseListed.map((e) => e.name), []);
+    // 스페이스 문맥에서 스페이스를 또 만들 수는 없다.
+    await space.runWithSpace({ slug: "sea", folderId: rel }, async () => {
+      await assert.rejects(
+        adapter.createSpaceRoot("nested"),
+        /기본 데스크에서만/,
+      );
+    });
+    // 경로 조작 시도는 거부된다.
+    await assert.rejects(adapter.createSpaceRoot("../evil"), /올바르지 않습니다/);
+    await assert.rejects(adapter.createSpaceRoot("UPPER"), /올바르지 않습니다/);
+  });
+});

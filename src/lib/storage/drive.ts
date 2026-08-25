@@ -186,6 +186,56 @@ type StateFolder = {
   createdTime?: string;
 };
 
+// 이름으로 자식 폴더를 찾고 없으면 만든다. 동시 생성으로 여럿이 생겼으면
+// 상태 폴더와 같은 규칙(createdTime 정렬)으로 하나를 정해 재사용한다 —
+// 스페이스 루트가 둘로 갈리면 참여자마다 다른 폴더를 보게 된다.
+async function findOrCreateChildFolder(
+  parentId: string,
+  name: string,
+): Promise<string> {
+  const params = new URLSearchParams({
+    q: `'${parentId}' in parents and name='${escapeQuery(name)}' and mimeType='${FOLDER_MIME}' and trashed=false`,
+    fields: "files(id,createdTime)",
+    pageSize: "10",
+  });
+  const found = (await (await driveFetch(`${API}/files?${params}`)).json()) as {
+    files: Array<{ id: string; createdTime?: string }>;
+  };
+  found.files.sort(
+    (a, b) =>
+      (a.createdTime ?? "").localeCompare(b.createdTime ?? "") ||
+      a.id.localeCompare(b.id),
+  );
+  if (found.files[0]) return found.files[0].id;
+  const created = (await (
+    await driveFetch(`${API}/files?fields=id`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=UTF-8" },
+      body: JSON.stringify({
+        name,
+        mimeType: FOLDER_MIME,
+        parents: [parentId],
+      }),
+    })
+  ).json()) as { id: string };
+  // 동시 생성 경합을 한 번 더 확인해 canonical을 정한다.
+  const again = (await (await driveFetch(`${API}/files?${params}`)).json()) as {
+    files: Array<{ id: string; createdTime?: string }>;
+  };
+  again.files.sort(
+    (a, b) =>
+      (a.createdTime ?? "").localeCompare(b.createdTime ?? "") ||
+      a.id.localeCompare(b.id),
+  );
+  const canonical = again.files[0]?.id ?? created.id;
+  if (canonical !== created.id) {
+    await driveFetch(`${API}/files/${created.id}`, { method: "DELETE" }).catch(
+      () => undefined,
+    );
+  }
+  return canonical;
+}
+
 function sortStateFolders(files: StateFolder[]): StateFolder[] {
   return [...files].sort(
     (a, b) =>
@@ -1036,6 +1086,22 @@ export class DriveAdapter implements StorageAdapter {
     );
     const meta = (await response.json()) as AncestryMeta;
     return meta.parents?.includes(parent) === true;
+  }
+
+  async createSpaceRoot(slug: string): Promise<string> {
+    // 반드시 기본(설치 루트) 문맥에서 부른다.
+    if (currentSpaceFolderId()) {
+      throw new StorageError(
+        "BAD_ID",
+        "스페이스 루트는 기본 데스크에서만 만들 수 있습니다",
+      );
+    }
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(slug)) {
+      throw new StorageError("BAD_ID", "스페이스 주소가 올바르지 않습니다");
+    }
+    const root = rootFolderId();
+    const container = await findOrCreateChildFolder(root, ".spaces");
+    return findOrCreateChildFolder(container, slug);
   }
 
   async createFolder(parentId: string, name: string): Promise<Entry> {

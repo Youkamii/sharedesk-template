@@ -1115,3 +1115,40 @@ export async function removeUser(id: string): Promise<boolean> {
     return true;
   });
 }
+
+// 멀티 데스크(#12): 스페이스 명단에 멤버를 넣거나 역할을 바꾼다. 반드시 그
+// 스페이스 문맥에서 부른다. 정체·세션 유효성은 기본 데스크가 진실 원천이라
+// (space-context.resolveSpaceSession), 여기 레코드는 멤버십과 역할만 뜻한다 —
+// 세션 필드는 기본값으로 두고 아무도 읽지 않는다.
+export async function upsertSpaceMember(
+  member: { id: string; email: string; name: string },
+  role: UserRole,
+): Promise<User> {
+  return mutate((file) => {
+    const existing = file.users.find((user) => user.id === member.id);
+    if (existing) {
+      existing.role = role;
+      existing.status = "approved";
+      existing.email = member.email;
+      existing.name = member.name;
+      return existing;
+    }
+    const created: User = {
+      id: member.id,
+      email: member.email,
+      name: member.name,
+      status: "approved",
+      role,
+      isAdmin: false,
+      createdAt: new Date().toISOString(),
+      invitationId: null,
+      sessionsValidFrom: 0,
+      sessionVersion: 0,
+      sessions: [],
+      nickname: null,
+      nicknameHistory: [],
+    };
+    file.users.push(created);
+    return created;
+  });
+}

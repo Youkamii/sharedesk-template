@@ -471,6 +471,28 @@ export class LocalAdapter implements StorageAdapter {
     return (separator >= 0 ? rel.slice(0, separator) : "") === parent;
   }
 
+  async createSpaceRoot(slug: string): Promise<string> {
+    // 반드시 기본(설치 루트) 문맥에서 부른다 — 스페이스 문맥이면 스페이스
+    // 안에 스페이스가 중첩된다.
+    if (currentSpaceFolderId()) {
+      throw new StorageError(
+        "BAD_ID",
+        "스페이스 루트는 기본 데스크에서만 만들 수 있습니다",
+      );
+    }
+    // 슬러그는 등록부 단계에서 이미 검증되지만, 저장 경계라 방어적으로 다시
+    // 잡는다 — 여기서 뚫리면 경로 조작이 된다.
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/.test(slug)) {
+      throw new StorageError("BAD_ID", "스페이스 주소가 올바르지 않습니다");
+    }
+    await this.ensureRoot();
+    const rel = `.spaces/${slug}`;
+    return withLocalMutationLock(async () => {
+      await mkdir(absOf(rel), { recursive: true });
+      return rel;
+    });
+  }
+
   async createFolder(parentId: string, name: string): Promise<Entry> {
     await this.ensureRoot();
     const clean = assertUserName(name);

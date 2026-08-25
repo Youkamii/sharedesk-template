@@ -68,6 +68,8 @@ export const config = {
     "/admin/:path*",
     "/api/drive/:path*",
     "/api/admin/:path*",
+    "/api/spaces/:path*",
+    "/api/spaces",
     // 스페이스 경로도 잡는다.
     "/:slug/files/:path*",
     "/:slug/admin/:path*",

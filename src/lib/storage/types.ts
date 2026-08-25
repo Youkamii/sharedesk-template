@@ -207,6 +207,12 @@ export interface StorageAdapter {
   isWithin(id: string, ancestorId: string): Promise<boolean>;
   // 직접 업로드 완료 요청이 발급된 대상 폴더의 파일을 가리키는지 확인한다.
   isDirectChild(id: string, parentId: string): Promise<boolean>;
+  // 멀티 데스크(#12): 숨김 컨테이너(.spaces) 아래에 스페이스 루트 폴더를
+  // 만들거나 찾아, 등록부에 저장할 folderId를 돌려준다 — drive는 폴더 id,
+  // local은 루트 기준 상대경로. 점 이름이라 createFolder(assertUserName)로는
+  // 만들 수 없어 전용 통로가 필요하다. 반드시 기본(설치 루트) 문맥에서만
+  // 부른다 — 스페이스 문맥에서 부르면 스페이스 안에 스페이스가 중첩된다.
+  createSpaceRoot(slug: string): Promise<string>;
   createPermission(
     id: string,
     email: string,

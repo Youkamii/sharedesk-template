@@ -13,6 +13,8 @@ import {
   runWithSpace,
 } from "@/lib/space-store";
 import { getSpace, type Space } from "@/lib/spaces";
+import { resolveUserRole } from "@/lib/roles";
+import { findUserById } from "@/lib/users";
 
 // 요청이 어느 스페이스를 보고 있는지 세우는 쪽. proxy가 /sea/files 를 내부
 // 경로로 rewrite하면서 SPACE_HEADER에 슬러그를 싣고, 서버는 여기서 그 값을
@@ -55,15 +57,15 @@ export type SpaceSessionResult =
  * 현재 스페이스 문맥에서 세션을 판정한다. establishSpaceContext가 문맥을 얹은
  * 뒤에 부른다.
  *
- * - 기본 데스크(스페이스 문맥 없음): 기존 resolveSession 그대로.
- * - 스페이스 문맥:
- *   1) 그 스페이스 users.json에 사용자가 있으면(초대받은 멤버) 그 스페이스의
- *      역할로 세션을 만든다.
- *   2) 없으면 기본 데스크에서 정체를 확인한다 — ADMIN_EMAILS 관리자는 어느
- *      스페이스에도 들어갈 수 있으므로 통과시키고, 그 밖에는 비멤버로 막는다.
+ * 정체와 세션 유효성(서명·승인·철회·sessionVersion)은 **기본 데스크가 단일
+ * 진실 원천**이다 — 가입과 세션 발급·철회가 기본 데스크에서 일어나므로,
+ * 스페이스 명단의 세션 필드로 검증하면 기본에서 철회한 토큰이 스페이스에서
+ * 계속 살거나(보안 갭), 멀쩡한 새 토큰이 옛 스페이스 레코드와 어긋나 거부된다
+ * (기능 갭). 스페이스 명단에서는 **멤버십과 역할만** 읽는다.
  *
- * claims에 email이 없어 스페이스에서 사용자를 못 찾으면 관리자 여부를 알 수
- * 없다. 그래서 기본 데스크에서 한 번 더 조회한다.
+ * - 기본 데스크(스페이스 문맥 없음): 기존 resolveSession 그대로.
+ * - 스페이스 문맥: 기본에서 정체 확인 → 관리자는 통과, 일반 사용자는 그
+ *   스페이스 명단에 approved로 있어야 하고 역할은 그 명단의 것을 쓴다.
  */
 export async function resolveSpaceSession(
   options?: { fresh?: boolean },
@@ -71,16 +73,23 @@ export async function resolveSpaceSession(
   const token = (await cookies()).get(COOKIE_NAME)?.value;
   const slug = currentSpaceSlug();
 
-  // 현재 문맥(스페이스면 그 스페이스, 아니면 기본)에서 먼저 시도.
-  const scoped = await resolveSession(token, options);
-  if (scoped) return { kind: "ok", session: scoped };
-
-  // 기본 데스크면 여기서 끝 — 그냥 미인증이거나 승인 안 됨.
-  if (!slug) return { kind: "unauthenticated" };
-
-  // 스페이스에서 못 찾았다. 기본 데스크에서 정체를 확인해 관리자면 통과.
+  // 정체·세션 유효성은 언제나 기본 데스크에서 판정한다.
   const base = await runWithSpace(null, () => resolveSession(token, options));
-  if (base?.isAdmin) return { kind: "ok", session: base };
-  if (base) return { kind: "not-member" };
-  return { kind: "unauthenticated" };
+  if (!base) return { kind: "unauthenticated" };
+  if (!slug) return { kind: "ok", session: base };
+
+  // ADMIN_EMAILS 관리자는 어느 스페이스에도 들어간다.
+  if (base.isAdmin) return { kind: "ok", session: base };
+
+  // 손님(접속 키)은 기본 데스크 전용이다 — 스페이스 명단에 존재할 수 없다.
+  if (base.isGuest) return { kind: "not-member" };
+
+  // 일반 사용자: 이 스페이스 명단에 approved로 있어야 한다. 역할은 이 명단의
+  // 것 — 같은 사람이 스페이스마다 다른 역할을 가질 수 있다.
+  const member = await findUserById(base.userId, { fresh: options?.fresh });
+  if (!member || member.status !== "approved") return { kind: "not-member" };
+  return {
+    kind: "ok",
+    session: { ...base, role: resolveUserRole(member.role) },
+  };
 }
