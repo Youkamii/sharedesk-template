@@ -16,6 +16,7 @@ import {
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
+import { currentSpaceFolderId } from "@/lib/space-store";
 import { guessMime, officePreviewImport } from "@/lib/preview";
 import { createOfficePreviewFallback } from "@/lib/office-preview-fallback";
 import {
@@ -44,11 +45,20 @@ import {
 // id는 루트 기준 상대경로의 base64url. 경로 탈출(..)은 디코드 직후 차단한다.
 
 function rootDir(): string {
-  return path.resolve(
+  const base = path.resolve(
     /* turbopackIgnore: true */
     process.cwd(),
     process.env.LOCAL_STORAGE_ROOT || ".devstorage",
   );
+  // 멀티 데스크(#12): 스페이스 문맥이 있으면 그 스페이스의 하위 폴더가 루트다.
+  // 이 아래의 모든 경로·상태 해석이 자동으로 그 스페이스에 갇힌다.
+  const spaceRel = currentSpaceFolderId();
+  if (!spaceRel) return base;
+  const scoped = path.resolve(base, spaceRel);
+  if (scoped !== base && !scoped.startsWith(base + path.sep)) {
+    throw new StorageError("BAD_ID", "스페이스 루트가 저장소 밖을 가리킵니다");
+  }
+  return scoped;
 }
 
 function idToRel(id: string): string {

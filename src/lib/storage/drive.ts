@@ -27,6 +27,7 @@ import {
   type OfficePreviewImport,
 } from "@/lib/preview";
 import { createOfficePreviewFallback } from "@/lib/office-preview-fallback";
+import { currentSpaceFolderId } from "@/lib/space-store";
 
 // Google Drive v3 REST 어댑터 — googleapis 패키지 없이 fetch만 사용.
 // drive.file scope라 이 앱이 만든 파일·폴더만 보인다. 접근 범위 격리는
@@ -109,6 +110,10 @@ async function accessToken(): Promise<string> {
 }
 
 function rootFolderId(): string {
+  // 멀티 데스크(#12): 스페이스 문맥이 있으면 그 스페이스의 폴더가 루트다.
+  // 없으면 설치 루트(DRIVE_ROOT_FOLDER_ID) — 기존 단일 데스크.
+  const spaceRoot = currentSpaceFolderId();
+  if (spaceRoot) return spaceRoot;
   const id = process.env.DRIVE_ROOT_FOLDER_ID;
   if (!id) {
     throw new StorageError(
@@ -140,18 +145,36 @@ const MAX_ANCESTOR_HOPS = 32;
 
 // 앱 내부 영역(.sharedesk). 파일 API가 이 폴더나 그 자손에 닿으면 거부한다 —
 // 명단이 곧 접근 권한이라 사용자가 읽거나 고칠 수 있으면 안 된다.
-let stateDirId: string | null = null;
-let stateDirPromise: Promise<string> | null = null;
-const stateFileIds = new Map<string, string>();
+// 멀티 데스크(#12): 상태 폴더·파일 id 캐시를 스페이스별로 가른다. 전역
+// 하나로 두면 A 스페이스의 .sharedesk id가 B 요청에 새어 남의 명단을 읽는다.
+// 스페이스 루트(folderId)를 키로 쓴다 — 기본 데스크는 "".
+interface StateCache {
+  dirId: string | null;
+  dirPromise: Promise<string> | null;
+  fileIds: Map<string, string>;
+}
+const stateCaches = new Map<string, StateCache>();
+
+function stateCache(): StateCache {
+  const key = currentSpaceFolderId() ?? "";
+  let cache = stateCaches.get(key);
+  if (!cache) {
+    cache = { dirId: null, dirPromise: null, fileIds: new Map() };
+    stateCaches.set(key, cache);
+  }
+  return cache;
+}
 
 function assertNotStateArea(id: string): void {
-  if (stateDirId && id === stateDirId) throw stateAccessDenied();
+  const cache = stateCache();
+  if (cache.dirId && id === cache.dirId) throw stateAccessDenied();
 }
 
 function forgetStateFile(name: string): void {
-  stateFileIds.delete(name);
-  stateDirId = null;
-  stateDirPromise = null;
+  const cache = stateCache();
+  cache.fileIds.delete(name);
+  cache.dirId = null;
+  cache.dirPromise = null;
 }
 
 type StateFolder = {
@@ -185,7 +208,12 @@ async function listStateDirs(root: string): Promise<StateFolder[]> {
 
 async function resolveStateDir(): Promise<string> {
   const root = rootFolderId();
-  const configured = process.env.DRIVE_STATE_FOLDER_ID?.trim();
+  // DRIVE_STATE_FOLDER_ID는 설치 루트의 .sharedesk만 가리킨다. 스페이스
+  // 문맥에서는 무시하고 그 스페이스 루트 아래에서 직접 찾는다 — 아니면
+  // 모든 스페이스가 기본 데스크의 상태 폴더를 공유해 명단이 뒤섞인다.
+  const configured = currentSpaceFolderId()
+    ? undefined
+    : process.env.DRIVE_STATE_FOLDER_ID?.trim();
   if (configured) {
     if (!ID_PATTERN.test(configured)) {
       throw new StorageError("BAD_ID", "잘못된 상태 폴더 id입니다");
@@ -247,18 +275,19 @@ async function resolveStateDir(): Promise<string> {
 }
 
 async function ensureStateDir(): Promise<string> {
-  if (stateDirId) return stateDirId;
-  if (!stateDirPromise) stateDirPromise = resolveStateDir();
+  const cache = stateCache();
+  if (cache.dirId) return cache.dirId;
+  if (!cache.dirPromise) cache.dirPromise = resolveStateDir();
   try {
-    stateDirId = await stateDirPromise;
-    return stateDirId;
+    cache.dirId = await cache.dirPromise;
+    return cache.dirId;
   } finally {
-    stateDirPromise = null;
+    cache.dirPromise = null;
   }
 }
 
 async function findStateFile(name: string): Promise<string | null> {
-  const cached = stateFileIds.get(name);
+  const cached = stateCache().fileIds.get(name);
   if (cached) return cached;
   const dir = await ensureStateDir();
   const params = new URLSearchParams({
@@ -281,7 +310,7 @@ async function findStateFile(name: string): Promise<string | null> {
     );
   }
   const id = found.files[0]?.id ?? null;
-  if (id) stateFileIds.set(name, id);
+  if (id) stateCache().fileIds.set(name, id);
   return id;
 }
 
@@ -312,7 +341,7 @@ async function createStateFile(
     );
   }
   if (again.files[0]) {
-    stateFileIds.set(name, again.files[0].id);
+    stateCache().fileIds.set(name, again.files[0].id);
     return { id: again.files[0].id, created: false };
   }
   const boundary = `sharedesk-${randomUUID()}`;
@@ -336,7 +365,7 @@ async function createStateFile(
     })
   ).json()) as { id: string };
 
-  stateFileIds.delete(name);
+  stateCache().fileIds.delete(name);
   const candidates = (await (
     await driveFetch(`${API}/files?${params}`)
   ).json()) as {
@@ -356,10 +385,10 @@ async function createStateFile(
   }
   if (canonical.id !== created.id) {
     await driveFetch(`${API}/files/${created.id}`, { method: "DELETE" });
-    stateFileIds.set(name, canonical.id);
+    stateCache().fileIds.set(name, canonical.id);
     return { id: canonical.id, created: false };
   }
-  stateFileIds.set(name, created.id);
+  stateCache().fileIds.set(name, created.id);
   return { id: created.id, created: true };
 }
 
