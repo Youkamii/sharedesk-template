@@ -3,7 +3,7 @@ import { parseLocale, type Locale } from "@/lib/i18n";
 import { parseNickname } from "@/lib/nickname";
 import { USER_ROLES, resolveUserRole, type UserRole } from "@/lib/roles";
 import { isValidSessionId } from "@/lib/session-token";
-import { currentSpaceFolderId } from "@/lib/space-store";
+import { currentSpaceFolderId, runWithSpace } from "@/lib/space-store";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 
@@ -1114,6 +1114,19 @@ export async function removeUser(id: string): Promise<boolean> {
     file.users.splice(index, 1);
     return true;
   });
+}
+
+// 화면·접속 인원에 보일 표시 이름(#13). 닉네임의 진실 원천은 기본 데스크
+// 명단이므로 어느 스페이스 문맥에서 불러도 기본 문맥에서 읽는다 — 닉이
+// 없으면 구글 이름(세션 name)으로 폴백. 손님은 명단에 없어 언제나 세션 name.
+export async function resolveDisplayName(session: {
+  userId: string;
+  name: string;
+  isGuest: boolean;
+}): Promise<string> {
+  if (session.isGuest) return session.name;
+  const user = await runWithSpace(null, () => findUserById(session.userId));
+  return user?.nickname ?? session.name;
 }
 
 // 멀티 데스크(#12): 스페이스 명단에 멤버를 넣거나 역할을 바꾼다. 반드시 그

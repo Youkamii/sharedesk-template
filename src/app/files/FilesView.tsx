@@ -667,6 +667,7 @@ export default function FilesView({
   allowMemberLocale,
   autoUpdate,
   canLeave = false,
+  initialNickname = null,
 }: {
   userName: string;
   userEmail: string;
@@ -682,6 +683,9 @@ export default function FilesView({
   // 나가기(데스크 목록으로) 버튼 표시 — 갈 곳이 둘 이상일 때만(#12).
   // 역할이 아니라 목적지 수 기준이라 서버(page)가 계산해 내려준다.
   canLeave?: boolean;
+  // 데스크 표시용 닉네임(#13). 기본 데스크 명단이 진실 원천이고, null이면
+  // 입장 때 정하라는 다이얼로그를 연다. 손님은 항상 null.
+  initialNickname?: string | null;
 }) {
   const router = useRouter();
   // 언어는 쿠키 → 서버 재렌더로 바뀌므로 ref로 최신 값을 잡아 두면
@@ -836,6 +840,14 @@ export default function FilesView({
     subject: "",
     message: "",
   });
+  // 닉네임(#13): 접속 인원·우측 하단에 보이는 표시 이름. 없으면 입장 때 묻는다.
+  const [nickname, setNickname] = useState<string | null>(initialNickname);
+  const [nicknameOpen, setNicknameOpen] = useState(
+    () => !isGuest && initialNickname === null,
+  );
+  const [nicknameDraft, setNicknameDraft] = useState(initialNickname ?? "");
+  const [nicknameBusy, setNicknameBusy] = useState(false);
+  const [nicknameError, setNicknameError] = useState<string | null>(null);
   const [notice, setNotice] = useAutoDismissNotice();
   const [dragOverScope, setDragOverScope] = useState<string | null>(null);
   const [activeTransfers, setActiveTransfers] = useState<TransferProgress[]>([]);
@@ -6639,6 +6651,37 @@ export default function FilesView({
     }
   }
 
+  function openNicknameDialog() {
+    setNicknameDraft(nickname ?? "");
+    setNicknameError(null);
+    setNicknameOpen(true);
+  }
+
+  async function submitNickname(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (nicknameBusy || !nicknameDraft.trim()) return;
+    setNicknameBusy(true);
+    setNicknameError(null);
+    try {
+      const body = await apiJson<{ user: { nickname: string | null } }>(
+        apiPath("/api/me/nickname"),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nickname: nicknameDraft }),
+        },
+      );
+      setNickname(body.user.nickname);
+      setNicknameOpen(false);
+    } catch (error) {
+      setNicknameError(
+        error instanceof Error ? error.message : t("요청에 실패했습니다"),
+      );
+    } finally {
+      setNicknameBusy(false);
+    }
+  }
+
   async function submitFeedback(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
@@ -8788,10 +8831,23 @@ export default function FilesView({
               </a>
             </>
           )}
-          <span className={styles.userName} title={userName}>
-            {userName}
-            {isGuest ? ` · ${t("손님")}` : ""}
-          </span>
+          {isGuest ? (
+            <span className={styles.userName} title={userName}>
+              {userName} · {t("손님")}
+            </span>
+          ) : (
+            <button
+              type="button"
+              className={`${styles.trayLink} ${styles.userName}`}
+              title={t("닉네임 바꾸기")}
+              aria-haspopup="dialog"
+              aria-expanded={nicknameOpen}
+              aria-controls="nickname-dialog"
+              onClick={openNicknameDialog}
+            >
+              {nickname ?? userName}
+            </button>
+          )}
           {canLeave && (
             <a href="/spaces" className={styles.trayLink}>
               {t("나가기")}
@@ -9225,6 +9281,96 @@ export default function FilesView({
                     {feedbackBusy ? t("보내는 중…") : t("보내기")}
                   </button>
                 </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {!isGuest && nicknameOpen && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !nicknameBusy) {
+              setNicknameOpen(false);
+            }
+          }}
+        >
+          <section
+            id="nickname-dialog"
+            className={styles.dialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="nickname-dialog-title"
+            aria-describedby={
+              nicknameError ? "nickname-dialog-error" : "nickname-dialog-help"
+            }
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="nickname-dialog-title">{t("닉네임")}</strong>
+              <button
+                type="button"
+                aria-label={t("닫기")}
+                disabled={nicknameBusy}
+                onClick={() => setNicknameOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+            <form
+              className={`${styles.dialogBody} ${styles.feedbackForm}`}
+              onSubmit={submitNickname}
+            >
+              <p id="nickname-dialog-help">
+                {t(
+                  "데스크에서 보일 이름을 정해 주세요. 언제든 자기 이름을 눌러 바꿀 수 있습니다.",
+                )}
+              </p>
+              <label className={styles.feedbackField}>
+                <span>{t("닉네임")}</span>
+                <input
+                  value={nicknameDraft}
+                  maxLength={20}
+                  required
+                  disabled={nicknameBusy}
+                  placeholder={userName}
+                  onChange={(event) => {
+                    setNicknameError(null);
+                    setNicknameDraft(event.target.value);
+                  }}
+                />
+              </label>
+              <p className={styles.feedbackCounter}>
+                {t("한글·영문·숫자와 - . ( ) @ ~ # ^ & 만, 1~20자입니다.")}
+              </p>
+              {nicknameError && (
+                <p
+                  id="nickname-dialog-error"
+                  className={styles.feedbackError}
+                  role="alert"
+                  aria-live="assertive"
+                >
+                  <span aria-hidden="true">!</span>
+                  {nicknameError}
+                </p>
+              )}
+              <div className={styles.dialogActions}>
+                <button
+                  type="button"
+                  className={styles.secondaryButton}
+                  disabled={nicknameBusy}
+                  onClick={() => setNicknameOpen(false)}
+                >
+                  {t("나중에")}
+                </button>
+                <button
+                  type="submit"
+                  className={styles.primaryButton}
+                  disabled={nicknameBusy || !nicknameDraft.trim()}
+                >
+                  {nicknameBusy ? t("저장 중…") : t("저장")}
+                </button>
               </div>
             </form>
           </section>

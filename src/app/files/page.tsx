@@ -9,7 +9,7 @@ import {
 import { resolveSpaceSession, runWithSpace } from "@/lib/space-context";
 import { SPACE_HEADER } from "@/lib/space-slug";
 import { getSpace } from "@/lib/spaces";
-import { getDeskSettingsOrDefault } from "@/lib/users";
+import { findUserById, getDeskSettingsOrDefault } from "@/lib/users";
 import { isOwnerRegistryConfigured } from "@/lib/owner-registry";
 import FilesView from "./FilesView";
 
@@ -52,9 +52,14 @@ export default async function FilesPage() {
   const session = result.session;
   // 나가기 버튼: 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상일 때만(#12).
   const accessible = await listAccessibleSpaces(session);
+  // 닉네임(#13): 진실 원천은 기본 데스크 명단 — 스페이스 화면에서도 같다.
+  const baseUser = session.isGuest
+    ? null
+    : await runWithSpace(null, () => findUserById(session.userId));
   return (
     <FilesView
       canLeave={hasMultipleDestinations(accessible.length)}
+      initialNickname={baseUser?.nickname ?? null}
       userName={session.name}
       userEmail={session.email}
       isAdmin={session.isAdmin}

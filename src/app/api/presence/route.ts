@@ -6,6 +6,7 @@ import {
   type PresenceTransferInput,
   touchPresence,
 } from "@/lib/presence";
+import { resolveDisplayName } from "@/lib/users";
 import { StorageError } from "@/lib/storage/types";
 import { cleanupExpiredShareLinks } from "@/lib/share-links";
 
@@ -128,7 +129,8 @@ export async function POST(request: Request) {
         await touchPresence({
           participantId: session.presenceParticipantId,
           leaseId,
-          name: session.name,
+          // 접속 인원에는 닉네임이 보인다(#13) — 없으면 구글 이름 폴백.
+          name: await resolveDisplayName(session),
           ...(update.transfers === undefined
             ? {}
             : { transfers: update.transfers }),
@@ -156,7 +158,7 @@ export async function DELETE() {
         await leavePresenceGroup({
           participantId: session.presenceParticipantId,
           leaseId: session.presenceLeaseId,
-          name: session.name,
+          name: await resolveDisplayName(session),
         }),
       );
     } catch (error) {

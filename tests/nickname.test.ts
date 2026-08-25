@@ -294,6 +294,11 @@ test("라우트 배선: 본인 확인·게스트 403·검증 400·관리자 응�
     /setUserNickname\(session\.userId/,
     "세션 주인의 닉만 바꾼다 — 대상 id를 입력으로 받지 않는다",
   );
+  assert.match(
+    nicknameRoute,
+    /runWithSpace\(null/,
+    "닉 저장은 기본 데스크 명단에 고정된다 — 스페이스 문맥에서도 갈라지지 않는다",
+  );
   assert.doesNotMatch(
     nicknameRoute,
     /body\?\.(id|userId)/,

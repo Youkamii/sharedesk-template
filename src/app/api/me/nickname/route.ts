@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runWithSession } from "@/lib/api";
 import { parseNickname } from "@/lib/nickname";
+import { runWithSpace } from "@/lib/space-context";
 import { setUserNickname } from "@/lib/users";
 
 // 본인 닉네임 변경. 대상 id를 입력으로 받지 않는다 — 항상 세션 주인의
@@ -28,7 +29,12 @@ export async function PATCH(req: NextRequest) {
     }
 
     try {
-      const user = await setUserNickname(session.userId, nickname);
+      // 닉네임의 진실 원천은 기본 데스크 명단이다(#13) — 스페이스 화면에서
+      // 바꿔도 기본 명단에 쓴다. 스페이스 문맥에 쓰면 데스크마다 닉이 갈라져
+      // 접속 인원·관리자 화면(기본 명단 기준)과 어긋난다.
+      const user = await runWithSpace(null, () =>
+        setUserNickname(session.userId, nickname),
+      );
       if (!user) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }

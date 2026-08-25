@@ -111,4 +111,13 @@ export const EN_COMMON: Record<string, string> = {
   "구성원이 없습니다.": "No members.",
   "기본 데스크의 승인된 사용자만 추가할 수 있습니다.":
     "Only approved users of the main desk can be added.",
+
+  // 닉네임 (#13)
+  "닉네임": "Nickname",
+  "닉네임 바꾸기": "Change nickname",
+  "데스크에서 보일 이름을 정해 주세요. 언제든 자기 이름을 눌러 바꿀 수 있습니다.": "Choose the name shown on the desk. You can change it anytime by clicking your name.",
+  "한글·영문·숫자와 - . ( ) @ ~ # ^ & 만, 1~20자입니다.": "Korean, English letters, digits, and - . ( ) @ ~ # ^ & only, 1-20 characters.",
+  "나중에": "Later",
+  "닉 변경 기록 {count}건": "Nickname history ({count})",
+  "닉네임은 1~20자이고 한글·영문·숫자와 - . ( ) @ ~ # ^ & 만 쓸 수 있습니다": "Nicknames are 1-20 characters using Korean, English letters, digits, and - . ( ) @ ~ # ^ &",
 };

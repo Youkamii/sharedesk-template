@@ -1448,14 +1448,37 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             <tr key={user.id} className={styles.tableRow}>
                               <td>
                                 <div className={styles.userName}>
-                                  {user.name}
+                                  {user.nickname ?? user.name}
                                   {user.isAdmin && (
                                     <span className={styles.adminBadge}>
                                       {t("관리자")}
                                     </span>
                                   )}
                                 </div>
+                                {/* 닉네임이 있으면 구글 이름을 함께 보여 준다(#13). */}
+                                {user.nickname && (
+                                  <div className={styles.userEmail}>
+                                    {user.name}
+                                  </div>
+                                )}
                                 <div className={styles.userEmail}>{user.email}</div>
+                                {(user.nicknameHistory?.length ?? 0) > 0 && (
+                                  <details className={styles.userEmail}>
+                                    <summary>
+                                      {t("닉 변경 기록 {count}건", {
+                                        count: user.nicknameHistory.length,
+                                      })}
+                                    </summary>
+                                    <ul>
+                                      {user.nicknameHistory.map((entry) => (
+                                        <li key={`${entry.at}-${entry.nickname}`}>
+                                          {entry.nickname} —{" "}
+                                          {formatDate(entry.at, locale)}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </details>
+                                )}
                               </td>
                               <td className={styles.compactCell}>
                                 {formatDate(user.createdAt, locale)}
