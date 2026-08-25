@@ -271,7 +271,7 @@ export default function DeskImportWindow({
             {plan.truncated && (
               <p role="alert">
                 {t(
-                  "항목이 너무 많거나 깊어 일부만 목록에 담았습니다. 나머지는 다시 받아 주세요.",
+                  "항목이 너무 많거나 깊어 일부만 담았습니다. 안쪽 폴더의 링크를 따로 만들어 받아 주세요.",
                 )}
               </p>
             )}

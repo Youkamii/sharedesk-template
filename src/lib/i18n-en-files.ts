@@ -465,8 +465,8 @@ export const EN_FILES: Record<string, string> = {
     "Could not read that link. Check the address and whether it has expired.",
   "폴더 “{name}” · 파일 {count}개": "Folder “{name}” · {count} files",
   "파일 “{name}”": "File “{name}”",
-  "항목이 너무 많거나 깊어 일부만 목록에 담았습니다. 나머지는 다시 받아 주세요.":
-    "There were too many or too deeply nested items, so only part of the list was collected. Please receive the rest separately.",
+  "항목이 너무 많거나 깊어 일부만 담았습니다. 안쪽 폴더의 링크를 따로 만들어 받아 주세요.":
+    "There were too many or too deeply nested items, so only part of them was collected. Make a separate link for the inner folder and receive that.",
   "받는 중 {done}/{total}": "Receiving {done}/{total}",
   "받지 못한 항목 {count}개": "{count} items could not be received",
   "{count}개를 받았습니다.": "Received {count} items.",
