@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { parseLocale, type Locale } from "@/lib/i18n";
+import { parseNickname } from "@/lib/nickname";
 import { USER_ROLES, resolveUserRole, type UserRole } from "@/lib/roles";
 import { isValidSessionId } from "@/lib/session-token";
 import { currentSpaceFolderId } from "@/lib/space-store";
@@ -18,6 +19,7 @@ export const DEFAULT_INVITATION_DURATION_MINUTES = 24 * 60;
 export const LEGACY_INVITATION_DURATION_MINUTES = 7 * 24 * 60;
 export const MAX_DEVICE_SESSIONS = 20;
 export const MAX_DEVICE_LABEL_LENGTH = 80;
+export const MAX_NICKNAME_HISTORY = 50;
 const MAX_USER_AGENT_LENGTH = 512;
 
 export type UserStatus = "pending" | "approved" | "blocked";
@@ -27,6 +29,11 @@ export interface UserSession {
   id: string;
   createdAt: string;
   deviceLabel: string;
+}
+
+export interface NicknameHistoryEntry {
+  nickname: string;
+  at: string;
 }
 
 export interface User {
@@ -45,6 +52,10 @@ export interface User {
   // 같은 초에 발급·철회가 겹쳐도 즉시 끊을 수 있도록 토큰과 맞춰 보는 값.
   sessionVersion: number;
   sessions: UserSession[];
+  // 데스크 표시용 이름. null이면 화면은 구글 이름(name)으로 폴백한다.
+  nickname: string | null;
+  // 닉 변경 기록 — 최신이 앞, 최대 MAX_NICKNAME_HISTORY개 유지.
+  nicknameHistory: NicknameHistoryEntry[];
 }
 
 export interface Invitation {
@@ -339,6 +350,29 @@ function appendSession(user: User, session: UserSession): void {
   user.sessions = normalizeSessions([...user.sessions, session]);
 }
 
+// 저장된 닉 변경 기록을 정리한다. 닉 규칙에 어긋나거나 시각이 깨진 항목은
+// 버리고, 상한을 넘긴 파일도 읽는 시점에 앞(최신)에서 MAX_NICKNAME_HISTORY개로
+// 자른다 — 기록은 항상 최신이 앞이라는 저장 규약을 전제한다.
+function normalizeNicknameHistory(value: unknown): NicknameHistoryEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: NicknameHistoryEntry[] = [];
+  for (const raw of value) {
+    if (!isRecord(raw)) continue;
+    const nickname = parseNickname(raw.nickname);
+    if (nickname === null) continue;
+    if (
+      typeof raw.at !== "string" ||
+      raw.at.length > 40 ||
+      !Number.isFinite(Date.parse(raw.at))
+    ) {
+      continue;
+    }
+    entries.push({ nickname, at: new Date(raw.at).toISOString() });
+    if (entries.length >= MAX_NICKNAME_HISTORY) break;
+  }
+  return entries;
+}
+
 // v1 users.json을 그대로 읽어 v2 형태로 올린다. 실제 파일은 다음 변경 때 CAS로 저장된다.
 function normalize(raw: unknown): UserFile {
   const file = raw as Partial<UserFile> | null;
@@ -367,6 +401,9 @@ function normalize(raw: unknown): UserFile {
           ? u.sessionVersion
           : 0,
       sessions: normalizeSessions(u.sessions),
+      // 닉 도입 전 파일에는 없다 — 없거나 규칙에 어긋나는 값은 null로 읽는다.
+      nickname: parseNickname(u.nickname),
+      nicknameHistory: normalizeNicknameHistory(u.nicknameHistory),
     }));
   const rawInvitations = Array.isArray(file.invitations)
     ? file.invitations
@@ -768,6 +805,8 @@ function upsertProfile(
       sessionsValidFrom: nowFloorSecond(),
       sessionVersion: 0,
       sessions: [],
+      nickname: null,
+      nicknameHistory: [],
     };
     file.users.push(user);
     return user;
@@ -998,6 +1037,34 @@ export async function setUserRole(
     user.role = role;
     return user;
   });
+}
+
+// 본인 닉 변경(관리자 강제 변경도 같은 함수를 쓰면 된다). 값이 실제로 바뀔
+// 때만 기록을 앞(최신)에 쌓고 CAS로 저장한다 — 같은 값 재설정은 기록을 만들지
+// 않고 쓰기도 생략한다. 대상 사용자가 없으면 null.
+export async function setUserNickname(
+  id: string,
+  nickname: string,
+): Promise<User | null> {
+  const parsed = parseNickname(nickname);
+  if (parsed === null) {
+    throw new Error("닉네임 형식을 확인해 주세요");
+  }
+  const result = await mutate<{ user: User | null; changed: boolean }>(
+    (file) => {
+      const user = file.users.find((item) => item.id === id);
+      if (!user) return { user: null, changed: false };
+      if (user.nickname === parsed) return { user, changed: false };
+      user.nickname = parsed;
+      user.nicknameHistory = [
+        { nickname: parsed, at: new Date().toISOString() },
+        ...user.nicknameHistory,
+      ].slice(0, MAX_NICKNAME_HISTORY);
+      return { user, changed: true };
+    },
+    (outcome) => outcome.changed,
+  );
+  return result.user;
 }
 
 export async function revokeSessions(id: string): Promise<User | null> {

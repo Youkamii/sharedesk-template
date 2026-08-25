@@ -32,6 +32,8 @@ export async function GET() {
   if ("response" in auth) return auth.response;
   const stored = await listUsers();
   // 화면에 보이는 관리자 표시도 환경변수를 따른다 (명단 파일과 어긋나도 환경변수가 우선).
+  // 스프레드로 nickname·nicknameHistory(시각 포함)도 그대로 내려간다 —
+  // 관리자 화면이 구글 이름과 닉, 닉 변경 기록을 함께 보는 근거 데이터다(#13).
   const users = stored.map((u) => ({ ...u, isAdmin: isAdminEmail(u.email) }));
   return NextResponse.json({ users });
 }
