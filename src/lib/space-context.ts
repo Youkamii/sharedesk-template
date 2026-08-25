@@ -1,4 +1,9 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
+import {
+  COOKIE_NAME,
+  resolveSession,
+  type SessionInfo,
+} from "@/lib/auth";
 import { SPACE_HEADER } from "@/lib/space-slug";
 import {
   currentSpaceFolderId,
@@ -37,4 +42,45 @@ export async function establishSpaceContext(): Promise<
   if (!space) return null;
   enterSpace({ slug: space.slug, folderId: space.folderId });
   return { space };
+}
+
+export type SpaceSessionResult =
+  | { kind: "ok"; session: SessionInfo }
+  // 인증됐지만 이 스페이스의 멤버가 아니다.
+  | { kind: "not-member" }
+  // 토큰이 없거나 유효하지 않다.
+  | { kind: "unauthenticated" };
+
+/**
+ * 현재 스페이스 문맥에서 세션을 판정한다. establishSpaceContext가 문맥을 얹은
+ * 뒤에 부른다.
+ *
+ * - 기본 데스크(스페이스 문맥 없음): 기존 resolveSession 그대로.
+ * - 스페이스 문맥:
+ *   1) 그 스페이스 users.json에 사용자가 있으면(초대받은 멤버) 그 스페이스의
+ *      역할로 세션을 만든다.
+ *   2) 없으면 기본 데스크에서 정체를 확인한다 — ADMIN_EMAILS 관리자는 어느
+ *      스페이스에도 들어갈 수 있으므로 통과시키고, 그 밖에는 비멤버로 막는다.
+ *
+ * claims에 email이 없어 스페이스에서 사용자를 못 찾으면 관리자 여부를 알 수
+ * 없다. 그래서 기본 데스크에서 한 번 더 조회한다.
+ */
+export async function resolveSpaceSession(
+  options?: { fresh?: boolean },
+): Promise<SpaceSessionResult> {
+  const token = (await cookies()).get(COOKIE_NAME)?.value;
+  const slug = currentSpaceSlug();
+
+  // 현재 문맥(스페이스면 그 스페이스, 아니면 기본)에서 먼저 시도.
+  const scoped = await resolveSession(token, options);
+  if (scoped) return { kind: "ok", session: scoped };
+
+  // 기본 데스크면 여기서 끝 — 그냥 미인증이거나 승인 안 됨.
+  if (!slug) return { kind: "unauthenticated" };
+
+  // 스페이스에서 못 찾았다. 기본 데스크에서 정체를 확인해 관리자면 통과.
+  const base = await runWithSpace(null, () => resolveSession(token, options));
+  if (base?.isAdmin) return { kind: "ok", session: base };
+  if (base) return { kind: "not-member" };
+  return { kind: "unauthenticated" };
 }

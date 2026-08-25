@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { COOKIE_NAME, SessionInfo, resolveSession } from "@/lib/auth";
 import { canEdit, canUpload } from "@/lib/roles";
+import {
+  establishSpaceContext,
+  resolveSpaceSession,
+} from "@/lib/space-context";
 import { StorageError, StorageErrorCode } from "@/lib/storage/types";
 
 const STATUS: Record<StorageErrorCode, number> = {
@@ -36,19 +40,41 @@ export async function getSession(
 
 // 최종 판정. proxy가 이미 서명을 걸렀지만, 승인 취소·차단 반영은 여기서만 일어난다.
 // matcher 오타나 파일 규약 변경으로 proxy가 통째로 빠져도 이 검사가 남는다.
+//
+// 멀티 데스크(#12): 먼저 요청 헤더에서 스페이스 문맥을 세운다. 이 뒤의 모든
+// 저장소 접근이 그 스페이스에 갇히고, 세션 역할도 그 스페이스 기준이 된다.
 export async function requireSession(options?: SessionOptions): Promise<
   { session: SessionInfo } | { response: NextResponse }
 > {
-  const session = await getSession(options);
-  if (!session) {
+  const established = await establishSpaceContext();
+  if (established === null) {
+    // 헤더에 스페이스가 있는데 등록부에 없다. 존재를 덜 드러내려 404.
     return {
       response: NextResponse.json(
-        { error: "인증이 필요합니다" },
-        { status: 401 },
+        { error: "스페이스를 찾을 수 없습니다" },
+        { status: 404 },
       ),
     };
   }
-  return { session };
+
+  const result = await resolveSpaceSession(options);
+  if (result.kind === "ok") return { session: result.session };
+  if (result.kind === "not-member") {
+    // 인증은 됐지만 이 스페이스의 멤버가 아니다. 스페이스 존재를 덜 드러내려
+    // 미인증과 같은 401로 응답한다.
+    return {
+      response: NextResponse.json(
+        { error: "이 스페이스에 접근할 수 없습니다" },
+        { status: 403 },
+      ),
+    };
+  }
+  return {
+    response: NextResponse.json(
+      { error: "인증이 필요합니다" },
+      { status: 401 },
+    ),
+  };
 }
 
 function forbiddenResponse(): { response: NextResponse } {

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { parseLocale, type Locale } from "@/lib/i18n";
 import { USER_ROLES, resolveUserRole, type UserRole } from "@/lib/roles";
 import { isValidSessionId } from "@/lib/session-token";
+import { currentSpaceFolderId } from "@/lib/space-store";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 
@@ -195,12 +196,34 @@ interface LoadedFile {
   storageVersion: string | null;
 }
 
-let cache:
-  | { data: UserFile; storageVersion: string | null; at: number; gen: number }
-  | null = null;
-let stateHint: { version: string; value: UserFile } | null = null;
-let generation = 0;
-let writeChain: Promise<unknown> = Promise.resolve();
+// 멀티 데스크(#12): 명단 캐시·힌트·쓰기 직렬화 체인을 스페이스별로 가른다.
+// 전역 하나로 두면 A 스페이스에서 읽은 명단이 CACHE_MS 안에 B나 기본 데스크
+// 조회에 그대로 반환돼 남의 명단이 새고, 쓰기 체인이 뒤섞인다.
+interface UsersCacheBundle {
+  cache:
+    | { data: UserFile; storageVersion: string | null; at: number; gen: number }
+    | null;
+  stateHint: { version: string; value: UserFile } | null;
+  generation: number;
+  writeChain: Promise<unknown>;
+}
+
+const cacheBundles = new Map<string, UsersCacheBundle>();
+
+function usersCache(): UsersCacheBundle {
+  const key = currentSpaceFolderId() ?? "";
+  let bundle = cacheBundles.get(key);
+  if (!bundle) {
+    bundle = {
+      cache: null,
+      stateHint: null,
+      generation: 0,
+      writeChain: Promise.resolve(),
+    };
+    cacheBundles.set(key, bundle);
+  }
+  return bundle;
+}
 
 function emptyFile(): UserFile {
   return {
@@ -474,19 +497,23 @@ function normalize(raw: unknown): UserFile {
 }
 
 async function loadState(force = false): Promise<LoadedFile> {
-  if (!force && cache && Date.now() - cache.at < CACHE_MS) {
-    return { data: cache.data, storageVersion: cache.storageVersion };
+  const bundle = usersCache();
+  if (!force && bundle.cache && Date.now() - bundle.cache.at < CACHE_MS) {
+    return {
+      data: bundle.cache.data,
+      storageVersion: bundle.cache.storageVersion,
+    };
   }
-  const myGen = ++generation;
+  const myGen = ++bundle.generation;
   const state = await getAdapter().readStateVersioned<UserFile>(
     FILE,
-    stateHint ?? undefined,
+    bundle.stateHint ?? undefined,
   );
   const data = normalize(state.value);
-  if (state.version) stateHint = { version: state.version, value: data };
-  else stateHint = null;
-  if (!cache || myGen > cache.gen) {
-    cache = {
+  if (state.version) bundle.stateHint = { version: state.version, value: data };
+  else bundle.stateHint = null;
+  if (!bundle.cache || myGen > bundle.cache.gen) {
+    bundle.cache = {
       data,
       storageVersion: state.version,
       at: Date.now(),
@@ -501,11 +528,15 @@ async function load(force = false): Promise<UserFile> {
 }
 
 // 인스턴스 안에서는 직렬화하고, 인스턴스 사이는 저장소 CAS로 조정한다.
+// 쓰기 체인·캐시는 스페이스별 번들에 있다 — 다른 스페이스의 쓰기와 뒤섞이지
+// 않는다. run 안에서는 스페이스 문맥이 바뀔 수 있으므로 시작 시점의 번들을
+// 잡아 그 체인에 잇는다.
 async function mutate<T>(
   fn: (file: UserFile) => T | Promise<T>,
   shouldWrite: (result: T) => boolean = () => true,
 ): Promise<T> {
-  const run = writeChain.then(async () => {
+  const bundle = usersCache();
+  const run = bundle.writeChain.then(async () => {
     for (let attempt = 0; attempt <= WRITE_RETRIES; attempt++) {
       const before = await loadState(true);
       const draft = JSON.parse(JSON.stringify(before.data)) as UserFile;
@@ -519,17 +550,19 @@ async function mutate<T>(
           draft,
           before.storageVersion,
         );
-        stateHint = newVersion ? { version: newVersion, value: draft } : null;
-        cache = {
+        bundle.stateHint = newVersion
+          ? { version: newVersion, value: draft }
+          : null;
+        bundle.cache = {
           data: draft,
           storageVersion: newVersion,
           at: Date.now(),
-          gen: ++generation,
+          gen: ++bundle.generation,
         };
         return result;
       } catch (error) {
-        cache = null;
-        stateHint = null;
+        bundle.cache = null;
+        bundle.stateHint = null;
         if (
           error instanceof StorageError &&
           error.code === "CONFLICT" &&
@@ -542,7 +575,7 @@ async function mutate<T>(
     }
     throw new StorageError("CONFLICT", "사용자 명단이 계속 변경되고 있습니다");
   });
-  writeChain = run.catch(() => undefined);
+  bundle.writeChain = run.catch(() => undefined);
   return run;
 }
 
