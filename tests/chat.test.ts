@@ -96,5 +96,6 @@ test("채팅 API와 창은 서버리스 폴링·독립 버튼·새 메시지 알
   assert.match(filesView, /styles\.chatTaskUnread/);
   assert.match(filesView, /styles\.chatUnreadBadge/);
   assert.match(css, /@keyframes chatTaskBlink/);
-  assert.match(filesView, /\{t\("추가기능"\)\}/);
+  // 추가기능 메뉴는 사이드바로 대체됐다(#11) — 채팅은 여전히 작업표시줄 직접.
+  assert.match(filesView, /styles\.sidebarHandle/);
 });

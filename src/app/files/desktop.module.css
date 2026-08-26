@@ -2599,29 +2599,63 @@
   transform: translateX(-50%);
 }
 
-.extraFeatures {
-  position: relative;
-  flex: none;
-}
-
-.extraFeatures > .downloadPreference {
-  font: inherit;
-}
-
-.extraFeaturesMenu {
+/* 우측 가장자리 사이드바(#11) — 손잡이는 데스크 위(z1050), 패널은
+   작업표시줄(1100)·다운로드 패널(1200) 아래(z1090). */
+.sidebarHandle {
   position: absolute;
+  top: 50%;
   right: 0;
-  bottom: calc(100% + 7px);
-  z-index: 130;
-  display: grid;
-  width: 190px;
-  padding: 5px;
-  background: #f4e7c5;
-  border: 2px solid #10172b;
-  box-shadow: inset 2px 2px 0 #fff8e7, 4px 4px 0 rgb(5 9 20 / 58%);
+  z-index: 1050;
+  display: flex;
+  width: 20px;
+  height: 76px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #fff8e7;
+  background: rgb(13 20 41 / 94%);
+  border: 2px solid #51658d;
+  border-right: 0;
+  box-shadow: -2px 2px 0 rgb(5 9 20 / 46%);
+  font: inherit;
+  transform: translateY(-50%);
+  cursor: pointer;
 }
 
-.extraFeaturesMenu button {
+.sidebarHandle:hover,
+.sidebarHandle:focus-visible {
+  background: #2d5c5b;
+}
+
+.sidebarHandleOpen {
+  right: 232px;
+  z-index: 1090;
+}
+
+.sidebar {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  bottom: 48px;
+  z-index: 1090;
+  display: flex;
+  width: 232px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 10px;
+  overflow: hidden auto;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border-left: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, -4px 0 0 rgb(5 9 20 / 40%);
+}
+
+.sidebarActions {
+  display: grid;
+  gap: 2px;
+}
+
+.sidebarActions button {
   display: flex;
   min-height: 34px;
   align-items: center;
@@ -2632,10 +2666,51 @@
   border: 0;
   font: inherit;
   text-align: left;
+  cursor: pointer;
 }
 
-.extraFeaturesMenu button:hover,
-.extraFeaturesMenu button:focus-visible {
+.sidebarActions button:hover,
+.sidebarActions button:focus-visible {
+  color: #fff8e7;
+  background: #2d5c5b;
+}
+
+.sidebarPublic {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 2px solid #d8c79c;
+}
+
+.sidebarPublic > strong {
+  padding: 0 8px;
+}
+
+.sidebarPublic > p {
+  margin: 0;
+  padding: 0 8px;
+  color: #6b6146;
+}
+
+.sidebarPublic ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 2px;
+  list-style: none;
+}
+
+.sidebarPublic a {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 5px 8px;
+  color: #1b1b2f;
+  text-decoration: none;
+}
+
+.sidebarPublic a:hover,
+.sidebarPublic a:focus-visible {
   color: #fff8e7;
   background: #2d5c5b;
 }

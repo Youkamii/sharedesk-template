@@ -297,15 +297,15 @@ test("링크 목록·회수는 자기 것만, 관리자만 전부 본다 (#11)",
   assert.doesNotMatch(quick, /canEdit/, "역할 기반 전체 열람은 축소됐다");
 });
 
-test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 메뉴와 창이다", async () => {
+test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 사이드바 항목과 창이다", async () => {
   const [view, quick, links] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/QuickLinkWindow.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/files/ShareLinksWindow.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(view, /role="menuitem" onClick=\{openQuickLinkWindow\}/);
-  assert.match(view, /role="menuitem" onClick=\{openShareLinksWindow\}/);
+  assert.match(view, /onClick=\{openQuickLinkWindow\}/);
+  assert.match(view, /onClick=\{openShareLinksWindow\}/);
   assert.ok(view.includes('t("간이 링크 만들기")'));
   assert.ok(view.includes('t("생성된 링크")'));
   assert.ok(quick.includes('aria-label={t("간이 링크 만들기")}'));

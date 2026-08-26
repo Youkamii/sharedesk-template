@@ -424,7 +424,6 @@ export const EN_FILES: Record<string, string> = {
   "공유 권한을 회수하지 못했습니다": "Couldn't remove access",
 
   // 공개 링크·간이 링크·데스크 채팅
-  "추가기능": "More features",
   "채팅": "Chat",
   "읽지 않은 메시지 {count}개": "{count} unread messages",
   "데스크 채팅": "Desk chat",
@@ -562,4 +561,12 @@ export const EN_FILES: Record<string, string> = {
   "{name}: {reason}": "{name}: {reason}",
   "폴더는 올릴 수 없습니다 — 파일만 올려 주세요": "Folders cannot be uploaded — files only",
   "두 번 눌러 내려받기": "Double-click to download",
+
+  // 사이드바 (#11)
+  "부가 기능": "More features",
+  "부가 기능 열기": "Open more features",
+  "부가 기능 닫기": "Close more features",
+  "링크와 받기": "Links & receive",
+  "공개 폴더 입장": "Enter public folders",
+  "입장할 수 있는 공개 폴더가 없습니다.": "No public folders you can enter.",
 };

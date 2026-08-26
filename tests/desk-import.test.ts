@@ -221,16 +221,16 @@ test("중단을 요청하면 다음 항목으로 넘어가지 않는다", async 
 });
 
 // 화면 연결이 빠지면 서버 경로가 멀쩡해도 사용자가 쓸 방법이 없다.
-test("받기 창이 추가기능 메뉴와 작업표시줄에 연결돼 있다", async () => {
+test("받기 창이 사이드바와 작업표시줄에 연결돼 있다", async () => {
   const source = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),
     "utf8",
   );
   assert.match(source, /import DeskImportWindow from "\.\/DeskImportWindow"/);
-  // 추가기능 메뉴 항목
+  // 사이드바 항목(#11)
   assert.match(
     source,
-    /role="menuitem" onClick=\{openDeskImportWindow\}[\s\S]{0,160}다른 데스크에서 받기/,
+    /onClick=\{openDeskImportWindow\}[\s\S]{0,160}다른 데스크에서 받기/,
   );
   // 창 렌더와 작업표시줄 복원 버튼
   assert.match(source, /<DeskImportWindow[\s\S]{0,900}onActivate=\{focusDeskImportWindow\}/);

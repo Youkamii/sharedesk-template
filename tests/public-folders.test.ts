@@ -471,3 +471,40 @@ test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 �
     "파일 목록은 기존 드라이브 API 재사용",
   );
 });
+
+test("배선: 사이드바 — 손잡이·공개 폴더 입장·추가기능 메뉴 대체 (#11)", async () => {
+  const read = (relative: string) =>
+    readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+  const view = await read("src/app/files/FilesView.tsx");
+  assert.match(view, /styles\.sidebarHandle/);
+  assert.match(view, /aria-controls="desk-sidebar"/);
+  assert.match(view, /apiPath\("\/api\/public-folders"\)/);
+  assert.match(view, /\{t\("공개 폴더 입장"\)\}/);
+  assert.doesNotMatch(view, /extraFeatures/, "추가기능 메뉴는 사이드바로 대체");
+  assert.doesNotMatch(view, /\{t\("추가기능"\)\}/);
+  // 다운로드 우선은 작업표시줄 직접 체크박스로 남는다.
+  assert.match(view, /checked=\{downloadFirst\}/);
+  assert.match(view, /styles\.preferenceCheck/);
+  // Escape·바깥 클릭 닫기 배선.
+  assert.match(view, /sidebarHandleRef\.current\?\.contains\(target\)/);
+
+  const route = await read("src/app/api/public-folders/route.ts");
+  assert.match(route, /runWithSession\(\{ fresh: true \}/);
+  assert.match(route, /space !== null/, "스페이스 문맥에서는 빈 목록");
+  assert.match(
+    route,
+    /publicFolderAccess\(folder, session, now\) !== "open"/,
+    "노출 판정은 공개 라우트와 같은 함수 하나",
+  );
+  assert.match(
+    route,
+    /target\.layoutKey !== folder\.folderIdentity/,
+    "지워진 대상(죽은 링크)은 목록에서도 뺀다",
+  );
+
+  const css = await read("src/app/files/desktop.module.css");
+  assert.match(css, /\.sidebarHandle \{/);
+  assert.match(css, /\.sidebar \{/);
+  assert.doesNotMatch(css, /extraFeaturesMenu/);
+});

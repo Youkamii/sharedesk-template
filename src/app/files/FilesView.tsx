@@ -837,7 +837,56 @@ export default function FilesView({
   // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
   const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
   const [chatUnread, setChatUnread] = useState(0);
-  const [extraFeaturesOpen, setExtraFeaturesOpen] = useState(false);
+  // 우측 가장자리 사이드바(#11) — 링크·데스크 임포트·공개 폴더 입장.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [publicFolders, setPublicFolders] = useState<
+    { id: string; name: string; url: string }[]
+  >([]);
+  const sidebarRef = useRef<HTMLElement | null>(null);
+  const sidebarHandleRef = useRef<HTMLButtonElement | null>(null);
+
+  // 열 때마다 입장 가능한 공개 폴더 목록을 새로 받는다(등록·기간 변화 반영).
+  useEffect(() => {
+    if (!sidebarOpen || isSpace) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const response = await fetch(apiPath("/api/public-folders"), {
+          cache: "no-store",
+        });
+        const body = (await response.json().catch(() => null)) as {
+          folders?: { id: string; name: string; url: string }[];
+        } | null;
+        if (!alive || !response.ok) return;
+        setPublicFolders(Array.isArray(body?.folders) ? body.folders : []);
+      } catch {
+        // 목록 실패는 조용히 무시 — 사이드바의 다른 항목은 그대로 쓸 수 있다.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [sidebarOpen, isSpace]);
+
+  // Escape·바깥 클릭으로 닫기.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSidebarOpen(false);
+    }
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node;
+      if (sidebarRef.current?.contains(target)) return;
+      if (sidebarHandleRef.current?.contains(target)) return;
+      setSidebarOpen(false);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [sidebarOpen]);
   const [dialogBusy, setDialogBusy] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
@@ -5835,7 +5884,7 @@ export default function FilesView({
   }
 
   function openQuickLinkWindow() {
-    setExtraFeaturesOpen(false);
+    setSidebarOpen(false);
     setQuickLinkWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
@@ -5849,7 +5898,7 @@ export default function FilesView({
   }
 
   function openShareLinksWindow() {
-    setExtraFeaturesOpen(false);
+    setSidebarOpen(false);
     setShareLinksWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
@@ -5874,7 +5923,7 @@ export default function FilesView({
   }
 
   function openDeskImportWindow() {
-    setExtraFeaturesOpen(false);
+    setSidebarOpen(false);
     setDeskImportWindow((current) => ({
       minimized: false,
       maximized: current?.maximized ?? false,
@@ -8559,6 +8608,69 @@ export default function FilesView({
         <span>{t("휴지통")}</span>
       </button>
 
+      {/* 우측 가장자리 사이드바(#11). 링크·임포트·공개 폴더의 소비 라우트가
+          기본 데스크만 보므로 스페이스에서는 손잡이째 숨긴다(#12와 같은 이유). */}
+      {!isSpace && (
+        <>
+          <button
+            type="button"
+            ref={sidebarHandleRef}
+            className={`${styles.sidebarHandle} ${
+              sidebarOpen ? styles.sidebarHandleOpen : ""
+            }`}
+            aria-expanded={sidebarOpen}
+            aria-controls="desk-sidebar"
+            aria-label={sidebarOpen ? t("부가 기능 닫기") : t("부가 기능 열기")}
+            title={sidebarOpen ? t("부가 기능 닫기") : t("부가 기능 열기")}
+            onClick={() => setSidebarOpen((current) => !current)}
+          >
+            <span aria-hidden="true">{sidebarOpen ? "»" : "«"}</span>
+          </button>
+          {sidebarOpen && (
+            <aside
+              id="desk-sidebar"
+              ref={sidebarRef}
+              className={styles.sidebar}
+              aria-label={t("부가 기능")}
+            >
+              {allowUpload && (
+                <nav className={styles.sidebarActions} aria-label={t("링크와 받기")}>
+                  <button type="button" onClick={openQuickLinkWindow}>
+                    <span aria-hidden="true">↗</span>
+                    {t("간이 링크 만들기")}
+                  </button>
+                  <button type="button" onClick={openShareLinksWindow}>
+                    <span aria-hidden="true">☍</span>
+                    {t("생성된 링크")}
+                  </button>
+                  <button type="button" onClick={openDeskImportWindow}>
+                    <span aria-hidden="true">⇱</span>
+                    {t("다른 데스크에서 받기")}
+                  </button>
+                </nav>
+              )}
+              <section
+                className={styles.sidebarPublic}
+                aria-label={t("공개 폴더 입장")}
+              >
+                <strong>{t("공개 폴더 입장")}</strong>
+                {publicFolders.length === 0 ? (
+                  <p>{t("입장할 수 있는 공개 폴더가 없습니다.")}</p>
+                ) : (
+                  <ul>
+                    {publicFolders.map((folder) => (
+                      <li key={folder.id}>
+                        <a href={folder.url}>{folder.name}</a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </aside>
+          )}
+        </>
+      )}
+
       <footer className={styles.taskBar}>
         <form
           className={styles.desktopSearch}
@@ -8747,54 +8859,15 @@ export default function FilesView({
               </span>
             </button>
           )}
-        <div className={styles.extraFeatures}>
-          <button
-            type="button"
-            className={styles.downloadPreference}
-            aria-haspopup="menu"
-            aria-expanded={extraFeaturesOpen}
-            onClick={() => setExtraFeaturesOpen((current) => !current)}
-          >
-            <span aria-hidden="true">＋</span>
-            <span>{t("추가기능")}</span>
-          </button>
-          {extraFeaturesOpen && (
-            <div className={styles.extraFeaturesMenu} role="menu">
-              {/* 공유·간이 링크와 데스크 임포트는 소비 라우트가 기본 데스크만
-                  보므로 스페이스에서는 죽은 링크가 된다 — 스페이스에서 숨긴다(#12). */}
-              {allowUpload && !isSpace && (
-                <button type="button" role="menuitem" onClick={openQuickLinkWindow}>
-                  <span aria-hidden="true">↗</span>
-                  {t("간이 링크 만들기")}
-                </button>
-              )}
-              {allowUpload && !isSpace && (
-                <button type="button" role="menuitem" onClick={openShareLinksWindow}>
-                  <span aria-hidden="true">☍</span>
-                  {t("생성된 링크")}
-                </button>
-              )}
-              {allowUpload && !isSpace && (
-                <button type="button" role="menuitem" onClick={openDeskImportWindow}>
-                  <span aria-hidden="true">⇱</span>
-                  {t("다른 데스크에서 받기")}
-                </button>
-              )}
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={downloadFirst}
-                onClick={() => {
-                  selectDownloadFirst(!downloadFirst);
-                  setExtraFeaturesOpen(false);
-                }}
-              >
-                <span aria-hidden="true">{downloadFirst ? "✓" : "□"}</span>
-                <span>{t("다운로드 우선")}</span>
-              </button>
-            </div>
-          )}
-        </div>
+        <label className={styles.downloadPreference}>
+          <input
+            type="checkbox"
+            checked={downloadFirst}
+            onChange={(event) => selectDownloadFirst(event.target.checked)}
+          />
+          <span className={styles.preferenceCheck} aria-hidden="true" />
+          <span>{t("다운로드 우선")}</span>
+        </label>
         <div className={styles.userTray}>
           {canSendFeedback && (
             <button
