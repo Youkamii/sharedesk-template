@@ -1290,3 +1290,19 @@
   background-repeat: no-repeat, no-repeat, repeat;
   image-rendering: pixelated;
 }
+
+/* 공개 폴더 패널(#10) */
+.plainList {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plainList > li {
+  padding: 10px 12px;
+  border: 2px solid #7d7180;
+  background: #fff8e7;
+}

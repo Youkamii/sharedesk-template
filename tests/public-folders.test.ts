@@ -431,3 +431,43 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   const routing = await read("src/lib/space-routing.ts");
   assert.match(routing, /"\/api\/public-folder\/"/);
 });
+
+test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 롤백·탭", async () => {
+  const read = (relative: string) =>
+    readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+  const collection = await read("src/app/api/admin/public-folders/route.ts");
+  assert.match(collection, /runWithAdmin\(\{ fresh: true \}/);
+  assert.match(
+    collection,
+    /delete summary\.folderIdentity/,
+    "관리 응답에 identity 비노출",
+  );
+  assert.match(
+    collection,
+    /adapter\.remove\(created\.id\)\.catch/,
+    "등록 실패 시 폴더 보상 롤백",
+  );
+  assert.match(
+    collection,
+    /createFolder\(ROOT_ID, name\)/,
+    "등록은 항상 루트에 새 폴더 — 평평 보장이 생성 시점부터 성립",
+  );
+
+  const item = await read("src/app/api/admin/public-folders/[id]/route.ts");
+  assert.match(item, /runWithAdmin\(\{ fresh: true \}/);
+  assert.match(item, /filesKept: true/, "해제는 파일을 데스크에 남긴다");
+
+  const view = await read("src/app/admin/AdminView.tsx");
+  assert.match(view, /tab-public/);
+  assert.match(view, /<PublicFoldersPanel/);
+
+  const panel = await read("src/app/admin/PublicFoldersPanel.tsx");
+  assert.match(panel, /confirmRemove/, "등록 해제는 2단계 확인");
+  assert.match(panel, /datetime-local/, "공개 시각은 로컬 입력 ↔ UTC ISO 변환");
+  assert.match(
+    panel,
+    /\/api\/drive\/list\?folderId=/,
+    "파일 목록은 기존 드라이브 API 재사용",
+  );
+});

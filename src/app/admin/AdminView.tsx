@@ -27,6 +27,7 @@ import {
 } from "@/lib/roles";
 import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
+import PublicFoldersPanel from "./PublicFoldersPanel";
 import type { ActivityAction, ActivityEntry } from "@/lib/activity";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
@@ -62,7 +63,7 @@ interface OwnerRegistryStatus {
 }
 
 // 관리자 페이지 좌측 탭 — 사용자(기존 초대·사용자 관리)와 설정(언어·테마·바탕화면).
-type AdminTab = "users" | "settings" | "activity";
+type AdminTab = "users" | "public" | "settings" | "activity";
 
 // 활동 종류별 표시 문구 — 서버의 ActivityAction 값과 1:1. 타입을 좁혀
 // 서버에 액션이 늘면 컴파일러가 라벨 누락을 잡는다.
@@ -1139,6 +1140,17 @@ export default function AdminView({ locale }: { locale: Locale }) {
             <button
               type="button"
               role="tab"
+              id="tab-public"
+              aria-selected={activeTab === "public"}
+              aria-controls="panel-public"
+              className={`${styles.tabButton} ${activeTab === "public" ? styles.tabButtonActive : ""}`}
+              onClick={() => setActiveTab("public")}
+            >
+              {t("공개 폴더")}
+            </button>
+            <button
+              type="button"
+              role="tab"
               id="tab-settings"
               aria-selected={activeTab === "settings"}
               aria-controls="panel-settings"
@@ -1626,6 +1638,16 @@ export default function AdminView({ locale }: { locale: Locale }) {
                 </div>
               </div>
             </section>
+          </div>
+
+          <div
+            role="tabpanel"
+            id="panel-public"
+            aria-labelledby="tab-public"
+            hidden={activeTab !== "public"}
+            className={styles.tabPanel}
+          >
+            <PublicFoldersPanel locale={locale} active={activeTab === "public"} />
           </div>
 
           <div
