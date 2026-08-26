@@ -76,12 +76,13 @@ export async function POST(req: NextRequest) {
       if (action === "restore") {
         const entry = await adapter.restore(body.id);
         // 평평 유지(#10): 휴지통 복원은 mkdir·move·rename 가드를 거치지 않는
-        // 네 번째 쓰기 경로다. 복원 목적지가 등록된 공개 폴더 안이면(원래
-        // 부모가 그 사이 공개 폴더가 됐다) 루트로 빼내 "공개 폴더엔 하위가
-        // 없다"를 지킨다 — 데이터는 잃지 않는다. 기본 데스크 문맥에서만
-        // 검사한다(등록부는 기본 데스크 전용).
+        // 네 번째 쓰기 경로다. 복원 대상이 **폴더**인데 목적지가 등록된 공개
+        // 폴더 안이면(원래 부모가 그 사이 공개 폴더가 됐다) 루트로 빼내
+        // "공개 폴더엔 하위 폴더가 없다"를 지킨다 — 데이터는 잃지 않는다.
+        // 파일 복원은 공개 폴더 안이 정상이므로 건드리지 않는다. 기본 데스크
+        // 문맥에서만 검사한다(등록부는 기본 데스크 전용).
         let restored = entry;
-        if (space === null && entry.version) {
+        if (space === null && entry.isFolder && entry.version) {
           for (const folder of await listPublicFolders()) {
             if (await adapter.isDirectChild(entry.id, folder.folderId)) {
               restored = await adapter.move(entry.id, ROOT_ID, entry.version);
