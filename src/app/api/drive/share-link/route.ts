@@ -4,7 +4,6 @@ import {
   runWithEditRights,
   runWithUploadRights,
 } from "@/lib/api";
-import { canEdit } from "@/lib/roles";
 import {
   createShareLink,
   cleanupExpiredShareLinks,
@@ -23,7 +22,9 @@ function badRequest() {
   return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
 }
 
-// 외부 공유 링크 관리 — 관리자·수정 가능 역할만 만들고 거둘 수 있다.
+// 외부 공유 링크 관리(#11) — 목록·회수는 자기 링크만, 관리자는 전부.
+// createdByUserId가 빈 레거시 링크는 어느 유저와도 일치하지 않으므로
+// 관리자에게만 보인다(수용된 동작 — 관리자가 정리한다).
 export async function GET(req: NextRequest) {
   return runWithUploadRights({ fresh: true }, async ({ session }) => {
     const fileId = req.nextUrl.searchParams.get("fileId") ?? undefined;
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
       const links = await listShareLinks(fileId);
       return NextResponse.json(
         {
-          links: canEdit(session.role)
+          links: session.isAdmin
             ? links
             : links.filter((link) => link.createdByUserId === session.userId),
         },
@@ -91,7 +92,7 @@ export async function DELETE(req: NextRequest) {
       const link = await getShareLink(body.linkId);
       if (
         !link ||
-        (!canEdit(session.role) && link.createdByUserId !== session.userId)
+        (!session.isAdmin && link.createdByUserId !== session.userId)
       ) {
         return NextResponse.json(
           { error: "이 공유 링크를 멈출 권한이 없습니다" },

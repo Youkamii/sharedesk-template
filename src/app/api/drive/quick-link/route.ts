@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, runWithUploadRights } from "@/lib/api";
-import { canEdit } from "@/lib/roles";
 import {
   createShareLink,
   getShareLink,
@@ -28,8 +27,13 @@ function badRequest() {
   return NextResponse.json({ error: "잘못된 요청입니다" }, { status: 400 });
 }
 
-function mayChange(link: Awaited<ReturnType<typeof getShareLink>>, userId: string, role: Parameters<typeof canEdit>[0]) {
-  return !!link && (link.createdByUserId === userId || canEdit(role));
+// 간이 링크 변경·회수(#11) — 자기 링크만, 관리자는 전부.
+function mayChange(
+  link: Awaited<ReturnType<typeof getShareLink>>,
+  userId: string,
+  isAdmin: boolean,
+) {
+  return !!link && (link.createdByUserId === userId || isAdmin);
 }
 
 // Drive 직행 업로드가 끝난 뒤 숨김 파일에 1시간 링크를 붙인다.
@@ -123,7 +127,7 @@ export async function PATCH(req: NextRequest) {
     } | null;
     if (!body || typeof body.linkId !== "string") return badRequest();
     const link = await getShareLink(body.linkId);
-    if (!mayChange(link, session.userId, session.role)) {
+    if (!mayChange(link, session.userId, session.isAdmin)) {
       return NextResponse.json(
         { error: "이 간이 링크를 바꿀 권한이 없습니다" },
         { status: 403 },
@@ -157,7 +161,7 @@ export async function DELETE(req: NextRequest) {
     } | null;
     if (!body || typeof body.linkId !== "string") return badRequest();
     const link = await getShareLink(body.linkId);
-    if (!mayChange(link, session.userId, session.role)) {
+    if (!mayChange(link, session.userId, session.isAdmin)) {
       return NextResponse.json(
         { error: "이 간이 링크를 멈출 권한이 없습니다" },
         { status: 403 },

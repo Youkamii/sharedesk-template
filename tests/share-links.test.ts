@@ -276,6 +276,27 @@ test("공유 API는 데스크 루트 전체 공개와 삭제 대기 누락을 �
   assert.doesNotMatch(cron, /user-agent|vercel-cron/);
 });
 
+test("링크 목록·회수는 자기 것만, 관리자만 전부 본다 (#11)", async () => {
+  const [share, quick] = await Promise.all([
+    readFile(
+      new URL("../src/app/api/drive/share-link/route.ts", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/api/drive/quick-link/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
+  assert.match(share, /session\.isAdmin\s*\?\s*links/);
+  assert.match(
+    share,
+    /!session\.isAdmin && link\.createdByUserId !== session\.userId/,
+  );
+  assert.doesNotMatch(share, /canEdit/, "역할 기반 전체 열람은 축소됐다");
+  assert.match(quick, /mayChange\(link, session\.userId, session\.isAdmin\)/);
+  assert.doesNotMatch(quick, /canEdit/, "역할 기반 전체 열람은 축소됐다");
+});
+
 test("간이 링크 만들기와 생성된 링크 관리는 서로 다른 메뉴와 창이다", async () => {
   const [view, quick, links] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
