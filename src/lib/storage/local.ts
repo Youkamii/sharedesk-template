@@ -488,11 +488,25 @@ export class LocalAdapter implements StorageAdapter {
   }
 
   async isDirectChild(id: string, parentId: string): Promise<boolean> {
+    // 경로 문자열 비교는 대소문자 무시 FS에서 같은 폴더의 다른 표기를
+    // 놓친다(#10 리뷰) — isWithin과 같은 realpath 대조로 물리적 직계를
+    // 판정한다. 대상이 실존하지 않으면 false다.
     const rel = idToRel(id);
-    const parent = idToRel(parentId);
     if (!rel) return false;
-    const separator = rel.lastIndexOf("/");
-    return (separator >= 0 ? rel.slice(0, separator) : "") === parent;
+    const parent = idToRel(parentId);
+    try {
+      const [targetAbs, parentAbs] = await Promise.all([
+        safeAbs(rel),
+        safeAbs(parent),
+      ]);
+      const [targetPath, parentPath] = await Promise.all([
+        realpath(targetAbs),
+        realpath(parentAbs),
+      ]);
+      return path.dirname(targetPath) === parentPath;
+    } catch {
+      return false;
+    }
   }
 
   async createSpaceRoot(slug: string): Promise<string> {

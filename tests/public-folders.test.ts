@@ -428,6 +428,31 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   // identity 기반 조회라 대소문자 변형 parentId로도 상한을 우회 못 한다.
   const quota = await read("src/lib/storage-quota.ts");
   assert.match(quota, /publicFolderAtFolderId\(input\.parentId\)/);
+  // 교차 리뷰 반영: 예약 합산은 등록 id 스코프, 완료 기록은 파일 identity,
+  // 예약 이름은 어댑터와 같은 trim 형태.
+  assert.match(quota, /reservation\.publicFolderId === folder\.id/);
+  assert.match(quota, /completed\.fileId === entry\.layoutKey/);
+  assert.match(quota, /const name = input\.name\.trim\(\)/);
+
+  // .txt 증가분의 폴더 총 용량은 content 라우트가 직접 판정한다.
+  const content = await read("src/app/api/drive/content/route.ts");
+  assert.match(content, /공개 폴더의 저장 용량 한도를 넘었습니다/);
+  assert.match(content, /resolvePublicFolderTarget\(folder\)/);
+
+  // 스페이스 프리픽스로는 공개 폴더 API에 못 들어간다(경로 격리).
+  const proxySource = await read("src/proxy.ts");
+  assert.match(
+    proxySource,
+    /rewritePath\.startsWith\("\/api\/public-folder\/"\)/,
+  );
+
+  // local isDirectChild는 realpath 대조 — 대소문자 변형 id도 같은 폴더.
+  const localSource = await read("src/lib/storage/local.ts");
+  assert.match(
+    localSource,
+    /path\.dirname\(targetPath\) === parentPath/,
+    "isDirectChild는 물리 경로로 직계 판정",
+  );
 
   // 가드·상한이 folderIdentity(layoutKey)로 판정한다 — NTFS 대소문자 무시로
   // 같은 폴더를 다른 문자열 id가 가리켜도 같은 폴더로 잡는다.
@@ -440,10 +465,13 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   );
 
   // 휴지통 복원은 mkdir·move·rename 밖의 네 번째 쓰기 경로 — 공개 폴더
-  // 안으로 복원되면 루트로 빼내 평평을 지킨다.
+  // 안으로 복원되면 루트로 빼내 평평을 지킨다. 죽은 등록은 건너뛰고,
+  // 루트 이동 실패 시 복원을 되돌려 하위 폴더를 남기지 않는다.
   const trash = await read("src/app/api/drive/trash/route.ts");
   assert.match(trash, /isDirectChild\(entry\.id, folder\.folderId\)/);
   assert.match(trash, /adapter\.move\(entry\.id, ROOT_ID/);
+  assert.match(trash, /resolvePublicFolderTarget\(folder\)/);
+  assert.match(trash, /adapter\.remove\(entry\.id\)\.catch/);
 
   // proxy 면제 목록 등재.
   const routing = await read("src/lib/space-routing.ts");

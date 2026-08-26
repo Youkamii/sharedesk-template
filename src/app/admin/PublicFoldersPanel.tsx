@@ -106,9 +106,12 @@ function formStateOf(folder: AdminPublicFolder): SettingsFormState {
   };
 }
 
-// 폼 상태 → PATCH body. 형식이 어긋나면 오류 문구.
+// 폼 상태 → PATCH body. 형식이 어긋나면 오류 문구. baseline(저장값의 표시
+// 형태)과 같은 필드는 body에서 뺀다 — 표시 변환(GiB 반올림·분 단위 절삭)이
+// 손대지 않은 값까지 재양자화해 저장하는 것을 막는다(#10 리뷰).
 function patchFromForm(
   form: SettingsFormState,
+  baseline: SettingsFormState,
 ): { body: Record<string, unknown> } | { error: string } {
   const opensAt = localInputToIso(form.opensAt);
   const closesAt = localInputToIso(form.closesAt);
@@ -135,18 +138,25 @@ function patchFromForm(
     }
     maxFiles = parsed;
   }
-  return {
-    body: {
-      enabled: form.enabled,
-      opensAt,
-      closesAt,
-      maxTotalBytes,
-      maxFileBytes,
-      maxFiles,
-      minRole: form.minRole === "" ? null : form.minRole,
-      userIds: form.userIds,
-    },
-  };
+  const body: Record<string, unknown> = {};
+  if (form.enabled !== baseline.enabled) body.enabled = form.enabled;
+  if (form.opensAt !== baseline.opensAt) body.opensAt = opensAt;
+  if (form.closesAt !== baseline.closesAt) body.closesAt = closesAt;
+  if (form.maxTotalGiB !== baseline.maxTotalGiB) {
+    body.maxTotalBytes = maxTotalBytes;
+  }
+  if (form.maxFileGiB !== baseline.maxFileGiB) body.maxFileBytes = maxFileBytes;
+  if (form.maxFiles !== baseline.maxFiles) body.maxFiles = maxFiles;
+  if (form.minRole !== baseline.minRole) {
+    body.minRole = form.minRole === "" ? null : form.minRole;
+  }
+  if (
+    form.userIds.length !== baseline.userIds.length ||
+    form.userIds.some((id, index) => id !== baseline.userIds[index])
+  ) {
+    body.userIds = form.userIds;
+  }
+  return { body };
 }
 
 export default function PublicFoldersPanel({
@@ -266,15 +276,18 @@ export default function PublicFoldersPanel({
   const saveSettings = (folder: AdminPublicFolder) =>
     run(async () => {
       if (!form) return;
-      const parsed = patchFromForm(form);
+      const parsed = patchFromForm(form, formStateOf(folder));
       if ("error" in parsed) {
         throw new Error(t(parsed.error));
       }
-      await api(`/api/admin/public-folders/${folder.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed.body),
-      });
+      // 바뀐 필드가 없으면 서버를 부르지 않는다 — 빈 PATCH는 400이다.
+      if (Object.keys(parsed.body).length > 0) {
+        await api(`/api/admin/public-folders/${folder.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(parsed.body),
+        });
+      }
       setNotice(t("저장했습니다"));
       reload();
     });

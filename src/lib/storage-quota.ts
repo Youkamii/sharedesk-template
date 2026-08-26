@@ -25,6 +25,10 @@ export interface UploadReservation {
   id: string;
   userId: string;
   parentId: string;
+  // 대상이 등록된 공개 폴더면 그 등록 id — 폴더별 상한 합산의 스코프다.
+  // parentId 문자열 대조는 대소문자 무시 FS에서 같은 폴더를 가리키는 두
+  // 표기를 서로 다른 폴더로 세므로(#10 리뷰), 합산은 이 값으로만 한다.
+  publicFolderId: string | null;
   name: string;
   size: number;
   transport: "direct" | "proxy";
@@ -35,6 +39,10 @@ export interface UploadReservation {
 interface ReservationFile {
   version: 3;
   reservations: UploadReservation[];
+  // fileId 필드에는 Entry.layoutKey(파일 identity)를 담는다 — local의 id는
+  // 경로 기반이라, 삭제 후 같은 이름으로 다시 올리면 24시간 안에 id가
+  // 겹쳐 새 업로드가 "이미 완료 처리"로 오인된다(#10 리뷰). identity는
+  // 재생성 시 달라지므로 정확히 "같은 물리 파일의 이중 완료"만 막는다.
   completedUploads: Array<{ fileId: string; expiresAt: string }>;
 }
 
@@ -58,6 +66,9 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
             typeof entry.id === "string" &&
             typeof entry.userId === "string" &&
             typeof entry.parentId === "string" &&
+            // 필드 도입 전 예약(undefined)도 유효 — null로 정규화한다.
+            (entry.publicFolderId == null ||
+              typeof entry.publicFolderId === "string") &&
             typeof entry.name === "string" &&
             Number.isSafeInteger(entry.size) &&
             entry.size >= 0 &&
@@ -69,6 +80,7 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
             Date.parse(entry.expiresAt) > now
           );
         })
+        .map((entry) => ({ ...entry, publicFolderId: entry.publicFolderId ?? null }))
         .slice(0, MAX_RESERVATIONS)
     : [];
   const completedUploads = Array.isArray(raw?.completedUploads)
@@ -106,8 +118,10 @@ async function publicFolderLimitError(
   input: { parentId: string; userId: string },
   size: number,
 ): Promise<string | null> {
+  // 합산 스코프는 등록 id — parentId 문자열이 아니라 폴더 실체 기준이라
+  // 대소문자 변형 id로 들어온 동시 예약도 같은 폴더로 합산된다.
   const parentReservations = reservations.filter(
-    (reservation) => reservation.parentId === input.parentId,
+    (reservation) => reservation.publicFolderId === folder.id,
   );
   // 무세션 외부인은 폴더당 동시 예약을 좁게 묶는다 — 큰 size를 선언만
   // 하고 본문을 흘리지 않는 방식으로 데스크 전역 예약 자원을 잠식하는
@@ -180,11 +194,15 @@ export async function reserveUpload(input: {
     settings,
     input.enforceMaxUpload !== false,
   );
+  // 저장 어댑터(assertUserName)는 이름을 trim해 저장한다 — 예약에도 같은
+  // 형태를 담아야 완료 검사(entry.name 대조)가 앞뒤 공백 때문에 저장 성공
+  // 후 409를 내는 일이 없다(#10 리뷰).
+  const name = input.name.trim();
 
   // 공개 폴더(#10)의 폴더별 상한은 여기서 무조건 집행한다 — 외부인 공개
   // 라우트든 멤버의 기존 업로드 라우트든 같은 parentId면 같은 계약이다.
-  // (예외: drive/content의 .txt 증가분 예약은 parentId가 파일 id라 여기
-  // 걸리지 않는다 — editor 전용 경로라 데스크 한도로만 다스린다.)
+  // (drive/content의 .txt 증가분 예약은 parentId가 파일 id라 여기 걸리지
+  // 않는다 — 총 용량 판정은 그 라우트가 목적 폴더를 찾아 직접 한다.)
   const publicFolder = await publicFolderAtFolderId(input.parentId);
   if (publicFolder?.maxFileBytes != null && size > publicFolder.maxFileBytes) {
     throw new StorageError(
@@ -260,7 +278,8 @@ export async function reserveUpload(input: {
           id,
           userId: input.userId,
           parentId: input.parentId,
-          name: input.name,
+          publicFolderId: publicFolder?.id ?? null,
+          name,
           size,
           transport: input.transport,
           claimedAt: null,
@@ -303,7 +322,8 @@ export async function claimUploadReservation(
       !reservation ||
       reservation.claimedAt !== null ||
       reservation.parentId !== expected.parentId ||
-      reservation.name !== expected.name ||
+      // 예약 저장 시점에 trim했으므로 대조도 같은 형태로.
+      reservation.name !== expected.name.trim() ||
       reservation.size !== expected.size ||
       reservation.transport !== expected.transport
     ) {
@@ -425,7 +445,7 @@ export async function finishUploadReservation(
       }
       if (
         file.completedUploads.some(
-          (completed) => completed.fileId === entry.id,
+          (completed) => completed.fileId === entry.layoutKey,
         )
       ) {
         throw new StorageError(
@@ -444,7 +464,9 @@ export async function finishUploadReservation(
             ? [
                 ...file.completedUploads,
                 {
-                  fileId: entry.id,
+                  // 경로 기반 id가 아니라 파일 identity — 같은 이름으로 다시
+                  // 올린 새 파일이 옛 완료 기록에 걸리지 않는다.
+                  fileId: entry.layoutKey,
                   expiresAt: new Date(
                     Date.now() + DIRECT_RESERVATION_TTL_MS,
                   ).toISOString(),

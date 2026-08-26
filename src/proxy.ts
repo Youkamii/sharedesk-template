@@ -29,6 +29,13 @@ export async function proxy(req: NextRequest) {
   const spaceRoute = matchSpaceRoute(pathname);
 
   if (spaceRoute) {
+    // 공개 폴더 API(#10)는 기본 데스크 전용이다 — 라우트가 항상 기본
+    // 문맥(runWithSpace(null))으로 돌므로, 스페이스 프리픽스로 부르면
+    // /sea/api/... 가 메인 데스크에 닿아 경로 격리가 흐려진다. 통로 자체를
+    // 닫는다(존재 비노출 관례대로 404).
+    if (spaceRoute.rewritePath.startsWith("/api/public-folder/")) {
+      return NextResponse.json({ error: "찾을 수 없습니다" }, { status: 404 });
+    }
     if (!signed) {
       // API 호출에는 화면 리다이렉트 대신 JSON을 준다 — fetch가 삼킬 수 있게.
       return spaceRoute.rewritePath.startsWith("/api/")

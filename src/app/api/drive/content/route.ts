@@ -1,4 +1,8 @@
 import { recordActivityAfter } from "@/lib/activity";
+import {
+  listPublicFolders,
+  resolvePublicFolderTarget,
+} from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 import { errorResponse, runWithEditRights } from "@/lib/api";
@@ -96,6 +100,30 @@ export async function PATCH(req: Request) {
       let reservationId: string | null = null;
       try {
         if (growth > 0) {
+          // 공개 폴더(#10) 안 .txt면 증가분이 폴더 총 용량을 넘지 않는지
+          // 판정한다 — reserveUpload는 parentId가 파일 id라 폴더 상한을
+          // 모른다. editor 전용 경로라 CAS 없는 사전 실측으로 충분히
+          // 좁힌다(동시 편집 경쟁 창은 수용). 스페이스 문맥은 등록부가
+          // 비어 자연히 건너뛴다.
+          for (const folder of await listPublicFolders()) {
+            if (folder.maxTotalBytes === null) continue;
+            if (!(await resolvePublicFolderTarget(folder))) continue;
+            if (!(await adapter.isDirectChild(value.id, folder.folderId))) {
+              continue;
+            }
+            const children = await adapter.list(folder.folderId);
+            const usedBytes = children.reduce(
+              (total, child) => total + (child.size ?? 0),
+              0,
+            );
+            if (usedBytes + growth > folder.maxTotalBytes) {
+              throw new StorageError(
+                "CONFLICT",
+                "공개 폴더의 저장 용량 한도를 넘었습니다",
+              );
+            }
+            break;
+          }
           reservationId = await reserveUpload({
             userId: session.userId,
             parentId: value.id,

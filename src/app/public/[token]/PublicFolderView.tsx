@@ -195,8 +195,11 @@ export default function PublicFolderView({
             },
           );
           if (response.status === 404) {
+            // 업로드 도중 폴더가 닫혔다 — 성공 알림 경로를 타지 않고 닫힘
+            // 화면으로 전환한다(재개 후 거짓 "올렸습니다"가 남지 않게).
             setClosed(true);
-            break;
+            setUploading(null);
+            return;
           }
           if (!response.ok) {
             const body = (await response.json().catch(() => null)) as {
@@ -287,7 +290,7 @@ export default function PublicFolderView({
             <i />
           </span>
           <strong className={mobileStyles.title}>
-            {t("공개폴더: {name}", { name })}
+            {t("공개폴더: {name}", { name: listing?.name ?? name })}
           </strong>
           {isDeskUser && (
             <a href="/files" className={mobileStyles.backButton}>
@@ -386,7 +389,7 @@ export default function PublicFolderView({
             </span>
             <strong>ShareDesk</strong>
             <span className={desktopStyles.desktopLabel}>
-              {t("공개폴더: {name}", { name })}
+              {t("공개폴더: {name}", { name: listing?.name ?? name })}
             </span>
           </div>
         </header>
@@ -394,7 +397,7 @@ export default function PublicFolderView({
         <div
           className={`${desktopStyles.iconCanvas} ${desktopStyles.rootCanvas}`}
           role="region"
-          aria-label={t("공개폴더: {name}", { name })}
+          aria-label={t("공개폴더: {name}", { name: listing?.name ?? name })}
           onDragOver={(event) => {
             event.preventDefault();
             setDragOver(true);

@@ -3,7 +3,10 @@ import { recordActivityAfter } from "@/lib/activity";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithEditRights, runWithSession } from "@/lib/api";
 import { pruneDrivePermissionsForFiles } from "@/lib/drive-shares";
-import { listPublicFolders } from "@/lib/public-folders";
+import {
+  listPublicFolders,
+  resolvePublicFolderTarget,
+} from "@/lib/public-folders";
 import { ROOT_ID, type TrashDeleteTarget } from "@/lib/storage/types";
 
 const MAX_EMPTY_TARGETS = 1_000;
@@ -84,8 +87,18 @@ export async function POST(req: NextRequest) {
         let restored = entry;
         if (space === null && entry.isFolder && entry.version) {
           for (const folder of await listPublicFolders()) {
+            // 죽은 등록(대상이 지워졌거나 교체됨)은 건너뛴다 — folderId
+            // 문자열이 우연히 새 일반 폴더와 겹쳐도 오이동하지 않는다.
+            if (!(await resolvePublicFolderTarget(folder))) continue;
             if (await adapter.isDirectChild(entry.id, folder.folderId)) {
-              restored = await adapter.move(entry.id, ROOT_ID, entry.version);
+              try {
+                restored = await adapter.move(entry.id, ROOT_ID, entry.version);
+              } catch (moveError) {
+                // 루트 이동 실패(이름 충돌 등) 시 공개 폴더 안에 하위
+                // 폴더를 남기지 않는다 — 복원을 되돌려 휴지통으로 보낸다.
+                await adapter.remove(entry.id).catch(() => undefined);
+                throw moveError;
+              }
               break;
             }
           }
