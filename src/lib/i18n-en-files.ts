@@ -540,4 +540,14 @@ export const EN_FILES: Record<string, string> = {
   "바탕화면을 불러오지 못했습니다": "Couldn't load the desktop",
   "공유 배치를 불러오지 못했습니다": "Couldn't load the shared layout",
   "수정일 없음": "No modified date",
+
+  // 공개 폴더 (#10)
+  "공개 폴더에는 하위 폴더를 만들 수 없습니다": "Subfolders cannot be created in a public folder",
+  "공개 폴더는 이동하거나 이름을 바꿀 수 없습니다": "A public folder cannot be moved or renamed",
+  "공개 폴더의 파일 크기 한도를 넘었습니다": "This exceeds the file size limit of the public folder",
+  "공개 폴더의 파일 개수 한도를 넘었습니다": "This exceeds the file count limit of the public folder",
+  "공개 폴더의 저장 용량 한도를 넘었습니다": "This exceeds the storage limit of the public folder",
+  "공개 폴더에 진행 중인 업로드가 많습니다. 잠시 후 다시 시도해 주세요": "Too many uploads are in progress for this public folder. Please try again later",
+  "공개 폴더가 없거나 닫혀 있습니다": "This public folder does not exist or is closed",
+  "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요": "Too many requests. Please try again later",
 };

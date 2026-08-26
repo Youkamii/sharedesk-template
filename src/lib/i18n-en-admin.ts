@@ -179,4 +179,10 @@ export const EN_ADMIN: Record<string, string> = {
     "A theme is the overall look and texture of the screen. The pixel look you see now is the default theme, and more will follow.",
   "기본": "Default",
 
+
+  // 공개 폴더 (#10)
+  "공개 종료 시각은 시작 시각보다 뒤여야 합니다": "The closing time must be after the opening time",
+  "공개 폴더 이름을 확인해 주세요": "Please check the public folder name",
+  "공개 폴더가 너무 많습니다": "There are too many public folders",
+  "이미 공개 폴더로 등록된 폴더입니다": "This folder is already registered as a public folder",
 };

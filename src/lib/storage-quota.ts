@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import {
+  findPublicFolderByFolderId,
+  type PublicFolder,
+} from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
 import { StorageError, type Entry, type StorageUsage } from "@/lib/storage/types";
 import { getDeskSettings, type DeskSettings } from "@/lib/users";
@@ -9,6 +13,13 @@ const PROXY_RESERVATION_TTL_MS = 60 * 60 * 1000;
 const DIRECT_RESERVATION_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 4;
 const MAX_COMPLETED_UPLOADS = 1_000;
+
+// 공개 폴더(#10)의 외부인 업로드가 쓰는 합성 userId 접두사. 예약 정산이
+// userId 일치를 요구하므로 세션 없는 업로드에 이 규약을 쓴다.
+export const PUBLIC_UPLOADER_PREFIX = "public:";
+// 무세션 외부인이 예약만 쌓아 데스크 전역 자원(MAX_RESERVATIONS·예약
+// 바이트)을 잠식하지 못하게, 공개 업로드는 폴더당 동시 예약을 좁게 묶는다.
+const MAX_PUBLIC_RESERVATIONS_PER_FOLDER = 4;
 
 export interface UploadReservation {
   id: string;
@@ -86,6 +97,53 @@ function reservationTtl(transport: UploadReservation["transport"]): number {
     : PROXY_RESERVATION_TTL_MS;
 }
 
+// 공개 폴더의 폴더별 상한 판정. 초과 사유 문구를 돌려주고, 통과면 null.
+// reserveUpload의 CAS 루프 안에서 시도마다 호출된다.
+async function publicFolderLimitError(
+  adapter: ReturnType<typeof getAdapter>,
+  folder: PublicFolder,
+  reservations: UploadReservation[],
+  input: { parentId: string; userId: string },
+  size: number,
+): Promise<string | null> {
+  const parentReservations = reservations.filter(
+    (reservation) => reservation.parentId === input.parentId,
+  );
+  // 무세션 외부인은 폴더당 동시 예약을 좁게 묶는다 — 큰 size를 선언만
+  // 하고 본문을 흘리지 않는 방식으로 데스크 전역 예약 자원을 잠식하는
+  // 것을 막는다. 멤버 업로드는 세션 userId라 이 상한을 받지 않는다.
+  if (input.userId.startsWith(PUBLIC_UPLOADER_PREFIX)) {
+    const publicActive = parentReservations.filter((reservation) =>
+      reservation.userId.startsWith(PUBLIC_UPLOADER_PREFIX),
+    ).length;
+    if (publicActive >= MAX_PUBLIC_RESERVATIONS_PER_FOLDER) {
+      return "공개 폴더에 진행 중인 업로드가 많습니다. 잠시 후 다시 시도해 주세요";
+    }
+  }
+  if (folder.maxFiles === null && folder.maxTotalBytes === null) return null;
+  const children = await adapter.list(input.parentId);
+  if (folder.maxFiles !== null) {
+    const usedFiles = children.filter((child) => !child.isFolder).length;
+    if (usedFiles + parentReservations.length + 1 > folder.maxFiles) {
+      return "공개 폴더의 파일 개수 한도를 넘었습니다";
+    }
+  }
+  if (folder.maxTotalBytes !== null) {
+    const usedBytes = children.reduce(
+      (total, child) => total + (child.size ?? 0),
+      0,
+    );
+    const reservedBytes = parentReservations.reduce(
+      (total, reservation) => total + reservation.size,
+      0,
+    );
+    if (usedBytes + reservedBytes + size > folder.maxTotalBytes) {
+      return "공개 폴더의 저장 용량 한도를 넘었습니다";
+    }
+  }
+  return null;
+}
+
 function validateSize(
   size: unknown,
   settings: DeskSettings,
@@ -122,7 +180,23 @@ export async function reserveUpload(input: {
     settings,
     input.enforceMaxUpload !== false,
   );
-  if (settings.deskStorageLimitBytes === null) return null;
+
+  // 공개 폴더(#10)의 폴더별 상한은 여기서 무조건 집행한다 — 외부인 공개
+  // 라우트든 멤버의 기존 업로드 라우트든 같은 parentId면 같은 계약이다.
+  // (예외: drive/content의 .txt 증가분 예약은 parentId가 파일 id라 여기
+  // 걸리지 않는다 — editor 전용 경로라 데스크 한도로만 다스린다.)
+  const publicFolder = await findPublicFolderByFolderId(input.parentId);
+  if (publicFolder?.maxFileBytes != null && size > publicFolder.maxFileBytes) {
+    throw new StorageError(
+      "CONFLICT",
+      "공개 폴더의 파일 크기 한도를 넘었습니다",
+    );
+  }
+
+  // 데스크 한도도 폴더 상한도 없으면 예약할 것이 없다. 공개 폴더는 상한이
+  // 전부 비어 있어도 예약을 만들어 동시 업로드 남용(아래 폴더당 상한)을
+  // 계속 추적한다.
+  if (settings.deskStorageLimitBytes === null && !publicFolder) return null;
 
   const adapter = getAdapter();
   let lastError: unknown = null;
@@ -130,22 +204,46 @@ export async function reserveUpload(input: {
     // 예약 장부를 먼저 읽고 실제 사용량을 확인한 뒤 그 버전으로 CAS한다.
     // 사이에 다른 업로드가 예약을 끝내면 CAS가 충돌해 새 사용량부터 다시 읽는다.
     const state = await adapter.readStateVersioned<ReservationFile>(FILE);
-    const usage = await adapter.getStorageUsage();
     const file = normalize(state.value);
-    const reservedBytes = file.reservations.reduce(
-      (total, reservation) => total + reservation.size,
-      0,
-    );
-    if (
-      usage.deskUsedBytes + reservedBytes + size >
-      settings.deskStorageLimitBytes
-    ) {
-      const confirmed = await adapter.readStateVersioned<ReservationFile>(FILE);
-      if (confirmed.version !== state.version) continue;
-      throw new StorageError(
-        "CONFLICT",
-        "이 데스크에 남은 저장 용량이 부족합니다",
+    if (settings.deskStorageLimitBytes !== null) {
+      const usage = await adapter.getStorageUsage();
+      const reservedBytes = file.reservations.reduce(
+        (total, reservation) => total + reservation.size,
+        0,
       );
+      if (
+        usage.deskUsedBytes + reservedBytes + size >
+        settings.deskStorageLimitBytes
+      ) {
+        const confirmed =
+          await adapter.readStateVersioned<ReservationFile>(FILE);
+        if (confirmed.version !== state.version) continue;
+        throw new StorageError(
+          "CONFLICT",
+          "이 데스크에 남은 저장 용량이 부족합니다",
+        );
+      }
+    }
+    if (publicFolder) {
+      // 폴더 사용량은 매 시도마다 다시 실측한다(직계 합산 — 평평 유지
+      // 전제). 데스크 전역 판정과 같은 원자성: 다른 업로드가 예약을
+      // 끝내면 장부 CAS가 충돌해 새 실측부터 다시 읽는다. upload 완료와
+      // finish 사이의 한순간은 파일·예약이 이중으로 세어질 수 있는데,
+      // 상한을 넘겨 통과시키는 방향이 아니라 일시적으로 더 엄격해지는
+      // 방향이라 그대로 둔다.
+      const rejected = await publicFolderLimitError(
+        adapter,
+        publicFolder,
+        file.reservations,
+        input,
+        size,
+      );
+      if (rejected) {
+        const confirmed =
+          await adapter.readStateVersioned<ReservationFile>(FILE);
+        if (confirmed.version !== state.version) continue;
+        throw new StorageError("CONFLICT", rejected);
+      }
     }
     if (file.reservations.length >= MAX_RESERVATIONS) {
       throw new StorageError(

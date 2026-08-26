@@ -27,6 +27,20 @@ export function canEdit(role: SessionRole): boolean {
   return role === "admin" || role === "editor";
 }
 
+// 역할 서열. USER_ROLES 배열은 높은 권한부터 나열돼 있어 indexOf로 서열을
+// 만들면 뒤집힌다 — 명시 매핑으로 고정한다(공개 폴더 #10의 최소 역할 판정).
+const ROLE_RANK: Record<SessionRole, number> = {
+  viewer: 0,
+  uploader: 1,
+  editor: 2,
+  admin: 3,
+};
+
+/** role이 최소선 min 이상인가 — viewer < uploader < editor < admin. */
+export function roleAtLeast(role: SessionRole, min: UserRole): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[min];
+}
+
 // 저장 역할의 한국어 라벨(고정). admin 표시는 기존 "관리자" 문구를 그대로 쓴다.
 export const ROLE_LABELS: Record<UserRole, string> = {
   editor: "수정 가능",

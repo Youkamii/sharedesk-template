@@ -59,6 +59,8 @@ test("공개 API 판정 — 러너의 공개 라우트 목록과 대칭이다", 
     "/api/auth/google",
     "/api/auth/google/callback",
     "/api/share/abc123",
+    "/api/public-folder/abc123",
+    "/api/public-folder/abc123/upload",
     "/api/invitations/code",
     "/api/update-policy",
     "/api/cron/share-cleanup",
@@ -74,7 +76,10 @@ test("공개 API 판정 — 러너의 공개 라우트 목록과 대칭이다", 
     "/api/presence",
     "/api/me/nickname",
     "/api/share", // 소비 경로는 /api/share/<linkId> 뿐이다
-    "/api/authx", // 접두사 흉내
+    "/api/public-folder", // 소비 경로는 /api/public-folder/<token>... 뿐이다
+    "/api/public-folders", // 멤버용 목록 — 세션 필요 (한 글자 차이 주의)
+    "/api/public-folderx", // 접두사 흉내
+    "/api/authx",
     "/api/update-policyx",
   ]) {
     assert.equal(isPublicApiPath(path), false, `보호여야 함: ${path}`);
