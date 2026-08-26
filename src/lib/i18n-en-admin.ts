@@ -220,4 +220,5 @@ export const EN_ADMIN: Record<string, string> = {
   "파일 개수 제한 값을 확인해 주세요": "Please check the file count limit",
   "개인 지정 값을 확인해 주세요": "Please check the selected people",
   "공개 폴더 등록을 찾을 수 없습니다": "Public folder registration not found",
+  "공개 종료 시각": "Closes at",
 };

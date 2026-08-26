@@ -2,9 +2,12 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { COOKIE_NAME, resolveSession } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
-import { getPublicFolder, publicFolderAccess } from "@/lib/public-folders";
+import {
+  getPublicFolder,
+  publicFolderAccess,
+  resolvePublicFolderTarget,
+} from "@/lib/public-folders";
 import { runWithSpace } from "@/lib/space-context";
-import { getAdapter } from "@/lib/storage";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import PublicFolderView from "./PublicFolderView";
 
@@ -28,15 +31,9 @@ export default async function PublicFolderPage({
     // 제한 공개(minRole)의 명단 멤버 판정과는 별개 술어다.
     const session = await resolveSession(sessionToken);
     if (publicFolderAccess(folder, session) !== "open") return null;
-    try {
-      const target = await getAdapter().getEntry(folder.folderId);
-      if (!target.isFolder) return null;
-      // local 폴더 id는 경로 기반이라 재사용된다 — 등록 시점 identity와
-      // 다르면 옛 주소가 새 폴더를 열지 못하게 닫는다.
-      if (target.layoutKey !== folder.folderIdentity) return null;
-    } catch {
-      return null;
-    }
+    // 대상 폴더 실체 확인(경로 재사용·대소문자 변형 방어) — 공개 API와
+    // 같은 공통 판정.
+    if (!(await resolvePublicFolderTarget(folder))) return null;
     const settings = await getDeskSettingsOrDefault();
     return { folder, isDeskUser: session !== null, settings };
   });

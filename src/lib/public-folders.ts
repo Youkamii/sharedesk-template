@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { SessionInfo } from "@/lib/auth";
 import { roleAtLeast, resolveUserRole, type UserRole } from "@/lib/roles";
 import { getAdapter } from "@/lib/storage";
-import { StorageError } from "@/lib/storage/types";
+import { StorageError, type Entry } from "@/lib/storage/types";
 import { parseOptionalByteLimit } from "@/lib/users";
 
 // 공개 폴더(#10)의 등록부. 외부인이 로그인 없이 주소만으로 들어와 파일을
@@ -200,26 +200,63 @@ export async function getPublicFolder(
 }
 
 /** 저장소 폴더 id로 등록을 찾는다 — 업로드 상한 집행(storage-quota)용. */
-export async function findPublicFolderByFolderId(
-  folderId: string,
-): Promise<PublicFolder | null> {
-  if (!folderId) return null;
-  const folders = await listPublicFolders();
-  return folders.find((folder) => folder.folderId === folderId) ?? null;
+/**
+ * 등록된 공개 폴더의 "지금 살아있는" 실체를 돌려준다(닫혔거나 대상이
+ * 사라졌으면 null). 공개 3종 라우트·페이지·관리/멤버 목록이 공유하는 단일
+ * 생존 판정 — 보안 불변식(재사용 탈취 방어)이 한 곳에만 있어야 갈라지지
+ * 않는다.
+ *
+ * getEntry로 실제 폴더를 열어 layoutKey(local: inode 기반)를 등록 시점
+ * folderIdentity와 대조한다. 이 대조가 두 가지를 한 번에 막는다:
+ *  (1) 경로 재사용 탈취 — 같은 경로로 새로 만든 다른 폴더는 identity가 다름.
+ *  (2) 대소문자 변형 id 우회 — NTFS는 대소문자를 무시해 base64url("Drop")과
+ *      base64url("DROP")이 같은 폴더를 다른 문자열 id로 가리키지만, getEntry는
+ *      같은 layoutKey를 주므로 문자열이 달라도 같은 폴더로 판정된다.
+ */
+export async function resolvePublicFolderTarget(
+  folder: Pick<PublicFolder, "folderId" | "folderIdentity">,
+): Promise<Entry | null> {
+  let target: Entry;
+  try {
+    target = await getAdapter().getEntry(folder.folderId);
+  } catch {
+    return null;
+  }
+  if (!target.isFolder) return null;
+  if (target.layoutKey !== folder.folderIdentity) return null;
+  return target;
 }
 
 /**
- * mkdir·move·rename 가드용 — folderId가 공개 폴더로 등록돼 있는가.
- * 주의: 등록부는 기본 데스크 전용이다. local 어댑터의 폴더 id는 상대경로
- * 기반이라 스페이스의 같은 이름 폴더와 문자열이 겹칠 수 있으므로, 호출자는
- * 반드시 기본 데스크 문맥(러너의 space === null)에서만 이 판정을 쓴다.
+ * 이 folderId(대소문자 변형 포함)가 실제로 등록된 공개 폴더를 가리키면 그
+ * 등록을 돌려준다 — mkdir·move·rename 가드와 업로드 상한 집행(quota)이 함께
+ * 쓴다. 문자열 대조가 아니라 실체(layoutKey)로 판정하는 이유는
+ * resolvePublicFolderTarget 주석 (2) 참조.
+ *
+ * 주의: 등록부는 기본 데스크 전용이다. 호출자는 반드시 기본 데스크
+ * 문맥(러너의 space === null)에서만 이 판정을 쓴다.
  */
+export async function publicFolderAtFolderId(
+  folderId: string,
+): Promise<PublicFolder | null> {
+  if (!folderId) return null;
+  let identity: string;
+  try {
+    const entry = await getAdapter().getEntry(folderId);
+    if (!entry.isFolder) return null;
+    identity = entry.layoutKey;
+  } catch {
+    return null;
+  }
+  const folders = await listPublicFolders();
+  return folders.find((folder) => folder.folderIdentity === identity) ?? null;
+}
+
+/** mkdir·move·rename 가드용 boolean 래퍼. */
 export async function isRegisteredPublicFolder(
   folderId: string,
 ): Promise<boolean> {
-  if (!folderId) return false;
-  const folders = await listPublicFolders();
-  return folders.some((folder) => folder.folderId === folderId);
+  return (await publicFolderAtFolderId(folderId)) !== null;
 }
 
 // 공개 시각 교차 불변식 — 라우트(400)와 여기(throw) 이중 검증 관례.

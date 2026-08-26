@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -143,6 +144,9 @@ export default function PublicFolderView({
         }
         setError(null);
         setListing(body);
+        // 폴링이 다시 200을 받으면(관리자가 기간 연장·재개) 닫힘 화면을
+        // 푼다 — 새로고침 없이 복구된다.
+        setClosed(false);
       } catch {
         if (alive) setError(t("목록을 불러오지 못했습니다"));
       }
@@ -219,7 +223,41 @@ export default function PublicFolderView({
 
   // 정상 상태에서 공개 폴더는 평평하다 — 혹시 남은 폴더 항목은 렌더에서
   // 제외한다(방문자는 들어갈 수 없다).
-  const files = (listing?.entries ?? []).filter((entry) => !entry.isFolder);
+  const files = useMemo(
+    () => (listing?.entries ?? []).filter((entry) => !entry.isFolder),
+    [listing],
+  );
+
+  // 아이콘 배치. 저장 좌표(멤버가 데스크에서 놓은 위치)와 기본 격자가 같은
+  // 상수라, 좌표 없는 새 파일을 index 격자에 그대로 두면 저장 좌표와 겹쳐
+  // 아이콘이 파묻힌다 — 저장 좌표가 점유한 칸을 건너뛰며 빈 칸부터 채운다.
+  const placements = useMemo(() => {
+    const positions = listing?.positions ?? {};
+    const keyOf = (p: { x: number; y: number }) => `${p.x},${p.y}`;
+    const occupied = new Set<string>();
+    for (const entry of files) {
+      const saved = positions[entry.id];
+      if (saved) occupied.add(keyOf(saved));
+    }
+    const result: Record<string, { x: number; y: number }> = {};
+    let slot = 0;
+    for (const entry of files) {
+      const saved = positions[entry.id];
+      if (saved) {
+        result[entry.id] = saved;
+        continue;
+      }
+      let placement = defaultPlacement(slot);
+      while (occupied.has(keyOf(placement))) {
+        slot += 1;
+        placement = defaultPlacement(slot);
+      }
+      occupied.add(keyOf(placement));
+      result[entry.id] = placement;
+      slot += 1;
+    }
+    return result;
+  }, [files, listing]);
 
   if (closed) {
     return (
@@ -376,9 +414,8 @@ export default function PublicFolderView({
           }}
         >
           <div className={desktopStyles.iconPlane}>
-            {files.map((entry, index) => {
-              const placement =
-                listing?.positions[entry.id] ?? defaultPlacement(index);
+            {files.map((entry) => {
+              const placement = placements[entry.id];
               return (
                 <div
                   key={entry.id}

@@ -6,7 +6,7 @@ import {
   updatePublicFolder,
   type PublicFolderPatch,
 } from "@/lib/public-folders";
-import { parseSettingsPatch } from "../route";
+import { denyOutsideMainDesk, describe, parseSettingsPatch } from "../route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,7 +29,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  return runWithAdmin({ fresh: true }, async ({ session }) => {
+  return runWithAdmin({ fresh: true }, async ({ session, space }) => {
+    const denied = denyOutsideMainDesk(space);
+    if (denied) return denied;
     const { id } = await params;
     const body = (await req.json().catch(() => null)) as Record<
       string,
@@ -55,8 +57,10 @@ export async function PATCH(
         publicFolderId: updated.id,
         actorUserId: session.userId,
       });
+      // GET/POST와 같은 표면 계약으로 돌려준다 — folderIdentity(호스트
+      // inode·경로 파생값)를 벗기고 url·missing을 채운다.
       return NextResponse.json(
-        { folder: updated },
+        { folder: await describe(updated) },
         { headers: { "Cache-Control": "no-store" } },
       );
     } catch (e) {
@@ -70,7 +74,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  return runWithAdmin({ fresh: true }, async ({ session }) => {
+  return runWithAdmin({ fresh: true }, async ({ session, space }) => {
+    const denied = denyOutsideMainDesk(space);
+    if (denied) return denied;
     const { id } = await params;
     try {
       const removed = await removePublicFolder(id);

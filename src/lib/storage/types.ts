@@ -89,7 +89,13 @@ export class StorageError extends Error {
   }
 }
 
-const INVALID_NAME_CHARS = new RegExp("[/\\\\\\u0000-\\u001f]");
+// 경로 구분자·제어문자에 더해 방향 제어(bidi)·zero-width도 막는다. 이들은
+// 정상 이름에 들어갈 이유가 없고, 목록·다운로드 화면에서 확장자를 뒤집어
+// 보이게 하는 스푸핑(예: RLO로 "…gpj.exe"를 "exe.jpg"처럼) 보조 수단이 된다.
+// 무로그인 공개 업로드가 외부인 이름을 받으므로 이름 검증 기반에서 막는다.
+const INVALID_NAME_CHARS = new RegExp(
+  "[/\\\\\\u0000-\\u001f\\u007f\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\ufeff]",
+);
 
 export function assertValidName(name: string): string {
   const trimmed = name.trim();

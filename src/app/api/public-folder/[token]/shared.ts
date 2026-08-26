@@ -4,9 +4,9 @@ import { COOKIE_NAME, resolveSession } from "@/lib/auth";
 import {
   getPublicFolder,
   publicFolderAccess,
+  resolvePublicFolderTarget,
   type PublicFolder,
 } from "@/lib/public-folders";
-import { getAdapter } from "@/lib/storage";
 import type { Entry } from "@/lib/storage/types";
 
 // 공개 폴더 API 3종(목록·다운로드·업로드)의 공통 판정. 호출자는 본문을
@@ -26,9 +26,8 @@ export function missing(): NextResponse {
  *
  * - 세션 해석은 제한 공개(minRole 설정)일 때만 한다 — 완전 공개 폴더의
  *   익명 폴링마다 명단을 조회할 이유가 없다.
- * - folderIdentity 대조: local 어댑터의 폴더 id는 경로 기반이라 삭제 후
- *   같은 이름을 다시 만들면 재사용된다 — 옛 공개 주소가 무관한 새 폴더를
- *   열지 못하게 등록 시점 layoutKey와 다르면 닫는다.
+ * - 대상 폴더 실체 확인은 resolvePublicFolderTarget이 한다(경로 재사용
+ *   탈취·대소문자 변형 방어를 한 곳에 모은 공통 판정).
  */
 export async function resolveOpenPublicFolder(
   token: string,
@@ -40,13 +39,6 @@ export async function resolveOpenPublicFolder(
     session = await resolveSession((await cookies()).get(COOKIE_NAME)?.value);
   }
   if (publicFolderAccess(folder, session) !== "open") return null;
-  let target: Entry;
-  try {
-    target = await getAdapter().getEntry(folder.folderId);
-  } catch {
-    return null;
-  }
-  if (!target.isFolder) return null;
-  if (target.layoutKey !== folder.folderIdentity) return null;
-  return { folder, target };
+  const target = await resolvePublicFolderTarget(folder);
+  return target ? { folder, target } : null;
 }

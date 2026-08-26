@@ -44,7 +44,10 @@ interface FolderEntry {
 const GIB = 1024 * 1024 * 1024;
 
 function bytesAsInputGiB(value: number | null): string {
-  return value === null ? "" : String(Math.round((value / GIB) * 100) / 100);
+  // 왕복 손실을 없앤다 — 2자리 반올림은 1MiB(≈0.000977 GiB)를 "0"으로
+  // 뭉개, 재진입 시 저장이 막히고(0 이하 거부) 필드를 비우면 무제한으로
+  // 바뀐다. 6자리까지 표현하고 꼬리 0만 버린다.
+  return value === null ? "" : String(Number((value / GIB).toFixed(6)));
 }
 
 function bytesFromInputGiB(value: string): number | null | undefined {
@@ -500,7 +503,7 @@ export default function PublicFoldersPanel({
                             />
                           </label>
                           <label className={styles.field}>
-                            <span>{t("공개 종료")}</span>
+                            <span>{t("공개 종료 시각")}</span>
                             <input
                               type="datetime-local"
                               className={styles.select}

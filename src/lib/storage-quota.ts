@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  findPublicFolderByFolderId,
+  publicFolderAtFolderId,
   type PublicFolder,
 } from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
@@ -185,7 +185,7 @@ export async function reserveUpload(input: {
   // 라우트든 멤버의 기존 업로드 라우트든 같은 parentId면 같은 계약이다.
   // (예외: drive/content의 .txt 증가분 예약은 parentId가 파일 id라 여기
   // 걸리지 않는다 — editor 전용 경로라 데스크 한도로만 다스린다.)
-  const publicFolder = await findPublicFolderByFolderId(input.parentId);
+  const publicFolder = await publicFolderAtFolderId(input.parentId);
   if (publicFolder?.maxFileBytes != null && size > publicFolder.maxFileBytes) {
     throw new StorageError(
       "CONFLICT",

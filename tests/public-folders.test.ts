@@ -200,7 +200,7 @@ test("등록부 CRUD — 중복 folderId 거부·시간 역전 거부·해제", 
         folder.id,
       );
       assert.equal(
-        (await publicFolders.findPublicFolderByFolderId(folder.id))?.id,
+        (await publicFolders.publicFolderAtFolderId(folder.id))?.id,
         created.id,
       );
       assert.equal(await publicFolders.isRegisteredPublicFolder(folder.id), true);
@@ -400,7 +400,8 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
     assert.match(source, /runWithSpace\(null/, `${route}는 기본 문맥을 명시한다`);
   }
   const shared = await read("src/app/api/public-folder/[token]/shared.ts");
-  assert.match(shared, /layoutKey !== folder\.folderIdentity/, "재사용 탈취 대조");
+  // 재사용 탈취 대조(layoutKey)는 resolvePublicFolderTarget 한 곳으로 모았다.
+  assert.match(shared, /resolvePublicFolderTarget\(folder\)/, "공통 생존 판정 사용");
   assert.match(shared, /publicFolderAccess/, "접근 판정 사용");
 
   const download = await read(
@@ -424,8 +425,25 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   assert.match(rename, /isRegisteredPublicFolder\(body\.id\)/);
 
   // 상한 집행이 reserveUpload 계층에 있다 — 모든 업로드 경로가 자동 적용.
+  // identity 기반 조회라 대소문자 변형 parentId로도 상한을 우회 못 한다.
   const quota = await read("src/lib/storage-quota.ts");
-  assert.match(quota, /findPublicFolderByFolderId\(input\.parentId\)/);
+  assert.match(quota, /publicFolderAtFolderId\(input\.parentId\)/);
+
+  // 가드·상한이 folderIdentity(layoutKey)로 판정한다 — NTFS 대소문자 무시로
+  // 같은 폴더를 다른 문자열 id가 가리켜도 같은 폴더로 잡는다.
+  const lib = await read("src/lib/public-folders.ts");
+  assert.match(lib, /entry\.layoutKey/, "publicFolderAtFolderId는 layoutKey로 판정");
+  assert.match(
+    lib,
+    /folder\.folderIdentity === identity/,
+    "등록 identity와 실체 layoutKey 대조",
+  );
+
+  // 휴지통 복원은 mkdir·move·rename 밖의 네 번째 쓰기 경로 — 공개 폴더
+  // 안으로 복원되면 루트로 빼내 평평을 지킨다.
+  const trash = await read("src/app/api/drive/trash/route.ts");
+  assert.match(trash, /isDirectChild\(entry\.id, folder\.folderId\)/);
+  assert.match(trash, /adapter\.move\(entry\.id, ROOT_ID/);
 
   // proxy 면제 목록 등재.
   const routing = await read("src/lib/space-routing.ts");
@@ -438,10 +456,12 @@ test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 �
 
   const collection = await read("src/app/api/admin/public-folders/route.ts");
   assert.match(collection, /runWithAdmin\(\{ fresh: true \}/);
+  // identity 비노출은 응답 타입 계약으로 고정한다 — 구현이 구조분해든
+  // delete든, 타입이 Omit<…, folderIdentity>면 tsc가 새는 것을 막는다.
   assert.match(
     collection,
-    /delete summary\.folderIdentity/,
-    "관리 응답에 identity 비노출",
+    /AdminPublicFolderSummary\s+extends Omit<PublicFolder, "folderIdentity">/,
+    "관리 응답 타입에서 identity 제거",
   );
   assert.match(
     collection,
@@ -453,10 +473,18 @@ test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 �
     /createFolder\(ROOT_ID, name\)/,
     "등록은 항상 루트에 새 폴더 — 평평 보장이 생성 시점부터 성립",
   );
+  // 공개 폴더 관리는 기본 데스크 전용 — 스페이스 문맥 API 직접 호출을 막는다.
+  assert.match(collection, /denyOutsideMainDesk/, "스페이스 문맥 거부 가드");
 
   const item = await read("src/app/api/admin/public-folders/[id]/route.ts");
   assert.match(item, /runWithAdmin\(\{ fresh: true \}/);
   assert.match(item, /filesKept: true/, "해제는 파일을 데스크에 남긴다");
+  assert.match(item, /denyOutsideMainDesk/, "PATCH·DELETE도 스페이스 문맥 거부");
+  assert.match(
+    item,
+    /describe\(updated\)/,
+    "PATCH도 describe로 응답 — folderIdentity 비노출 통일",
+  );
 
   const view = await read("src/app/admin/AdminView.tsx");
   assert.match(view, /tab-public/);

@@ -6,10 +6,12 @@ import {
   parsePublicFolderFileLimit,
   parsePublicFolderName,
   parsePublicFolderTime,
+  resolvePublicFolderTarget,
   type PublicFolder,
   type PublicFolderPatch,
 } from "@/lib/public-folders";
 import { USER_ROLES, type UserRole } from "@/lib/roles";
+import type { Space } from "@/lib/spaces";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID } from "@/lib/storage/types";
 import { parseOptionalByteLimit } from "@/lib/users";
@@ -24,6 +26,19 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+// 공개 폴더 관리는 기본 데스크 전용이다 — 등록부·대상 폴더가 모두 기본
+// 데스크에 있어, 스페이스 문맥(/{slug}/api/...)에서 만들면 유령 등록(저장은
+// 되나 공개 주소·목록이 소비하지 않음)이 된다. 관리 화면은 스페이스에서
+// 리다이렉트되지만 API 직접 호출도 여기서 막는다. admin은 모든 스페이스를
+// 통과하므로(runWithAdmin엔 스페이스 경계가 없다) 이 가드가 필요하다.
+export function denyOutsideMainDesk(space: Space | null): NextResponse | null {
+  if (space === null) return null;
+  return NextResponse.json(
+    { error: "공개 폴더 관리는 기본 데스크에서만 쓸 수 있습니다" },
+    { status: 400 },
+  );
+}
+
 export interface AdminPublicFolderSummary
   extends Omit<PublicFolder, "folderIdentity"> {
   url: string;
@@ -32,25 +47,20 @@ export interface AdminPublicFolderSummary
   missing: boolean;
 }
 
-async function describe(folder: PublicFolder): Promise<AdminPublicFolderSummary> {
-  let missing = false;
-  try {
-    const target = await getAdapter().getEntry(folder.folderId);
-    missing = !target.isFolder || target.layoutKey !== folder.folderIdentity;
-  } catch {
-    missing = true;
-  }
-  const summary: AdminPublicFolderSummary & { folderIdentity?: string } = {
-    ...folder,
-    url: `/public/${folder.id}`,
-    missing,
-  };
-  delete summary.folderIdentity;
-  return summary;
+export async function describe(
+  folder: PublicFolder,
+): Promise<AdminPublicFolderSummary> {
+  // 대상 유실은 공개 라우트와 같은 생존 판정으로 본다(identity 불일치 포함).
+  const missing = (await resolvePublicFolderTarget(folder)) === null;
+  const { folderIdentity: _identity, ...rest } = folder;
+  void _identity;
+  return { ...rest, url: `/public/${folder.id}`, missing };
 }
 
 export async function GET() {
-  return runWithAdmin({ fresh: true }, async () => {
+  return runWithAdmin({ fresh: true }, async ({ space }) => {
+    const denied = denyOutsideMainDesk(space);
+    if (denied) return denied;
     try {
       const folders = await listPublicFolders();
       const described = [];
@@ -129,7 +139,9 @@ export function parseSettingsPatch(
 }
 
 export async function POST(req: NextRequest) {
-  return runWithAdmin({ fresh: true }, async ({ session }) => {
+  return runWithAdmin({ fresh: true }, async ({ session, space }) => {
+    const denied = denyOutsideMainDesk(space);
+    if (denied) return denied;
     const body = (await req.json().catch(() => null)) as Record<
       string,
       unknown
