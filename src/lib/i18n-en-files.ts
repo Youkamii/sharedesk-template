@@ -550,4 +550,16 @@ export const EN_FILES: Record<string, string> = {
   "공개 폴더에 진행 중인 업로드가 많습니다. 잠시 후 다시 시도해 주세요": "Too many uploads are in progress for this public folder. Please try again later",
   "공개 폴더가 없거나 닫혀 있습니다": "This public folder does not exist or is closed",
   "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요": "Too many requests. Please try again later",
+
+  // 공개 폴더 화면 (#10)
+  "공개폴더: {name}": "Public folder: {name}",
+  "이 공개 폴더는 닫혀 있습니다": "This public folder is closed",
+  "아직 파일이 없습니다": "No files yet",
+  "아래 올리기 버튼이나 끌어다 놓기로 올려 주세요": "Upload with the button below or by dragging files here",
+  "올리는 중 {current}/{total}": "Uploading {current}/{total}",
+  "올렸습니다": "Uploaded",
+  "{name}을(를) 올리지 못했습니다": "Couldn't upload {name}",
+  "{name}: {reason}": "{name}: {reason}",
+  "폴더는 올릴 수 없습니다 — 파일만 올려 주세요": "Folders cannot be uploaded — files only",
+  "두 번 눌러 내려받기": "Double-click to download",
 };
