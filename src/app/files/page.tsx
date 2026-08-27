@@ -1,8 +1,14 @@
 import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
+import { getFolderColors } from "@/lib/folder-colors";
 import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
-import { resolveSpaceSession, runWithSpace } from "@/lib/space-context";
+import { listPublicFolders } from "@/lib/public-folders";
+import {
+  resolveSpaceSession,
+  runWithSpace,
+  toSpaceContext,
+} from "@/lib/space-context";
 import { SPACE_HEADER } from "@/lib/space-slug";
 import { getSpace } from "@/lib/spaces";
 import { findUserById, getDeskSettingsOrDefault } from "@/lib/users";
@@ -50,9 +56,20 @@ export default async function FilesPage() {
   const baseUser = session.isGuest
     ? null
     : await runWithSpace(null, () => findUserById(session.userId));
+  // 폴더 색(#14)은 지금 보는 데스크의 것, 공유 배지는 기본 데스크 전용.
+  const [folderColors, publicFolderIds] = await Promise.all([
+    runWithSpace(space ? toSpaceContext(space) : null, () => getFolderColors()),
+    space === null
+      ? runWithSpace(null, async () =>
+          (await listPublicFolders()).map((folder) => folder.folderId),
+        )
+      : Promise.resolve([] as string[]),
+  ]);
   return (
     <FilesView
       isSpace={space !== null}
+      initialFolderColors={folderColors}
+      publicFolderIds={publicFolderIds}
       initialNickname={baseUser?.nickname ?? null}
       userName={session.name}
       userEmail={session.email}

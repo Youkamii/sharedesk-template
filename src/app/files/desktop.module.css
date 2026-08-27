@@ -2630,6 +2630,39 @@
   transform: translateX(-50%);
 }
 
+/* 폴더 색 스와치(#14) — 컨텍스트 메뉴 안 무지개 팔레트 한 줄. */
+.colorSwatchRow {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+.colorSwatch {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  padding: 0;
+  border: 2px solid #10172b;
+  box-shadow: inset 1px 1px 0 rgb(255 255 255 / 45%);
+  cursor: pointer;
+}
+
+.colorSwatch:hover,
+.colorSwatch:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+.colorSwatch[data-color="default"] { background: #ffd98b; }
+.colorSwatch[data-color="red"] { background: #e96872; }
+.colorSwatch[data-color="orange"] { background: #e7a064; }
+.colorSwatch[data-color="yellow"] { background: #ffd27d; }
+.colorSwatch[data-color="green"] { background: #8fbf7f; }
+.colorSwatch[data-color="blue"] { background: #79a8e8; }
+.colorSwatch[data-color="indigo"] { background: #6f6fb0; }
+.colorSwatch[data-color="violet"] { background: #a97fc9; }
+
 /* 우측 가장자리 사이드바(#11) — 손잡이는 데스크 위(z1050), 패널은
    작업표시줄(1100)·다운로드 패널(1200) 아래(z1090). */
 .sidebarHandle {

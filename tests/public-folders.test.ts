@@ -536,6 +536,43 @@ test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 �
   );
 });
 
+test("배선: 폴더 색·공유 배지·확장자 아이콘 (#14 12·13·14)", async () => {
+  const read = (relative: string) =>
+    readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+  // 무지개 7색이 전부 있고, 라우트는 폴더에만·유효 색만 허용한다.
+  const { FOLDER_COLOR_IDS } = await import("../src/lib/folder-colors");
+  assert.deepEqual(
+    [...FOLDER_COLOR_IDS],
+    ["red", "orange", "yellow", "green", "blue", "indigo", "violet"],
+  );
+  const colorRoute = await read("src/app/api/desktop/folder-color/route.ts");
+  assert.match(colorRoute, /runWithUploadRights/);
+  assert.match(colorRoute, /entry\.isFolder/);
+  assert.match(colorRoute, /setFolderColor\(entry\.layoutKey, color\)/);
+
+  const icon = await read("src/app/files/PixelFileIcon.tsx");
+  // 대표 확장자 아이콘 6종과 폴더 팔레트·공유 배지.
+  for (const kind of ["word", "sheet", "slides", "text", "code", "exe"]) {
+    assert.match(icon, new RegExp(`"${kind}"`));
+  }
+  assert.match(icon, /FOLDER_PALETTE/);
+  assert.match(icon, /shared &&/);
+
+  const view = await read("src/app/files/FilesView.tsx");
+  assert.match(view, /publicFolderIdSet\.has\(entry\.id\)/);
+  assert.match(view, /folderColors\[entry\.layoutKey\]/);
+  assert.match(view, /styles\.colorSwatchRow/);
+
+  const page = await read("src/app/files/page.tsx");
+  assert.match(page, /getFolderColors\(\)/);
+  assert.match(
+    page,
+    /space === null[\s\S]*?listPublicFolders/,
+    "공유 배지 목록은 기본 데스크 전용",
+  );
+});
+
 test("배선: 사이드바 — 손잡이·공개 폴더 입장·추가기능 메뉴 대체 (#11)", async () => {
   const read = (relative: string) =>
     readFile(new URL(`../${relative}`, import.meta.url), "utf8");

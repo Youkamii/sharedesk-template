@@ -110,6 +110,10 @@ import {
   translate,
   type Locale,
 } from "@/lib/i18n";
+import {
+  FOLDER_COLOR_IDS,
+  type FolderColorId,
+} from "@/lib/folder-colors";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
@@ -384,6 +388,17 @@ const ICON_INSET_X = 12;
 const ICON_INSET_Y = 10;
 const PLANE_MIN_HEIGHT = 220;
 const MAX_LOGICAL_COORDINATE = 1_000_000;
+
+// 폴더 색 스와치의 표시 이름(#14) — i18n 키.
+const FOLDER_COLOR_LABELS: Record<FolderColorId, string> = {
+  red: "빨강",
+  orange: "주황",
+  yellow: "노랑",
+  green: "초록",
+  blue: "파랑",
+  indigo: "남색",
+  violet: "보라",
+};
 const MAX_LAYOUT_BATCH_UPDATES = 256;
 const ROOT_DESKTOP_CORRECTION_RETRY_MS = 1_500;
 const LAYOUT_POLL_MS = 5_000;
@@ -668,6 +683,8 @@ export default function FilesView({
   autoUpdate,
   initialNickname = null,
   isSpace = false,
+  publicFolderIds = [],
+  initialFolderColors = {},
 }: {
   userName: string;
   userEmail: string;
@@ -682,6 +699,11 @@ export default function FilesView({
   // 데스크 표시용 닉네임(#13). 기본 데스크 명단이 진실 원천이고, null이면
   // 입장 때 정하라는 다이얼로그를 연다. 손님은 항상 null.
   initialNickname?: string | null;
+  // 공개 폴더로 등록된 폴더 id들(#14) — 아이콘에 공유 배지를 얹는다.
+  // 등록은 항상 루트라 루트 스코프에서만 대조하면 된다. 스페이스는 빈 배열.
+  publicFolderIds?: string[];
+  // 폴더 색 맵(layoutKey → 색, #14). SSR 시드 후 변경은 로컬로 갱신한다.
+  initialFolderColors?: Record<string, FolderColorId>;
   // 스페이스(비기본) 데스크인가(#12). 기본 데스크 전용이거나 아직 스페이스
   // 지원이 없는 기능(관리자 화면 진입, 공유·간이 링크, 다른 데스크에서 받기)을
   // 스페이스에서는 숨긴다 — 공유 링크는 소비 라우트가 기본 데스크만 봐서
@@ -839,6 +861,31 @@ export default function FilesView({
   >([]);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandleRef = useRef<HTMLButtonElement | null>(null);
+
+  // 폴더 색·공유 배지(#14).
+  const [folderColors, setFolderColors] =
+    useState<Record<string, FolderColorId>>(initialFolderColors);
+  const publicFolderIdSet = useMemo(
+    () => new Set(publicFolderIds),
+    [publicFolderIds],
+  );
+
+  async function applyFolderColor(entry: Entry, color: FolderColorId | null) {
+    setContextMenu(null);
+    try {
+      const body = await apiJson<{ colors: Record<string, FolderColorId> }>(
+        apiPath("/api/desktop/folder-color"),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: entry.id, color }),
+        },
+      );
+      setFolderColors(body.colors);
+    } catch (error) {
+      setNotice(errorMessage(error, t("폴더 색을 저장하지 못했습니다")));
+    }
+  }
 
   // 열 때마다 입장 가능한 공개 폴더 목록을 새로 받는다(등록·기간 변화 반영).
   useEffect(() => {
@@ -7123,7 +7170,18 @@ export default function FilesView({
                   }
                 }}
               >
-                <PixelFileIcon entry={entry} size={54} />
+                <PixelFileIcon
+                  entry={entry}
+                  size={54}
+                  folderColor={
+                    entry.isFolder
+                      ? (folderColors[entry.layoutKey] ?? null)
+                      : null
+                  }
+                  shared={
+                    scopeId === ROOT_SCOPE && publicFolderIdSet.has(entry.id)
+                  }
+                />
                 <span className={styles.iconName}>{entry.name}</span>
               </button>
               <button
@@ -9146,6 +9204,38 @@ export default function FilesView({
                 >
                   {t("이름 바꾸기")} <kbd>F2</kbd>
                 </MenuButton>
+              )}
+              {/* 폴더 색(#14) — 무지개 팔레트. 배치와 같은 upload 권한. */}
+              {allowUpload && contextMenu.entry?.isFolder && (
+                <div
+                  className={styles.colorSwatchRow}
+                  role="group"
+                  aria-label={t("폴더 색")}
+                >
+                  <button
+                    type="button"
+                    className={styles.colorSwatch}
+                    data-color="default"
+                    title={t("기본")}
+                    aria-label={t("기본")}
+                    onClick={() =>
+                      void applyFolderColor(contextMenu.entry!, null)
+                    }
+                  />
+                  {FOLDER_COLOR_IDS.map((colorId) => (
+                    <button
+                      key={colorId}
+                      type="button"
+                      className={styles.colorSwatch}
+                      data-color={colorId}
+                      title={t(FOLDER_COLOR_LABELS[colorId])}
+                      aria-label={t(FOLDER_COLOR_LABELS[colorId])}
+                      onClick={() =>
+                        void applyFolderColor(contextMenu.entry!, colorId)
+                      }
+                    />
+                  ))}
+                </div>
               )}
               {/* 공유·간이 링크는 스페이스에서 죽은 링크가 되므로 숨긴다(#12).
                   아래 Google Drive 공유는 실제 Drive 권한이라 스페이스에서도
