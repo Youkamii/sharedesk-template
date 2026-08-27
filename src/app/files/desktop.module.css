@@ -2069,20 +2069,6 @@
   transform-origin: right center;
 }
 
-.updateTrayButton {
-  gap: 4px;
-  color: #fff4d2;
-  background: #2d5c5b;
-  box-shadow: inset 2px 2px 0 #61b3a6, inset -2px -2px 0 #173837, 2px 2px 0 #070b16;
-}
-
-.updateStar {
-  color: #ffd27d;
-  font-size: 12px;
-  line-height: 1;
-  text-shadow: 1px 1px 0 #6d4b22;
-}
-
 .userName {
   max-width: 132px;
   overflow: hidden;
@@ -2093,6 +2079,10 @@
   /* 이름은 버튼처럼 보이지 않는다(#14) — button 요소여도 텍스트 표시만. */
   background: transparent;
   border: 0;
+}
+
+/* 손님 이름은 클릭 대상이 아니라 span이다 — 커서는 버튼일 때만. */
+button.userName {
   cursor: pointer;
 }
 

@@ -45,15 +45,8 @@ export async function listAccessibleSpaces(
 }
 
 /**
- * 로그인 직후 보낼 곳 (#12 요구사항).
- * - 관리자는 자기 스페이스 목록부터 본다 — 스페이스가 하나라도 있으면 /spaces.
- * - 일반 사용자는 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상이면 목록,
- *   한 곳(기본뿐)이면 바로 입장.
- * 갈 곳 수 기준은 나가기 버튼 표시(hasMultipleDestinations)와 같다.
+ * 로그인·초대 수락·재방문의 목적지 (#14). 스페이스 수와 무관하게 항상
+ * 데스크 선택 화면이다 — 스페이스가 없어도 main 카드가 서고, 스페이스
+ * 관리도 그 화면이 맡는다. 손님(스페이스 없음)은 호출자가 /files로 보낸다.
  */
-export function landingPathFor(_accessibleCount: number): string {
-  // 로그인의 목적지는 항상 데스크 선택(#14) — 스페이스가 없어도 main 카드가
-  // 있고, 관리는 이 전 단계 화면이 담당한다. 손님 분기는 호출자가 한다.
-  void _accessibleCount;
-  return "/spaces";
-}
+export const LANDING_PATH = "/spaces";

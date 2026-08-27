@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
-import { isRegisteredPublicFolder } from "@/lib/public-folders";
+import {
+  holdsRegisteredPublicFolder,
+  isRegisteredPublicFolder,
+} from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithEditRights } from "@/lib/api";
 
@@ -22,7 +25,9 @@ export async function POST(req: NextRequest) {
       //     옮기면 등록이 끊긴다. (b) 폴더를 공개 폴더 안으로 옮기면 평평
       //     유지가 깨진다 — 파일 이동은 허용(기존 파일을 공개하는 통로).
       if (space === null) {
-        if (await isRegisteredPublicFolder(body.id)) {
+        // 자신뿐 아니라 조상도 막는다 — 부모를 옮기면 하위 공개 폴더의
+        // 경로 기반 id가 통째로 끊긴다(#14 15와 같은 이유).
+        if (await holdsRegisteredPublicFolder(body.id)) {
           return NextResponse.json(
             { error: "공개 폴더는 이동하거나 이름을 바꿀 수 없습니다" },
             { status: 400 },

@@ -680,7 +680,6 @@ export default function FilesView({
   canSendFeedback,
   locale,
   allowMemberLocale,
-  autoUpdate,
   initialNickname = null,
   isSpace = false,
   publicFolderIds = [],
@@ -694,8 +693,6 @@ export default function FilesView({
   canSendFeedback: boolean;
   locale: Locale;
   allowMemberLocale: boolean;
-  // 자동 업데이트 여부 — 새 버전 알림(로고 옆)은 이와 무관하게 뜬다(#14).
-  autoUpdate: boolean;
   // 데스크 표시용 닉네임(#13). 기본 데스크 명단이 진실 원천이고, null이면
   // 입장 때 정하라는 다이얼로그를 연다. 손님은 항상 null.
   initialNickname?: string | null;
@@ -1029,8 +1026,13 @@ export default function FilesView({
   transientPositionsRef.current = transientPositions;
   updateRunRef.current = updateRun;
   const rootDesktopLayout = useMemo(
-    () => normalizeRootDesktopLayout(rootData.entries, rootData.positions),
-    [rootData.entries, rootData.positions],
+    () =>
+      normalizeRootDesktopLayout(rootData.entries, rootData.positions, {
+        // 사이드바는 기본 데스크에만 있다 — 스페이스에서는 우측을
+        // 예약하지 않는다(없는 패널을 피해 아이콘을 옮기면 안 된다).
+        reserveSidebar: !isSpace,
+      }),
+    [rootData.entries, rootData.positions, isSpace],
   );
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
@@ -1933,7 +1935,7 @@ export default function FilesView({
         updateControllerRef.current = null;
       }
     };
-  }, [isAdmin, autoUpdate, router, t]);
+  }, [isAdmin, router, t]);
 
   // 원클릭 업데이트 진행 폴링. 패널이 닫혀도 실행이 끝날 때까지 이어간다.
   useEffect(() => {
@@ -5692,6 +5694,7 @@ export default function FilesView({
               dragNodes.map((node) => node.startPlacement),
               deltaX,
               deltaY,
+              { reserveSidebar: !isSpace },
             )
           : null;
       queuePlacementBatch(

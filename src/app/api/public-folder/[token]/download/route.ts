@@ -10,8 +10,10 @@ export const runtime = "nodejs";
 // "다운로드 우선"을 끈 방문자에게만, 브라우저가 안전하게 그릴 수 있는
 // 형식을 inline으로 연다(#14). HTML·SVG처럼 스크립트가 실행될 수 있는
 // 형식은 목록에 없다 — 나머지는 전부 attachment 고정이 유지된다.
+// 타입 이름이 정확히 끝나야 한다 — 뒤에 올 수 있는 건 파라미터(;)나
+// 공백뿐이다. 앵커가 없으면 image/pngX·text/plainX 같은 변형이 통과한다.
 const INLINE_SAFE_TYPES =
-  /^(?:image\/(?:png|jpeg|gif|webp|avif|bmp)|video\/|audio\/|application\/pdf$|text\/plain)/i;
+  /^(?:image\/(?:png|jpeg|gif|webp|avif|bmp)|video\/[a-z0-9.+-]+|audio\/[a-z0-9.+-]+|application\/pdf|text\/plain)\s*(?:;|$)/i;
 
 // share/[linkId]와 같은 attachment 고정 응답 — 브라우저 안에서 렌더되지
 // 않게 하고, Range를 지원한다.

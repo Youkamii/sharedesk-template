@@ -343,6 +343,40 @@ test("ROOT 묶음 드래그는 같은 delta를 써서 상대 간격을 보존한
   ]);
 });
 
+test("사이드바가 없는 스페이스는 우측을 예약하지 않는다 (#14 11)", () => {
+  const [entry] = entries(1);
+  // 기본 데스크에서는 예약 영역(x>960)이 안쪽으로 당겨지지만,
+  const reserved = normalizeRootDesktopLayout([entry], {
+    [entry.layoutKey]: { x: 1100, y: 300, version: 4 },
+  });
+  assert.notDeepEqual(reserved.positions[entry.layoutKey], {
+    x: 1100,
+    y: 300,
+    version: 4,
+  });
+  // 스페이스에서는 그 자리가 멀쩡하다 — 없는 패널을 피할 이유가 없다.
+  const open = normalizeRootDesktopLayout(
+    [entry],
+    { [entry.layoutKey]: { x: 1100, y: 300, version: 4 } },
+    { reserveSidebar: false },
+  );
+  assert.deepEqual(open.positions[entry.layoutKey], {
+    x: 1100,
+    y: 300,
+    version: 4,
+  });
+  assert.deepEqual(open.corrections, [], "보정도 저장도 하지 않는다");
+
+  // 드래그 한계도 같은 규칙을 따른다.
+  const dragged = moveRootDesktopGroup(
+    [{ x: 900, y: 300, version: 1 }],
+    2_000,
+    0,
+    { reserveSidebar: false },
+  );
+  assert.equal(dragged[0].x, ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH);
+});
+
 test("ROOT만 스크롤을 막고 폴더 평면과 기존 CAS 저장 흐름은 유지한다", async () => {
   const [source, css, route] = await Promise.all([
     readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),

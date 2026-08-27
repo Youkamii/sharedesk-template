@@ -424,13 +424,20 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   const mkdir = await read("src/app/api/drive/mkdir/route.ts");
   assert.match(mkdir, /isRegisteredPublicFolder\(parentId\)/);
   const move = await read("src/app/api/drive/move/route.ts");
-  assert.match(move, /isRegisteredPublicFolder\(body\.id\)/);
   assert.match(move, /isRegisteredPublicFolder\(body\.targetFolderId\)/);
   const rename = await read("src/app/api/drive/rename/route.ts");
-  assert.match(rename, /isRegisteredPublicFolder\(body\.id\)/);
   // 등록된 공개 폴더는 휴지통에도 못 넣는다 — 등록 해제 후에만(#14).
+  // 삭제·이동·개명은 하위 트리를 함께 가져가므로 조상까지 막는다.
   const del = await read("src/app/api/drive/delete/route.ts");
-  assert.match(del, /isRegisteredPublicFolder\(body\.id\)/);
+  assert.match(del, /holdsRegisteredPublicFolder\(body\.id\)/);
+  assert.match(move, /holdsRegisteredPublicFolder\(body\.id\)/);
+  assert.match(rename, /holdsRegisteredPublicFolder\(body\.id\)/);
+  const lib2 = await read("src/lib/public-folders.ts");
+  assert.match(
+    lib2,
+    /adapter\.isWithin\(folder\.folderId, folderId\)/,
+    "조상 판정은 저장소 isWithin으로",
+  );
 
   // 상한 집행이 reserveUpload 계층에 있다 — 모든 업로드 경로가 자동 적용.
   // identity 기반 조회라 대소문자 변형 parentId로도 상한을 우회 못 한다.
@@ -541,7 +548,7 @@ test("배선: 폴더 색·공유 배지·확장자 아이콘 (#14 12·13·14)", 
     readFile(new URL(`../${relative}`, import.meta.url), "utf8");
 
   // 무지개 7색이 전부 있고, 라우트는 폴더에만·유효 색만 허용한다.
-  const { FOLDER_COLOR_IDS } = await import("../src/lib/folder-colors");
+  const { FOLDER_COLOR_IDS } = await import("../src/lib/folder-color-ids");
   assert.deepEqual(
     [...FOLDER_COLOR_IDS],
     ["red", "orange", "yellow", "green", "blue", "indigo", "violet"],

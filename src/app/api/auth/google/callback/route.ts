@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { COOKIE_NAME, MAX_AGE_SECONDS, createUserSession } from "@/lib/auth";
-import { landingPathFor, listAccessibleSpaces } from "@/lib/space-access";
+import { LANDING_PATH } from "@/lib/space-access";
 import { runWithSpace } from "@/lib/space-context";
-import { isAdminEmail, loginWithGoogle } from "@/lib/users";
+import { loginWithGoogle } from "@/lib/users";
 import { STATE_COOKIE, loginRedirectUri } from "../route";
 
 const OAUTH_TIMEOUT_MS = 10_000;
@@ -144,21 +144,9 @@ export async function GET(req: NextRequest) {
     if (!login.sessionToken) return fail(req, "session");
 
     if (login.user.status === "blocked") return fail(req, "blocked");
-    // 로그인 목적지(#12): 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상이면
-    // 목록(/spaces)부터, 기본뿐이면 바로 입장. 관리자는 모든 스페이스가 갈
-    // 곳이므로 스페이스가 하나라도 있으면 목록부터 본다.
+    // 로그인 목적지(#14): 승인된 사용자는 언제나 데스크 선택 화면으로.
     let destination = "/join";
-    if (login.user.status === "approved") {
-      const accessible = await listAccessibleSpaces(
-        {
-          userId: login.user.id,
-          isAdmin: isAdminEmail(login.user.email),
-          isGuest: false,
-        },
-        { fresh: true },
-      );
-      destination = landingPathFor(accessible.length);
-    }
+    if (login.user.status === "approved") destination = LANDING_PATH;
 
     const res = NextResponse.redirect(new URL(destination, req.url));
     res.cookies.set(STATE_COOKIE, "", { path: "/", maxAge: 0 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, runWithUploadRights } from "@/lib/api";
-import { parseFolderColor, setFolderColor } from "@/lib/folder-colors";
+import { parseFolderColor } from "@/lib/folder-color-ids";
+import { setFolderColor } from "@/lib/folder-colors";
 import { getAdapter } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";

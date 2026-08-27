@@ -316,8 +316,7 @@ test("들어갈 수 있는 스페이스 판정과 로그인 목적지 (#12 목�
 
     // 로그인 목적지는 항상 데스크 선택(#14) — 스페이스 수와 무관하게 main
     // 카드가 있는 /spaces가 전 단계다(손님 분기는 호출자가 한다).
-    assert.equal(mods.access.landingPathFor(member.length), "/spaces");
-    assert.equal(mods.access.landingPathFor(0), "/spaces");
+    assert.equal(mods.access.LANDING_PATH, "/spaces");
   });
 });
 

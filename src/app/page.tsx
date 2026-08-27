@@ -2,7 +2,7 @@ import Link from "next/link";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity, resolveSession } from "@/lib/auth";
-import { landingPathFor, listAccessibleSpaces } from "@/lib/space-access";
+import { LANDING_PATH } from "@/lib/space-access";
 import { LOCALE_COOKIE, parseLocale, resolveEffectiveLocale, translate,
   docUrl,
   type Locale,
@@ -73,11 +73,10 @@ export default async function Home({
   const token = cookieStore.get(COOKIE_NAME)?.value;
   const session = await resolveSession(token);
   if (session) {
-    // 재방문·북마크도 로그인 직후와 같은 목적지 규칙을 쓴다(#12): 갈 곳이
-    // 둘 이상이면 데스크 목록부터, 하나(기본뿐)면 바로 입장. 손님은 항상 기본.
+    // 재방문·북마크도 로그인 직후와 같은 목적지다(#14) — 데스크 선택
+    // 화면. 손님은 스페이스가 없으므로 기본 데스크로 바로 보낸다.
     if (session.isGuest) redirect("/files");
-    const accessible = await listAccessibleSpaces(session, { fresh: true });
-    redirect(landingPathFor(accessible.length));
+    redirect(LANDING_PATH);
   }
   const identity = await resolveIdentity(token);
   if (identity?.status === "pending") redirect("/join");

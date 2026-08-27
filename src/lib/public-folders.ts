@@ -259,6 +259,31 @@ export async function isRegisteredPublicFolder(
   return (await publicFolderAtFolderId(folderId)) !== null;
 }
 
+/**
+ * 이 id가 등록된 공개 폴더이거나 **그 조상**인가(#14 15). 삭제는 하위
+ * 트리를 통째로 가져가므로, 부모를 지우면 살아 있는 공개 주소가 함께
+ * 사라진다 — 자기 자신만 보는 isRegisteredPublicFolder로는 못 막는다.
+ * 저장소의 isWithin(realpath/조상 검증)으로 포함 관계를 판정한다.
+ */
+export async function holdsRegisteredPublicFolder(
+  folderId: string,
+): Promise<boolean> {
+  if (!folderId) return false;
+  const folders = await listPublicFolders();
+  if (folders.length === 0) return false;
+  const adapter = getAdapter();
+  for (const folder of folders) {
+    // 죽은 등록(대상 교체·삭제)은 지킬 주소가 없다 — 건너뛴다.
+    if (!(await resolvePublicFolderTarget(folder))) continue;
+    try {
+      if (await adapter.isWithin(folder.folderId, folderId)) return true;
+    } catch {
+      // 판정 불가(경로 소멸 등)는 막지 않는다 — 이미 죽은 대상이다.
+    }
+  }
+  return false;
+}
+
 // 공개 시각 교차 불변식 — 라우트(400)와 여기(throw) 이중 검증 관례.
 function assertTimeOrder(
   opensAt: string | null,

@@ -5,9 +5,17 @@ export const ROOT_ICON_HEIGHT = 94;
 // 우측 가장자리 사이드바(#11)가 여는 패널 폭. 아이콘은 이 예약 영역에
 // 들어갈 수 없다(#14) — 패널이 열려도 아이콘이 가려지지 않고, 이미 그
 // 안에 저장된 좌표는 normalize가 안전한 자리로 보정한다.
-export const ROOT_SIDEBAR_RESERVED = 232;
-const ROOT_ICON_MAX_X =
-  ROOT_DESKTOP_WIDTH - ROOT_SIDEBAR_RESERVED - ROOT_ICON_WIDTH;
+// 주의: 사이드바는 기본 데스크 전용이라 스페이스에서는 예약하지 않는다
+// (reserveSidebar=false) — 없는 패널을 피해 아이콘을 옮기면 안 된다.
+const ROOT_SIDEBAR_RESERVED = 232;
+
+function iconMaxX(reserveSidebar: boolean): number {
+  return (
+    ROOT_DESKTOP_WIDTH -
+    (reserveSidebar ? ROOT_SIDEBAR_RESERVED : 0) -
+    ROOT_ICON_WIDTH
+  );
+}
 
 const ROOT_GRID_X = 12;
 const ROOT_GRID_Y = 10;
@@ -48,13 +56,16 @@ function isFiniteCoordinate(value: number) {
   return Number.isFinite(value);
 }
 
-function isInsideRootDesktop(position: Pick<RootDesktopPlacement, "x" | "y">) {
+function isInsideRootDesktop(
+  position: Pick<RootDesktopPlacement, "x" | "y">,
+  maxX: number,
+) {
   return (
     isFiniteCoordinate(position.x) &&
     isFiniteCoordinate(position.y) &&
     position.x >= 0 &&
     position.y >= 0 &&
-    position.x <= ROOT_ICON_MAX_X &&
+    position.x <= maxX &&
     position.y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT
   );
 }
@@ -87,6 +98,7 @@ function rootGridPositions(
   startY: number,
   stepX: number,
   stepY: number,
+  maxX: number,
 ) {
   const positions: Array<{ x: number; y: number }> = [];
   for (
@@ -94,31 +106,46 @@ function rootGridPositions(
     y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT;
     y += stepY
   ) {
-    for (
-      let x = startX;
-      x <= ROOT_ICON_MAX_X;
-      x += stepX
-    ) {
+    for (let x = startX; x <= maxX; x += stepX) {
       positions.push({ x, y });
     }
   }
   return positions;
 }
 
-const ROOT_GRID_POSITIONS = rootGridPositions(
-  ROOT_GRID_X,
-  ROOT_GRID_Y,
-  ROOT_GRID_STEP_X,
-  ROOT_GRID_STEP_Y,
-).filter((position) => !rootPlacementOverlapsTrash(position));
+function baseGridPositions(maxX: number) {
+  return rootGridPositions(
+    ROOT_GRID_X,
+    ROOT_GRID_Y,
+    ROOT_GRID_STEP_X,
+    ROOT_GRID_STEP_Y,
+    maxX,
+  ).filter((position) => !rootPlacementOverlapsTrash(position));
+}
+
+// 사이드바를 예약하는 기본 데스크와, 예약하지 않는 스페이스 두 벌만 쓰므로
+// 격자는 미리 계산해 둔다.
+const GRID_BY_MAX_X = new Map<number, ReturnType<typeof baseGridPositions>>([
+  [iconMaxX(true), baseGridPositions(iconMaxX(true))],
+  [iconMaxX(false), baseGridPositions(iconMaxX(false))],
+]);
+
+function gridPositionsFor(maxX: number) {
+  const cached = GRID_BY_MAX_X.get(maxX);
+  if (cached) return cached;
+  const computed = baseGridPositions(maxX);
+  GRID_BY_MAX_X.set(maxX, computed);
+  return computed;
+}
 
 function denseGridPositionsAround(
   occupied: readonly Pick<RootDesktopPlacement, "x" | "y">[],
+  maxX: number,
 ) {
   const xOffsets = Array.from(
     new Set([
       0,
-      ROOT_ICON_MAX_X % ROOT_ICON_WIDTH,
+      maxX % ROOT_ICON_WIDTH,
       ...occupied.map((position) => position.x % ROOT_ICON_WIDTH),
     ]),
   ).sort((left, right) => left - right);
@@ -139,6 +166,7 @@ function denseGridPositionsAround(
         yOffset,
         ROOT_ICON_WIDTH,
         ROOT_ICON_HEIGHT,
+        maxX,
       ).filter((position) => !rootPlacementOverlapsTrash(position));
       const availableCount = positions.filter(
         (position) =>
@@ -163,11 +191,14 @@ function defaultPosition(index: number) {
   };
 }
 
-function clampedPosition(position: Pick<RootDesktopPlacement, "x" | "y">) {
+function clampedPosition(
+  position: Pick<RootDesktopPlacement, "x" | "y">,
+  maxX: number,
+) {
   const x = isFiniteCoordinate(position.x) ? position.x : 0;
   const y = isFiniteCoordinate(position.y) ? position.y : 0;
   return {
-    x: clamp(x, 0, ROOT_ICON_MAX_X),
+    x: clamp(x, 0, maxX),
     y: clamp(y, 0, ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT),
   };
 }
@@ -219,7 +250,11 @@ function isSystemDefaultPlacement(position: RootDesktopPlacement) {
 export function normalizeRootDesktopLayout(
   entries: readonly RootDesktopEntry[],
   storedPositions: Readonly<Record<string, RootDesktopPlacement>>,
+  // 사이드바(#11)는 기본 데스크에만 있다 — 스페이스는 예약하지 않는다.
+  options: { reserveSidebar?: boolean } = {},
 ): RootDesktopLayout {
+  const maxX = iconMaxX(options.reserveSidebar !== false);
+  const gridPositions = gridPositionsFor(maxX);
   const positions: Record<string, RootDesktopPlacement> = Object.create(null);
   const corrections: RootDesktopCorrection[] = [];
   const unresolvedLayoutKeys: string[] = [];
@@ -233,13 +268,13 @@ export function normalizeRootDesktopLayout(
 
   // 기본 격자가 다 차면 빽빽한 격자로 전환한다 — 열 수를 하드코딩하면
   // 사이드바 예약 폭(#14) 같은 경계 변경 때 어긋난다.
-  const useDenseGrid = entries.length > ROOT_GRID_POSITIONS.length;
+  const useDenseGrid = entries.length > gridPositions.length;
 
   entries.forEach((entry, index) => {
     const stored = storedPositions[entry.layoutKey];
     if (
       stored &&
-      isInsideRootDesktop(stored) &&
+      isInsideRootDesktop(stored, maxX) &&
       !rootPlacementOverlapsTrash(stored) &&
       (!useDenseGrid || !isSystemDefaultPlacement(stored))
     ) {
@@ -252,8 +287,8 @@ export function normalizeRootDesktopLayout(
   });
   const denseGridPositions =
     useDenseGrid && (storedOutside.length > 0 || missing.length > 0)
-      ? denseGridPositionsAround(occupied)
-      : ROOT_GRID_POSITIONS;
+      ? denseGridPositionsAround(occupied, maxX)
+      : gridPositions;
 
   const placePosition = (
     entry: RootDesktopEntry,
@@ -262,14 +297,14 @@ export function normalizeRootDesktopLayout(
     needsCorrection: boolean,
     forceGrid = false,
   ) => {
-    const nearest = clampedPosition(candidate);
+    const nearest = clampedPosition(candidate, maxX);
     const requiresEmptySlot =
       forceGrid ||
       rootPlacementOverlapsTrash(nearest) ||
       occupied.some((current) => rectanglesOverlap(nearest, current));
     const candidates = forceGrid
       ? denseGridPositions
-      : ROOT_GRID_POSITIONS;
+      : gridPositions;
     const emptyPosition = requiresEmptySlot
       ? nearestEmptyGridPosition(
           nearest,
@@ -349,8 +384,15 @@ export function normalizeRootDesktopLayout(
 
 export function moveRootDesktopGroup<
   T extends Pick<RootDesktopPlacement, "x" | "y">,
->(placements: readonly T[], deltaX: number, deltaY: number): T[] {
+>(
+  placements: readonly T[],
+  deltaX: number,
+  deltaY: number,
+  // 스페이스에는 사이드바가 없다 — 예약 없이 화면 끝까지 쓴다(#14).
+  options: { reserveSidebar?: boolean } = {},
+): T[] {
   if (placements.length === 0) return [];
+  const limitX = iconMaxX(options.reserveSidebar !== false);
   const minX = Math.min(...placements.map((placement) => placement.x));
   const maxX = Math.max(...placements.map((placement) => placement.x));
   const minY = Math.min(...placements.map((placement) => placement.y));
@@ -358,7 +400,7 @@ export function moveRootDesktopGroup<
   const safeDeltaX = clamp(
     Number.isFinite(deltaX) ? deltaX : 0,
     -minX,
-    ROOT_ICON_MAX_X - maxX,
+    limitX - maxX,
   );
   const safeDeltaY = clamp(
     Number.isFinite(deltaY) ? deltaY : 0,
@@ -376,7 +418,7 @@ export function moveRootDesktopGroup<
   if (!bounded.some(rootPlacementOverlapsTrash)) return bounded;
 
   const minDeltaX = -minX;
-  const maxDeltaX = ROOT_ICON_MAX_X - maxX;
+  const maxDeltaX = limitX - maxX;
   const minDeltaY = -minY;
   const maxDeltaY = ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY;
   const xCandidates = new Set([safeDeltaX, 0, minDeltaX, maxDeltaX]);

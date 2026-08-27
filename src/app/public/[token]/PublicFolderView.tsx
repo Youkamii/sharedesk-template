@@ -43,6 +43,21 @@ interface Listing {
 // FilesView와 같은 6열 기본 격자(좌표가 저장되지 않은 항목의 배치).
 const DOWNLOAD_FIRST_KEY = "sharedesk-public-download-first";
 
+// 저장값 구독 — 이 값은 이 탭에서만 바뀌므로(토글) 외부 구독은 필요 없고,
+// 갱신은 revision 상태로 알린다. 서버 스냅숏은 항상 기본값(true)이다.
+function subscribeNoop() {
+  return () => {};
+}
+
+function readDownloadFirst(_revision: number): boolean {
+  void _revision;
+  try {
+    return window.localStorage.getItem(DOWNLOAD_FIRST_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 const ICON_COLUMNS = 6;
 const ICON_COLUMN_WIDTH = 96;
 const ICON_ROW_HEIGHT = 104;
@@ -116,21 +131,24 @@ export default function PublicFolderView({
   const [reloadKey, setReloadKey] = useState(0);
   // 데스크와 같은 사용감(#14): 이름 검색과 다운로드 우선 토글.
   const [query, setQuery] = useState("");
-  const [downloadFirst, setDownloadFirst] = useState(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      return window.localStorage.getItem(DOWNLOAD_FIRST_KEY) !== "0";
-    } catch {
-      return true;
-    }
-  });
+  // 저장값은 마운트 뒤에 읽는다 — 초기 렌더에서 localStorage를 보면 서버
+  // HTML(항상 기본값)과 어긋나 hydration 오류가 난다. useSyncExternalStore로
+  // 읽으면 서버 스냅숏(true)과 클라 스냅숏이 분리돼 effect에서 setState 하지
+  // 않고도 첫 페인트 뒤 저장값이 반영된다.
+  const [storedRevision, setStoredRevision] = useState(0);
+  const downloadFirst = useSyncExternalStore(
+    subscribeNoop,
+    // storedRevision이 바뀌면 다시 읽는다(토글 저장 직후 반영).
+    useCallback(() => readDownloadFirst(storedRevision), [storedRevision]),
+    () => true,
+  );
   const selectDownloadFirst = useCallback((next: boolean) => {
-    setDownloadFirst(next);
     try {
       window.localStorage.setItem(DOWNLOAD_FIRST_KEY, next ? "1" : "0");
     } catch {
       // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
     }
+    setStoredRevision((revision) => revision + 1);
   }, []);
   const [uploading, setUploading] = useState<{
     current: number;
@@ -530,18 +548,8 @@ export default function PublicFolderView({
             )}
           </div>
         </footer>
-
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          hidden
-          onChange={(event) => {
-            const selected = Array.from(event.target.files ?? []);
-            event.target.value = "";
-            void uploadFiles(selected);
-          }}
-        />
+        {/* 데스크톱은 끌어다 놓기로만 올린다(#14 9) — 파일 선택창은 모바일
+            dock 전용이라 그 분기에만 둔다. */}
       </div>
     </main>
   );

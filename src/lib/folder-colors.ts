@@ -5,11 +5,8 @@ import {
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 
-export {
-  FOLDER_COLOR_IDS,
-  parseFolderColor,
-  type FolderColorId,
-} from "@/lib/folder-color-ids";
+// 팔레트 상수·타입은 folder-color-ids에서만 가져온다 — 여기서 재수출하면
+// 클라이언트가 실수로 이 모듈(저장소 의존)을 import하는 길이 다시 열린다.
 
 // 폴더 색(#14): 폴더마다 도트 팔레트의 무지개 색을 입힌다. 색은 위치가
 // 아니라 폴더 자체의 꾸밈이라 desktop-layout(폴더별 파일)이 아닌 전역
@@ -59,9 +56,19 @@ export async function setFolderColor(
     const file = normalize(state.value);
     const colors = { ...file.colors };
     if (color === null) delete colors[layoutKey];
-    else colors[layoutKey] = color;
-    if (Object.keys(colors).length > MAX_COLORS) {
-      throw new StorageError("CONFLICT", "색을 지정한 폴더가 너무 많습니다");
+    else {
+      // 다시 지정하면 맨 뒤로 — 아래 넘침 처리에서 최근 것이 살아남는다.
+      delete colors[layoutKey];
+      colors[layoutKey] = color;
+    }
+    // 지워진 폴더의 색 항목은 스스로 사라지지 않는다(삭제 경로가 이 파일을
+    // 모른다). 상한을 넘으면 오래된 항목부터 버려 기능이 잠기지 않게 한다 —
+    // 색은 잃어도 되는 꾸밈이고, 살아 있는 폴더는 다시 칠하면 된다.
+    const keys = Object.keys(colors);
+    if (keys.length > MAX_COLORS) {
+      for (const stale of keys.slice(0, keys.length - MAX_COLORS)) {
+        delete colors[stale];
+      }
     }
     try {
       await adapter.compareAndSwapState(

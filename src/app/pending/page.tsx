@@ -9,7 +9,8 @@ export default async function PendingPage() {
   const cookieStore = await cookies();
   const me = await resolveIdentity(cookieStore.get(COOKIE_NAME)?.value);
   if (!me) redirect("/");
-  if (me.status === "approved") redirect("/files");
+  // 승인된 사람의 목적지는 로그인과 같은 데스크 선택(#14) — join과 동일.
+  if (me.status === "approved") redirect("/spaces");
   if (me.status === "pending") redirect("/join");
 
   const locale = resolveEffectiveLocale(

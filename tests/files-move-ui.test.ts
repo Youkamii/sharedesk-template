@@ -1262,8 +1262,9 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   );
   assert.doesNotMatch(source, /href="\/docs"/);
 
-  assert.match(css, /\.updateTrayButton \{/);
-  assert.match(css, /\.updateStar \{[\s\S]*?color: #ffd27d;/);
+  // 트레이 업데이트 버튼 스타일은 로고 배지로 대체됐다(#14 1).
+  assert.doesNotMatch(css, /\.updateTrayButton/);
+  assert.doesNotMatch(css, /\.updateStar/);
   assert.match(css, /\.updateDialog \{/);
   assert.match(css, /\.updateDialogBody \{/);
   assert.match(css, /\.updateVersions \{/);
@@ -1532,7 +1533,10 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
   // 자동 업데이트 중에도 배지를 눌러 즉시 업데이트할 수 있다.
   assert.match(filesView, /isAdmin && updateAvailable && \(/);
   assert.doesNotMatch(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
-  assert.match(filesPage, /autoUpdate=\{deskSettings\.autoUpdate\}/);
+  // 데스크 화면은 이제 autoUpdate를 아예 받지 않는다 — 배지는 새 버전
+  // 여부만 보고, 자동 업데이트 UI는 관리 설정 화면 몫이다(#14 1).
+  assert.doesNotMatch(filesView, /autoUpdate/);
+  assert.doesNotMatch(filesPage, /autoUpdate/);
   // 자동 업데이트는 관리자 설정의 버튼이다: 누르면 별이 남고 켜지며,
   // 멈추면 원상복구된다. 업데이트 창에는 자동 업데이트 UI가 없다.
   assert.doesNotMatch(filesView, /★ 누르고 자동 업데이트/);

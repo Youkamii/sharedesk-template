@@ -79,7 +79,6 @@ export default async function FilesPage() {
       canSendFeedback={!session.isGuest && isOwnerRegistryConfigured()}
       locale={locale}
       allowMemberLocale={deskSettings.allowMemberLocale}
-      autoUpdate={deskSettings.autoUpdate}
     />
   );
 }
