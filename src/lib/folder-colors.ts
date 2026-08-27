@@ -1,5 +1,15 @@
+import {
+  parseFolderColor,
+  type FolderColorId,
+} from "@/lib/folder-color-ids";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
+
+export {
+  FOLDER_COLOR_IDS,
+  parseFolderColor,
+  type FolderColorId,
+} from "@/lib/folder-color-ids";
 
 // 폴더 색(#14): 폴더마다 도트 팔레트의 무지개 색을 입힌다. 색은 위치가
 // 아니라 폴더 자체의 꾸밈이라 desktop-layout(폴더별 파일)이 아닌 전역
@@ -9,24 +19,6 @@ import { StorageError } from "@/lib/storage/types";
 const FILE = "folder-colors.json";
 const MAX_ATTEMPTS = 4;
 const MAX_COLORS = 2_000;
-
-export const FOLDER_COLOR_IDS = [
-  "red",
-  "orange",
-  "yellow",
-  "green",
-  "blue",
-  "indigo",
-  "violet",
-] as const;
-
-export type FolderColorId = (typeof FOLDER_COLOR_IDS)[number];
-
-export function parseFolderColor(value: unknown): FolderColorId | null {
-  return FOLDER_COLOR_IDS.includes(value as FolderColorId)
-    ? (value as FolderColorId)
-    : null;
-}
 
 interface FolderColorFile {
   version: 1;

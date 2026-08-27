@@ -113,7 +113,7 @@ import {
 import {
   FOLDER_COLOR_IDS,
   type FolderColorId,
-} from "@/lib/folder-colors";
+} from "@/lib/folder-color-ids";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";

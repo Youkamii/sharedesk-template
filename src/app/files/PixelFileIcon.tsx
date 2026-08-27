@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { FolderColorId } from "@/lib/folder-colors";
+import type { FolderColorId } from "@/lib/folder-color-ids";
 
 export interface PixelFileIconProps {
   entry: {
