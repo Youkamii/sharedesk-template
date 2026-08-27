@@ -532,6 +532,62 @@ export default function AdminView({ locale }: { locale: Locale }) {
     };
   }, [autoUpdateOn]);
 
+  // 자동 업데이트 중 즉시 업데이트 — 예약된 자동 실행을 기다리지 않고
+  // 지금 바로 올린다. 서버 게이트(별 동의·중복 실행)는 POST가 판정하고,
+  // 여기서는 그 결과만 단계로 보여 준다.
+  const [instantUpdate, setInstantUpdate] = useState<
+    | { phase: "idle" }
+    | { phase: "starting" }
+    | { phase: "started" }
+    | { phase: "star"; starPageUrl: string }
+    | { phase: "failed"; message: string }
+  >({ phase: "idle" });
+
+  async function startInstantUpdate(agreeToStar = false) {
+    setInstantUpdate({ phase: "starting" });
+    try {
+      const response = await fetch(apiPath("/api/admin/update"), {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ star: agreeToStar }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+        starRequired?: unknown;
+        starPageUrl?: unknown;
+      } | null;
+      if (response.status === 409 && body?.starRequired === true) {
+        setInstantUpdate({
+          phase: "star",
+          starPageUrl:
+            typeof body.starPageUrl === "string" && body.starPageUrl
+              ? body.starPageUrl
+              : "https://github.com/Youkamii/sharedesk-template",
+        });
+        return;
+      }
+      // 이미 진행 중인 실행(409)은 실패가 아니다 — 그 실행을 탄 것으로 본다.
+      if (!response.ok && response.status !== 409) {
+        throw new Error(
+          typeof body?.error === "string"
+            ? body.error
+            : "업데이트를 시작하지 못했습니다",
+        );
+      }
+      setInstantUpdate({ phase: "started" });
+    } catch (cause) {
+      setInstantUpdate({
+        phase: "failed",
+        message: t(
+          cause instanceof Error && cause.message
+            ? cause.message
+            : "업데이트를 시작하지 못했습니다",
+        ),
+      });
+    }
+  }
+
   useEffect(() => {
     if (activeTab !== "activity") return;
     const controller = new AbortController();
@@ -1903,6 +1959,64 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                 ` — ${t("지금 최신 버전입니다")}`}
                             </p>
                           )}
+                          {/* 새 버전이 있으면 자동 실행 예약을 기다리지 않고
+                              지금 바로 올릴 수 있다(즉시 업데이트). */}
+                          {updateInfo.latestVersion &&
+                            updateInfo.currentVersion !==
+                              updateInfo.latestVersion && (
+                              <div className={styles.instantUpdate}>
+                                {instantUpdate.phase === "star" ? (
+                                  <>
+                                    <p>
+                                      {t(
+                                        "ShareDesk는 GitHub 저장소의 별로 응원을 받습니다. 업데이트를 시작하려면 별 남기기에 동의해 주세요. 관리자 GitHub 계정으로 별이 추가됩니다.",
+                                      )}
+                                    </p>
+                                    <a
+                                      className={styles.pixelButton}
+                                      href={instantUpdate.starPageUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      {t("저장소 열기")}
+                                    </a>
+                                    <button
+                                      type="button"
+                                      className={styles.pixelButton}
+                                      onClick={() =>
+                                        void startInstantUpdate(true)
+                                      }
+                                    >
+                                      {t("GitHub에 별 남기기")}
+                                    </button>
+                                  </>
+                                ) : instantUpdate.phase === "started" ? (
+                                  <p role="status">
+                                    {t(
+                                      "업데이트를 시작했습니다. 완료되면 데스크가 새 버전으로 다시 시작됩니다.",
+                                    )}
+                                  </p>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className={styles.pixelButton}
+                                      disabled={
+                                        instantUpdate.phase === "starting"
+                                      }
+                                      onClick={() => void startInstantUpdate()}
+                                    >
+                                      {instantUpdate.phase === "starting"
+                                        ? t("업데이트 시작 중…")
+                                        : t("지금 업데이트")}
+                                    </button>
+                                    {instantUpdate.phase === "failed" && (
+                                      <p role="alert">{instantUpdate.message}</p>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
                           {updateInfo.latestNotes && (
                             <pre className={styles.releaseNotes}>
                               {updateInfo.latestNotes}

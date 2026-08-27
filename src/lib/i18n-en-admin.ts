@@ -221,4 +221,10 @@ export const EN_ADMIN: Record<string, string> = {
   "개인 지정 값을 확인해 주세요": "Please check the selected people",
   "공개 폴더 등록을 찾을 수 없습니다": "Public folder registration not found",
   "공개 종료 시각": "Closes at",
+
+  // 즉시 업데이트 (자동 업데이트 중)
+  "지금 업데이트": "Update now",
+  "업데이트 시작 중…": "Starting update…",
+  "업데이트를 시작했습니다. 완료되면 데스크가 새 버전으로 다시 시작됩니다.": "Update started. The desk restarts on the new version when it finishes.",
+  "공개 폴더 관리는 기본 데스크에서만 쓸 수 있습니다": "Public folder management is only available on the main desk",
 };

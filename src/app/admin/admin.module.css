@@ -1292,6 +1292,27 @@
 }
 
 /* 공개 폴더 패널(#10) */
+/* 자동 업데이트 정보 아래의 즉시 업데이트 영역. 링크(a)도 pixelButton을
+   쓰므로 정렬만 여기서 잡는다. */
+.instantUpdate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.instantUpdate a {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.instantUpdate p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .plainList {
   margin: 12px 0 0;
   padding: 0;

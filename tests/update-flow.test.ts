@@ -2389,3 +2389,16 @@ test("enabling auto update never needs the personal token", async () => {
   assert.match(gate, /checkOwnerStarred\(owner/);
   assert.doesNotMatch(gate, /dispatchAutoUpdateRegister|dispatchUpdateWorkflow/);
 });
+
+test("자동 업데이트 중에도 설정 화면에서 즉시 업데이트를 시작할 수 있다", async () => {
+  const view = await readFile(
+    new URL("../src/app/admin/AdminView.tsx", import.meta.url),
+    "utf8",
+  );
+  // 새 버전이 있을 때 자동 실행 예약을 기다리지 않는 즉시 실행 버튼.
+  assert.match(view, /startInstantUpdate/);
+  assert.match(view, /t\("지금 업데이트"\)/);
+  // 서버와 같은 별 게이트 규칙 — 409 starRequired를 동의 단계로 잇는다.
+  assert.match(view, /starRequired/);
+  assert.match(view, /styles\.instantUpdate/);
+});
