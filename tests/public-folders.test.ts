@@ -428,6 +428,9 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
   assert.match(move, /isRegisteredPublicFolder\(body\.targetFolderId\)/);
   const rename = await read("src/app/api/drive/rename/route.ts");
   assert.match(rename, /isRegisteredPublicFolder\(body\.id\)/);
+  // 등록된 공개 폴더는 휴지통에도 못 넣는다 — 등록 해제 후에만(#14).
+  const del = await read("src/app/api/drive/delete/route.ts");
+  assert.match(del, /isRegisteredPublicFolder\(body\.id\)/);
 
   // 상한 집행이 reserveUpload 계층에 있다 — 모든 업로드 경로가 자동 적용.
   // identity 기반 조회라 대소문자 변형 parentId로도 상한을 우회 못 한다.

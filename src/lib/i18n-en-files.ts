@@ -574,4 +574,5 @@ export const EN_FILES: Record<string, string> = {
   "새 버전": "New version",
   "새 스페이스": "New space",
   "파일 검색": "Search files",
+  "공개 폴더는 등록을 해제한 뒤에 지울 수 있습니다": "Unregister the public folder before deleting it",
 };

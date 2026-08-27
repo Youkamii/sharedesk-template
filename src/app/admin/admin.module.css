@@ -1313,6 +1313,50 @@
   margin: 0;
 }
 
+/* 공개 폴더 관리 탭의 간격(#14): 행 안 요소는 flex gap, 항목 사이는
+   구분선과 여백으로 띄운다. */
+.folderRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.folderDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 2px solid #d9c9a4;
+  background: #fffdf4;
+}
+
+.folderDetail h3 {
+  margin: 0;
+  font-size: 12px;
+}
+
+.folderSettings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fileRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .plainList {
   margin: 12px 0 0;
   padding: 0;

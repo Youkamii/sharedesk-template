@@ -404,18 +404,18 @@ export default function PublicFoldersPanel({
                 const opened = openId === folder.id;
                 return (
                   <li key={folder.id}>
-                    <div>
-                      <strong>{folder.name}</strong>{" "}
+                    <div className={styles.folderRow}>
+                      <strong>{folder.name}</strong>
                       <span className={styles.statusBadge}>
                         {statusLabel(folder)}
-                      </span>{" "}
+                      </span>
                       <button
                         type="button"
                         className={styles.pixelButton}
                         onClick={() => void copyUrl(folder)}
                       >
                         {t("주소 복사")}
-                      </button>{" "}
+                      </button>
                       <button
                         type="button"
                         className={styles.pixelButton}
@@ -432,12 +432,12 @@ export default function PublicFoldersPanel({
                         }}
                       >
                         {opened ? t("접기") : t("설정·파일")}
-                      </button>{" "}
+                      </button>
                       {confirmRemove === folder.id ? (
                         <>
                           <span className={styles.muted}>
                             {t("정말 해제할까요?")}
-                          </span>{" "}
+                          </span>
                           <button
                             type="button"
                             className={styles.dangerButton}
@@ -445,7 +445,7 @@ export default function PublicFoldersPanel({
                             onClick={() => void removeRegistration(folder)}
                           >
                             {t("등록 해제")}
-                          </button>{" "}
+                          </button>
                           <button
                             type="button"
                             className={styles.pixelButton}
@@ -473,8 +473,9 @@ export default function PublicFoldersPanel({
                     )}
 
                     {opened && form && (
-                      <div>
+                      <div className={styles.folderDetail}>
                         <form
+                          className={styles.folderSettings}
                           onSubmit={(event) => {
                             event.preventDefault();
                             void saveSettings(folder);
@@ -657,14 +658,16 @@ export default function PublicFoldersPanel({
                         ) : (
                           <ul className={styles.plainList}>
                             {entries[folder.id].map((entry) => (
-                              <li key={entry.id}>
-                                {entry.name}
-                                {entry.size !== null && (
-                                  <span className={styles.muted}>
-                                    {" "}
-                                    · {formatBytes(entry.size)}
-                                  </span>
-                                )}{" "}
+                              <li key={entry.id} className={styles.fileRow}>
+                                <span className={styles.fileName}>
+                                  {entry.name}
+                                  {entry.size !== null && (
+                                    <span className={styles.muted}>
+                                      {" "}
+                                      · {formatBytes(entry.size)}
+                                    </span>
+                                  )}
+                                </span>
                                 <button
                                   type="button"
                                   className={styles.dangerButton}
