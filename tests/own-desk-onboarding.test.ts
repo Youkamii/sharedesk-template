@@ -46,7 +46,11 @@ test("Google 로그인한 신규 사용자는 기간제 1회용 또는 기간 �
   ]);
 
   assert.match(pageSource, /resolveIdentity/);
-  assert.match(pageSource, /me\.status === "approved"[\s\S]*?redirect\("\/files"\)/);
+  // 승인된 사람의 목적지는 로그인과 같은 데스크 선택(/spaces)이다(#14).
+  assert.match(
+    pageSource,
+    /me\.status === "approved"[\s\S]*?redirect\("\/spaces"\)/,
+  );
   assert.match(pageSource, /기간제 초대 코드/);
   assert.match(pageSource, /1회용은 한 명이[\s\S]*가입하면 끝납니다/);
   assert.match(pageSource, /기간 내 무제한은 만료되거나 관리자가 끌 때까지[\s\S]*여러 명/);

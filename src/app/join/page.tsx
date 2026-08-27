@@ -23,7 +23,8 @@ export default async function JoinPage({
   const cookieStore = await cookies();
   const me = await resolveIdentity(cookieStore.get(COOKIE_NAME)?.value);
   if (!me) redirect("/");
-  if (me.status === "approved") redirect("/files");
+  // 이미 승인된 사람은 로그인과 같은 목적지 — 데스크 선택(#14).
+  if (me.status === "approved") redirect("/spaces");
   if (me.status === "blocked") redirect("/pending");
 
   const locale = resolveEffectiveLocale(

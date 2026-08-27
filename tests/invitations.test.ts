@@ -304,9 +304,10 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       }),
     );
     assert.equal(formResponse.status, 303);
+    // 로그인·수락의 목적지는 항상 데스크 선택(/spaces)이다(#14).
     assert.equal(
       new URL(formResponse.headers.get("location") ?? "").pathname,
-      "/files",
+      "/spaces",
     );
     assert.equal(
       (await users.findUserById(directUnknown.user.id, { fresh: true }))?.status,
@@ -357,7 +358,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
     assert.equal(jsonResponse.status, 303);
     assert.equal(
       new URL(jsonResponse.headers.get("location") ?? "").pathname,
-      "/files",
+      "/spaces",
       "JSON 코드 제출도 받는다",
     );
 
@@ -972,7 +973,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
     );
 
     process.env.GOOGLE_CLIENT_ID = "test-client-id";
-    process.env.GOOGLE_CLIENT_SECRET = "private-oauth-secret";
+    process.env.GOOGLE_CLIENT_SECRET = "test-oauth-secret";
     process.env.PUBLIC_BASE_URL = "http://localhost:3000";
     const callbackRoute = await import(
       "@/app/api/auth/google/callback/route"
@@ -1002,7 +1003,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
     ) => {
       const location = response.headers.get("location") ?? "";
       assert.match(location, new RegExp(`[?&]error=${reason}(?:&|$)`));
-      assert.doesNotMatch(location, /private-oauth-secret|test-code/);
+      assert.doesNotMatch(location, /test-oauth-secret|test-code/);
       assert.equal(response.cookies.get("sharedesk_oauth")?.value, "");
     };
 
@@ -1010,7 +1011,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       let receivedTimeoutSignal = false;
       globalThis.fetch = (async (_input, init) => {
         receivedTimeoutSignal = init?.signal instanceof AbortSignal;
-        throw new TypeError("private-oauth-secret network detail");
+        throw new TypeError("test-oauth-secret network detail");
       }) as typeof fetch;
       assertCallbackFailure(
         await callbackRoute.GET(callbackRequest()),
@@ -1029,7 +1030,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       globalThis.fetch = (async () => {
         fetchCount += 1;
         if (fetchCount === 1) {
-          return Response.json({ access_token: "private-oauth-secret" });
+          return Response.json({ access_token: "test-oauth-secret" });
         }
         throw new TypeError("userinfo network detail");
       }) as typeof fetch;
@@ -1042,7 +1043,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       globalThis.fetch = (async () => {
         fetchCount += 1;
         return fetchCount === 1
-          ? Response.json({ access_token: "private-oauth-secret" })
+          ? Response.json({ access_token: "test-oauth-secret" })
           : new Response("not-json", { status: 200 });
       }) as typeof fetch;
       assertCallbackFailure(
@@ -1060,7 +1061,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
         globalThis.fetch = (async () => {
           fetchCount += 1;
           return fetchCount === 1
-            ? Response.json({ access_token: "private-oauth-secret" })
+            ? Response.json({ access_token: "test-oauth-secret" })
             : Response.json({
                 sub: "oauth-storage-failure",
                 email: "admin@example.com",
@@ -1086,7 +1087,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
         globalThis.fetch = (async () => {
           fetchCount += 1;
           return fetchCount === 1
-            ? Response.json({ access_token: "private-oauth-secret" })
+            ? Response.json({ access_token: "test-oauth-secret" })
             : Response.json({
                 sub: "admin-google-sub",
                 email: "admin@example.com",
@@ -1113,7 +1114,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       globalThis.fetch = (async () => {
         fetchCount += 1;
         return fetchCount === 1
-          ? Response.json({ access_token: "private-oauth-secret" })
+          ? Response.json({ access_token: "test-oauth-secret" })
           : Response.json({
               sub: "oauth-pending-user",
               email: "oauth-pending@example.com",
@@ -1147,7 +1148,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       globalThis.fetch = (async () => {
         fetchCount += 1;
         return fetchCount === 1
-          ? Response.json({ access_token: "private-oauth-secret" })
+          ? Response.json({ access_token: "test-oauth-secret" })
           : Response.json({
               sub: "admin-google-sub",
               email: "admin@example.com",
@@ -1158,7 +1159,7 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       const success = await callbackRoute.GET(callbackRequest());
       assert.equal(
         new URL(success.headers.get("location") ?? "").pathname,
-        "/files",
+        "/spaces",
         "정상 OAuth 흐름을 유지한다",
       );
       const issuedCookie = success.cookies.get("sharedesk_session")?.value;

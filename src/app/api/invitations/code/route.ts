@@ -110,6 +110,7 @@ export async function POST(req: NextRequest) {
       },
     );
     if (!redeemed.ok) return redirect(req, "/join", redeemed.reason);
-    return redirect(req, "/files");
+    // 승인 직후에도 로그인과 같은 목적지 — 데스크 선택(/spaces)이 전 단계다(#14).
+    return redirect(req, "/spaces");
   });
 }
