@@ -2,6 +2,12 @@ export const ROOT_DESKTOP_WIDTH = 1280;
 export const ROOT_DESKTOP_HEIGHT = 628;
 export const ROOT_ICON_WIDTH = 88;
 export const ROOT_ICON_HEIGHT = 94;
+// 우측 가장자리 사이드바(#11)가 여는 패널 폭. 아이콘은 이 예약 영역에
+// 들어갈 수 없다(#14) — 패널이 열려도 아이콘이 가려지지 않고, 이미 그
+// 안에 저장된 좌표는 normalize가 안전한 자리로 보정한다.
+export const ROOT_SIDEBAR_RESERVED = 232;
+const ROOT_ICON_MAX_X =
+  ROOT_DESKTOP_WIDTH - ROOT_SIDEBAR_RESERVED - ROOT_ICON_WIDTH;
 
 const ROOT_GRID_X = 12;
 const ROOT_GRID_Y = 10;
@@ -48,7 +54,7 @@ function isInsideRootDesktop(position: Pick<RootDesktopPlacement, "x" | "y">) {
     isFiniteCoordinate(position.y) &&
     position.x >= 0 &&
     position.y >= 0 &&
-    position.x <= ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH &&
+    position.x <= ROOT_ICON_MAX_X &&
     position.y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT
   );
 }
@@ -90,7 +96,7 @@ function rootGridPositions(
   ) {
     for (
       let x = startX;
-      x <= ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH;
+      x <= ROOT_ICON_MAX_X;
       x += stepX
     ) {
       positions.push({ x, y });
@@ -112,7 +118,7 @@ function denseGridPositionsAround(
   const xOffsets = Array.from(
     new Set([
       0,
-      (ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH) % ROOT_ICON_WIDTH,
+      ROOT_ICON_MAX_X % ROOT_ICON_WIDTH,
       ...occupied.map((position) => position.x % ROOT_ICON_WIDTH),
     ]),
   ).sort((left, right) => left - right);
@@ -161,7 +167,7 @@ function clampedPosition(position: Pick<RootDesktopPlacement, "x" | "y">) {
   const x = isFiniteCoordinate(position.x) ? position.x : 0;
   const y = isFiniteCoordinate(position.y) ? position.y : 0;
   return {
-    x: clamp(x, 0, ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH),
+    x: clamp(x, 0, ROOT_ICON_MAX_X),
     y: clamp(y, 0, ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT),
   };
 }
@@ -225,7 +231,9 @@ export function normalizeRootDesktopLayout(
   }> = [];
   const missing: Array<{ entry: RootDesktopEntry; index: number }> = [];
 
-  const useDenseGrid = entries.length >= 78;
+  // 기본 격자가 다 차면 빽빽한 격자로 전환한다 — 열 수를 하드코딩하면
+  // 사이드바 예약 폭(#14) 같은 경계 변경 때 어긋난다.
+  const useDenseGrid = entries.length > ROOT_GRID_POSITIONS.length;
 
   entries.forEach((entry, index) => {
     const stored = storedPositions[entry.layoutKey];
@@ -350,7 +358,7 @@ export function moveRootDesktopGroup<
   const safeDeltaX = clamp(
     Number.isFinite(deltaX) ? deltaX : 0,
     -minX,
-    ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH - maxX,
+    ROOT_ICON_MAX_X - maxX,
   );
   const safeDeltaY = clamp(
     Number.isFinite(deltaY) ? deltaY : 0,
@@ -368,7 +376,7 @@ export function moveRootDesktopGroup<
   if (!bounded.some(rootPlacementOverlapsTrash)) return bounded;
 
   const minDeltaX = -minX;
-  const maxDeltaX = ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH - maxX;
+  const maxDeltaX = ROOT_ICON_MAX_X - maxX;
   const minDeltaY = -minY;
   const maxDeltaY = ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY;
   const xCandidates = new Set([safeDeltaX, 0, minDeltaX, maxDeltaX]);
