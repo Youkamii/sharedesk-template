@@ -2391,14 +2391,21 @@ test("enabling auto update never needs the personal token", async () => {
 });
 
 test("자동 업데이트 중에도 설정 화면에서 즉시 업데이트를 시작할 수 있다", async () => {
-  const view = await readFile(
-    new URL("../src/app/admin/AdminView.tsx", import.meta.url),
-    "utf8",
-  );
+  const [view, route] = await Promise.all([
+    readFile(new URL("../src/app/admin/AdminView.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../src/app/api/admin/update/route.ts", import.meta.url),
+      "utf8",
+    ),
+  ]);
   // 새 버전이 있을 때 자동 실행 예약을 기다리지 않는 즉시 실행 버튼.
   assert.match(view, /startInstantUpdate/);
   assert.match(view, /t\("지금 업데이트"\)/);
-  // 서버와 같은 별 게이트 규칙 — 409 starRequired를 동의 단계로 잇는다.
-  assert.match(view, /starRequired/);
   assert.match(view, /styles\.instantUpdate/);
+  // 자동 업데이트를 켠 데스크는 별 동의를 다시 묻지 않는다 — 켤 때 이미
+  // 주인 별을 검증했고, 자정 실행도 그 동의 없이 돈다.
+  assert.match(route, /if \(!settings\.autoUpdate\) \{[\s\S]*?passStarGate/);
+  // 설정을 못 읽은 동안을 "꺼짐"으로 그리지 않는다(풀린 것처럼 보였다).
+  assert.match(view, /deskSettings === null\s*\?\s*t\("불러오는 중…"\)/);
+  assert.match(view, /deskSettings !== null && !autoUpdateOn && \(/);
 });

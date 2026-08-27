@@ -1910,14 +1910,19 @@ export default function AdminView({ locale }: { locale: Locale }) {
                   )}
                 </header>
                 <div className={styles.windowBody}>
+                  {/* 설정을 아직 못 읽었을 때(업데이트 직후 콜드 스타트 등)
+                      "꺼짐"으로 그리면 켜 둔 사람에게 풀린 것처럼 보인다 —
+                      로딩은 로딩으로 표시한다. */}
                   <p className={styles.description}>
                     <strong>
-                      {autoUpdateOn
-                        ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
-                        : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
+                      {deskSettings === null
+                        ? t("불러오는 중…")
+                        : autoUpdateOn
+                          ? t("매 자정에 새로운 버전으로 업데이트됩니다.")
+                          : t("템플릿 자동 업데이트를 위해 별을 눌러주세요.")}
                     </strong>
                   </p>
-                  {!autoUpdateOn && (
+                  {deskSettings !== null && !autoUpdateOn && (
                     <button
                       type="button"
                       className={styles.githubStarButton}
