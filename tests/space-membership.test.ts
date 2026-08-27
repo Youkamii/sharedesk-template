@@ -314,11 +314,10 @@ test("들어갈 수 있는 스페이스 판정과 로그인 목적지 (#12 목�
     );
     assert.deepEqual(guest, [], "손님은 스페이스 없음");
 
-    // 목적지·나가기 기준: 갈 곳(기본+스페이스)이 둘 이상인가.
+    // 로그인 목적지는 항상 데스크 선택(#14) — 스페이스 수와 무관하게 main
+    // 카드가 있는 /spaces가 전 단계다(손님 분기는 호출자가 한다).
     assert.equal(mods.access.landingPathFor(member.length), "/spaces");
-    assert.equal(mods.access.landingPathFor(guest.length), "/files");
-    assert.equal(mods.access.hasMultipleDestinations(member.length), true);
-    assert.equal(mods.access.hasMultipleDestinations(0), false);
+    assert.equal(mods.access.landingPathFor(0), "/spaces");
   });
 });
 

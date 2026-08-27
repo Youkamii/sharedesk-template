@@ -51,11 +51,9 @@ export async function listAccessibleSpaces(
  *   한 곳(기본뿐)이면 바로 입장.
  * 갈 곳 수 기준은 나가기 버튼 표시(hasMultipleDestinations)와 같다.
  */
-export function landingPathFor(accessibleCount: number): string {
-  return accessibleCount > 0 ? "/spaces" : "/files";
-}
-
-/** 나가기 버튼 표시 기준 — 역할이 아니라 목적지 수. 기본 데스크가 항상 1이다. */
-export function hasMultipleDestinations(accessibleCount: number): boolean {
-  return accessibleCount > 0;
+export function landingPathFor(_accessibleCount: number): string {
+  // 로그인의 목적지는 항상 데스크 선택(#14) — 스페이스가 없어도 main 카드가
+  // 있고, 관리는 이 전 단계 화면이 담당한다. 손님 분기는 호출자가 한다.
+  void _accessibleCount;
+  return "/spaces";
 }

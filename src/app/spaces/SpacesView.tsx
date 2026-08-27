@@ -7,11 +7,13 @@ import { translate, type Locale } from "@/lib/i18n";
 import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/lib/roles";
 import type { AccessibleSpace } from "@/lib/space-access";
 import LogoutButton from "../LogoutButton";
+import styles from "./spaces.module.css";
 
-// 데스크 목록 화면(#12). 기본 데스크와 들어갈 수 있는 스페이스를 나열하고,
-// 관리자에게는 멀티 데스크 관리(생성·이름 변경·등록 해제·멤버 명단)를 겸한다.
-// 스페이스 멤버십은 기본 데스크의 승인된 사용자를 관리자가 명단에 넣는
-// 방식이다 — 가입 자체는 언제나 기본 데스크에서만 일어난다.
+// 데스크 선택 화면(#12·#14) — 로그인 다음의 "전 단계". main(기본 데스크)과
+// 들어갈 수 있는 스페이스를 나열하고, 관리자에게는 스페이스 관리(생성·이름
+// 변경·등록 해제·멤버 명단)를 겸한다. 로그아웃도 여기 있다 — 데스크 안
+// 트레이의 [나가기]가 이 화면으로 돌아온다. 스페이스 멤버십은 기본 데스크의
+// 승인된 사용자를 관리자가 명단에 넣는 방식이다.
 
 interface SpaceMember {
   id: string;
@@ -27,9 +29,6 @@ interface BaseUser {
   name: string;
   status: string;
 }
-
-const CARD_CLASS =
-  "rounded-2xl border border-black/10 shadow-sm dark:border-white/15";
 
 export default function SpacesView({
   locale,
@@ -95,78 +94,76 @@ export default function SpacesView({
   );
 
   return (
-    <main className="relative flex flex-1 items-start justify-center p-6">
-      <div className="w-full max-w-lg pb-16">
-        <header className="flex items-baseline justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              {t("데스크 목록")}
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              {t("들어갈 데스크를 고르세요.")}
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-zinc-500 dark:text-zinc-400">{userName}</span>
-            <LogoutButton locale={locale} />
-          </div>
+    <main className={styles.screen}>
+      <div className={styles.window}>
+        <header className={styles.titlebar}>
+          <span className={styles.brandMark} aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <strong>ShareDesk</strong>
+          <span>{t("데스크 목록")}</span>
+          <span className={styles.userTag} title={userName}>
+            {userName}
+          </span>
         </header>
+        <div className={styles.body}>
+          <p className={styles.lead}>{t("들어갈 데스크를 고르세요.")}</p>
 
-        {error && (
-          <p
-            role="alert"
-            className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300"
-          >
-            {error}
-          </p>
-        )}
+          {error && (
+            <p role="alert" className={styles.error}>
+              {error}
+            </p>
+          )}
 
-        <ul className="mt-6 flex flex-col gap-3">
-          <li>
-            <DeskLink
-              href="/files"
-              name={t("기본 데스크")}
-              address="/files"
-              enterLabel={t("입장")}
-            />
-          </li>
-          {spaces.map((space) => (
-            <li key={space.slug} className={canManage ? CARD_CLASS : undefined}>
+          <ul className={styles.deskList}>
+            <li className={styles.deskCard}>
+              {/* 기본 데스크는 main이라는 이름의 데스크로 함께 선다(#14). */}
               <DeskLink
-                href={`/${space.slug}/files`}
-                name={space.name}
-                address={`/${space.slug}`}
+                href="/files"
+                name="main"
+                address="/files"
                 enterLabel={t("입장")}
-                bare={canManage}
               />
-              {canManage && (
-                <SpaceAdminRow
-                  space={space}
-                  t={t}
-                  busy={busy}
-                  run={run}
-                  apiJson={apiJson}
-                  onChanged={() => router.refresh()}
-                />
-              )}
             </li>
-          ))}
-        </ul>
-        {spaces.length === 0 && (
-          <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-            {t("아직 들어갈 수 있는 스페이스가 없습니다.")}
-          </p>
-        )}
+            {spaces.map((space) => (
+              <li key={space.slug} className={styles.deskCard}>
+                <DeskLink
+                  href={`/${space.slug}/files`}
+                  name={space.name}
+                  address={`/${space.slug}`}
+                  enterLabel={t("입장")}
+                />
+                {canManage && (
+                  <SpaceAdminRow
+                    space={space}
+                    t={t}
+                    busy={busy}
+                    run={run}
+                    apiJson={apiJson}
+                    onChanged={() => router.refresh()}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
 
-        {canManage && (
-          <CreateSpaceForm
-            t={t}
-            busy={busy}
-            run={run}
-            apiJson={apiJson}
-            onCreated={() => router.refresh()}
-          />
-        )}
+          {canManage && (
+            <CreateSpaceForm
+              t={t}
+              busy={busy}
+              run={run}
+              apiJson={apiJson}
+              onCreated={() => router.refresh()}
+            />
+          )}
+
+          <div className={styles.footerRow}>
+            <LogoutButton locale={locale} className={styles.pixelButton} />
+          </div>
+        </div>
       </div>
     </main>
   );
@@ -177,30 +174,19 @@ function DeskLink({
   name,
   address,
   enterLabel,
-  bare = false,
 }: {
   href: string;
   name: string;
   address: string;
   enterLabel: string;
-  bare?: boolean;
 }) {
   return (
-    <Link
-      href={href}
-      className={`flex items-center justify-between px-5 py-4 transition-colors hover:bg-black/5 dark:hover:bg-white/5 ${
-        bare ? "rounded-t-2xl" : CARD_CLASS
-      }`}
-    >
+    <Link href={href} className={styles.deskLink}>
       <span>
-        <span className="block font-medium">{name}</span>
-        <span className="mt-0.5 block text-xs text-zinc-500 dark:text-zinc-400">
-          {address}
-        </span>
+        <span className={styles.deskName}>{name}</span>
+        <span className={styles.deskAddress}>{address}</span>
       </span>
-      <span className="shrink-0 text-sm text-zinc-500 dark:text-zinc-400">
-        {enterLabel} →
-      </span>
+      <span className={styles.enter}>{enterLabel} →</span>
     </Link>
   );
 }
@@ -253,27 +239,28 @@ function SpaceAdminRow({
   }
 
   return (
-    <div className="border-t border-black/10 px-5 py-3 text-sm dark:border-white/15">
-      <div className="flex flex-wrap items-center gap-3">
+    <>
+      <div className={styles.adminRow}>
         {renaming ? (
           <>
             <input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
               maxLength={40}
-              className="min-w-0 flex-1 rounded-lg border border-black/15 bg-transparent px-2 py-1 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
+              className={styles.input}
               aria-label={t("이름")}
             />
             <button
               type="button"
+              className={styles.pixelButton}
               disabled={busy || !renameValue.trim()}
               onClick={() => void rename()}
-              className="font-medium disabled:opacity-40"
             >
               {t("저장")}
             </button>
             <button
               type="button"
+              className={styles.pixelButton}
               onClick={() => {
                 setRenaming(false);
                 setRenameValue(space.name);
@@ -284,38 +271,47 @@ function SpaceAdminRow({
           </>
         ) : (
           <>
-            <button type="button" onClick={() => setRenaming(true)}>
+            <button
+              type="button"
+              className={styles.pixelButton}
+              onClick={() => setRenaming(true)}
+            >
               {t("이름 바꾸기")}
             </button>
             <button
               type="button"
+              className={styles.pixelButton}
               aria-expanded={membersOpen}
               onClick={() => setMembersOpen((current) => !current)}
             >
               {t("멤버 관리")}
             </button>
             {confirmingDelete ? (
-              <span className="flex items-center gap-2">
-                <span className="text-red-600 dark:text-red-400">
+              <>
+                <span className={styles.confirmText}>
                   {t("정말 해제할까요?")}
                 </span>
                 <button
                   type="button"
+                  className={`${styles.pixelButton} ${styles.dangerButton}`}
                   disabled={busy}
                   onClick={() => void removeRegistration()}
-                  className="font-medium text-red-600 disabled:opacity-40 dark:text-red-400"
                 >
                   {t("등록 해제")}
                 </button>
-                <button type="button" onClick={() => setConfirmingDelete(false)}>
+                <button
+                  type="button"
+                  className={styles.pixelButton}
+                  onClick={() => setConfirmingDelete(false)}
+                >
                   {t("취소")}
                 </button>
-              </span>
+              </>
             ) : (
               <button
                 type="button"
+                className={`${styles.pixelButton} ${styles.dangerButton}`}
                 onClick={() => setConfirmingDelete(true)}
-                className="text-red-600 dark:text-red-400"
               >
                 {t("등록 해제")}
               </button>
@@ -324,9 +320,11 @@ function SpaceAdminRow({
         )}
       </div>
       {confirmingDelete && (
-        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-          {t("등록만 해제하며 파일은 저장소에 남습니다.")}
-        </p>
+        <div className={styles.adminRow}>
+          <p className={styles.muted}>
+            {t("등록만 해제하며 파일은 저장소에 남습니다.")}
+          </p>
+        </div>
       )}
       {membersOpen && (
         <SpaceMembersPanel
@@ -337,7 +335,7 @@ function SpaceAdminRow({
           apiJson={apiJson}
         />
       )}
-    </div>
+    </>
   );
 }
 
@@ -377,9 +375,9 @@ function SpaceMembersPanel({
 
   if (members === null) {
     return (
-      <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        {t("불러오는 중…")}
-      </p>
+      <div className={styles.memberPanel}>
+        <p className={styles.muted}>{t("불러오는 중…")}</p>
+      </div>
     );
   }
 
@@ -387,29 +385,24 @@ function SpaceMembersPanel({
   const addable = candidates.filter((user) => !memberIds.has(user.id));
 
   return (
-    <div className="mt-3 flex flex-col gap-2">
+    <div className={styles.memberPanel}>
       {members.length === 0 ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
-          {t("구성원이 없습니다.")}
-        </p>
+        <p className={styles.muted}>{t("구성원이 없습니다.")}</p>
       ) : (
-        <ul className="flex flex-col gap-1">
+        <ul className={styles.memberList}>
           {members.map((member) => (
-            <li
-              key={member.id}
-              className="flex items-center justify-between gap-2 rounded-lg bg-black/5 px-3 py-1.5 dark:bg-white/5"
-            >
-              <span className="min-w-0">
-                <span className="block truncate">{member.name}</span>
-                <span className="block truncate text-xs text-zinc-500 dark:text-zinc-400">
+            <li key={member.id} className={styles.memberItem}>
+              <span style={{ minWidth: 0 }}>
+                <span className={styles.deskName}>{member.name}</span>
+                <span className={styles.memberMeta}>
                   {member.email} ·{" "}
                   {t(ROLE_LABELS[member.role as UserRole] ?? member.role)}
                 </span>
               </span>
               <button
                 type="button"
+                className={`${styles.pixelButton} ${styles.dangerButton}`}
                 disabled={busy}
-                className="shrink-0 text-red-600 disabled:opacity-40 dark:text-red-400"
                 onClick={() =>
                   void run(async () => {
                     await apiJson(
@@ -427,12 +420,12 @@ function SpaceMembersPanel({
         </ul>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={styles.addRow}>
         <select
           value={addUserId}
           onChange={(event) => setAddUserId(event.target.value)}
           aria-label={t("멤버 추가")}
-          className="min-w-0 flex-1 rounded-lg border border-black/15 bg-transparent px-2 py-1 dark:border-white/20"
+          className={styles.input}
         >
           <option value="">{t("멤버 추가")}…</option>
           {addable.map((user) => (
@@ -445,7 +438,7 @@ function SpaceMembersPanel({
           value={addRole}
           onChange={(event) => setAddRole(event.target.value as UserRole)}
           aria-label={t("역할")}
-          className="rounded-lg border border-black/15 bg-transparent px-2 py-1 dark:border-white/20"
+          className={styles.select}
         >
           {USER_ROLES.map((role) => (
             <option key={role} value={role}>
@@ -455,8 +448,8 @@ function SpaceMembersPanel({
         </select>
         <button
           type="button"
+          className={styles.pixelButton}
           disabled={busy || !addUserId}
-          className="font-medium disabled:opacity-40"
           onClick={() =>
             void run(async () => {
               await apiJson(`/api/spaces/${encodeURIComponent(slug)}/members`, {
@@ -472,7 +465,7 @@ function SpaceMembersPanel({
           {t("추가")}
         </button>
       </div>
-      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+      <p className={styles.muted}>
         {t("기본 데스크의 승인된 사용자만 추가할 수 있습니다.")}
       </p>
     </div>
@@ -497,10 +490,10 @@ function CreateSpaceForm({
   const [name, setName] = useState("");
 
   return (
-    <section className={`mt-8 ${CARD_CLASS} p-5`}>
-      <h2 className="font-semibold">{t("스페이스 관리")}</h2>
+    <section className={styles.createCard}>
+      <h2>{t("새 스페이스")}</h2>
       <form
-        className="mt-3 flex flex-col gap-3"
+        className={styles.createForm}
         onSubmit={(event) => {
           event.preventDefault();
           void run(async () => {
@@ -515,34 +508,34 @@ function CreateSpaceForm({
           });
         }}
       >
-        <label className="flex flex-col gap-1 text-sm">
+        <label className={styles.field}>
           <span>{t("주소")}</span>
           <input
             value={slug}
             onChange={(event) => setSlug(event.target.value)}
             placeholder="sea"
             maxLength={32}
-            className="rounded-lg border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
+            className={styles.input}
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
+        <label className={styles.field}>
           <span>{t("이름")}</span>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
             maxLength={40}
-            className="rounded-lg border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
+            className={styles.input}
           />
         </label>
         <button
           type="submit"
+          className={styles.pixelButton}
           disabled={busy || !slug.trim() || !name.trim()}
-          className="rounded-lg border border-black/15 py-2 font-medium transition-opacity disabled:opacity-40 dark:border-white/20"
         >
           {t("만들기")}
         </button>
       </form>
-      <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+      <p className={styles.muted}>
         {t("주소는 영문 소문자·숫자·하이픈 1~32자입니다.")}
       </p>
     </section>

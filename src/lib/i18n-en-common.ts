@@ -92,10 +92,7 @@ export const EN_COMMON: Record<string, string> = {
   // 데스크 목록·멀티 데스크 관리 (#12)
   "데스크 목록": "Desks",
   "들어갈 데스크를 고르세요.": "Choose a desk to enter.",
-  "기본 데스크": "Main desk",
   "입장": "Enter",
-  "아직 들어갈 수 있는 스페이스가 없습니다.": "No spaces you can enter yet.",
-  "스페이스 관리": "Manage spaces",
   "주소": "Address",
   "이름": "Name",
   "주소는 영문 소문자·숫자·하이픈 1~32자입니다.":

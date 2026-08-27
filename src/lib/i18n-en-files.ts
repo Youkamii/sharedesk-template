@@ -573,4 +573,5 @@ export const EN_FILES: Record<string, string> = {
   "예": "Yes",
   "아니오": "No",
   "새 버전": "New version",
+  "새 스페이스": "New space",
 };

@@ -1,0 +1,308 @@
+/* 데스크 선택 화면(#12·#14) — 로그인 다음의 "전 단계". 팔레트와 2px
+   빛/어둠 프레임 문법은 Dusk Room OS(DESIGN.md, desktop.module.css)를
+   그대로 따른다. 여기서 main(기본 데스크)과 스페이스를 고르고, 관리자는
+   스페이스 관리(생성·이름·멤버·해제)도 여기서 한다. */
+
+.screen {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px 48px;
+  overflow-y: auto;
+  background: #10172b;
+  color: #1b1b2f;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 13px;
+}
+
+.window {
+  width: min(560px, 100%);
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow:
+    inset 2px 2px 0 #fff8e7,
+    inset -2px -2px 0 #9c8c78,
+    7px 7px 0 rgb(5 9 20 / 70%);
+}
+
+.titlebar {
+  display: flex;
+  height: 34px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  border-bottom: 2px solid #10172b;
+  font-size: 13px;
+}
+
+.titlebar strong {
+  color: #ffd27d;
+  letter-spacing: 0.02em;
+  text-shadow: 1px 1px 0 #10172b;
+}
+
+.brandMark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: #0b1021;
+  border: 2px solid #f2a56f;
+}
+
+.brandMark i:nth-child(1) { background: #ffd27d; }
+.brandMark i:nth-child(2) { background: #61b3a6; }
+.brandMark i:nth-child(3) { background: #e96872; }
+.brandMark i:nth-child(4) { background: #79a8e8; }
+
+.userTag {
+  margin-left: auto;
+  overflow: hidden;
+  max-width: 40%;
+  color: #cfe4dc;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  line-height: 1.7;
+}
+
+.lead {
+  margin: 0;
+  color: #5e5361;
+  font-size: 12px;
+}
+
+.error {
+  margin: 0;
+  padding: 8px 10px;
+  color: #fff8e7;
+  background: #c9615f;
+  border: 2px solid #10172b;
+  box-shadow: inset 1px 1px 0 #e08a86;
+}
+
+.deskList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deskCard {
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  box-shadow: inset 1px 1px 0 #fffdf4, 3px 3px 0 rgb(5 9 20 / 35%);
+}
+
+.deskLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.deskLink:hover,
+.deskLink:focus-visible {
+  background: #ffe9bd;
+}
+
+.deskName {
+  display: block;
+  font-size: 14px;
+}
+
+.deskAddress {
+  display: block;
+  margin-top: 2px;
+  color: #8a7c67;
+  font-size: 11px;
+}
+
+.enter {
+  flex: none;
+  padding: 5px 9px;
+  color: #1b1b2f;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: inset 1px 1px 0 #fff8e7, inset -1px -1px 0 #cf9a52;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.deskLink:hover .enter {
+  background: #f2a56f;
+}
+
+/* 카드 하단 관리 줄(관리자) — 이름 바꾸기 · 멤버 · 등록 해제. */
+.adminRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 9px 12px;
+  border-top: 2px solid #e3d3ab;
+}
+
+.pixelButton {
+  min-height: 30px;
+  flex: none;
+  padding: 5px 9px;
+  color: #1b1b2f;
+  background: #e5d6b7;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #fff8e7, inset -1px -1px 0 #9c8c78;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pixelButton:hover:not(:disabled) {
+  background: #ffe9bd;
+}
+
+.pixelButton:active:not(:disabled) {
+  box-shadow: inset 1px 1px 0 #9c8c78;
+}
+
+.pixelButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dangerButton {
+  color: #fff8e7;
+  background: #c9615f;
+  box-shadow: inset 1px 1px 0 #e08a86, inset -1px -1px 0 #8f3f3e;
+}
+
+.dangerButton:hover:not(:disabled) {
+  background: #b8504e;
+}
+
+.input,
+.select {
+  min-width: 0;
+  min-height: 30px;
+  flex: 1;
+  padding: 4px 8px;
+  color: #1b1b2f;
+  background: #fffdf4;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 #d9c9a4;
+  font: inherit;
+  font-size: 12px;
+}
+
+.select {
+  flex: none;
+}
+
+.confirmText {
+  color: #a13c3a;
+  font-size: 11px;
+}
+
+.muted {
+  margin: 0;
+  color: #8a7c67;
+  font-size: 11px;
+}
+
+.memberPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 2px solid #e3d3ab;
+}
+
+.memberList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memberItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  background: #f4e7c5;
+  border: 2px solid #d9c9a4;
+}
+
+.memberMeta {
+  display: block;
+  overflow: hidden;
+  color: #8a7c67;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.addRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+/* 새 스페이스 만들기(관리자). */
+.createCard {
+  padding: 12px 13px;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  box-shadow: inset 1px 1px 0 #fffdf4, 3px 3px 0 rgb(5 9 20 / 35%);
+}
+
+.createCard h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.footerRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 2px solid #d9c9a4;
+}
