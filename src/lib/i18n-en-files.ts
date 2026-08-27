@@ -554,7 +554,6 @@ export const EN_FILES: Record<string, string> = {
   "공개폴더: {name}": "Public folder: {name}",
   "이 공개 폴더는 닫혀 있습니다": "This public folder is closed",
   "아직 파일이 없습니다": "No files yet",
-  "아래 올리기 버튼이나 끌어다 놓기로 올려 주세요": "Upload with the button below or by dragging files here",
   "올리는 중 {current}/{total}": "Uploading {current}/{total}",
   "올렸습니다": "Uploaded",
   "{name}을(를) 올리지 못했습니다": "Couldn't upload {name}",
@@ -574,4 +573,5 @@ export const EN_FILES: Record<string, string> = {
   "아니오": "No",
   "새 버전": "New version",
   "새 스페이스": "New space",
+  "파일 검색": "Search files",
 };

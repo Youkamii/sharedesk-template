@@ -41,6 +41,8 @@ interface Listing {
 }
 
 // FilesView와 같은 6열 기본 격자(좌표가 저장되지 않은 항목의 배치).
+const DOWNLOAD_FIRST_KEY = "sharedesk-public-download-first";
+
 const ICON_COLUMNS = 6;
 const ICON_COLUMN_WIDTH = 96;
 const ICON_ROW_HEIGHT = 104;
@@ -112,6 +114,24 @@ export default function PublicFolderView({
   const [closed, setClosed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // 데스크와 같은 사용감(#14): 이름 검색과 다운로드 우선 토글.
+  const [query, setQuery] = useState("");
+  const [downloadFirst, setDownloadFirst] = useState(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      return window.localStorage.getItem(DOWNLOAD_FIRST_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const selectDownloadFirst = useCallback((next: boolean) => {
+    setDownloadFirst(next);
+    try {
+      window.localStorage.setItem(DOWNLOAD_FIRST_KEY, next ? "1" : "0");
+    } catch {
+      // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
+    }
+  }, []);
   const [uploading, setUploading] = useState<{
     current: number;
     total: number;
@@ -163,6 +183,16 @@ export default function PublicFolderView({
 
   const download = useCallback(
     (entry: PublicEntry) => {
+      // 다운로드 우선을 끄면 브라우저에서 열어 본다(서버가 안전한 형식만
+      // inline으로 준다 — 나머지는 그대로 저장 창).
+      if (!downloadFirst) {
+        window.open(
+          `/api/public-folder/${token}/download?id=${encodeURIComponent(entry.id)}&open=1`,
+          "_blank",
+          "noopener,noreferrer",
+        );
+        return;
+      }
       const anchor = document.createElement("a");
       anchor.href = `/api/public-folder/${token}/download?id=${encodeURIComponent(entry.id)}`;
       anchor.rel = "noopener";
@@ -170,7 +200,7 @@ export default function PublicFolderView({
       anchor.click();
       anchor.remove();
     },
-    [token],
+    [token, downloadFirst],
   );
 
   const uploadFiles = useCallback(
@@ -230,6 +260,14 @@ export default function PublicFolderView({
     () => (listing?.entries ?? []).filter((entry) => !entry.isFolder),
     [listing],
   );
+
+  // 검색은 표시만 거른다 — 배치(placements)는 전체 기준이라 검색을 지워도
+  // 아이콘이 제자리로 돌아온다.
+  const visibleFiles = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return files;
+    return files.filter((entry) => entry.name.toLowerCase().includes(needle));
+  }, [files, query]);
 
   // 아이콘 배치. 저장 좌표(멤버가 데스크에서 놓은 위치)와 기본 격자가 같은
   // 상수라, 좌표 없는 새 파일을 index 격자에 그대로 두면 저장 좌표와 겹쳐
@@ -417,7 +455,7 @@ export default function PublicFolderView({
           }}
         >
           <div className={desktopStyles.iconPlane}>
-            {files.map((entry) => {
+            {visibleFiles.map((entry) => {
               const placement = placements[entry.id];
               return (
                 <div
@@ -437,12 +475,6 @@ export default function PublicFolderView({
                 </div>
               );
             })}
-            {files.length === 0 && !error && listing && (
-              <div className={desktopStyles.canvasMessage} role="status">
-                <strong>{t("아직 파일이 없습니다")}</strong>
-                <span>{t("아래 올리기 버튼이나 끌어다 놓기로 올려 주세요")}</span>
-              </div>
-            )}
             {error && (
               <div className={desktopStyles.canvasMessage} role="alert">
                 <strong>{error}</strong>
@@ -460,19 +492,31 @@ export default function PublicFolderView({
         </div>
 
         <footer className={desktopStyles.taskBar}>
-          <button
-            type="button"
-            className={desktopStyles.downloadPreference}
-            disabled={uploading !== null}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <span aria-hidden="true">↑</span>
-            <span>
-              {uploading
-                ? t("올리는 중 {current}/{total}", uploading)
-                : t("올리기")}
+          {/* 올리기는 끌어다 놓기(#14) — 버튼 없이 데스크와 같은 문법. */}
+          <div className={desktopStyles.desktopSearch} role="search">
+            <input
+              type="search"
+              value={query}
+              placeholder={t("파일 검색")}
+              aria-label={t("파일 검색")}
+              spellCheck={false}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <label className={desktopStyles.downloadPreference}>
+            <input
+              type="checkbox"
+              checked={downloadFirst}
+              onChange={(event) => selectDownloadFirst(event.target.checked)}
+            />
+            <span className={desktopStyles.preferenceCheck} aria-hidden="true" />
+            <span>{t("다운로드 우선")}</span>
+          </label>
+          {uploading && (
+            <span role="status" className={desktopStyles.desktopLabel}>
+              {t("올리는 중 {current}/{total}", uploading)}
             </span>
-          </button>
+          )}
           {notice && (
             <span role="status" className={desktopStyles.desktopLabel}>
               {notice}

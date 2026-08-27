@@ -7,9 +7,15 @@ import { missing, resolveOpenPublicFolder } from "../shared";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+// "다운로드 우선"을 끈 방문자에게만, 브라우저가 안전하게 그릴 수 있는
+// 형식을 inline으로 연다(#14). HTML·SVG처럼 스크립트가 실행될 수 있는
+// 형식은 목록에 없다 — 나머지는 전부 attachment 고정이 유지된다.
+const INLINE_SAFE_TYPES =
+  /^(?:image\/(?:png|jpeg|gif|webp|avif|bmp)|video\/|audio\/|application\/pdf$|text\/plain)/i;
+
 // share/[linkId]와 같은 attachment 고정 응답 — 브라우저 안에서 렌더되지
 // 않게 하고, Range를 지원한다.
-function downloadResponse(file: DownloadResult): Response {
+function downloadResponse(file: DownloadResult, open: boolean): Response {
   const asciiName = file.name
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/["\\]/g, "'");
@@ -17,11 +23,13 @@ function downloadResponse(file: DownloadResult): Response {
     /['()*!]/g,
     (character) => "%" + character.charCodeAt(0).toString(16).toUpperCase(),
   );
+  const disposition =
+    open && INLINE_SAFE_TYPES.test(file.mimeType) ? "inline" : "attachment";
   const headers = new Headers({
     "Content-Type": file.mimeType,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
-    "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+    "Content-Disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
   });
   if (file.acceptRanges !== false) headers.set("Accept-Ranges", "bytes");
   const length = file.contentLength ?? file.size;
@@ -56,7 +64,10 @@ export async function GET(
       }
       const entry = await adapter.getEntry(id);
       if (entry.isFolder) return missing();
-      return downloadResponse(await adapter.download(id, range));
+      return downloadResponse(
+        await adapter.download(id, range),
+        req.nextUrl.searchParams.get("open") === "1",
+      );
     } catch {
       return missing();
     }

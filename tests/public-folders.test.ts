@@ -408,7 +408,12 @@ test("배선: 공개 라우트는 러너 없이 기본 문맥, 가드·상한·�
     "src/app/api/public-folder/[token]/download/route.ts",
   );
   assert.match(download, /isWithin\(id, resolved\.folder\.folderId\)/);
-  assert.match(download, /attachment; filename/);
+  // 기본은 attachment 고정 — inline은 open=1 요청 + 안전 형식 whitelist에
+  // 든 것만이다(HTML·SVG처럼 스크립트 실행 여지가 있는 형식은 목록 밖).
+  assert.match(download, /INLINE_SAFE_TYPES/);
+  const inlineList = download.match(/INLINE_SAFE_TYPES =[\s\S]*?;/)?.[0] ?? "";
+  assert.doesNotMatch(inlineList, /svg|html/i, "스크립트 실행 형식은 inline 금지");
+  assert.match(download, /: "attachment"/);
 
   const upload = await read("src/app/api/public-folder/[token]/upload/route.ts");
   assert.match(upload, /PUBLIC_UPLOADER_PREFIX/);
