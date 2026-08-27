@@ -21,8 +21,8 @@ type Props = {
   locale: Locale;
   rootId: string;
   allowUpload: boolean;
-  // 나가기(데스크 목록) 링크 표시 — 갈 곳이 둘 이상일 때만(#12).
-  canLeave?: boolean;
+  // 손님은 스페이스 선택(/spaces)에 갈 수 없어 로그아웃만 보인다(#14).
+  isGuest?: boolean;
 };
 
 // 들어온 폴더를 쌓아 두고 뒤로가기로 하나씩 벗긴다.
@@ -32,7 +32,7 @@ export default function MobileFilesView({
   locale,
   rootId,
   allowUpload,
-  canLeave = false,
+  isGuest = false,
 }: Props) {
   const router = useRouter();
   const [trail, setTrail] = useState<Crumb[]>([]);
@@ -200,13 +200,16 @@ export default function MobileFilesView({
           </span>
         )}
         <strong className={styles.title}>{currentName}</strong>
-        {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다. */}
-        {canLeave && (
+        {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다 — 데스크
+            밖으로 나가는 문은 스페이스 선택 하나(로그아웃은 그 화면에),
+            손님만 로그아웃 직행이다(#14). */}
+        {isGuest ? (
+          <LogoutButton locale={locale} className={styles.logoutButton} />
+        ) : (
           <a href="/spaces" className={styles.logoutButton}>
             {t("나가기")}
           </a>
         )}
-        <LogoutButton locale={locale} className={styles.logoutButton} />
       </header>
 
       {notice && (

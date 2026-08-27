@@ -77,6 +77,7 @@ const ACTIVITY_LABELS: Record<ActivityAction, string> = {
   move: "이동",
   mkdir: "새 폴더",
   edit: "내용 수정",
+  nickname: "닉네임 변경",
 };
 
 // 테마는 화면 전체의 UI·질감이고 바탕화면은 그 위에 까는 그림이다 — 서로 다른 설정.

@@ -666,7 +666,6 @@ export default function FilesView({
   locale,
   allowMemberLocale,
   autoUpdate,
-  canLeave = false,
   initialNickname = null,
   isSpace = false,
 }: {
@@ -678,12 +677,8 @@ export default function FilesView({
   canSendFeedback: boolean;
   locale: Locale;
   allowMemberLocale: boolean;
-  // 자동 업데이트가 켜진 데스크에서는 수동 업데이트 버튼을 숨긴다 —
-  // 업데이트 내용은 관리자 설정 화면이 보여 준다.
+  // 자동 업데이트 여부 — 새 버전 알림(로고 옆)은 이와 무관하게 뜬다(#14).
   autoUpdate: boolean;
-  // 나가기(데스크 목록으로) 버튼 표시 — 갈 곳이 둘 이상일 때만(#12).
-  // 역할이 아니라 목적지 수 기준이라 서버(page)가 계산해 내려준다.
-  canLeave?: boolean;
   // 데스크 표시용 닉네임(#13). 기본 데스크 명단이 진실 원천이고, null이면
   // 입장 때 정하라는 다이얼로그를 연다. 손님은 항상 null.
   initialNickname?: string | null;
@@ -899,6 +894,11 @@ export default function FilesView({
   const [nickname, setNickname] = useState<string | null>(initialNickname);
   const [nicknameOpen, setNicknameOpen] = useState(
     () => !isGuest && initialNickname === null,
+  );
+  // 이름 클릭은 "바꾸시겠습니까?" 확인부터(#14). 입장 때 처음 정하는
+  // 자동 오픈은 확인 없이 바로 입력이다.
+  const [nicknameStage, setNicknameStage] = useState<"confirm" | "edit">(() =>
+    initialNickname === null ? "edit" : "confirm",
   );
   const [nicknameDraft, setNicknameDraft] = useState(initialNickname ?? "");
   const [nicknameBusy, setNicknameBusy] = useState(false);
@@ -1833,8 +1833,9 @@ export default function FilesView({
   }, [starConsentOpen]);
 
   useEffect(() => {
-    // 자동 업데이트가 켜진 데스크는 버튼이 없으므로 상태 확인도 하지 않는다.
-    if (!isAdmin || autoUpdate) return;
+    // 새 버전 여부는 로고 옆 표시가 알린다 — 자동 업데이트 여부와 무관하게
+    // 관리자면 항상 확인한다(자동 업데이트 중에도 즉시 업데이트 가능).
+    if (!isAdmin) return;
 
     updateControllerRef.current?.abort();
     const controller = new AbortController();
@@ -6709,6 +6710,7 @@ export default function FilesView({
   function openNicknameDialog() {
     setNicknameDraft(nickname ?? "");
     setNicknameError(null);
+    setNicknameStage(nickname === null ? "edit" : "confirm");
     setNicknameOpen(true);
   }
 
@@ -7232,7 +7234,7 @@ export default function FilesView({
         locale={locale}
         rootId={ROOT_ID}
         allowUpload={allowUpload}
-        canLeave={canLeave}
+        isGuest={isGuest}
       />
     );
   }
@@ -7342,6 +7344,25 @@ export default function FilesView({
           </span>
           <strong>ShareDesk</strong>
           <span className={styles.desktopLabel}>{t("공유 바탕화면")}</span>
+          {/* 새 버전 알림은 로고 옆에서 — 트레이가 아니라 여기다. 누르면
+              업데이트 창이 열린다(자동 업데이트 중에도 즉시 실행 가능). */}
+          {isAdmin && updateAvailable && (
+            <button
+              type="button"
+              className={styles.brandUpdate}
+              aria-haspopup="dialog"
+              aria-label={t("업데이트, 새 버전 {version} 있음", {
+                version: updateStatus?.latestVersion ?? "",
+              })}
+              title={t("업데이트, 새 버전 {version} 있음", {
+                version: updateStatus?.latestVersion ?? "",
+              })}
+              onClick={(event) => openUpdatePanel(event.currentTarget)}
+            >
+              <span aria-hidden="true">★</span>
+              <span>{t("새 버전")}</span>
+            </button>
+          )}
         </div>
         {allowMemberLocale && (
           <LanguageMenu
@@ -8883,46 +8904,22 @@ export default function FilesView({
               <span className={styles.feedbackMailIcon} aria-hidden="true" />
             </button>
           )}
-          {isAdmin && (
-            <>
-              {!autoUpdate && (
-              <button
-                type="button"
-                className={`${styles.trayLink} ${styles.updateTrayButton}`}
-                aria-haspopup="dialog"
-                aria-label={
-                  updateAvailable
-                    ? t("업데이트, 새 버전 {version} 있음", {
-                        version: updateStatus?.latestVersion ?? "",
-                      })
-                    : t("업데이트")
-                }
-                onClick={(event) => openUpdatePanel(event.currentTarget)}
-              >
-                <span>{t("업데이트")}</span>
-                {updateAvailable && (
-                  <span className={styles.updateStar} aria-hidden="true">
-                    ★
-                  </span>
-                )}
-              </button>
-              )}
-              {/* 관리 화면은 기본 데스크 전용(#12) — 스페이스에는 없다. */}
-              {!isSpace && (
-                <a href="/admin" className={styles.trayLink}>
-                  {t("관리자")}
-                </a>
-              )}
-            </>
+          {/* 관리 화면은 기본 데스크 전용(#12) — 스페이스에는 없다. */}
+          {isAdmin && !isSpace && (
+            <a href="/admin" className={styles.trayLink}>
+              {t("관리자")}
+            </a>
           )}
           {isGuest ? (
             <span className={styles.userName} title={userName}>
               {userName} · {t("손님")}
             </span>
           ) : (
+            /* 닉네임은 버튼처럼 보이지 않는다 — 이름을 누르면 바꾸겠냐고
+               확인부터 묻는다(#14). */
             <button
               type="button"
-              className={`${styles.trayLink} ${styles.userName}`}
+              className={styles.userName}
               title={t("닉네임 바꾸기")}
               aria-haspopup="dialog"
               aria-expanded={nicknameOpen}
@@ -8932,21 +8929,22 @@ export default function FilesView({
               {nickname ?? userName}
             </button>
           )}
-          {/* 관리자는 스페이스가 0개여도 관리 창(/spaces)에서 첫 스페이스를
-              만들어야 하므로 진입 링크가 항상 필요하다. 일반 멤버는 갈 곳이
-              둘 이상일 때만 "나가기"가 보인다(#12 — 역할 아닌 목적지 수). */}
-          {isAdmin ? (
-            <a href="/spaces" className={styles.trayLink}>
-              {t("스페이스 관리")}
-            </a>
-          ) : canLeave ? (
+          {/* 데스크 밖으로 나가는 문은 하나 — 스페이스 선택(/spaces)이 전
+              단계이고 로그아웃도 그 화면에 있다(#14). 손님은 목록에 갈 수
+              없으니 로그아웃만 남는다. */}
+          {isGuest ? (
+            <button
+              type="button"
+              className={styles.trayLink}
+              onClick={() => void logout()}
+            >
+              {t("로그아웃")}
+            </button>
+          ) : (
             <a href="/spaces" className={styles.trayLink}>
               {t("나가기")}
             </a>
-          ) : null}
-          <button type="button" className={styles.trayLink} onClick={() => void logout()}>
-            {t("로그아웃")}
-          </button>
+          )}
           <time className={styles.clock} dateTime={clock?.toISOString()}>
             {clock
               ? clock.toLocaleTimeString(dateLocale, {
@@ -9412,6 +9410,29 @@ export default function FilesView({
                 ×
               </button>
             </header>
+            {nicknameStage === "confirm" ? (
+              <div className={`${styles.dialogBody} ${styles.feedbackForm}`}>
+                <p id="nickname-dialog-help">
+                  {t("닉네임을 바꾸시겠습니까?")}
+                </p>
+                <div className={styles.dialogActions}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    onClick={() => setNicknameOpen(false)}
+                  >
+                    {t("아니오")}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.primaryButton}
+                    onClick={() => setNicknameStage("edit")}
+                  >
+                    {t("예")}
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form
               className={`${styles.dialogBody} ${styles.feedbackForm}`}
               onSubmit={submitNickname}
@@ -9467,6 +9488,7 @@ export default function FilesView({
                 </button>
               </div>
             </form>
+            )}
           </section>
         </div>
       )}

@@ -2,10 +2,6 @@ import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
-import {
-  hasMultipleDestinations,
-  listAccessibleSpaces,
-} from "@/lib/space-access";
 import { resolveSpaceSession, runWithSpace } from "@/lib/space-context";
 import { SPACE_HEADER } from "@/lib/space-slug";
 import { getSpace } from "@/lib/spaces";
@@ -50,17 +46,12 @@ export default async function FilesPage() {
   // 로그인은 되어 있으므로 자기(기본) 데스크로 돌려보낸다.
   if (result.kind === "not-member") redirect("/files");
   const session = result.session;
-  // 나가기 버튼: 갈 곳(기본 데스크 + 멤버 스페이스)이 둘 이상일 때만(#12).
-  // fresh:true — 로그인 목적지·/spaces와 같은 신선도를 써 방금 초대된
-  // 사용자에게도 나가기 버튼이 곧바로 뜬다.
-  const accessible = await listAccessibleSpaces(session, { fresh: true });
   // 닉네임(#13): 진실 원천은 기본 데스크 명단 — 스페이스 화면에서도 같다.
   const baseUser = session.isGuest
     ? null
     : await runWithSpace(null, () => findUserById(session.userId));
   return (
     <FilesView
-      canLeave={hasMultipleDestinations(accessible.length)}
       isSpace={space !== null}
       initialNickname={baseUser?.nickname ?? null}
       userName={session.name}

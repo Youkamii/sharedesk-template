@@ -20,6 +20,7 @@ export const ACTIVITY_ACTIONS = [
   "move",
   "mkdir",
   "edit",
+  "nickname",
 ] as const;
 
 export type ActivityAction = (typeof ACTIVITY_ACTIONS)[number];

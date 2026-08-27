@@ -1161,30 +1161,20 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
     readFile(new URL("../src/app/files/desktop.module.css", import.meta.url), "utf8"),
   ]);
 
-  const trayStart = source.indexOf('<div className={styles.userTray}>');
-  const trayEnd = source.indexOf("</div>", trayStart);
-  const userTray = source.slice(trayStart, trayEnd);
-  const updateIndex = userTray.indexOf("업데이트");
-  const userManagementIndex = userTray.indexOf("관리자");
-  const updateButtonStart = userTray.indexOf(
-    'className={`${styles.trayLink} ${styles.updateTrayButton}`}',
-  );
-  const updateButtonEnd = userTray.indexOf("</button>", updateButtonStart);
-  const updateButton = userTray.slice(updateButtonStart, updateButtonEnd);
-
-  assert.ok(trayStart >= 0 && trayEnd > trayStart);
-  assert.ok(updateIndex >= 0 && updateIndex < userManagementIndex);
-  assert.ok(updateButtonStart >= 0 && updateButtonEnd > updateButtonStart);
-  assert.match(
-    userTray,
-    /\{isAdmin && \([\s\S]*?업데이트[\s\S]*?관리자/,
-  );
-  assert.match(userTray, /aria-haspopup="dialog"/);
-  assert.doesNotMatch(updateButton, /href=|window\.open/);
-  assert.match(
-    userTray,
-    /updateAvailable[\s\S]*?updateStatus\?\.latestVersion[\s\S]*?styles\.updateStar[\s\S]*?★/,
-  );
+  // 새 버전 알림은 좌상단 로고 옆 배지 하나 — 트레이에는 업데이트 버튼이
+  // 없다(#14). 배지는 새 버전이 있을 때만 뜨고, 누르면 업데이트 창이 열린다.
+  const brandStart = source.indexOf("{styles.brand}");
+  const brandEnd = source.indexOf("</div>", brandStart);
+  const brand = source.slice(brandStart, brandEnd);
+  assert.ok(brandStart >= 0 && brandEnd > brandStart);
+  assert.match(brand, /isAdmin && updateAvailable && \(/);
+  assert.match(brand, /styles\.brandUpdate/);
+  assert.match(brand, /aria-haspopup="dialog"/);
+  assert.match(brand, /openUpdatePanel\(event\.currentTarget\)/);
+  assert.match(brand, /updateStatus\?\.latestVersion[\s\S]*?★/);
+  assert.doesNotMatch(brand, /href=|window\.open/);
+  assert.doesNotMatch(source, /updateTrayButton/);
+  assert.match(css, /\.brandUpdate \{/);
   assert.match(
     source,
     /const updateAvailable = Boolean\(updateStatus\?\.updateAvailable\)/,
@@ -1197,9 +1187,10 @@ test("관리자 업데이트는 새 버전만 별로 알리고 내부 확인 뒤
   assert.match(source, /updateControllerRef\.current\?\.abort\(\)/);
   assert.match(source, /updateRequestIdRef\.current !== requestId/);
   assert.match(source, /if \(!isAdmin\) return;/);
+  // 상태 자동 확인은 자동 업데이트 여부와 무관하다 — 배지가 항상 알린다.
   assert.match(
     source,
-    /if \(!isAdmin \|\| autoUpdate\) return;[\s\S]*?fetch\(apiPath\("\/api\/admin\/update"\), \{[\s\S]*?cache: "no-store"/,
+    /if \(!isAdmin\) return;[\s\S]*?fetch\(apiPath\("\/api\/admin\/update"\), \{[\s\S]*?cache: "no-store"/,
   );
   assert.match(
     source,
@@ -1325,7 +1316,7 @@ test("승인된 Google 사용자는 파일 화면에서 세션 발신자로 피�
   const trayEnd = source.indexOf("</div>", trayStart);
   const userTray = source.slice(trayStart, trayEnd);
   const feedbackButtonIndex = userTray.indexOf("{canSendFeedback && (");
-  const adminControlsIndex = userTray.indexOf("{isAdmin && (");
+  const adminControlsIndex = userTray.indexOf("{isAdmin && !isSpace && (");
 
   assert.ok(trayStart >= 0 && trayEnd > trayStart);
   assert.ok(
@@ -1537,9 +1528,10 @@ test("자동 업데이트가 켜지면 수동 업데이트 버튼이 숨고 설�
     readFile(new URL("../src/app/files/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/app/admin/AdminView.tsx", import.meta.url), "utf8"),
   ]);
-  // 버튼 숨김: autoUpdate가 켜지면 업데이트 버튼과 상태 확인이 모두 꺼진다.
-  assert.match(filesView, /\{!autoUpdate && \(\s*<button[\s\S]*?updateTrayButton/);
-  assert.match(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
+  // 새 버전 알림(로고 배지)·상태 확인은 자동 업데이트 여부와 무관하다(#14).
+  // 자동 업데이트 중에도 배지를 눌러 즉시 업데이트할 수 있다.
+  assert.match(filesView, /isAdmin && updateAvailable && \(/);
+  assert.doesNotMatch(filesView, /if \(!isAdmin \|\| autoUpdate\) return;/);
   assert.match(filesPage, /autoUpdate=\{deskSettings\.autoUpdate\}/);
   // 자동 업데이트는 관리자 설정의 버튼이다: 누르면 별이 남고 켜지며,
   // 멈추면 원상복구된다. 업데이트 창에는 자동 업데이트 UI가 없다.

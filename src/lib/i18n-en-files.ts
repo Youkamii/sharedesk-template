@@ -569,4 +569,8 @@ export const EN_FILES: Record<string, string> = {
   "링크와 받기": "Links & receive",
   "공개 폴더 입장": "Enter public folders",
   "입장할 수 있는 공개 폴더가 없습니다.": "No public folders you can enter.",
+  "닉네임을 바꾸시겠습니까?": "Change your nickname?",
+  "예": "Yes",
+  "아니오": "No",
+  "새 버전": "New version",
 };

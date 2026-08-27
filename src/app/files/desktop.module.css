@@ -248,6 +248,33 @@
   text-shadow: 2px 2px 0 #0a0d1b;
 }
 
+/* 새 버전 알림 — 로고 옆 픽셀 배지. 누르면 업데이트 창이 열린다(#14). */
+.brandUpdate {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  color: #10172b;
+  background: var(--amber);
+  border: 2px solid #0a0d1b;
+  box-shadow: inset 1px 1px 0 #fff4d2, 2px 2px 0 rgb(5 9 20 / 55%);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  animation: brandUpdatePulse 1.6s steps(2, end) infinite;
+}
+
+.brandUpdate:hover {
+  background: #ffe4a8;
+}
+
+@keyframes brandUpdatePulse {
+  50% {
+    background: var(--peach);
+  }
+}
+
 .brandMark {
   display: grid;
   width: 18px;
@@ -2063,6 +2090,10 @@
   color: #c8d1e4;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 이름은 버튼처럼 보이지 않는다(#14) — button 요소여도 텍스트 표시만. */
+  background: transparent;
+  border: 0;
+  cursor: pointer;
 }
 
 .clock {

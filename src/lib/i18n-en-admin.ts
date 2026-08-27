@@ -227,4 +227,5 @@ export const EN_ADMIN: Record<string, string> = {
   "업데이트 시작 중…": "Starting update…",
   "업데이트를 시작했습니다. 완료되면 데스크가 새 버전으로 다시 시작됩니다.": "Update started. The desk restarts on the new version when it finishes.",
   "공개 폴더 관리는 기본 데스크에서만 쓸 수 있습니다": "Public folder management is only available on the main desk",
+  "닉네임 변경": "Nickname change",
 };

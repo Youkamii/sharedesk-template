@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { runWithSession } from "@/lib/api";
 import { parseNickname } from "@/lib/nickname";
 import { runWithSpace } from "@/lib/space-context";
@@ -32,9 +33,15 @@ export async function PATCH(req: NextRequest) {
       // 닉네임의 진실 원천은 기본 데스크 명단이다(#13) — 스페이스 화면에서
       // 바꿔도 기본 명단에 쓴다. 스페이스 문맥에 쓰면 데스크마다 닉이 갈라져
       // 접속 인원·관리자 화면(기본 명단 기준)과 어긋난다.
-      const user = await runWithSpace(null, () =>
-        setUserNickname(session.userId, nickname),
-      );
+      const user = await runWithSpace(null, async () => {
+        const updated = await setUserNickname(session.userId, nickname);
+        if (updated) {
+          // 닉 변경도 활동 로그에 남는다 — 진실 원천과 같은 기본 데스크
+          // 활동 파일에 기록한다(닉네임 저장과 같은 문맥).
+          recordActivityAfter(session, "nickname", nickname);
+        }
+        return updated;
+      });
       if (!user) {
         return NextResponse.json({ error: "없는 사용자입니다" }, { status: 404 });
       }
