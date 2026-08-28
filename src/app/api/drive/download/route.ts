@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithSession } from "@/lib/api";
+import { recordEntryDownloadAfter } from "@/lib/entry-audit";
 import { inlineContentType } from "@/lib/preview";
 
 const OFFICE_FALLBACK_CSP = [
@@ -20,7 +21,7 @@ const OFFICE_FALLBACK_CSP = [
 export async function GET(req: NextRequest) {
   const wantsInline =
     req.nextUrl.searchParams.get("disposition") === "inline";
-  return runWithSession({ fresh: wantsInline }, async () => {
+  return runWithSession({ fresh: wantsInline }, async ({ session }) => {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "id가 필요합니다" }, { status: 400 });
@@ -31,6 +32,17 @@ export async function GET(req: NextRequest) {
       const file = wantsInline
         ? await adapter.preview(id, range)
         : await adapter.download(id, range);
+      // 속성 창(#14)의 "다운로드 기록". 미리보기(inline)는 열람이지
+      // 내려받기가 아니고, 범위 요청은 한 번의 내려받기가 여러 요청으로
+      // 쪼개진 것이라 세지 않는다 — 통짜 요청만 한 건으로 남긴다.
+      if (!wantsInline && !range) {
+        void adapter
+          .getEntry(id)
+          .then((entry) =>
+            recordEntryDownloadAfter(entry.layoutKey, session.name),
+          )
+          .catch(() => undefined);
+      }
       // 따옴표·백슬래시는 quoted-string 파싱을 깨뜨리므로 ASCII 폴백에서 제거한다.
       const asciiName = file.name
         .replace(/[^\x20-\x7e]/g, "_")

@@ -2227,6 +2227,76 @@ button.userName {
   user-select: text;
 }
 
+/* 항목 속성(#14) — 일반 데스크의 속성 창. dialog 골격을 그대로 쓰고
+   본문만 위에서부터 쌓이게 바꾼다(dialogBody는 가운데 정렬이 기본). */
+.propertiesDialog {
+  width: min(460px, 100%);
+}
+
+.propertiesDialog .dialogBody {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.propertiesHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.propertiesName {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.propertiesList {
+  display: grid;
+  margin: 0;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 7px 12px;
+  border-top: 2px solid #cbb994;
+  padding-top: 12px;
+}
+
+.propertiesList dt {
+  color: #666b78;
+}
+
+.propertiesList dd {
+  min-width: 0;
+  margin: 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.propertiesAddress {
+  padding: 4px 6px;
+  background: #fff8e7;
+  border: 2px solid #cbb994;
+  box-shadow: inset 1px 1px 0 #b9aa8e;
+}
+
+.propertiesDownloads {
+  display: grid;
+  max-height: 128px;
+  margin: 6px 0 0;
+  padding: 0;
+  gap: 3px;
+  overflow: hidden auto;
+  color: #666b78;
+  list-style: none;
+}
+
+.propertiesError {
+  margin: 0;
+  color: #8c3b46;
+}
+
 .feedbackDialog {
   width: min(540px, 100%);
 }

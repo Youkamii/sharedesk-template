@@ -354,6 +354,38 @@ type DialogState =
   | { kind: "rename"; scopeId: string; entry: Entry; value: string }
   | { kind: "delete"; scopeId: string; entry: Entry };
 
+// 항목 속성(#14) — 일반 데스크의 "속성"과 같은 자리.
+type EntryDownloadRecord = {
+  at: string;
+  by: string;
+  viaPublicLink?: boolean;
+};
+
+type EntryProperties = {
+  entry: {
+    id: string;
+    name: string;
+    isFolder: boolean;
+    size: number | null;
+    modifiedAt: string | null;
+    mimeType: string | null;
+  };
+  uploadedBy: string | null;
+  uploadedAt: string | null;
+  // 관리자가 아니면 null — 화면에서 줄 자체를 감춘다.
+  downloadCount: number | null;
+  downloads: EntryDownloadRecord[] | null;
+};
+
+type PropertiesState = {
+  entry: Entry;
+  // 현 폴더의 상대 주소를 절대 주소로 취급해 만든 값.
+  address: string;
+  loading: boolean;
+  data: EntryProperties | null;
+  error: string | null;
+};
+
 type UtilityWindowState = {
   minimized: boolean;
   maximized: boolean;
@@ -562,6 +594,22 @@ function formatSize(bytes: number | null) {
   return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+// 속성 창의 "종류". 로컬 저장소는 mimeType을 주지 않는 경우가 많아
+// 확장자로 대신 적는다 — 일반 데스크가 "TXT 파일"이라고 쓰는 그 자리다.
+function entryKindLabel(
+  isFolder: boolean,
+  name: string,
+  mimeType: string | null,
+) {
+  if (isFolder) return { key: "폴더", extension: null };
+  if (mimeType) return { key: null, extension: mimeType };
+  const dot = name.lastIndexOf(".");
+  const extension =
+    dot > 0 && dot < name.length - 1 ? name.slice(dot + 1) : null;
+  if (!extension || extension.length > 12) return { key: "파일", extension: null };
+  return { key: "{extension} 파일", extension: extension.toUpperCase() };
+}
+
 function formatDate(iso: string | null, dateLocale: string) {
   if (!iso) return "수정일 없음";
   return new Date(iso).toLocaleString(dateLocale, {
@@ -736,6 +784,7 @@ export default function FilesView({
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const shareDialogOpenerRef = useRef<HTMLElement | null>(null);
   const shareLinkOpenerRef = useRef<HTMLElement | null>(null);
+  const propertiesOpenerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const dialogOpenerRef = useRef<HTMLElement | null>(null);
   const feedbackDialogRef = useRef<HTMLElement>(null);
@@ -840,6 +889,7 @@ export default function FilesView({
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   // 외부 공유 링크 창의 대상 파일 (관리자·수정 가능 역할 전용).
   const [shareLinkEntry, setShareLinkEntry] = useState<Entry | null>(null);
+  const [properties, setProperties] = useState<PropertiesState | null>(null);
   const [quickLinkWindow, setQuickLinkWindow] =
     useState<UtilityWindowState | null>(null);
   const [shareLinksWindow, setShareLinksWindow] =
@@ -5918,6 +5968,63 @@ export default function FilesView({
     setShareLinkEntry(entry);
   }
 
+  // 속성(#14) — 현 폴더의 상대 주소를 절대 주소로 취급해 보여주고, 나머지
+  // (올린 사람·내려받은 기록)는 서버에서 지금 값을 읽어 온다.
+  function addressFor(crumbs: Crumb[], entry: Entry) {
+    const base = folderAddress(crumbs);
+    return base === "/" ? `/${entry.name}` : `${base}/${entry.name}`;
+  }
+
+  function scopeAddress(scopeId: string, entry: Entry) {
+    return addressFor(
+      scopeId === ROOT_SCOPE ? [] : (scopeWindow(scopeId)?.path ?? []),
+      entry,
+    );
+  }
+
+  function openProperties(entry: Entry, address: string) {
+    propertiesOpenerRef.current = contextMenu?.opener ?? null;
+    setContextMenu(null);
+    setProperties({
+      entry,
+      address,
+      loading: true,
+      data: null,
+      error: null,
+    });
+    void apiJson<EntryProperties>(
+      apiPath(`/api/drive/properties?id=${encodeURIComponent(entry.id)}`),
+      { cache: "no-store" },
+    )
+      .then((data) => {
+        setProperties((current) =>
+          current && current.entry.id === entry.id
+            ? { ...current, loading: false, data }
+            : current,
+        );
+      })
+      .catch((error: unknown) => {
+        setProperties((current) =>
+          current && current.entry.id === entry.id
+            ? {
+                ...current,
+                loading: false,
+                error: errorMessage(error, t("속성을 읽지 못했습니다")),
+              }
+            : current,
+        );
+      });
+  }
+
+  function closeProperties() {
+    const opener = propertiesOpenerRef.current;
+    propertiesOpenerRef.current = null;
+    setProperties(null);
+    window.requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
   function closeShareLinkDialog() {
     const opener = shareLinkOpenerRef.current;
     shareLinkOpenerRef.current = null;
@@ -9122,6 +9229,21 @@ export default function FilesView({
                   </MenuButton>
                 </>
               )}
+              <div className={styles.menuSeparator} />
+              <MenuButton
+                onClick={() =>
+                  openProperties(
+                    contextMenu.searchResult!.entry,
+                    // 검색 결과는 지금 창의 위치가 아니라 원래 위치가 주소다.
+                    addressFor(
+                      contextMenu.searchResult!.breadcrumbs,
+                      contextMenu.searchResult!.entry,
+                    ),
+                  )
+                }
+              >
+                {t("속성")}
+              </MenuButton>
             </>
           ) : contextMenu.entry ? (
             <>
@@ -9302,6 +9424,17 @@ export default function FilesView({
                   {t("삭제…")} <kbd>Del</kbd>
                 </MenuButton>
               )}
+              <div className={styles.menuSeparator} />
+              <MenuButton
+                onClick={() =>
+                  openProperties(
+                    contextMenu.entry!,
+                    scopeAddress(contextMenu.scopeId, contextMenu.entry!),
+                  )
+                }
+              >
+                {t("속성")}
+              </MenuButton>
             </>
           ) : (
             <>
@@ -9355,6 +9488,147 @@ export default function FilesView({
           onClose={closeShareDialog}
           onNotice={setNotice}
         />
+      )}
+
+      {properties && (
+        <div
+          className={styles.dialogBackdrop}
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeProperties();
+          }}
+        >
+          <section
+            className={`${styles.dialog} ${styles.propertiesDialog}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="desk-properties-title"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                closeProperties();
+              }
+            }}
+          >
+            <header className={styles.dialogTitlebar}>
+              <strong id="desk-properties-title">{t("속성")}</strong>
+              <button
+                type="button"
+                data-dialog-initial-focus
+                aria-label={t("닫기")}
+                onClick={closeProperties}
+              >
+                ×
+              </button>
+            </header>
+            <div className={styles.dialogBody}>
+              <div className={styles.propertiesHead}>
+                <PixelFileIcon entry={properties.entry} size={52} />
+                {/* 풀네임 — 아이콘 밑에서 줄어든 이름이 아니라 확장자까지 그대로. */}
+                <strong className={styles.propertiesName}>
+                  {properties.data?.entry.name ?? properties.entry.name}
+                </strong>
+              </div>
+              <dl className={styles.propertiesList}>
+                <dt>{t("주소")}</dt>
+                <dd className={styles.propertiesAddress}>
+                  {properties.address}
+                </dd>
+                <dt>{t("종류")}</dt>
+                <dd>
+                  {(() => {
+                    const kind = entryKindLabel(
+                      properties.entry.isFolder,
+                      properties.data?.entry.name ?? properties.entry.name,
+                      properties.data?.entry.mimeType ??
+                        properties.entry.mimeType,
+                    );
+                    if (!kind.key) return kind.extension;
+                    return kind.extension
+                      ? t(kind.key, { extension: kind.extension })
+                      : t(kind.key);
+                  })()}
+                </dd>
+                {!properties.entry.isFolder && (
+                  <>
+                    <dt>{t("크기")}</dt>
+                    <dd>
+                      {t(
+                        formatSize(
+                          properties.data?.entry.size ?? properties.entry.size,
+                        ),
+                      )}
+                    </dd>
+                  </>
+                )}
+                <dt>{t("마지막 수정")}</dt>
+                <dd>
+                  {t(
+                    formatDate(
+                      properties.data?.entry.modifiedAt ??
+                        properties.entry.modifiedAt,
+                      dateLocale,
+                    ),
+                  )}
+                </dd>
+                <dt>{t("올린 사람")}</dt>
+                <dd>
+                  {properties.loading
+                    ? t("불러오는 중…")
+                    : properties.data?.uploadedBy
+                      ? `${properties.data.uploadedBy}${
+                          properties.data.uploadedAt
+                            ? ` · ${formatDate(properties.data.uploadedAt, dateLocale)}`
+                            : ""
+                        }`
+                      : t("기록 없음")}
+                </dd>
+                {/* 내려받기 기록은 관리자에게만 온다 — 없으면 줄째로 감춘다. */}
+                {properties.data?.downloads && (
+                  <>
+                    <dt>{t("내려받기")}</dt>
+                    <dd>
+                      {properties.data.downloadCount ? (
+                        <>
+                          {t("{count}번", {
+                            count: properties.data.downloadCount,
+                          })}
+                          <ul className={styles.propertiesDownloads}>
+                            {properties.data.downloads.map((record, index) => (
+                              <li key={`${record.at}-${index}`}>
+                                {record.viaPublicLink
+                                  ? t("공개 링크 방문자")
+                                  : record.by}
+                                {" · "}
+                                {formatDate(record.at, dateLocale)}
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      ) : (
+                        t("아직 없음")
+                      )}
+                    </dd>
+                  </>
+                )}
+              </dl>
+              {properties.error && (
+                <p className={styles.propertiesError} role="alert">
+                  {properties.error}
+                </p>
+              )}
+              <div className={styles.dialogActions}>
+                <button
+                  type="button"
+                  className={styles.primaryButton}
+                  onClick={closeProperties}
+                >
+                  {t("닫기")}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
       )}
 
       {allowEdit && shareLinkEntry && (

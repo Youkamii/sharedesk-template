@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { recordEntryDownloadAfter } from "@/lib/entry-audit";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
 import type { DownloadResult } from "@/lib/storage/types";
@@ -66,10 +67,13 @@ export async function GET(
       }
       const entry = await adapter.getEntry(id);
       if (entry.isFolder) return missing();
-      return downloadResponse(
-        await adapter.download(id, range),
-        req.nextUrl.searchParams.get("open") === "1",
-      );
+      const open = req.nextUrl.searchParams.get("open") === "1";
+      // 속성 창(#14)의 다운로드 기록 — 공개 링크로 받아 간 것도 남긴다.
+      // 미리보기로 연 것(open)과 범위 요청은 데스크 쪽과 같은 기준으로 뺀다.
+      if (!open && !range) {
+        recordEntryDownloadAfter(entry.layoutKey, resolved.folder.name, true);
+      }
+      return downloadResponse(await adapter.download(id, range), open);
     } catch {
       return missing();
     }

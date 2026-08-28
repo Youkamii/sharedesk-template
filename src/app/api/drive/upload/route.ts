@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryUploadAfter } from "@/lib/entry-audit";
 import { getAdapter } from "@/lib/storage";
 import { ROOT_ID, StorageError } from "@/lib/storage/types";
 import { errorResponse, runWithUploadRights } from "@/lib/api";
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
         throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
       }
       recordActivityAfter(session, "upload", entry.name);
+      // 속성 창(#14)이 "누가 올렸는지"를 보여주려면 항목별로도 남겨야 한다 —
+      // activity.json은 최근 200건이라 오래된 파일은 밀려난다.
+      recordEntryUploadAfter(entry.layoutKey, session.name);
       return NextResponse.json({ entry }, { status: 201 });
     } catch (e) {
       await finishUploadReservation(

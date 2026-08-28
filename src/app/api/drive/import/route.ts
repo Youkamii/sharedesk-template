@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
 import { errorResponse, runWithUploadRights } from "@/lib/api";
+import { recordEntryUploadAfter } from "@/lib/entry-audit";
 import {
   deskTransferEntryUrls,
   parseDeskTransferLink,
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
         throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
       }
       recordActivityAfter(session, "upload", entry.name);
+      recordEntryUploadAfter(entry.layoutKey, session.name);
       return NextResponse.json({ entry }, { status: 201 });
     } catch (e) {
       await finishUploadReservation(

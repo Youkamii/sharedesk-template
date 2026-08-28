@@ -588,4 +588,16 @@ export const EN_FILES: Record<string, string> = {
   "색 값을 확인해 주세요": "Please check the color value",
   "폴더에만 색을 지정할 수 있습니다": "Colors can only be set on folders",
   "색을 지정한 폴더가 너무 많습니다": "Too many folders have colors set",
+  // 항목 속성 (#14)
+  "속성": "Properties",
+  "종류": "Kind",
+  "크기": "Size",
+  "마지막 수정": "Last modified",
+  "올린 사람": "Uploaded by",
+  "내려받기": "Downloads",
+  "{count}번": "{count} times",
+  "공개 링크 방문자": "Public link visitor",
+  "아직 없음": "None yet",
+  "속성을 읽지 못했습니다": "Couldn't read the properties",
+  "{extension} 파일": "{extension} file",
 };
