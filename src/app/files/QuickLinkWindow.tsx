@@ -1,6 +1,10 @@
 "use client";
 
 import { apiPath } from "@/lib/client/api-path";
+import {
+  isTextEntryTarget,
+  pastedFileName,
+} from "@/lib/client/paste-upload";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -44,6 +48,7 @@ type Props = {
 function shareUrl(linkId: string): string {
   return `${window.location.origin}/api/share/${linkId}`;
 }
+
 
 function isShareLink(value: unknown): value is ShareLink {
   const link = value as Partial<ShareLink> | null;
@@ -236,20 +241,52 @@ export default function QuickLinkWindow({
     }
   }
 
-  async function addFiles(files: FileList | File[]) {
-    const next = Array.from(files).map<QuickItem>((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      progress: 0,
-      status: "uploading",
-      link: null,
-      error: null,
-      keeping: false,
-    }));
-    if (!next.length) return;
-    setItems((current) => [...next, ...current]);
-    for (const item of next) await uploadOne(item);
-  }
+  // 붙여넣기 리스너가 매 렌더 다시 붙지 않도록 addFiles를 고정해 두고,
+  // 최신 uploadOne은 ref로 참조한다.
+  const uploadOneRef = useRef(uploadOne);
+  useEffect(() => {
+    uploadOneRef.current = uploadOne;
+  });
+
+  const addFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const next = Array.from(files).map<QuickItem>((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        progress: 0,
+        status: "uploading",
+        link: null,
+        error: null,
+        keeping: false,
+      }));
+      if (!next.length) return;
+      setItems((current) => [...next, ...current]);
+      for (const item of next) await uploadOneRef.current(item);
+    },
+    [],
+  );
+
+  // 스크린샷 붙여넣기(#14) — 창이 맨 앞에 있을 때 Ctrl+V로 바로 올리고
+  // 링크까지 만든다. 클립보드에 파일이 없으면(글자만) 손대지 않는다.
+  useEffect(() => {
+    if (!active || minimized) return;
+    const onPaste = (event: ClipboardEvent) => {
+      if (isTextEntryTarget(event.target)) return;
+      const files = Array.from(event.clipboardData?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      void addFiles(
+        files.map((file) =>
+          new File([file], pastedFileName(file), {
+            type: file.type || "application/octet-stream",
+            lastModified: file.lastModified,
+          }),
+        ),
+      );
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [active, minimized, addFiles]);
 
   async function copy(link: ShareLink) {
     try {
@@ -337,6 +374,7 @@ export default function QuickLinkWindow({
         }}
       >
         <strong>{t("파일을 놓으면 바로 1시간 링크를 만듭니다")}</strong>
+        <span>{t("스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.")}</span>
         <span id="quick-link-delete-help">
           {t("체크된 파일은 1시간 뒤 실제 파일도 자동으로 삭제됩니다.")}
         </span>
