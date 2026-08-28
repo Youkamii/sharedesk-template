@@ -83,6 +83,7 @@ import { previewDiscardReason } from "@/lib/client/preview-draft";
 import {
   moveRootDesktopGroup,
   normalizeRootDesktopLayout,
+  rootDesktopBoundsForViewport,
   type RootDesktopCorrection,
 } from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
@@ -1025,14 +1026,27 @@ export default function FilesView({
   folderNoteWindowRef.current = folderNoteWindow;
   transientPositionsRef.current = transientPositions;
   updateRunRef.current = updateRun;
+  // 바탕화면은 1280x720 고정이 아니라 창 크기를 배율로 나눈 논리 크기다.
+  // 아이콘 경계를 상수로 박아두면 넓은 화면에서 우측·하단이 통째로 죽는다(#14).
+  const rootDesktopBounds = useMemo(
+    () =>
+      rootDesktopBoundsForViewport(
+        logicalViewport.width,
+        logicalViewport.height,
+      ),
+    [logicalViewport.width, logicalViewport.height],
+  );
+  const rootDesktopBoundsRef = useRef(rootDesktopBounds);
+  rootDesktopBoundsRef.current = rootDesktopBounds;
   const rootDesktopLayout = useMemo(
     () =>
       normalizeRootDesktopLayout(rootData.entries, rootData.positions, {
         // 사이드바는 기본 데스크에만 있다 — 스페이스에서는 우측을
         // 예약하지 않는다(없는 패널을 피해 아이콘을 옮기면 안 된다).
         reserveSidebar: !isSpace,
+        bounds: rootDesktopBounds,
       }),
-    [rootData.entries, rootData.positions, isSpace],
+    [rootData.entries, rootData.positions, isSpace, rootDesktopBounds],
   );
   const dialogOpen = dialog !== null;
   const updatePanelOpen = updatePanel !== null;
@@ -1623,7 +1637,10 @@ export default function FilesView({
       return;
     }
     const applicableCorrections = rootDesktopLayout.corrections.filter(
-      ({ layoutKey }) => {
+      ({ layoutKey, screenDependent }) => {
+        // 이 화면에서만 밖으로 나간 아이콘은 그려줄 때만 당기고 저장하지
+        // 않는다 — 저장하면 더 넓은 화면에서 잡아둔 배치를 덮어쓴다(#14).
+        if (screenDependent) return false;
         const entry = rootData.entries.find(
           (candidate) => candidate.layoutKey === layoutKey,
         );
@@ -5694,7 +5711,10 @@ export default function FilesView({
               dragNodes.map((node) => node.startPlacement),
               deltaX,
               deltaY,
-              { reserveSidebar: !isSpace },
+              {
+                reserveSidebar: !isSpace,
+                bounds: rootDesktopBoundsRef.current,
+              },
             )
           : null;
       queuePlacementBatch(

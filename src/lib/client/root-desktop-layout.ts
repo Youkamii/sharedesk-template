@@ -1,31 +1,68 @@
-export const ROOT_DESKTOP_WIDTH = 1280;
-export const ROOT_DESKTOP_HEIGHT = 628;
 export const ROOT_ICON_WIDTH = 88;
 export const ROOT_ICON_HEIGHT = 94;
-// 사이드바(#11) 손잡이 폭. 아이콘이 피해야 하는 건 **닫힌 상태의 손잡이**
-// 뿐이다 — 열린 패널(232px)까지 비우면 화면 우측이 통째로 못 쓰게 된다.
-// 패널은 열었을 때만 잠깐 덮고, 닫으면 그 자리가 다시 아이콘 자리다.
-// 주의: 사이드바는 기본 데스크 전용이라 스페이스에서는 예약하지 않는다
-// (reserveSidebar=false) — 없는 손잡이를 피해 아이콘을 옮기면 안 된다.
+
+// 데스크 표면(.desktop)은 논리 뷰포트 크기 그대로 늘어난다 — 1280x720 고정이
+// 아니다(FilesView의 scaled-desktop-stage). 아이콘 평면(.rootCanvas)은 그 안에서
+// 상단 바 34px·작업표시줄 48px을 빼고 바닥 10px을 여유로 남긴 영역이라,
+// 기준 창(1280x720)에서만 1280x628이 된다.
+const ROOT_CANVAS_TOP = 34;
+const ROOT_CANVAS_BOTTOM = 48;
+const ROOT_CANVAS_SLACK = 10;
+
+// 기준 창에서의 평면 크기. 뷰포트를 모르는 호출부(테스트·기본값)만 쓴다.
+export const ROOT_DESKTOP_WIDTH = 1280;
+export const ROOT_DESKTOP_HEIGHT = 628;
+
+export type RootDesktopBounds = { width: number; height: number };
+
+export const ROOT_DESKTOP_BASE_BOUNDS: RootDesktopBounds = {
+  width: ROOT_DESKTOP_WIDTH,
+  height: ROOT_DESKTOP_HEIGHT,
+};
+
+// 사이드바(#11) 손잡이 폭. 아이콘이 피해야 하는 건 닫힌 상태의 손잡이뿐이다 —
+// 열린 패널(232px)까지 비우면 화면 우측이 통째로 못 쓰게 된다. 사이드바는
+// 기본 데스크 전용이라 스페이스에서는 예약하지 않는다(reserveSidebar=false).
 const ROOT_SIDEBAR_RESERVED = 20;
 
-function iconMaxX(reserveSidebar: boolean): number {
-  return (
-    ROOT_DESKTOP_WIDTH -
-    (reserveSidebar ? ROOT_SIDEBAR_RESERVED : 0) -
-    ROOT_ICON_WIDTH
-  );
-}
+// 휴지통 런처(.trashLauncher)는 데스크 우하단에 붙어 있다(right:18, bottom:66,
+// 72x76). 화면이 넓어지면 휴지통도 같이 오른쪽으로 간다. 좌표를 상수로 박으면
+// 화면 한복판에 유령 금지 구역이 생기고 정작 진짜 휴지통은 안 지켜진다(#14).
+// 평면 좌표에서 아래 여백은 66 - 48(작업표시줄) - 10(여유) = 8이지만, 평면
+// 바닥 10px은 아이콘이 닿지 못하는 구간이라 18로 잡아 예전 경계를 유지한다.
+const ROOT_TRASH_GAP_RIGHT = 18;
+const ROOT_TRASH_GAP_BOTTOM = 18;
+const ROOT_TRASH_WIDTH = 72;
+const ROOT_TRASH_HEIGHT = 76;
 
 const ROOT_GRID_X = 12;
 const ROOT_GRID_Y = 10;
 const ROOT_GRID_STEP_X = 96;
 const ROOT_GRID_STEP_Y = 104;
 const ROOT_DEFAULT_COLUMNS = 6;
-const ROOT_TRASH_LEFT = 1190;
-const ROOT_TRASH_TOP = 534;
-const ROOT_TRASH_RIGHT = 1262;
-const ROOT_TRASH_BOTTOM = 610;
+
+const MIN_BOUNDS_WIDTH = ROOT_GRID_X + ROOT_ICON_WIDTH + ROOT_SIDEBAR_RESERVED;
+const MIN_BOUNDS_HEIGHT = ROOT_GRID_Y + ROOT_ICON_HEIGHT;
+
+// 논리 뷰포트(창 크기 / UI 배율)에서 아이콘 평면의 크기를 구한다.
+export function rootDesktopBoundsForViewport(
+  logicalWidth: number,
+  logicalHeight: number,
+): RootDesktopBounds {
+  const width = Number.isFinite(logicalWidth)
+    ? Math.floor(logicalWidth)
+    : ROOT_DESKTOP_WIDTH;
+  const height = Number.isFinite(logicalHeight)
+    ? Math.floor(logicalHeight) -
+      ROOT_CANVAS_TOP -
+      ROOT_CANVAS_BOTTOM -
+      ROOT_CANVAS_SLACK
+    : ROOT_DESKTOP_HEIGHT;
+  return {
+    width: Math.max(MIN_BOUNDS_WIDTH, width),
+    height: Math.max(MIN_BOUNDS_HEIGHT, height),
+  };
+}
 
 export type RootDesktopPlacement = {
   x: number;
@@ -40,12 +77,29 @@ type RootDesktopEntry = {
 export type RootDesktopCorrection = {
   layoutKey: string;
   placement: RootDesktopPlacement;
+  // 화면 크기·휴지통 위치 때문에만 밀려난 보정. 해상도마다 답이 달라서
+  // 저장하면 다른 화면의 배치를 덮어쓴다 — 그리기에만 쓰고 저장하지 않는다.
+  screenDependent: boolean;
 };
 
 type RootDesktopLayout = {
   positions: Record<string, RootDesktopPlacement>;
   corrections: RootDesktopCorrection[];
   unresolvedLayoutKeys: string[];
+};
+
+type TrashRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+type LayoutBox = {
+  bounds: RootDesktopBounds;
+  maxX: number;
+  maxY: number;
+  trash: TrashRect;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -56,17 +110,62 @@ function isFiniteCoordinate(value: number) {
   return Number.isFinite(value);
 }
 
+function trashRectFor(bounds: RootDesktopBounds): TrashRect {
+  const right = bounds.width - ROOT_TRASH_GAP_RIGHT;
+  const bottom = bounds.height - ROOT_TRASH_GAP_BOTTOM;
+  return {
+    left: right - ROOT_TRASH_WIDTH,
+    top: bottom - ROOT_TRASH_HEIGHT,
+    right,
+    bottom,
+  };
+}
+
+function layoutBoxFor(
+  bounds: RootDesktopBounds,
+  reserveSidebar: boolean,
+): LayoutBox {
+  return {
+    bounds,
+    maxX:
+      bounds.width -
+      (reserveSidebar ? ROOT_SIDEBAR_RESERVED : 0) -
+      ROOT_ICON_WIDTH,
+    maxY: bounds.height - ROOT_ICON_HEIGHT,
+    trash: trashRectFor(bounds),
+  };
+}
+
+function overlapsTrashRect(
+  position: Pick<RootDesktopPlacement, "x" | "y">,
+  trash: TrashRect,
+) {
+  return (
+    position.x < trash.right &&
+    position.x + ROOT_ICON_WIDTH > trash.left &&
+    position.y < trash.bottom &&
+    position.y + ROOT_ICON_HEIGHT > trash.top
+  );
+}
+
+export function rootPlacementOverlapsTrash(
+  position: Pick<RootDesktopPlacement, "x" | "y">,
+  bounds: RootDesktopBounds = ROOT_DESKTOP_BASE_BOUNDS,
+) {
+  return overlapsTrashRect(position, trashRectFor(bounds));
+}
+
 function isInsideRootDesktop(
   position: Pick<RootDesktopPlacement, "x" | "y">,
-  maxX: number,
+  box: LayoutBox,
 ) {
   return (
     isFiniteCoordinate(position.x) &&
     isFiniteCoordinate(position.y) &&
     position.x >= 0 &&
     position.y >= 0 &&
-    position.x <= maxX &&
-    position.y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT
+    position.x <= box.maxX &&
+    position.y <= box.maxY
   );
 }
 
@@ -82,77 +181,62 @@ function rectanglesOverlap(
   );
 }
 
-export function rootPlacementOverlapsTrash(
-  position: Pick<RootDesktopPlacement, "x" | "y">,
-) {
-  return (
-    position.x < ROOT_TRASH_RIGHT &&
-    position.x + ROOT_ICON_WIDTH > ROOT_TRASH_LEFT &&
-    position.y < ROOT_TRASH_BOTTOM &&
-    position.y + ROOT_ICON_HEIGHT > ROOT_TRASH_TOP
-  );
-}
-
 function rootGridPositions(
   startX: number,
   startY: number,
   stepX: number,
   stepY: number,
-  maxX: number,
+  box: LayoutBox,
 ) {
   const positions: Array<{ x: number; y: number }> = [];
-  for (
-    let y = startY;
-    y <= ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT;
-    y += stepY
-  ) {
-    for (let x = startX; x <= maxX; x += stepX) {
+  for (let y = startY; y <= box.maxY; y += stepY) {
+    for (let x = startX; x <= box.maxX; x += stepX) {
       positions.push({ x, y });
     }
   }
   return positions;
 }
 
-function baseGridPositions(maxX: number) {
+function baseGridPositions(box: LayoutBox) {
   return rootGridPositions(
     ROOT_GRID_X,
     ROOT_GRID_Y,
     ROOT_GRID_STEP_X,
     ROOT_GRID_STEP_Y,
-    maxX,
-  ).filter((position) => !rootPlacementOverlapsTrash(position));
+    box,
+  ).filter((position) => !overlapsTrashRect(position, box.trash));
 }
 
-// 사이드바를 예약하는 기본 데스크와, 예약하지 않는 스페이스 두 벌만 쓰므로
-// 격자는 미리 계산해 둔다.
-const GRID_BY_MAX_X = new Map<number, ReturnType<typeof baseGridPositions>>([
-  [iconMaxX(true), baseGridPositions(iconMaxX(true))],
-  [iconMaxX(false), baseGridPositions(iconMaxX(false))],
-]);
+// 창 크기마다 격자가 달라지므로 최근 것만 기억한다. 리사이즈 중에 무한히
+// 쌓이지 않도록 캐시가 커지면 통째로 버린다.
+const GRID_CACHE_LIMIT = 8;
+const GRID_CACHE = new Map<string, ReturnType<typeof baseGridPositions>>();
 
-function gridPositionsFor(maxX: number) {
-  const cached = GRID_BY_MAX_X.get(maxX);
+function gridPositionsFor(box: LayoutBox) {
+  const key = `${box.bounds.width}x${box.bounds.height}|${box.maxX}`;
+  const cached = GRID_CACHE.get(key);
   if (cached) return cached;
-  const computed = baseGridPositions(maxX);
-  GRID_BY_MAX_X.set(maxX, computed);
+  const computed = baseGridPositions(box);
+  if (GRID_CACHE.size >= GRID_CACHE_LIMIT) GRID_CACHE.clear();
+  GRID_CACHE.set(key, computed);
   return computed;
 }
 
 function denseGridPositionsAround(
   occupied: readonly Pick<RootDesktopPlacement, "x" | "y">[],
-  maxX: number,
+  box: LayoutBox,
 ) {
   const xOffsets = Array.from(
     new Set([
       0,
-      maxX % ROOT_ICON_WIDTH,
+      box.maxX % ROOT_ICON_WIDTH,
       ...occupied.map((position) => position.x % ROOT_ICON_WIDTH),
     ]),
   ).sort((left, right) => left - right);
   const yOffsets = Array.from(
     new Set([
       0,
-      (ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT) % ROOT_ICON_HEIGHT,
+      box.maxY % ROOT_ICON_HEIGHT,
       ...occupied.map((position) => position.y % ROOT_ICON_HEIGHT),
     ]),
   ).sort((left, right) => left - right);
@@ -166,8 +250,8 @@ function denseGridPositionsAround(
         yOffset,
         ROOT_ICON_WIDTH,
         ROOT_ICON_HEIGHT,
-        maxX,
-      ).filter((position) => !rootPlacementOverlapsTrash(position));
+        box,
+      ).filter((position) => !overlapsTrashRect(position, box.trash));
       const availableCount = positions.filter(
         (position) =>
           !occupied.some((current) => rectanglesOverlap(position, current)),
@@ -193,13 +277,13 @@ function defaultPosition(index: number) {
 
 function clampedPosition(
   position: Pick<RootDesktopPlacement, "x" | "y">,
-  maxX: number,
+  box: LayoutBox,
 ) {
   const x = isFiniteCoordinate(position.x) ? position.x : 0;
   const y = isFiniteCoordinate(position.y) ? position.y : 0;
   return {
-    x: clamp(x, 0, maxX),
-    y: clamp(y, 0, ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT),
+    x: clamp(x, 0, box.maxX),
+    y: clamp(y, 0, box.maxY),
   };
 }
 
@@ -250,11 +334,18 @@ function isSystemDefaultPlacement(position: RootDesktopPlacement) {
 export function normalizeRootDesktopLayout(
   entries: readonly RootDesktopEntry[],
   storedPositions: Readonly<Record<string, RootDesktopPlacement>>,
-  // 사이드바(#11)는 기본 데스크에만 있다 — 스페이스는 예약하지 않는다.
-  options: { reserveSidebar?: boolean } = {},
+  options: {
+    // 사이드바(#11)는 기본 데스크에만 있다 — 스페이스는 예약하지 않는다.
+    reserveSidebar?: boolean;
+    // 실제 아이콘 평면 크기. 창 크기를 모르면 기준 창으로 계산한다.
+    bounds?: RootDesktopBounds;
+  } = {},
 ): RootDesktopLayout {
-  const maxX = iconMaxX(options.reserveSidebar !== false);
-  const gridPositions = gridPositionsFor(maxX);
+  const box = layoutBoxFor(
+    options.bounds ?? ROOT_DESKTOP_BASE_BOUNDS,
+    options.reserveSidebar !== false,
+  );
+  const gridPositions = gridPositionsFor(box);
   const positions: Record<string, RootDesktopPlacement> = Object.create(null);
   const corrections: RootDesktopCorrection[] = [];
   const unresolvedLayoutKeys: string[] = [];
@@ -263,6 +354,7 @@ export function normalizeRootDesktopLayout(
     entry: RootDesktopEntry;
     stored: RootDesktopPlacement;
     index: number;
+    screenDependent: boolean;
   }> = [];
   const missing: Array<{ entry: RootDesktopEntry; index: number }> = [];
 
@@ -274,20 +366,32 @@ export function normalizeRootDesktopLayout(
     const stored = storedPositions[entry.layoutKey];
     if (
       stored &&
-      isInsideRootDesktop(stored, maxX) &&
-      !rootPlacementOverlapsTrash(stored) &&
+      isInsideRootDesktop(stored, box) &&
+      !overlapsTrashRect(stored, box.trash) &&
       (!useDenseGrid || !isSystemDefaultPlacement(stored))
     ) {
       positions[entry.layoutKey] = stored;
       occupied.push(stored);
       return;
     }
-    if (stored) storedOutside.push({ entry, stored, index });
-    else missing.push({ entry, index });
+    if (stored) {
+      // 좌표 자체는 멀쩡한데 이 화면에서만 밖으로 나간 경우(넓은 화면에서
+      // 오른쪽 끝에 둔 아이콘을 좁은 화면에서 열었을 때)와, 데이터가 깨진
+      // 경우를 구분한다. 앞의 것을 저장하면 넓은 화면의 배치가 지워진다.
+      const screenDependent =
+        isFiniteCoordinate(stored.x) &&
+        isFiniteCoordinate(stored.y) &&
+        stored.x >= 0 &&
+        stored.y >= 0 &&
+        !(useDenseGrid && isSystemDefaultPlacement(stored));
+      storedOutside.push({ entry, stored, index, screenDependent });
+    } else {
+      missing.push({ entry, index });
+    }
   });
   const denseGridPositions =
     useDenseGrid && (storedOutside.length > 0 || missing.length > 0)
-      ? denseGridPositionsAround(occupied, maxX)
+      ? denseGridPositionsAround(occupied, box)
       : gridPositions;
 
   const placePosition = (
@@ -295,26 +399,21 @@ export function normalizeRootDesktopLayout(
     candidate: Pick<RootDesktopPlacement, "x" | "y">,
     version: number,
     needsCorrection: boolean,
+    screenDependent: boolean,
     forceGrid = false,
   ) => {
-    const nearest = clampedPosition(candidate, maxX);
+    const nearest = clampedPosition(candidate, box);
     const requiresEmptySlot =
       forceGrid ||
-      rootPlacementOverlapsTrash(nearest) ||
+      overlapsTrashRect(nearest, box.trash) ||
       occupied.some((current) => rectanglesOverlap(nearest, current));
-    const candidates = forceGrid
-      ? denseGridPositions
-      : gridPositions;
+    const candidates = forceGrid ? denseGridPositions : gridPositions;
     const emptyPosition = requiresEmptySlot
-      ? nearestEmptyGridPosition(
-          nearest,
-          occupied,
-          candidates,
-        )
+      ? nearestEmptyGridPosition(nearest, occupied, candidates)
       : nearest;
     const position =
       emptyPosition ??
-      (rootPlacementOverlapsTrash(nearest)
+      (overlapsTrashRect(nearest, box.trash)
         ? nearestGridPosition(nearest, candidates)
         : nearest);
     const placement = {
@@ -331,7 +430,11 @@ export function normalizeRootDesktopLayout(
       needsCorrection &&
       (position.x !== candidate.x || position.y !== candidate.y)
     ) {
-      corrections.push({ layoutKey: entry.layoutKey, placement });
+      corrections.push({
+        layoutKey: entry.layoutKey,
+        placement,
+        screenDependent,
+      });
     }
   };
 
@@ -342,6 +445,7 @@ export function normalizeRootDesktopLayout(
         entry,
         index,
         stored: undefined,
+        screenDependent: false,
       })),
     ]
       .sort((left, right) =>
@@ -351,12 +455,13 @@ export function normalizeRootDesktopLayout(
             ? 1
             : 0,
       )
-      .forEach(({ entry, index, stored }) => {
+      .forEach(({ entry, index, stored, screenDependent }) => {
         placePosition(
           entry,
           stored ?? defaultPosition(index),
           stored?.version ?? 0,
           Boolean(stored),
+          screenDependent,
           true,
         );
       });
@@ -371,12 +476,12 @@ export function normalizeRootDesktopLayout(
           ? 1
           : 0,
     )
-    .forEach(({ entry, stored }) => {
-      placePosition(entry, stored, stored.version, true);
+    .forEach(({ entry, stored, screenDependent }) => {
+      placePosition(entry, stored, stored.version, true, screenDependent);
     });
 
   missing.forEach(({ entry, index }) => {
-    placePosition(entry, defaultPosition(index), 0, false);
+    placePosition(entry, defaultPosition(index), 0, false, false);
   });
 
   return { positions, corrections, unresolvedLayoutKeys };
@@ -388,11 +493,17 @@ export function moveRootDesktopGroup<
   placements: readonly T[],
   deltaX: number,
   deltaY: number,
-  // 스페이스에는 사이드바가 없다 — 예약 없이 화면 끝까지 쓴다(#14).
-  options: { reserveSidebar?: boolean } = {},
+  options: {
+    // 스페이스에는 사이드바가 없다 — 예약 없이 화면 끝까지 쓴다(#14).
+    reserveSidebar?: boolean;
+    bounds?: RootDesktopBounds;
+  } = {},
 ): T[] {
   if (placements.length === 0) return [];
-  const limitX = iconMaxX(options.reserveSidebar !== false);
+  const box = layoutBoxFor(
+    options.bounds ?? ROOT_DESKTOP_BASE_BOUNDS,
+    options.reserveSidebar !== false,
+  );
   const minX = Math.min(...placements.map((placement) => placement.x));
   const maxX = Math.max(...placements.map((placement) => placement.x));
   const minY = Math.min(...placements.map((placement) => placement.y));
@@ -400,12 +511,12 @@ export function moveRootDesktopGroup<
   const safeDeltaX = clamp(
     Number.isFinite(deltaX) ? deltaX : 0,
     -minX,
-    limitX - maxX,
+    box.maxX - maxX,
   );
   const safeDeltaY = clamp(
     Number.isFinite(deltaY) ? deltaY : 0,
     -minY,
-    ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY,
+    box.maxY - maxY,
   );
 
   const movedWith = (x: number, y: number) =>
@@ -415,34 +526,36 @@ export function moveRootDesktopGroup<
       y: placement.y + y,
     }));
   const bounded = movedWith(safeDeltaX, safeDeltaY);
-  if (!bounded.some(rootPlacementOverlapsTrash)) return bounded;
+  if (!bounded.some((placement) => overlapsTrashRect(placement, box.trash))) {
+    return bounded;
+  }
 
   const minDeltaX = -minX;
-  const maxDeltaX = limitX - maxX;
+  const maxDeltaX = box.maxX - maxX;
   const minDeltaY = -minY;
-  const maxDeltaY = ROOT_DESKTOP_HEIGHT - ROOT_ICON_HEIGHT - maxY;
+  const maxDeltaY = box.maxY - maxY;
   const xCandidates = new Set([safeDeltaX, 0, minDeltaX, maxDeltaX]);
   const yCandidates = new Set([safeDeltaY, 0, minDeltaY, maxDeltaY]);
   placements.forEach((placement) => {
     xCandidates.add(
       clamp(
-        ROOT_TRASH_LEFT - ROOT_ICON_WIDTH - placement.x,
+        box.trash.left - ROOT_ICON_WIDTH - placement.x,
         minDeltaX,
         maxDeltaX,
       ),
     );
     xCandidates.add(
-      clamp(ROOT_TRASH_RIGHT - placement.x, minDeltaX, maxDeltaX),
+      clamp(box.trash.right - placement.x, minDeltaX, maxDeltaX),
     );
     yCandidates.add(
       clamp(
-        ROOT_TRASH_TOP - ROOT_ICON_HEIGHT - placement.y,
+        box.trash.top - ROOT_ICON_HEIGHT - placement.y,
         minDeltaY,
         maxDeltaY,
       ),
     );
     yCandidates.add(
-      clamp(ROOT_TRASH_BOTTOM - placement.y, minDeltaY, maxDeltaY),
+      clamp(box.trash.bottom - placement.y, minDeltaY, maxDeltaY),
     );
   });
   const candidateDeltas = [
@@ -458,7 +571,9 @@ export function moveRootDesktopGroup<
   const candidates = candidateDeltas
     .map((delta) => ({ delta, placements: movedWith(delta.x, delta.y) }))
     .filter(({ placements: candidate }) =>
-      candidate.every((placement) => !rootPlacementOverlapsTrash(placement)),
+      candidate.every(
+        (placement) => !overlapsTrashRect(placement, box.trash),
+      ),
     )
     .sort((left, right) => {
       const leftDistance =

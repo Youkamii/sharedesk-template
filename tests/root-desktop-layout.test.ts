@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   moveRootDesktopGroup,
   normalizeRootDesktopLayout,
+  rootDesktopBoundsForViewport,
   rootPlacementOverlapsTrash,
   ROOT_DESKTOP_HEIGHT,
   ROOT_DESKTOP_WIDTH,
@@ -80,6 +81,7 @@ test("휴지통과 겹쳐 저장된 ROOT 좌표도 안전한 자리로 보정한
     {
       layoutKey: entry.layoutKey,
       placement: normalized.positions[entry.layoutKey],
+      screenDependent: true,
     },
   ]);
 });
@@ -132,6 +134,7 @@ test("예전의 화면 밖 좌표를 즉시 공통 ROOT 경계 안으로 당긴�
     {
       layoutKey: entry.layoutKey,
       placement: normalized.positions[entry.layoutKey],
+      screenDependent: true,
     },
   ]);
 });
@@ -375,6 +378,68 @@ test("사이드바가 없는 스페이스는 우측을 예약하지 않는다 (#
     { reserveSidebar: false },
   );
   assert.equal(dragged[0].x, ROOT_DESKTOP_WIDTH - ROOT_ICON_WIDTH);
+});
+
+test("아이콘 경계는 실제 창 크기를 따른다 — 1280 고정이 아니다 (#14)", () => {
+  // 논리 뷰포트 1706x867(예: 2560x1440 창) → 평면은 상단 바 34·작업표시줄 48·
+  // 여유 10을 뺀 1706x775다.
+  const bounds = rootDesktopBoundsForViewport(1706, 867);
+  assert.deepEqual(bounds, { width: 1706, height: 775 });
+
+  const [entry] = entries(1);
+  // 기준 창 경계(1172)를 훌쩍 넘는 자리도 넓은 화면에서는 그대로 둔다.
+  const far = { x: 1560, y: 400, version: 3 };
+  const wide = normalizeRootDesktopLayout(
+    [entry],
+    { [entry.layoutKey]: far },
+    { bounds },
+  );
+  assert.deepEqual(wide.positions[entry.layoutKey], far);
+  assert.deepEqual(wide.corrections, []);
+
+  // 드래그 한계도 화면을 따라 늘어난다.
+  assert.deepEqual(
+    moveRootDesktopGroup([{ x: 100, y: 100, version: 1 }], 5_000, 0, {
+      bounds,
+    }),
+    [{ x: bounds.width - 20 - ROOT_ICON_WIDTH, y: 100, version: 1 }],
+  );
+  assert.deepEqual(
+    moveRootDesktopGroup([{ x: 100, y: 100, version: 1 }], 0, 5_000, {
+      bounds,
+    }),
+    [{ x: 100, y: bounds.height - ROOT_ICON_HEIGHT, version: 1 }],
+  );
+});
+
+test("휴지통 금지 구역도 화면을 따라 우하단으로 움직인다 (#14)", () => {
+  const bounds = rootDesktopBoundsForViewport(1706, 867);
+
+  // 넓은 화면의 진짜 휴지통 자리는 막는다.
+  assert.equal(rootPlacementOverlapsTrash({ x: 1620, y: 690 }, bounds), true);
+  // 기준 창의 옛 고정 좌표는 넓은 화면에서 유령 금지 구역이 되면 안 된다.
+  assert.equal(rootPlacementOverlapsTrash({ x: 1190, y: 534 }, bounds), false);
+  // 기준 창에서는 반대로 옛 좌표가 휴지통, 넓은 화면 좌표는 화면 밖이다.
+  assert.equal(rootPlacementOverlapsTrash({ x: 1190, y: 534 }), true);
+  assert.equal(rootPlacementOverlapsTrash({ x: 1620, y: 690 }), false);
+});
+
+test("좁은 화면에서만 밀려난 보정은 그리기만 하고 저장하지 않는다 (#14)", () => {
+  const [entry] = entries(1);
+  // 넓은 화면에서 우측에 둔 좌표를 기준 창에서 열면 화면 안으로 당기되,
+  // 저장하면 넓은 화면의 배치를 덮어쓰므로 screenDependent로 표시한다.
+  const narrow = normalizeRootDesktopLayout([entry], {
+    [entry.layoutKey]: { x: 1560, y: 400, version: 3 },
+  });
+  assert.equal(narrow.corrections.length, 1);
+  assert.equal(narrow.corrections[0].screenDependent, true);
+
+  // 좌표 자체가 깨진 값은 화면과 무관하므로 저장 대상이다.
+  const broken = normalizeRootDesktopLayout([entry], {
+    [entry.layoutKey]: { x: -40, y: Number.NaN, version: 2 },
+  });
+  assert.equal(broken.corrections.length, 1);
+  assert.equal(broken.corrections[0].screenDependent, false);
 });
 
 test("ROOT만 스크롤을 막고 폴더 평면과 기존 CAS 저장 흐름은 유지한다", async () => {
