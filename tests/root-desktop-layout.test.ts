@@ -84,7 +84,7 @@ test("휴지통과 겹쳐 저장된 ROOT 좌표도 안전한 자리로 보정한
   ]);
 });
 
-test("31개와 36개의 기존 기본 배치를 유지하고 66개까지 안전 격자 안에 둔다", () => {
+test("31개와 36개의 기존 기본 배치를 유지하고 77개까지 안전 격자 안에 둔다", () => {
   for (const count of [31, 36]) {
     const input = entries(count);
     const normalized = normalizeRootDesktopLayout(input, {});
@@ -97,8 +97,8 @@ test("31개와 36개의 기존 기본 배치를 유지하고 66개까지 안전 
     assert.deepEqual(normalized.corrections, []);
   }
 
-  // 사이드바 예약 폭(#14)을 뺀 유효 영역의 최대 수용량은 66이다.
-  const input = entries(66);
+  // 손잡이 폭(20px)만 뺀 유효 영역의 최대 수용량은 77이다(#14).
+  const input = entries(77);
   const normalized = normalizeRootDesktopLayout(input, {});
   const placements = input.map((entry) => normalized.positions[entry.layoutKey]);
   placements.forEach(assertInside);
@@ -118,10 +118,10 @@ test("예전의 화면 밖 좌표를 즉시 공통 ROOT 경계 안으로 당긴�
     [entry.layoutKey]: { x: 1500, y: 800, version: 1 },
   });
 
-  // 우측 한계는 사이드바 예약 폭을 뺀 960이다(#14).
+  // 우측 한계는 손잡이 폭만 뺀 1172다(#14).
   assert.deepEqual(normalized.positions[entry.layoutKey], {
-    x: 960,
-    y: 534,
+    x: 1068,
+    y: 530,
     version: 1,
   });
   assert.equal(
@@ -144,8 +144,8 @@ test("저장 좌표가 아직 없는 optimistic 항목은 PATCH 보정 대상으
   assert.deepEqual(normalized.corrections, []);
 });
 
-test("66개의 서버 기본 좌표를 겹침과 휴지통 없이 빽빽하게 보정한다", () => {
-  const input = entries(66);
+test("77개의 서버 기본 좌표를 겹침과 휴지통 없이 빽빽하게 보정한다", () => {
+  const input = entries(77);
   const stored = Object.fromEntries(
     input.map((entry, index) => [
       entry.layoutKey,
@@ -162,14 +162,14 @@ test("66개의 서버 기본 좌표를 겹침과 휴지통 없이 빽빽하게 �
       assert.equal(overlaps(placement, other), false);
     });
   });
-  assert.equal(normalized.corrections.length, 66);
+  assert.equal(normalized.corrections.length, 41);
   assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
-test("66번째 항목은 커스텀 좌표를 보존하며 남은 기본 아이콘을 촘촘히 채운다", () => {
-  const input = entries(66);
+test("77번째 항목은 커스텀 좌표를 보존하며 남은 기본 아이콘을 촘촘히 채운다", () => {
+  const input = entries(77);
   const stored = Object.fromEntries(
-    input.slice(0, 65).map((entry, index) => [
+    input.slice(0, 76).map((entry, index) => [
       entry.layoutKey,
       { ...defaultPlacement(index), version: 1 },
     ]),
@@ -196,8 +196,8 @@ test("66번째 항목은 커스텀 좌표를 보존하며 남은 기본 아이�
   assert.deepEqual(normalized.unresolvedLayoutKeys, []);
 });
 
-test("두 커스텀 좌표에 맞춘 격자로 66개 아이콘을 겹침 없이 채운다", () => {
-  const input = entries(66);
+test("두 커스텀 좌표에 맞춘 격자로 76개 아이콘을 겹침 없이 채운다", () => {
+  const input = entries(76);
   const stored = {
     [input[0].layoutKey]: { x: 13, y: 10, version: 7 },
     [input[1].layoutKey]: { x: 189, y: 10, version: 8 },
@@ -225,7 +225,7 @@ test("두 커스텀 좌표에 맞춘 격자로 66개 아이콘을 겹침 없이 
 });
 
 test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구 저장하지 않는다", () => {
-  const input = entries(67);
+  const input = entries(84);
   const stored = Object.fromEntries(
     input.map((entry, index) => [
       entry.layoutKey,
@@ -239,24 +239,24 @@ test("물리 한계를 넘으면 겹친 좌표를 보정 목록에 넣어 영구
     assert.equal(rootPlacementOverlapsTrash(placement), false);
   });
   const corrected = normalized.corrections.map(({ placement }) => placement);
-  assert.equal(corrected.length, 66);
+  assert.equal(corrected.length, 83);
   corrected.forEach((placement, index) => {
     assert.equal(rootPlacementOverlapsTrash(placement), false);
     corrected.slice(index + 1).forEach((other) => {
       assert.equal(overlaps(placement, other), false);
     });
   });
-  assert.deepEqual(normalized.unresolvedLayoutKeys, [input[66].layoutKey]);
+  assert.deepEqual(normalized.unresolvedLayoutKeys, [input[83].layoutKey]);
   assert.equal(
     normalized.corrections.some(
-      ({ layoutKey }) => layoutKey === input[66].layoutKey,
+      ({ layoutKey }) => layoutKey === input[83].layoutKey,
     ),
     false,
   );
 });
 
 test("커스텀 좌표가 슬롯을 넘쳐도 표시 위치는 휴지통 아래로 들어가지 않는다", () => {
-  const input = entries(67);
+  const input = entries(84);
   const stored = Object.fromEntries(
     input.map((entry, index) => [
       entry.layoutKey,
@@ -269,10 +269,10 @@ test("커스텀 좌표가 슬롯을 넘쳐도 표시 위치는 휴지통 아래�
     assertInside(placement);
     assert.equal(rootPlacementOverlapsTrash(placement), false);
   });
-  assert.equal(normalized.corrections.length, 66);
+  assert.equal(normalized.corrections.length, 83);
   assert.deepEqual(
     normalized.unresolvedLayoutKeys,
-    [input[66].layoutKey],
+    [input[83].layoutKey],
   );
   normalized.unresolvedLayoutKeys.forEach((layoutKey) => {
     assert.equal(
@@ -326,8 +326,8 @@ test("ROOT 묶음 드래그는 같은 delta를 써서 상대 간격을 보존한
 
   // 우측 한계는 사이드바 예약 폭을 뺀 960이다(#14).
   assert.deepEqual(moved, [
-    { x: 800, y: 444, version: 1 },
-    { x: 960, y: 534, version: 2 },
+    { x: 942, y: 444, version: 1 },
+    { x: 1102, y: 534, version: 2 },
   ]);
   assert.equal(moved[1].x - moved[0].x, start[1].x - start[0].x);
   assert.equal(moved[1].y - moved[0].y, start[1].y - start[0].y);
@@ -345,23 +345,23 @@ test("ROOT 묶음 드래그는 같은 delta를 써서 상대 간격을 보존한
 
 test("사이드바가 없는 스페이스는 우측을 예약하지 않는다 (#14 11)", () => {
   const [entry] = entries(1);
-  // 기본 데스크에서는 예약 영역(x>960)이 안쪽으로 당겨지지만,
+  // 기본 데스크는 손잡이 폭(20px)만 피한다 — x=1180이 1172로 살짝 당겨진다.
   const reserved = normalizeRootDesktopLayout([entry], {
-    [entry.layoutKey]: { x: 1100, y: 300, version: 4 },
+    [entry.layoutKey]: { x: 1180, y: 300, version: 4 },
   });
-  assert.notDeepEqual(reserved.positions[entry.layoutKey], {
-    x: 1100,
+  assert.deepEqual(reserved.positions[entry.layoutKey], {
+    x: 1172,
     y: 300,
     version: 4,
   });
-  // 스페이스에서는 그 자리가 멀쩡하다 — 없는 패널을 피할 이유가 없다.
+  // 스페이스에는 손잡이가 없으니 그 자리가 그대로다.
   const open = normalizeRootDesktopLayout(
     [entry],
-    { [entry.layoutKey]: { x: 1100, y: 300, version: 4 } },
+    { [entry.layoutKey]: { x: 1180, y: 300, version: 4 } },
     { reserveSidebar: false },
   );
   assert.deepEqual(open.positions[entry.layoutKey], {
-    x: 1100,
+    x: 1180,
     y: 300,
     version: 4,
   });

@@ -2,12 +2,12 @@ export const ROOT_DESKTOP_WIDTH = 1280;
 export const ROOT_DESKTOP_HEIGHT = 628;
 export const ROOT_ICON_WIDTH = 88;
 export const ROOT_ICON_HEIGHT = 94;
-// 우측 가장자리 사이드바(#11)가 여는 패널 폭. 아이콘은 이 예약 영역에
-// 들어갈 수 없다(#14) — 패널이 열려도 아이콘이 가려지지 않고, 이미 그
-// 안에 저장된 좌표는 normalize가 안전한 자리로 보정한다.
+// 사이드바(#11) 손잡이 폭. 아이콘이 피해야 하는 건 **닫힌 상태의 손잡이**
+// 뿐이다 — 열린 패널(232px)까지 비우면 화면 우측이 통째로 못 쓰게 된다.
+// 패널은 열었을 때만 잠깐 덮고, 닫으면 그 자리가 다시 아이콘 자리다.
 // 주의: 사이드바는 기본 데스크 전용이라 스페이스에서는 예약하지 않는다
-// (reserveSidebar=false) — 없는 패널을 피해 아이콘을 옮기면 안 된다.
-const ROOT_SIDEBAR_RESERVED = 232;
+// (reserveSidebar=false) — 없는 손잡이를 피해 아이콘을 옮기면 안 된다.
+const ROOT_SIDEBAR_RESERVED = 20;
 
 function iconMaxX(reserveSidebar: boolean): number {
   return (
