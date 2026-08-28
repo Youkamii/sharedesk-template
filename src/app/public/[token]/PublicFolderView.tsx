@@ -155,9 +155,41 @@ export default function PublicFolderView({
     total: number;
   } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // 데스크와 같은 사용감(#14): 한 번 눌러 고르고, 두 번 눌러 열고,
+  // 오른쪽 눌러 메뉴. 방문자라고 클릭이 아무 반응 없으면 안 된다.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    entry: PublicEntry;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  // 메뉴는 바깥을 누르거나 Esc로 닫는다(데스크와 같은 규칙). 메뉴 안을
+  // 누른 것까지 닫아 버리면 pointerdown이 click보다 먼저라 항목이 눌리지
+  // 않는다 — 담긴 곳을 확인하고 닫는다.
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    const onPointerDown = (event: PointerEvent) => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      close();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
 
   useEffect(() => {
     // 늦게 도착한 옛 응답이 새 상태를 덮지 않게 한다(모바일 뷰와 같은 패턴).
@@ -199,18 +231,21 @@ export default function PublicFolderView({
     return () => window.clearInterval(timer);
   }, [reload]);
 
-  const download = useCallback(
+  // 브라우저에서 열어 보기 — 서버가 안전한 형식만 inline으로 준다
+  // (나머지는 그대로 저장 창으로 떨어진다).
+  const openInBrowser = useCallback(
     (entry: PublicEntry) => {
-      // 다운로드 우선을 끄면 브라우저에서 열어 본다(서버가 안전한 형식만
-      // inline으로 준다 — 나머지는 그대로 저장 창).
-      if (!downloadFirst) {
-        window.open(
-          `/api/public-folder/${token}/download?id=${encodeURIComponent(entry.id)}&open=1`,
-          "_blank",
-          "noopener,noreferrer",
-        );
-        return;
-      }
+      window.open(
+        `/api/public-folder/${token}/download?id=${encodeURIComponent(entry.id)}&open=1`,
+        "_blank",
+        "noopener,noreferrer",
+      );
+    },
+    [token],
+  );
+
+  const saveToDisk = useCallback(
+    (entry: PublicEntry) => {
       const anchor = document.createElement("a");
       anchor.href = `/api/public-folder/${token}/download?id=${encodeURIComponent(entry.id)}`;
       anchor.rel = "noopener";
@@ -218,7 +253,17 @@ export default function PublicFolderView({
       anchor.click();
       anchor.remove();
     },
-    [token, downloadFirst],
+    [token],
+  );
+
+  // 두 번 눌렀을 때의 기본 동작. "다운로드 우선"이 켜져 있으면 내려받고,
+  // 꺼져 있으면 열어 본다 — 데스크의 같은 토글과 뜻이 같다.
+  const activate = useCallback(
+    (entry: PublicEntry) => {
+      if (downloadFirst) saveToDisk(entry);
+      else openInBrowser(entry);
+    },
+    [downloadFirst, openInBrowser, saveToDisk],
   );
 
   const uploadFiles = useCallback(
@@ -373,7 +418,7 @@ export default function PublicFolderView({
               <button
                 type="button"
                 className={mobileStyles.row}
-                onClick={() => download(entry)}
+                onClick={() => activate(entry)}
               >
                 <span className={mobileStyles.rowIcon} aria-hidden="true">
                   <PixelFileIcon entry={entry} size={34} />
@@ -471,21 +516,50 @@ export default function PublicFolderView({
             }
             void uploadFiles(Array.from(event.dataTransfer.files ?? []));
           }}
+          onPointerDown={(event) => {
+            // 빈 바탕을 누르면 고른 것을 놓는다 — 데스크와 같다.
+            if (event.target === event.currentTarget) setSelectedId(null);
+          }}
         >
           <div className={desktopStyles.iconPlane}>
             {visibleFiles.map((entry) => {
               const placement = placements[entry.id];
+              const selected = selectedId === entry.id;
               return (
                 <div
                   key={entry.id}
-                  className={desktopStyles.desktopIcon}
+                  className={`${desktopStyles.desktopIcon} ${
+                    selected ? desktopStyles.iconSelected : ""
+                  }`}
                   style={{ left: placement.x, top: placement.y }}
                 >
                   <button
                     type="button"
                     className={desktopStyles.iconMain}
-                    title={t("두 번 눌러 내려받기")}
-                    onDoubleClick={() => download(entry)}
+                    aria-pressed={selected}
+                    title={
+                      downloadFirst
+                        ? t("두 번 눌러 내려받기")
+                        : t("두 번 눌러 열기")
+                    }
+                    onClick={() => setSelectedId(entry.id)}
+                    onDoubleClick={() => activate(entry)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      setSelectedId(entry.id);
+                      if (event.key === "Enter") activate(entry);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setSelectedId(entry.id);
+                      setMenu({
+                        x: event.clientX / uiScale,
+                        y: event.clientY / uiScale,
+                        entry,
+                      });
+                    }}
                   >
                     <PixelFileIcon entry={entry} size={54} />
                     <span className={desktopStyles.iconName}>{entry.name}</span>
@@ -548,6 +622,41 @@ export default function PublicFolderView({
             )}
           </div>
         </footer>
+
+        {/* 오른쪽 눌러 나오는 메뉴(#14). 방문자에게도 열기·내려받기를
+            같은 자리에서 준다 — 두 번 누르는 법을 몰라도 되게. */}
+        {menu && (
+          <div
+            ref={menuRef}
+            className={desktopStyles.contextMenu}
+            style={{ left: menu.x, top: menu.y }}
+            role="menu"
+            aria-label={t("{name} 메뉴", { name: menu.entry.name })}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className={desktopStyles.menuItem}
+              onClick={() => {
+                openInBrowser(menu.entry);
+                setMenu(null);
+              }}
+            >
+              {t("열기")}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className={desktopStyles.menuItem}
+              onClick={() => {
+                saveToDisk(menu.entry);
+                setMenu(null);
+              }}
+            >
+              {t("내려받기")}
+            </button>
+          </div>
+        )}
         {/* 데스크톱은 끌어다 놓기로만 올린다(#14 9) — 파일 선택창은 모바일
             dock 전용이라 그 분기에만 둔다. */}
       </div>

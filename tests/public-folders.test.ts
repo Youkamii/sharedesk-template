@@ -616,3 +616,38 @@ test("배선: 사이드바 — 손잡이·공개 폴더 입장·추가기능 메
   assert.match(css, /\.sidebar \{/);
   assert.doesNotMatch(css, /extraFeaturesMenu/);
 });
+
+test("공개 폴더 방문자도 데스크처럼 고르고 열 수 있다 (#14 10)", async () => {
+  const read = (relative: string) =>
+    readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+  const view = await read("src/app/public/[token]/PublicFolderView.tsx");
+
+  // 한 번 누르면 골라지고(눌린 티가 나고), 두 번 누르면 열린다.
+  assert.match(view, /onClick=\{\(\) => setSelectedId\(entry\.id\)\}/);
+  assert.match(view, /aria-pressed=\{selected\}/);
+  assert.match(view, /selected \? desktopStyles\.iconSelected : ""/);
+  assert.match(view, /onDoubleClick=\{\(\) => activate\(entry\)\}/);
+
+  // "다운로드 우선"이 데스크와 같은 뜻이어야 한다 — 켜면 받고, 끄면 연다.
+  assert.match(
+    view,
+    /if \(downloadFirst\) saveToDisk\(entry\);\s*\n\s*else openInBrowser\(entry\);/,
+  );
+
+  // 오른쪽 눌러 나오는 메뉴가 열기·내려받기를 각각 준다. 두 번 누르는 법을
+  // 몰라도 외부 방문자가 파일을 읽을 수 있어야 한다.
+  assert.match(view, /onContextMenu=\{\(event\) => \{[\s\S]*?setMenu\(\{/);
+  assert.match(view, /onClick=\{\(\) => \{\s*openInBrowser\(menu\.entry\);/);
+  assert.match(view, /onClick=\{\(\) => \{\s*saveToDisk\(menu\.entry\);/);
+  // 메뉴 안을 누른 것까지 닫으면 pointerdown이 click보다 먼저라 안 눌린다.
+  assert.match(
+    view,
+    /if \(menuRef\.current\?\.contains\(event\.target as Node\)\) return;/,
+  );
+
+  // 아이콘에 눌리는 표시가 있어야 한다 — 커서가 default라 반응이 없었다.
+  const css = await read("src/app/files/desktop.module.css");
+  assert.match(css, /\.iconMain:active \{/);
+  assert.match(css, /\.windowCanvas \.iconMain:active \{/);
+});

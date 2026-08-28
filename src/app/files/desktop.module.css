@@ -570,6 +570,20 @@
   text-shadow: 1px 1px 0 #fff8e7;
 }
 
+/* 누르는 동안의 표시(#14). 아이콘은 커서가 default라 눌리는 느낌이 전혀
+   없었다 — 실제 데스크처럼 눌린 순간 바로 반응해야 한다. */
+.iconMain:active {
+  background: rgb(47 70 112 / 58%);
+  border-color: rgb(255 210 125 / 62%);
+  box-shadow: inset 2px 2px 0 rgb(5 9 20 / 46%);
+}
+
+.windowCanvas .iconMain:active {
+  background: rgb(156 199 191 / 76%);
+  border-color: #2d5c5b;
+  box-shadow: inset 2px 2px 0 rgb(108 109 108 / 40%);
+}
+
 .iconSelected .iconMain {
   background: rgb(47 70 112 / 72%);
   border-color: var(--amber);

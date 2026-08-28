@@ -601,4 +601,5 @@ export const EN_FILES: Record<string, string> = {
   "속성을 읽지 못했습니다": "Couldn't read the properties",
   "{extension} 파일": "{extension} file",
   "스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.": "Pasting a copied screenshot (Ctrl+V) uploads it right away.",
+  "두 번 눌러 열기": "Double-click to open",
 };

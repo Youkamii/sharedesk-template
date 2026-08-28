@@ -832,4 +832,5 @@ export const ZH: Record<string, string> = {
   "속성을 읽지 못했습니다": "无法读取属性",
   "{extension} 파일": "{extension} 文件",
   "스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.": "复制截图后直接粘贴（Ctrl+V）也会立即上传。",
+  "두 번 눌러 열기": "双击打开",
 };
