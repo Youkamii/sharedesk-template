@@ -125,3 +125,38 @@ test("모바일 목록 화면은 터치에 맞는 크기와 안전 영역을 쓴
   // 주소창이 접혔다 펴져도 화면이 잘리지 않게 한다.
   assert.match(css, /100dvh/);
 });
+
+test("모바일 업로드도 데스크탑과 같은 직행 경로를 쓴다 (#14)", async () => {
+  const [mobile, desktop, driveAdapter] = await Promise.all([
+    readFile(
+      new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../src/app/files/FilesView.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/storage/drive.ts", import.meta.url), "utf8"),
+  ]);
+
+  // 드라이브 어댑터가 못박은 계약: UI는 업로드 세션을 먼저 받는다. 서버 경유
+  // upload 라우트는 API를 직접 호출하는 클라이언트용 폴백이다.
+  assert.match(driveAdapter, /UI는 항상 createUploadSession\(direct\)을 쓴다/);
+  for (const source of [desktop, mobile]) {
+    assert.match(source, /\/api\/drive\/upload-session/);
+    assert.match(source, /session\.mode === "direct"/);
+    assert.match(source, /startUploadReservationHeartbeat\(/);
+    assert.match(source, /\/api\/drive\/upload-complete/);
+  }
+
+  // 세션을 건너뛰고 파일 전체를 서버로 POST하면 서버리스 본문 상한에 걸린다.
+  assert.doesNotMatch(
+    mobile,
+    /fetch\(\s*apiPath\(`\/api\/drive\/upload\?/,
+    "모바일이 업로드 세션 없이 곧바로 서버로 올리면 안 된다",
+  );
+  // 폴백(local 모드)에서는 예약 id를 달고 간다.
+  assert.match(mobile, /reservationId=\$\{encodeURIComponent\(session\.reservationId\)\}/);
+
+  // 실패하면 개수만 세지 말고 서버가 준 이유를 보여준다.
+  assert.match(mobile, /올리지 못했습니다 · \{failures\}/);
+  assert.doesNotMatch(mobile, /\{count\}개를 올리지 못했습니다/);
+  assert.match(mobile, /NOTICE_DURATION_MS\.error/);
+});

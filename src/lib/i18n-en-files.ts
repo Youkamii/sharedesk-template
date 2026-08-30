@@ -451,7 +451,6 @@ export const EN_FILES: Record<string, string> = {
   "폴더를 만들었습니다.": "Folder created.",
   "폴더를 만들지 못했습니다": "Couldn't create the folder",
   "올렸습니다.": "Uploaded.",
-  "{count}개를 올리지 못했습니다.": "{count} items couldn't be uploaded.",
 
   // 데스크 간 받기
   "다른 데스크에서 받기": "Receive from another desk",
@@ -602,4 +601,5 @@ export const EN_FILES: Record<string, string> = {
   "{extension} 파일": "{extension} file",
   "스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.": "Pasting a copied screenshot (Ctrl+V) uploads it right away.",
   "두 번 눌러 열기": "Double-click to open",
+  "올리지 못했습니다 · {failures}": "Upload failed · {failures}",
 };

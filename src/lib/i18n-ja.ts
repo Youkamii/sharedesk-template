@@ -841,4 +841,5 @@ export const JA: Record<string, string> = {
   "{extension} 파일": "{extension} ファイル",
   "스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.": "コピーしたスクリーンショットを貼り付ける（Ctrl+V）だけでもすぐアップロードされます。",
   "두 번 눌러 열기": "ダブルクリックで開く",
+  "올리지 못했습니다 · {failures}": "アップロードできませんでした · {failures}",
 };

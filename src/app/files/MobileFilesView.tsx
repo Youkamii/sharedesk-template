@@ -9,9 +9,20 @@ import {
   sortEntries,
   type MobileEntry,
 } from "@/lib/client/mobile-listing";
+import {
+  startUploadReservationHeartbeat,
+  uploadWithProgress,
+} from "@/lib/client/transfer";
+import { NOTICE_DURATION_MS } from "@/lib/client/use-auto-dismiss-notice";
 import LogoutButton from "../LogoutButton";
 import PixelFileIcon from "./PixelFileIcon";
 import styles from "./mobile.module.css";
+
+// 데스크탑과 같은 업로드 세션. drive 모드는 direct(브라우저 → 드라이브 직행),
+// local 모드는 proxy(서버 경유)를 준다.
+type UploadSession =
+  | { mode: "direct"; url: string; reservationId?: string }
+  | { mode: "proxy"; reservationId?: string };
 
 // 데스크탑은 1280x720 논리 좌표를 화면 크기에 맞춰 축소한다. 좁은 화면에서는
 // 그 배율이 0.3까지 떨어져 글자를 읽을 수 없으므로, 자유 배치 캔버스를 접고
@@ -104,7 +115,13 @@ export default function MobileFilesView({
 
   useEffect(() => {
     if (!notice) return;
-    const timer = setTimeout(() => setNotice(null), 4000);
+    // 오류는 읽고 대응할 시간이 필요하다 — 데스크탑과 같은 기준을 쓴다.
+    const timer = setTimeout(
+      () => setNotice(null),
+      notice.kind === "error"
+        ? NOTICE_DURATION_MS.error
+        : NOTICE_DURATION_MS.default,
+    );
     return () => clearTimeout(timer);
   }, [notice]);
 
@@ -146,33 +163,120 @@ export default function MobileFilesView({
     }
   }
 
+  async function uploadSessionJson<T>(path: string, body: unknown): Promise<T> {
+    const response = await fetch(apiPath(path), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.status === 401) {
+      router.replace("/");
+      throw new Error(t("세션이 만료되었습니다"));
+    }
+    const parsed = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    if (!response.ok) {
+      throw new Error(
+        typeof parsed?.error === "string"
+          ? t(parsed.error)
+          : t("업로드에 실패했습니다"),
+      );
+    }
+    return parsed as T;
+  }
+
+  // 데스크탑(FilesView)과 같은 경로로 올린다. 예전에는 파일 전체를 앱 서버로
+  // POST했는데, 드라이브 모드에서 그건 어댑터가 "API를 직접 호출하는
+  // 클라이언트를 위한 폴백"이라고 못박은 길이다. 서버리스 배포에서는 요청
+  // 본문 상한에 걸려 큰 사진이 그대로 실패한다 — 폰 사진이 딱 그 크기다.
+  async function uploadOne(file: File) {
+    const mimeType = file.type || "application/octet-stream";
+    const session = await uploadSessionJson<UploadSession>(
+      "/api/drive/upload-session",
+      { parentId: currentId, name: file.name, mimeType, size: file.size },
+    );
+    if (session.mode === "direct") {
+      const stopHeartbeat = startUploadReservationHeartbeat(
+        session.reservationId,
+      );
+      try {
+        const uploaded = await uploadWithProgress(
+          session.url,
+          "PUT",
+          file,
+          null,
+          () => {},
+        );
+        if (uploaded.status < 200 || uploaded.status >= 300) {
+          throw new Error(t("드라이브 업로드에 실패했습니다"));
+        }
+        const body = JSON.parse(uploaded.responseText || "null") as {
+          id?: string;
+        } | null;
+        if (session.reservationId && body?.id) {
+          await uploadSessionJson("/api/drive/upload-complete", {
+            reservationId: session.reservationId,
+            fileId: body.id,
+          });
+        }
+        return;
+      } finally {
+        stopHeartbeat();
+      }
+    }
+    const reservationQuery = session.reservationId
+      ? `&reservationId=${encodeURIComponent(session.reservationId)}`
+      : "";
+    const uploaded = await uploadWithProgress(
+      apiPath(
+        `/api/drive/upload?parentId=${encodeURIComponent(currentId)}&name=${encodeURIComponent(file.name)}${reservationQuery}`,
+      ),
+      "POST",
+      file,
+      mimeType,
+      () => {},
+    );
+    if (uploaded.status === 401) {
+      router.replace("/");
+      throw new Error(t("세션이 만료되었습니다"));
+    }
+    if (uploaded.status < 200 || uploaded.status >= 300) {
+      const body = JSON.parse(uploaded.responseText || "null") as {
+        error?: string;
+      } | null;
+      throw new Error(
+        typeof body?.error === "string"
+          ? t(body.error)
+          : t("업로드에 실패했습니다"),
+      );
+    }
+  }
+
   async function uploadFiles(files: FileList) {
     setBusy(true);
-    let failed = 0;
+    // 서버가 알려 준 이유를 그대로 보여준다. 예전에는 실패 개수만 세서
+    // "왜 안 되는지"를 화면에서 알 수 없었다.
+    const failures: string[] = [];
     for (const file of Array.from(files)) {
       try {
-        const response = await fetch(
-          apiPath(`/api/drive/upload?parentId=${encodeURIComponent(currentId)}&name=${encodeURIComponent(file.name)}`),
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": file.type || "application/octet-stream",
-              "Content-Length": String(file.size),
-            },
-            body: file,
-          },
+        await uploadOne(file);
+      } catch (error) {
+        failures.push(
+          `${file.name}: ${
+            error instanceof Error ? error.message : t("실패")
+          }`,
         );
-        if (!response.ok) failed += 1;
-      } catch {
-        failed += 1;
       }
     }
     setBusy(false);
     setNotice(
-      failed === 0
+      failures.length === 0
         ? { text: t("올렸습니다."), kind: "info" }
         : {
-            text: t("{count}개를 올리지 못했습니다.", { count: failed }),
+            text: t("올리지 못했습니다 · {failures}", {
+              failures: failures.join(" / "),
+            }),
             kind: "error",
           },
     );
