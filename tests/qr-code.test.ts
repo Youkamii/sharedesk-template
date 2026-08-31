@@ -138,6 +138,8 @@ test("독립 디코더(jsQR)가 모든 버전대의 QR을 원문 그대로 읽�
     "https://youkamii-sharedesk.vercel.app/api/share/" + "f".repeat(48),
     "한글 링크도 그대로 https://example.com/공유",
     "x".repeat(180),
+    // 지원 상한(버전 10, 213바이트) 경계 — 검증자 우려 반영.
+    "y".repeat(213),
   ];
   for (const text of samples) {
     const qr = encodeQr(text);
