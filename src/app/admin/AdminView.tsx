@@ -1,6 +1,7 @@
 "use client";
 
 import ShareOutButton from "../ShareOutButton";
+import QrCodeToggle from "../QrCodeToggle";
 
 import { apiPath } from "@/lib/client/api-path";
 import {
@@ -1353,6 +1354,14 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             }
                           }}
                         />
+                        {/* 폰 카메라로 찍으면 코드가 채워진 가입 화면이
+                            열린다(/join?code=…) — 온보딩이 "보여주고 찍기"로
+                            끝난다(#15 A-5). */}
+                        <QrCodeToggle
+                          value={`${window.location.origin}/join?code=${encodeURIComponent(lastAccess.code)}`}
+                          label="QR"
+                          className={buttonClass}
+                        />
                       </div>
                     </div>
                   )}
@@ -1467,6 +1476,11 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                             );
                                           }
                                         }}
+                                      />
+                                      <QrCodeToggle
+                                        value={`${window.location.origin}/join?code=${encodeURIComponent(invitation.code!)}`}
+                                        label="QR"
+                                        className={buttonClass}
                                       />
                                       </>
                                     )}

@@ -1,6 +1,7 @@
 "use client";
 
 import ShareOutButton from "../ShareOutButton";
+import QrCodeToggle from "../QrCodeToggle";
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -430,6 +431,11 @@ export default function PublicFoldersPanel({
                             setNotice(`${window.location.origin}${folder.url}`);
                           }
                         }}
+                      />
+                      <QrCodeToggle
+                        value={`${window.location.origin}${folder.url}`}
+                        label="QR"
+                        className={styles.pixelButton}
                       />
                       <button
                         type="button"

@@ -1,6 +1,13 @@
 import { translate, type Locale } from "@/lib/i18n";
 
-export default function JoinCodeForm({ locale }: { locale: Locale }) {
+export default function JoinCodeForm({
+  locale,
+  initialCode,
+}: {
+  locale: Locale;
+  // 초대 QR을 찍고 들어오면 코드가 미리 채워진다(#15 A-5).
+  initialCode?: string;
+}) {
   const t = (text: string, vars?: Record<string, string | number>) =>
     translate(locale, text, vars);
   return (
@@ -10,6 +17,7 @@ export default function JoinCodeForm({ locale }: { locale: Locale }) {
         <input
           required
           name="code"
+          defaultValue={initialCode ?? ""}
           type="text"
           autoComplete="off"
           autoCapitalize="characters"

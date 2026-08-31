@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
 import styles from "./desktop.module.css";
 import ShareOutButton from "../ShareOutButton";
+import QrCodeToggle from "../QrCodeToggle";
 
 // 외부 공유 링크 관리 창 — 만료 기간을 골라 링크를 만들고, 복사하고,
 // 활성 링크를 거둔다. 구조·스타일은 ShareDialog(드라이브 공유)를 따른다.
@@ -442,6 +443,12 @@ export default function ShareLinkDialog({
                         setError("아래 주소를 직접 선택해 복사해 주세요");
                       }
                     }}
+                  />
+                  <QrCodeToggle
+                    value={shareUrl(createdLinkId)}
+                    label="QR"
+                    className={styles.secondaryButton}
+                    style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
                   />
                 </div>
               )}

@@ -254,3 +254,36 @@ test("링크 내보내기는 폰에서 공유 시트, 데스크톱은 기존 복
     assert.match(source, /<ShareOutButton/, `${file}에 공유 버튼이 없다`);
   }
 });
+
+test("QR은 링크 네 곳과 초대 코드에 붙고, 가입 화면은 코드를 미리 채운다 (#15 A-5)", async () => {
+  for (const file of [
+    "files/QuickLinkWindow.tsx",
+    "files/ShareLinksWindow.tsx",
+    "files/ShareLinkDialog.tsx",
+    "admin/PublicFoldersPanel.tsx",
+    "admin/AdminView.tsx",
+  ]) {
+    const source = await readFile(
+      new URL(`../src/app/${file}`, import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /<QrCodeToggle/, `${file}에 QR이 없다`);
+  }
+  // 초대 QR은 코드 텍스트가 아니라 /join?code= 주소다 — 찍으면 가입 화면이
+  // 코드가 채워진 채 열린다.
+  const admin = await readFile(
+    new URL("../src/app/admin/AdminView.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(admin, /\/join\?code=\$\{encodeURIComponent\(/);
+  const joinForm = await readFile(
+    new URL("../src/app/join/JoinCodeForm.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(joinForm, /defaultValue=\{initialCode \?\? ""\}/);
+  const joinPage = await readFile(
+    new URL("../src/app/join/page.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(joinPage, /initialCode=\{code\}/);
+});

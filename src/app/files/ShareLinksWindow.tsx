@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
 import type { ShareLink } from "@/lib/share-links";
 import ShareOutButton from "../ShareOutButton";
+import QrCodeToggle from "../QrCodeToggle";
 import styles from "./desktop.module.css";
 
 type Props = {
@@ -204,6 +205,10 @@ export default function ShareLinksWindow({
                         );
                       }
                     }}
+                  />
+                  <QrCodeToggle
+                    value={`${window.location.origin}/api/share/${link.linkId}`}
+                    label="QR"
                   />
                   <button
                     type="button"

@@ -18,7 +18,7 @@ const ERRORS: Record<string, string> = {
 export default async function JoinPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; code?: string }>;
 }) {
   const cookieStore = await cookies();
   const me = await resolveIdentity(cookieStore.get(COOKIE_NAME)?.value);
@@ -34,7 +34,9 @@ export default async function JoinPage({
   const t = (text: string, vars?: Record<string, string | number>) =>
     translate(locale, text, vars);
 
-  const { error } = await searchParams;
+  // code는 초대 QR(#15 A-5)이 실어 온다 — 폼에 미리 채워 주기만 하고,
+  // 검증은 종전대로 제출 라우트가 한다.
+  const { error, code } = await searchParams;
 
   return (
     <main className="relative flex flex-1 items-center justify-center p-6">
@@ -57,7 +59,7 @@ export default async function JoinPage({
           </p>
         )}
 
-        <JoinCodeForm locale={locale} />
+        <JoinCodeForm locale={locale} initialCode={code} />
 
         <div className="mt-5 border-t border-black/10 pt-5 text-center dark:border-white/15">
           <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">

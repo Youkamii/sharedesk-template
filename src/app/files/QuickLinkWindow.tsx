@@ -2,6 +2,7 @@
 
 import { apiPath } from "@/lib/client/api-path";
 import ShareOutButton from "../ShareOutButton";
+import QrCodeToggle from "../QrCodeToggle";
 import {
   isTextEntryTarget,
   pastedFileName,
@@ -439,6 +440,10 @@ export default function QuickLinkWindow({
                         onNotice(shareUrl(item.link!.linkId));
                       }
                     }}
+                  />
+                  <QrCodeToggle
+                    value={shareUrl(item.link.linkId)}
+                    label="QR"
                   />
                   <button
                     type="button"
