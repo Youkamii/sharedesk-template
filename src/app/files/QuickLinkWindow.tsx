@@ -1,6 +1,7 @@
 "use client";
 
 import { apiPath } from "@/lib/client/api-path";
+import ShareOutButton from "../ShareOutButton";
 import {
   isTextEntryTarget,
   pastedFileName,
@@ -427,6 +428,18 @@ export default function QuickLinkWindow({
                   <button type="button" onClick={() => void copy(item.link!)}>
                     {t("복사")}
                   </button>
+                  <ShareOutButton
+                    url={shareUrl(item.link.linkId)}
+                    title={item.file.name}
+                    label={t("공유")}
+                    onOutcome={(outcome) => {
+                      if (outcome === "copied") {
+                        onNotice(t("공유 링크를 복사했습니다."));
+                      } else if (outcome === "manual") {
+                        onNotice(shareUrl(item.link!.linkId));
+                      }
+                    }}
+                  />
                   <button
                     type="button"
                     className={styles.dangerButton}

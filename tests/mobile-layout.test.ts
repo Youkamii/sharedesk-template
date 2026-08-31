@@ -221,3 +221,36 @@ test("모바일에서 전체 검색으로 찾고 원래 위치로 이동한다 (
   // 서버 breadcrumbs 첫 칸은 루트 — trail에는 루트를 넣지 않는다.
   assert.match(source, /crumbs\.slice\(1\)/);
 });
+
+test("링크 내보내기는 폰에서 공유 시트, 데스크톱은 기존 복사 그대로 (#15 A-4)", async () => {
+  const helper = await readFile(
+    new URL("../src/lib/client/share-link-out.ts", import.meta.url),
+    "utf8",
+  );
+  // 시트를 그냥 닫은 것은 실패가 아니다 — 복사 알림이 뜨면 안 된다.
+  assert.match(helper, /"AbortError"/);
+  assert.match(helper, /clipboard\.writeText/);
+
+  const button = await readFile(
+    new URL("../src/app/ShareOutButton.tsx", import.meta.url),
+    "utf8",
+  );
+  // 미지원 환경(대부분의 데스크톱)에는 버튼이 아예 렌더되지 않는다.
+  assert.match(button, /const canShare = useNativeShare\(\);/);
+  assert.match(button, /if \(!canShare\) return null;/);
+
+  // 링크를 만들거나 복사하는 다섯 화면 전부에 공유 버튼이 붙는다.
+  for (const file of [
+    "files/QuickLinkWindow.tsx",
+    "files/ShareLinksWindow.tsx",
+    "files/ShareLinkDialog.tsx",
+    "admin/PublicFoldersPanel.tsx",
+    "admin/AdminView.tsx",
+  ]) {
+    const source = await readFile(
+      new URL(`../src/app/${file}`, import.meta.url),
+      "utf8",
+    );
+    assert.match(source, /<ShareOutButton/, `${file}에 공유 버튼이 없다`);
+  }
+});

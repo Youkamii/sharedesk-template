@@ -1,5 +1,7 @@
 "use client";
 
+import ShareOutButton from "../ShareOutButton";
+
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiPath } from "@/lib/client/api-path";
@@ -416,6 +418,19 @@ export default function PublicFoldersPanel({
                       >
                         {t("주소 복사")}
                       </button>
+                      <ShareOutButton
+                        url={`${window.location.origin}${folder.url}`}
+                        title={folder.name}
+                        label={t("공유")}
+                        className={styles.pixelButton}
+                        onOutcome={(outcome) => {
+                          if (outcome === "copied") {
+                            setNotice(t("주소를 복사했습니다"));
+                          } else if (outcome === "manual") {
+                            setNotice(`${window.location.origin}${folder.url}`);
+                          }
+                        }}
+                      />
                       <button
                         type="button"
                         className={styles.pixelButton}

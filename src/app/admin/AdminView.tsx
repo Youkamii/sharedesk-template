@@ -1,5 +1,7 @@
 "use client";
 
+import ShareOutButton from "../ShareOutButton";
+
 import { apiPath } from "@/lib/client/api-path";
 import {
   type CSSProperties,
@@ -1336,6 +1338,21 @@ export default function AdminView({ locale }: { locale: Locale }) {
                         >
                           {t("코드 복사")}
                         </button>
+                        <ShareOutButton
+                          text={lastAccess.code}
+                          label={t("공유")}
+                          className={buttonClass}
+                          disabled={busyId !== null}
+                          onOutcome={(outcome) => {
+                            if (outcome === "copied") {
+                              setNotice(t("초대 코드를 복사했습니다."));
+                            } else if (outcome === "manual") {
+                              setNotice(
+                                t("아래 코드를 직접 선택해 복사해 주세요."),
+                              );
+                            }
+                          }}
+                        />
                       </div>
                     </div>
                   )}
@@ -1416,6 +1433,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                 {invitation.state !== "used" && (
                                   <span className={styles.rowActions}>
                                     {invitation.state === "active" && invitation.code && (
+                                      <>
                                       <button
                                         type="button"
                                         disabled={busyId !== null}
@@ -1429,6 +1447,28 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                       >
                                         {t("코드 복사")}
                                       </button>
+                                      <ShareOutButton
+                                        text={invitation.code!}
+                                        label={t("공유")}
+                                        className={buttonClass}
+                                        disabled={busyId !== null}
+                                        onOutcome={(outcome) => {
+                                          if (outcome === "copied") {
+                                            setNotice(
+                                              t("초대 코드를 복사했습니다."),
+                                            );
+                                          } else if (outcome === "manual") {
+                                            setLastAccess({
+                                              invitationId: invitation.id,
+                                              code: invitation.code!,
+                                            });
+                                            setNotice(
+                                              t("아래 코드를 직접 선택해 복사해 주세요."),
+                                            );
+                                          }
+                                        }}
+                                      />
+                                      </>
                                     )}
                                     {invitation.state !== "expired" && (
                                       <button

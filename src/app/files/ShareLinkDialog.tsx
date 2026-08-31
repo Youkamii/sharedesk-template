@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
 import styles from "./desktop.module.css";
+import ShareOutButton from "../ShareOutButton";
 
 // 외부 공유 링크 관리 창 — 만료 기간을 골라 링크를 만들고, 복사하고,
 // 활성 링크를 거둔다. 구조·스타일은 ShareDialog(드라이브 공유)를 따른다.
@@ -428,6 +429,20 @@ export default function ShareLinkDialog({
                   >
                     {t("복사")}
                   </button>
+                  <ShareOutButton
+                    url={shareUrl(createdLinkId)}
+                    title={entry.name}
+                    label={t("공유")}
+                    className={styles.secondaryButton}
+                    style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
+                    onOutcome={(outcome) => {
+                      if (outcome === "copied") {
+                        onNotice(t("공유 링크를 복사했습니다."));
+                      } else if (outcome === "manual") {
+                        setError("아래 주소를 직접 선택해 복사해 주세요");
+                      }
+                    }}
+                  />
                 </div>
               )}
 
@@ -496,6 +511,22 @@ export default function ShareLinkDialog({
                           >
                             {t("복사")}
                           </button>
+                          <ShareOutButton
+                            url={shareUrl(link.linkId)}
+                            title={entry.name}
+                            label={t("공유")}
+                            className={styles.secondaryButton}
+                            style={compactButtonStyle}
+                            disabled={busy}
+                            onOutcome={(outcome) => {
+                              if (outcome === "copied") {
+                                onNotice(t("공유 링크를 복사했습니다."));
+                              } else if (outcome === "manual") {
+                                setCreatedLinkId(link.linkId);
+                                setError("아래 주소를 직접 선택해 복사해 주세요");
+                              }
+                            }}
+                          />
                           <button
                             type="button"
                             className={styles.dangerButton}

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
 import type { ShareLink } from "@/lib/share-links";
+import ShareOutButton from "../ShareOutButton";
 import styles from "./desktop.module.css";
 
 type Props = {
@@ -190,6 +191,20 @@ export default function ShareLinksWindow({
                   <button type="button" onClick={() => void copy(link)}>
                     {t("복사")}
                   </button>
+                  <ShareOutButton
+                    url={`${window.location.origin}/api/share/${link.linkId}`}
+                    title={link.name}
+                    label={t("공유")}
+                    onOutcome={(outcome) => {
+                      if (outcome === "copied") {
+                        onNotice(t("공유 링크를 복사했습니다."));
+                      } else if (outcome === "manual") {
+                        onNotice(
+                          `${window.location.origin}/api/share/${link.linkId}`,
+                        );
+                      }
+                    }}
+                  />
                   <button
                     type="button"
                     className={styles.dangerButton}
