@@ -116,6 +116,21 @@ export default function MobileFilesView({
   } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
+  // 모바일 채팅(#15 A-6). 열려 있는 동안만 4초 폴링 — 닫으면 왕복 0.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<
+    {
+      id: string;
+      name: string;
+      text: string;
+      createdAt: string;
+      mine: boolean;
+    }[]
+  >([]);
+  const [chatText, setChatText] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatCursorRef = useRef("");
+  const chatLogRef = useRef<HTMLDivElement>(null);
 
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
@@ -419,6 +434,97 @@ export default function MobileFilesView({
     });
   }
 
+  const loadChat = useCallback(async (initial: boolean) => {
+    try {
+      const after = initial ? "" : chatCursorRef.current;
+      const response = await fetch(
+        apiPath(`/api/chat${after ? `?after=${encodeURIComponent(after)}` : ""}`),
+        { cache: "no-store" },
+      );
+      if (!response.ok) return;
+      const body = (await response.json()) as {
+        messages?: {
+          id: string;
+          name: string;
+          text: string;
+          createdAt: string;
+          mine: boolean;
+        }[];
+        cursor?: string;
+      };
+      if (typeof body.cursor === "string" && body.cursor) {
+        chatCursorRef.current = body.cursor;
+      }
+      const incoming = body.messages ?? [];
+      if (initial) {
+        setChatMessages(incoming);
+        return;
+      }
+      if (incoming.length === 0) return;
+      setChatMessages((current) => {
+        const seen = new Set(current.map((message) => message.id));
+        return [
+          ...current,
+          ...incoming.filter((message) => !seen.has(message.id)),
+        ];
+      });
+    } catch {
+      // 폴링 실패는 조용히 — 다음 틱에 다시 붙는다.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    chatCursorRef.current = "";
+    void loadChat(true);
+    const timer = window.setInterval(() => void loadChat(false), 4_000);
+    return () => window.clearInterval(timer);
+  }, [chatOpen, loadChat]);
+
+  useEffect(() => {
+    // 새 메시지가 붙으면 바닥으로 (DOM 스크롤만 — 상태 변경 없음).
+    const log = chatLogRef.current;
+    if (log) log.scrollTop = log.scrollHeight;
+  }, [chatMessages]);
+
+  useEffect(() => {
+    // 접속 표시(#15 A-6) — 폰으로 들어와 있어도 데스크톱의 접속자 목록에
+    // 보인다. 빈 본문이면 서버가 세션의 lease로 처리한다.
+    const ping = () =>
+      void fetch(apiPath("/api/presence"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        cache: "no-store",
+      }).catch(() => undefined);
+    ping();
+    const timer = window.setInterval(ping, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  async function sendChat() {
+    const text = chatText.trim();
+    if (!text || chatBusy) return;
+    setChatBusy(true);
+    try {
+      await mobileJson("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      setChatText("");
+      await loadChat(false);
+    } catch (error) {
+      setNotice({
+        text:
+          error instanceof Error ? error.message : t("요청에 실패했습니다"),
+        kind: "error",
+      });
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
   function sheetProperties(entry: MobileEntry) {
     void sheetRun(async () => {
       const data = await mobileJson<{
@@ -662,6 +768,18 @@ export default function MobileFilesView({
             >
               ⌕
             </button>
+            {/* 채팅은 승인 참여자 전용 — 손님(키 입장)은 서버가 403이라
+                버튼째 감춘다. */}
+            {!isGuest && (
+              <button
+                type="button"
+                className={styles.chatToggle}
+                onClick={() => setChatOpen(true)}
+                aria-label={t("채팅")}
+              >
+                ✉
+              </button>
+            )}
             {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다 — 데스크
                 밖으로 나가는 문은 스페이스 선택 하나(로그아웃은 그 화면에),
                 손님만 로그아웃 직행이다(#14). */}
@@ -791,6 +909,71 @@ export default function MobileFilesView({
           ))
         )}
       </ul>
+
+      {chatOpen && (
+        <div
+          className={styles.sheetBackdrop}
+          role="presentation"
+          onClick={() => setChatOpen(false)}
+        >
+          <div
+            className={styles.chatSheet}
+            role="dialog"
+            aria-label={t("채팅")}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={styles.chatHead}>
+              <strong>{t("채팅")}</strong>
+              <button
+                type="button"
+                aria-label={t("닫기")}
+                onClick={() => setChatOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
+            <div className={styles.chatLog} ref={chatLogRef}>
+              {chatMessages.length === 0 ? (
+                <p className={styles.chatEmpty}>
+                  {t("아직 메시지가 없습니다")}
+                </p>
+              ) : (
+                chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={styles.chatMsg}
+                    data-mine={message.mine ? "true" : undefined}
+                  >
+                    {!message.mine && (
+                      <span className={styles.chatName}>{message.name}</span>
+                    )}
+                    <span className={styles.chatBubble}>{message.text}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <form
+              className={styles.chatForm}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendChat();
+              }}
+            >
+              <input
+                value={chatText}
+                maxLength={2000}
+                placeholder={t("메시지 입력")}
+                aria-label={t("메시지 입력")}
+                spellCheck={false}
+                onChange={(event) => setChatText(event.target.value)}
+              />
+              <button type="submit" disabled={chatBusy || !chatText.trim()}>
+                {t("보내기")}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {sheet && (
         <div

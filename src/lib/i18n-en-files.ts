@@ -609,4 +609,5 @@ export const EN_FILES: Record<string, string> = {
   "휴지통에 넣기": "Move to trash",
   "휴지통에 넣을까요?": "Move it to the trash?",
   "상위 폴더로 옮겼습니다": "Moved to the parent folder",
+  "아직 메시지가 없습니다": "No messages yet",
 };

@@ -431,6 +431,146 @@
   overflow-wrap: anywhere;
 }
 
+/* 모바일 채팅(#15 A-6) */
+.chatToggle {
+  display: flex;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #fff8e7;
+  background: transparent;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 rgb(255 248 231 / 25%);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chatToggle:active {
+  color: #10172b;
+  background: #ffd27d;
+}
+
+.chatSheet {
+  display: flex;
+  width: 100%;
+  height: min(72dvh, 560px);
+  flex-direction: column;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border-top: 2px solid #10172b;
+  box-shadow: inset 0 2px 0 #fff8e7;
+}
+
+.chatHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 2px solid #10172b;
+  color: #fff8e7;
+  background: #2d5c5b;
+}
+
+.chatHead button {
+  min-width: 36px;
+  min-height: 32px;
+  color: #10172b;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+}
+
+.chatLog {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+.chatEmpty {
+  margin: auto;
+  color: #686474;
+  font-size: 13px;
+}
+
+.chatMsg {
+  display: flex;
+  max-width: 82%;
+  flex-direction: column;
+  gap: 2px;
+  align-self: flex-start;
+}
+
+.chatMsg[data-mine] {
+  align-self: flex-end;
+}
+
+.chatName {
+  color: #686474;
+  font-size: 11px;
+}
+
+.chatBubble {
+  padding: 6px 9px;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  box-shadow: 2px 2px 0 rgb(16 23 43 / 22%);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.chatMsg[data-mine] .chatBubble {
+  background: #ffd27d;
+}
+
+.chatForm {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 10px 12px;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+  border-top: 2px solid #10172b;
+  background: #efe2c0;
+}
+
+.chatForm input {
+  min-width: 0;
+  flex: 1;
+  height: 44px;
+  padding: 0 10px;
+  color: #1b1b2f;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 14px;
+}
+
+.chatForm button {
+  min-width: 76px;
+  flex: none;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 14px;
+}
+
+.chatForm button:disabled {
+  color: #686474;
+  background: #9c8c78;
+}
+
 .logoutButton {
   min-width: 44px;
   min-height: 36px;

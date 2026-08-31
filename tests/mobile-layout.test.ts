@@ -323,3 +323,19 @@ test("롱프레스 시트로 폰에서 파일을 정리한다 (#15 A-1)", async 
     assert.ok(source.includes(route), `${route} 호출이 없다`);
   }
 });
+
+test("모바일 채팅은 열려 있을 때만 폴링하고 손님에겐 없다 (#15 A-6)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // 손님(키 입장)은 서버가 403 — 버튼째 감춘다.
+  assert.match(source, /\{!isGuest && \([\s\S]{0,400}?setChatOpen\(true\)/);
+  // 열려 있는 동안만 4초 증분 폴링(after 커서), 닫으면 인터벌 해제.
+  assert.match(source, /if \(!chatOpen\) return;/);
+  assert.match(source, /window\.setInterval\(\(\) => void loadChat\(false\), 4_000\)/);
+  assert.match(source, /\/api\/chat\$\{after \? `\?after=/);
+  // 폰 접속자도 데스크톱 접속자 목록에 보인다 — presence 하트비트.
+  assert.match(source, /\/api\/presence/);
+});
