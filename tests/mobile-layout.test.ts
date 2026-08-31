@@ -158,5 +158,34 @@ test("모바일 업로드도 데스크탑과 같은 직행 경로를 쓴다 (#14
   // 실패하면 개수만 세지 말고 서버가 준 이유를 보여준다.
   assert.match(mobile, /올리지 못했습니다 · \{failures\}/);
   assert.doesNotMatch(mobile, /\{count\}개를 올리지 못했습니다/);
-  assert.match(mobile, /NOTICE_DURATION_MS\.error/);
+  // 오류는 저절로 사라지지 않고 눌러서 닫는다 — 안 보고 있는 사이에
+  // 사라지면 실패한 줄도 모른다.
+  assert.match(mobile, /if \(!notice \|\| notice\.kind === "error"\) return;/);
+  assert.match(mobile, /onClick=\{\(\) => setNotice\(null\)\}/);
+});
+
+test("모바일 업로드는 진행 상황을 실시간으로 보여준다 (#14)", async () => {
+  const [mobile, css] = await Promise.all([
+    readFile(
+      new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../src/app/files/mobile.module.css", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  // 진행 콜백이 두 업로드 분기(직행·프록시) 모두에 실제로 연결돼야 한다.
+  assert.match(mobile, /onProgress: \(sent: number, total: number\) => void/);
+  assert.doesNotMatch(
+    mobile,
+    /uploadWithProgress\([\s\S]{0,200}?\(\) => \{\}/,
+    "진행 콜백을 버리면 안 된다",
+  );
+  // 화면에 파일명·순번·퍼센트가 뜬다.
+  assert.match(mobile, /올리는 중 \{current\}\/\{total\}/);
+  assert.match(mobile, /\{progress\.percent\}%/);
+  assert.match(mobile, /<progress max=\{100\} value=\{progress\.percent\} \/>/);
+  assert.match(css, /\.uploadProgress \{/);
 });

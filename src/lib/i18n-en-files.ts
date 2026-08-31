@@ -602,4 +602,5 @@ export const EN_FILES: Record<string, string> = {
   "스크린샷을 복사해 붙여넣어도(Ctrl+V) 바로 올라갑니다.": "Pasting a copied screenshot (Ctrl+V) uploads it right away.",
   "두 번 눌러 열기": "Double-click to open",
   "올리지 못했습니다 · {failures}": "Upload failed · {failures}",
+  "(눌러서 닫기)": "(tap to dismiss)",
 };

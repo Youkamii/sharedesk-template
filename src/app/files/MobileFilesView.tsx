@@ -59,6 +59,14 @@ export default function MobileFilesView({
     null,
   );
   const [busy, setBusy] = useState(false);
+  // 업로드 진행 표시(#14) — 폰에서는 지금 뭐가 올라가는 중인지 눈에 보여야
+  // 한다. 진행 없이 조용하면 사용자는 실패인지 진행 중인지 알 길이 없다.
+  const [progress, setProgress] = useState<{
+    name: string;
+    current: number;
+    total: number;
+    percent: number;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const t = useCallback(
@@ -114,13 +122,12 @@ export default function MobileFilesView({
   }, [currentId, reloadKey, router, t]);
 
   useEffect(() => {
-    if (!notice) return;
-    // 오류는 읽고 대응할 시간이 필요하다 — 데스크탑과 같은 기준을 쓴다.
+    // 오류는 저절로 사라지지 않는다 — 폰에서는 화면을 안 보고 있는 사이에
+    // 사라지면 실패한 줄도 모른다. 눌러서 닫는다.
+    if (!notice || notice.kind === "error") return;
     const timer = setTimeout(
       () => setNotice(null),
-      notice.kind === "error"
-        ? NOTICE_DURATION_MS.error
-        : NOTICE_DURATION_MS.default,
+      NOTICE_DURATION_MS.default,
     );
     return () => clearTimeout(timer);
   }, [notice]);
@@ -190,7 +197,10 @@ export default function MobileFilesView({
   // POST했는데, 드라이브 모드에서 그건 어댑터가 "API를 직접 호출하는
   // 클라이언트를 위한 폴백"이라고 못박은 길이다. 서버리스 배포에서는 요청
   // 본문 상한에 걸려 큰 사진이 그대로 실패한다 — 폰 사진이 딱 그 크기다.
-  async function uploadOne(file: File) {
+  async function uploadOne(
+    file: File,
+    onProgress: (sent: number, total: number) => void,
+  ) {
     const mimeType = file.type || "application/octet-stream";
     const session = await uploadSessionJson<UploadSession>(
       "/api/drive/upload-session",
@@ -206,7 +216,7 @@ export default function MobileFilesView({
           "PUT",
           file,
           null,
-          () => {},
+          onProgress,
         );
         if (uploaded.status < 200 || uploaded.status >= 300) {
           throw new Error(t("드라이브 업로드에 실패했습니다"));
@@ -235,7 +245,7 @@ export default function MobileFilesView({
       "POST",
       file,
       mimeType,
-      () => {},
+      onProgress,
     );
     if (uploaded.status === 401) {
       router.replace("/");
@@ -255,12 +265,32 @@ export default function MobileFilesView({
 
   async function uploadFiles(files: FileList) {
     setBusy(true);
+    setNotice(null);
     // 서버가 알려 준 이유를 그대로 보여준다. 예전에는 실패 개수만 세서
     // "왜 안 되는지"를 화면에서 알 수 없었다.
     const failures: string[] = [];
-    for (const file of Array.from(files)) {
+    const list = Array.from(files);
+    for (let index = 0; index < list.length; index += 1) {
+      const file = list[index];
+      setProgress({
+        name: file.name,
+        current: index + 1,
+        total: list.length,
+        percent: 0,
+      });
       try {
-        await uploadOne(file);
+        await uploadOne(file, (sent, total) => {
+          const percent =
+            total > 0
+              ? Math.min(100, Math.round((sent / total) * 100))
+              : 0;
+          setProgress({
+            name: file.name,
+            current: index + 1,
+            total: list.length,
+            percent,
+          });
+        });
       } catch (error) {
         failures.push(
           `${file.name}: ${
@@ -269,6 +299,7 @@ export default function MobileFilesView({
         );
       }
     }
+    setProgress(null);
     setBusy(false);
     setNotice(
       failures.length === 0
@@ -320,8 +351,14 @@ export default function MobileFilesView({
         <p
           className={notice.kind === "error" ? styles.error : styles.notice}
           role={notice.kind === "error" ? "alert" : "status"}
+          onClick={() => setNotice(null)}
         >
           {notice.text}
+          {notice.kind === "error" && (
+            <span className={styles.noticeDismiss}>
+              {t("(눌러서 닫기)")}
+            </span>
+          )}
         </p>
       )}
       {error && (
@@ -366,6 +403,21 @@ export default function MobileFilesView({
           ))
         )}
       </ul>
+
+      {progress && (
+        <div className={styles.uploadProgress} role="status">
+          <span className={styles.uploadProgressName}>
+            {t("올리는 중 {current}/{total}", {
+              current: progress.current,
+              total: progress.total,
+            })}
+            {" · "}
+            {progress.name}
+          </span>
+          <progress max={100} value={progress.percent} />
+          <span className={styles.uploadPercent}>{progress.percent}%</span>
+        </div>
+      )}
 
       {allowUpload && (
         <nav className={styles.dock}>

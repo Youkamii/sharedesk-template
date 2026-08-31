@@ -196,6 +196,61 @@
   display: none;
 }
 
+/* 업로드 진행 표시(#14) — 파일명·순번·퍼센트가 실시간으로 보인다. */
+.uploadProgress {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  color: #fff4d2;
+  background: #182446;
+  border-top: 2px solid #080d1c;
+  font-size: 12px;
+}
+
+.uploadProgressName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadProgress progress {
+  width: 88px;
+  height: 10px;
+  flex: none;
+  appearance: none;
+  border: 1px solid #51658d;
+  background: #10172b;
+}
+
+.uploadProgress progress::-webkit-progress-bar {
+  background: #10172b;
+}
+
+.uploadProgress progress::-webkit-progress-value {
+  background: #ffd27d;
+}
+
+.uploadProgress progress::-moz-progress-bar {
+  background: #ffd27d;
+}
+
+.uploadPercent {
+  min-width: 38px;
+  flex: none;
+  font-family: var(--font-geist-mono), monospace;
+  text-align: right;
+}
+
+.noticeDismiss {
+  margin-left: 6px;
+  opacity: 0.75;
+  font-size: 11px;
+}
+
 .logoutButton {
   min-width: 44px;
   min-height: 36px;
