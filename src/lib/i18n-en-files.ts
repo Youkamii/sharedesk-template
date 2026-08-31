@@ -606,4 +606,7 @@ export const EN_FILES: Record<string, string> = {
   "사진 찍기": "Take a photo",
   "검색 닫기": "Close search",
   "공유": "Share",
+  "휴지통에 넣기": "Move to trash",
+  "휴지통에 넣을까요?": "Move it to the trash?",
+  "상위 폴더로 옮겼습니다": "Moved to the parent folder",
 };

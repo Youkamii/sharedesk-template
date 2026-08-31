@@ -14,6 +14,7 @@ import {
   uploadWithProgress,
 } from "@/lib/client/transfer";
 import { NOTICE_DURATION_MS } from "@/lib/client/use-auto-dismiss-notice";
+import { FOLDER_COLOR_IDS } from "@/lib/folder-color-ids";
 import LogoutButton from "../LogoutButton";
 import PixelFileIcon from "./PixelFileIcon";
 import styles from "./mobile.module.css";
@@ -44,6 +45,17 @@ type SearchHit = {
   entry: MobileEntry;
   breadcrumbs: Crumb[];
   path: string;
+};
+
+// 색 이름은 사전 키(빨강·주황·…)와 같다 — 데스크톱 스와치와 동일 문구.
+const FOLDER_COLOR_LABELS: Record<string, string> = {
+  red: "빨강",
+  orange: "주황",
+  yellow: "노랑",
+  green: "초록",
+  blue: "파랑",
+  indigo: "남색",
+  violet: "보라",
 };
 
 export default function MobileFilesView({
@@ -92,6 +104,18 @@ export default function MobileFilesView({
     | null
   >(null);
   const searchSeqRef = useRef(0);
+  // 롱프레스 액션 시트(#15 A-1). 폰에는 우클릭이 없다 — 길게 누르면
+  // 파일 정리 동작이 올라온다.
+  const [sheet, setSheet] = useState<MobileEntry | null>(null);
+  const [sheetInfo, setSheetInfo] = useState<{
+    uploadedBy: string | null;
+    uploadedAt: string | null;
+    downloadCount: number | null;
+    size: number | null;
+    modifiedAt: string | null;
+  } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
 
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
@@ -221,6 +245,198 @@ export default function MobileFilesView({
   function goToCrumbs(crumbs: Crumb[]) {
     setTrail(crumbs.slice(1));
     closeSearch();
+  }
+
+  async function mobileJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(apiPath(path), init);
+    if (response.status === 401) {
+      router.replace("/");
+      throw new Error(t("세션이 만료되었습니다"));
+    }
+    const parsed = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+    if (!response.ok) {
+      throw new Error(
+        typeof parsed?.error === "string"
+          ? t(parsed.error)
+          : t("요청에 실패했습니다"),
+      );
+    }
+    return parsed as T;
+  }
+
+  // 길게 누르면(500ms) 시트, 움직이면 취소. 안드로이드는 롱프레스가
+  // contextmenu로도 오므로 함께 받는다. 발동 직후의 click은 삼킨다.
+  function longPressProps(entry: MobileEntry) {
+    const cancel = () => {
+      if (longPressTimerRef.current !== null) {
+        window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+    return {
+      onPointerDown: () => {
+        suppressClickRef.current = false;
+        cancel();
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressTimerRef.current = null;
+          suppressClickRef.current = true;
+          setSheet(entry);
+        }, 500);
+      },
+      onPointerUp: cancel,
+      onPointerMove: cancel,
+      onPointerLeave: cancel,
+      onPointerCancel: cancel,
+      onContextMenu: (event: { preventDefault(): void }) => {
+        event.preventDefault();
+        cancel();
+        suppressClickRef.current = true;
+        setSheet(entry);
+      },
+    };
+  }
+
+  function consumeLongPress(): boolean {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    return true;
+  }
+
+  function closeSheet() {
+    setSheet(null);
+    setSheetInfo(null);
+  }
+
+  async function sheetRun(work: () => Promise<void>) {
+    setBusy(true);
+    try {
+      await work();
+    } catch (error) {
+      setNotice({
+        text:
+          error instanceof Error ? error.message : t("요청에 실패했습니다"),
+        kind: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function sheetRename(entry: MobileEntry) {
+    const name = window.prompt(t("새 이름"), entry.name)?.trim();
+    if (!name || name === entry.name) return;
+    void sheetRun(async () => {
+      await mobileJson("/api/drive/rename", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // 서버는 낙관적 잠금(expectedVersion)을 요구한다 — 목록 응답의
+        // version을 그대로 넘긴다.
+        body: JSON.stringify({
+          id: entry.id,
+          name,
+          expectedVersion: entry.version,
+        }),
+      });
+      closeSheet();
+      setNotice({ text: t("이름을 바꿨습니다"), kind: "info" });
+      reload();
+    });
+  }
+
+  function sheetTrash(entry: MobileEntry) {
+    if (!window.confirm(`${entry.name} — ${t("휴지통에 넣을까요?")}`)) return;
+    void sheetRun(async () => {
+      await mobileJson("/api/drive/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id }),
+      });
+      closeSheet();
+      setNotice({
+        text: t("‘{name}’을 휴지통에 넣었습니다", { name: entry.name }),
+        kind: "info",
+      });
+      reload();
+    });
+  }
+
+  // 이동은 폴더 픽커 대신 "상위 폴더로"만 — 폰에서 가장 흔한 정리 동선이고
+  // 목록 응답의 version(낙관적 잠금)만으로 끝난다.
+  function sheetMoveUp(entry: MobileEntry) {
+    const parentId = trail.length >= 2 ? trail[trail.length - 2].id : rootId;
+    void sheetRun(async () => {
+      await mobileJson("/api/drive/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: entry.id,
+          targetFolderId: parentId,
+          expectedVersion: entry.version,
+        }),
+      });
+      closeSheet();
+      setNotice({ text: t("상위 폴더로 옮겼습니다"), kind: "info" });
+      reload();
+    });
+  }
+
+  function sheetQuickLink(entry: MobileEntry) {
+    void sheetRun(async () => {
+      const body = await mobileJson<{ link?: { linkId?: string } }>(
+        "/api/drive/share-link",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: entry.id, expiresInHours: 1 }),
+        },
+      );
+      if (!body.link?.linkId) throw new Error(t("공유 링크를 만들지 못했습니다"));
+      const url = `${window.location.origin}/api/share/${body.link.linkId}`;
+      closeSheet();
+      try {
+        await navigator.clipboard.writeText(url);
+        setNotice({
+          text: t("1시간 공유 링크를 만들어 복사했습니다."),
+          kind: "info",
+        });
+      } catch {
+        setNotice({ text: url, kind: "info" });
+      }
+    });
+  }
+
+  function sheetColor(entry: MobileEntry, color: string | null) {
+    void sheetRun(async () => {
+      await mobileJson("/api/desktop/folder-color", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, color }),
+      });
+      closeSheet();
+      reload();
+    });
+  }
+
+  function sheetProperties(entry: MobileEntry) {
+    void sheetRun(async () => {
+      const data = await mobileJson<{
+        entry: { size: number | null; modifiedAt: string | null };
+        uploadedBy: string | null;
+        uploadedAt: string | null;
+        downloadCount: number | null;
+      }>(`/api/drive/properties?id=${encodeURIComponent(entry.id)}`, {
+        cache: "no-store",
+      });
+      setSheetInfo({
+        uploadedBy: data.uploadedBy,
+        uploadedAt: data.uploadedAt,
+        downloadCount: data.downloadCount,
+        size: data.entry.size,
+        modifiedAt: data.entry.modifiedAt,
+      });
+    });
   }
 
   async function createFolder() {
@@ -502,7 +718,9 @@ export default function MobileFilesView({
                   <button
                     type="button"
                     className={styles.row}
+                    {...longPressProps(hit.entry)}
                     onClick={() => {
+                      if (consumeLongPress()) return;
                       if (hit.entry.isFolder) {
                         goToCrumbs([
                           ...hit.breadcrumbs,
@@ -546,7 +764,11 @@ export default function MobileFilesView({
               <button
                 type="button"
                 className={styles.row}
-                onClick={() => openEntry(entry)}
+                {...longPressProps(entry)}
+                onClick={() => {
+                  if (consumeLongPress()) return;
+                  openEntry(entry);
+                }}
               >
                 <span className={styles.rowIcon} aria-hidden="true">
                   <PixelFileIcon entry={entry} size={28} />
@@ -569,6 +791,127 @@ export default function MobileFilesView({
           ))
         )}
       </ul>
+
+      {sheet && (
+        <div
+          className={styles.sheetBackdrop}
+          role="presentation"
+          onClick={closeSheet}
+        >
+          <div
+            className={styles.sheet}
+            role="menu"
+            aria-label={t("{name} 메뉴", { name: sheet.name })}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <strong className={styles.sheetTitle}>{sheet.name}</strong>
+            {sheetInfo ? (
+              <dl className={styles.sheetProps}>
+                <dt>{t("올린 사람")}</dt>
+                <dd>
+                  {sheetInfo.uploadedBy ?? t("기록 없음")}
+                  {sheetInfo.uploadedAt
+                    ? ` · ${new Date(sheetInfo.uploadedAt).toLocaleString()}`
+                    : ""}
+                </dd>
+                {!sheet.isFolder && (
+                  <>
+                    <dt>{t("크기")}</dt>
+                    <dd>{formatSize(sheetInfo.size)}</dd>
+                  </>
+                )}
+                <dt>{t("마지막 수정")}</dt>
+                <dd>
+                  {sheetInfo.modifiedAt
+                    ? new Date(sheetInfo.modifiedAt).toLocaleString()
+                    : "—"}
+                </dd>
+                {sheetInfo.downloadCount !== null && (
+                  <>
+                    <dt>{t("내려받기")}</dt>
+                    <dd>{t("{count}번", { count: sheetInfo.downloadCount })}</dd>
+                  </>
+                )}
+              </dl>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => sheetRename(sheet)}
+                >
+                  {t("이름 바꾸기")}
+                </button>
+                {trail.length > 0 && sheet.version && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => sheetMoveUp(sheet)}
+                  >
+                    {t("상위 폴더로 이동")}
+                  </button>
+                )}
+                {!sheet.isFolder && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => sheetQuickLink(sheet)}
+                  >
+                    {t("1시간 빠른 공유")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => sheetProperties(sheet)}
+                >
+                  {t("속성")}
+                </button>
+                {sheet.isFolder && allowUpload && (
+                  <div
+                    className={styles.sheetSwatches}
+                    role="group"
+                    aria-label={t("폴더 색")}
+                  >
+                    <button
+                      type="button"
+                      className={styles.sheetSwatch}
+                      data-color="default"
+                      title={t("기본")}
+                      aria-label={t("기본")}
+                      disabled={busy}
+                      onClick={() => sheetColor(sheet, null)}
+                    />
+                    {FOLDER_COLOR_IDS.map((colorId) => (
+                      <button
+                        key={colorId}
+                        type="button"
+                        className={styles.sheetSwatch}
+                        data-color={colorId}
+                        title={t(FOLDER_COLOR_LABELS[colorId])}
+                        aria-label={t(FOLDER_COLOR_LABELS[colorId])}
+                        disabled={busy}
+                        onClick={() => sheetColor(sheet, colorId)}
+                      />
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  className={styles.sheetDanger}
+                  disabled={busy}
+                  onClick={() => sheetTrash(sheet)}
+                >
+                  {t("휴지통에 넣기")}
+                </button>
+              </>
+            )}
+            <button type="button" onClick={closeSheet}>
+              {t("닫기")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {progress && (
         <div className={styles.uploadProgress} role="status">

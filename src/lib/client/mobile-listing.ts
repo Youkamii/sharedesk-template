@@ -6,6 +6,10 @@ export interface MobileEntry {
   isFolder: boolean;
   size: number | null;
   mimeType: string | null;
+  // 목록 응답에 함께 오는 낙관적 버전 — 이동(move)의 expectedVersion에 쓴다.
+  // 없으면 이동 동작을 감춘다(#15 A-1).
+  version?: string;
+  modifiedAt?: string | null;
 }
 
 const UNITS = ["KB", "MB", "GB", "TB"] as const;

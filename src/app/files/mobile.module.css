@@ -333,6 +333,104 @@
   background: #ffd27d;
 }
 
+/* 롱프레스 액션 시트(#15 A-1) — 하단에서 올라오는 도트 패널. */
+.sheetBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(8 13 28 / 62%);
+}
+
+.sheet {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 14px max(14px, env(safe-area-inset-bottom));
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border-top: 2px solid #10172b;
+  box-shadow: inset 0 2px 0 #fff8e7;
+}
+
+.sheetTitle {
+  overflow: hidden;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #d8c7a5;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet button {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  color: #10172b;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 14px;
+}
+
+.sheet button:active:not(:disabled) {
+  background: #ffd27d;
+}
+
+.sheet button:disabled {
+  color: #9c8c78;
+}
+
+.sheet .sheetDanger {
+  color: #fff4d2;
+  background: #a3323c;
+}
+
+.sheetSwatches {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.sheet .sheetSwatch {
+  width: 36px;
+  min-height: 36px;
+  flex: none;
+  padding: 0;
+}
+
+.sheetSwatch[data-color="default"] { background: #ffd98b; }
+.sheetSwatch[data-color="red"] { background: #e96872; }
+.sheetSwatch[data-color="orange"] { background: #e7a064; }
+.sheetSwatch[data-color="yellow"] { background: #ffd27d; }
+.sheetSwatch[data-color="green"] { background: #8fbf7f; }
+.sheetSwatch[data-color="blue"] { background: #79a8e8; }
+.sheetSwatch[data-color="indigo"] { background: #6f6fb0; }
+.sheetSwatch[data-color="violet"] { background: #a97fc9; }
+
+.sheetProps {
+  display: grid;
+  margin: 0;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 6px 10px;
+  font-size: 13px;
+}
+
+.sheetProps dt {
+  color: #686474;
+}
+
+.sheetProps dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .logoutButton {
   min-width: 44px;
   min-height: 36px;

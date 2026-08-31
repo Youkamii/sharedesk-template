@@ -287,3 +287,39 @@ test("QR은 링크 네 곳과 초대 코드에 붙고, 가입 화면은 코드�
   );
   assert.match(joinPage, /initialCode=\{code\}/);
 });
+
+test("롱프레스 시트로 폰에서 파일을 정리한다 (#15 A-1)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // 길게 누르면(500ms) 시트가 뜨고, 발동 직후의 click은 삼킨다.
+  assert.match(source, /\{\.\.\.longPressProps\(entry\)\}/);
+  assert.match(source, /\{\.\.\.longPressProps\(hit\.entry\)\}/, "검색 결과에서도");
+  assert.match(source, /\}, 500\);/);
+  assert.match(source, /if \(consumeLongPress\(\)\) return;/);
+
+  // 이름 변경·이동은 서버의 낙관적 잠금(expectedVersion)을 그대로 쓴다.
+  const renameBlock = source.slice(
+    source.indexOf("function sheetRename"),
+    source.indexOf("function sheetTrash"),
+  );
+  assert.match(renameBlock, /expectedVersion: entry\.version/);
+  const moveBlock = source.slice(
+    source.indexOf("function sheetMoveUp"),
+    source.indexOf("function sheetQuickLink"),
+  );
+  assert.match(moveBlock, /expectedVersion: entry\.version/);
+
+  // 시트가 제공하는 동작: 이름·휴지통·1시간 링크·속성·폴더 색.
+  for (const route of [
+    "/api/drive/rename",
+    "/api/drive/delete",
+    "/api/drive/share-link",
+    "/api/drive/properties",
+    "/api/desktop/folder-color",
+  ]) {
+    assert.ok(source.includes(route), `${route} 호출이 없다`);
+  }
+});
