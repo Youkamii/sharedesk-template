@@ -54,8 +54,11 @@ function rsRemainder(data: Uint8Array, degree: number): Uint8Array {
     remainder.copyWithin(0, 1);
     remainder[degree - 1] = 0;
     if (factor === 0) continue;
+    // generator는 오름차순 계수(인덱스=차수)다. 나눗셈 레지스터는
+    // 최고차부터 소거하므로 x^(degree-1-i) 계수를 곱해야 한다 — 순서를
+    // 뒤집으면 EC 코드워드 전체가 틀려 스캐너가 읽지 못한다(red-review).
     for (let i = 0; i < degree; i += 1) {
-      remainder[i] ^= gfMul(generator[i + 1], factor);
+      remainder[i] ^= gfMul(generator[degree - 1 - i], factor);
     }
   }
   return remainder;
@@ -264,10 +267,17 @@ function placeFunctionPatterns(matrix: Matrix, version: number) {
       matrix.reserved[8 * size + i] = 1;
       matrix.reserved[i * size + 8] = 1;
     }
-    matrix.reserved[8 * size + (size - 1 - i)] = 1;
-    matrix.reserved[(size - 1 - i) * size + 8] = 1;
   }
   matrix.reserved[8 * size + 8] = 1;
+  // 사본 2 자리 — 오른쪽 위 행 8칸 + 왼쪽 아래 열 7칸. 한 칸이라도 더
+  // 예약하면(예: x=size-9) 그 자리는 데이터 모듈이라 지그재그 배치 전체가
+  // 밀려 스캔이 깨진다(red-review).
+  for (let i = 0; i <= 7; i += 1) {
+    matrix.reserved[8 * size + (size - 1 - i)] = 1;
+  }
+  for (let i = 0; i <= 6; i += 1) {
+    matrix.reserved[(size - 1 - i) * size + 8] = 1;
+  }
   // 다크 모듈.
   set(matrix, 8, size - 8, true);
   // 버전 정보(7 이상).
@@ -338,23 +348,21 @@ function applyMask(matrix: Matrix, mask: number) {
 function writeFormat(matrix: Matrix, mask: number) {
   const size = matrix.size;
   const bits = FORMAT_M[mask];
-  const bit = (i: number) => ((bits >> i) & 1) === 1;
-  // 사본 1 — 왼쪽 위.
-  for (let i = 0; i <= 5; i += 1) matrix.modules[8 * size + i] = bit(i) ? 1 : 0;
-  matrix.modules[8 * size + 7] = bit(6) ? 1 : 0;
-  matrix.modules[8 * size + 8] = bit(7) ? 1 : 0;
-  matrix.modules[7 * size + 8] = bit(8) ? 1 : 0;
-  for (let i = 9; i <= 14; i += 1) {
-    matrix.modules[(14 - i) * size + 8] = bit(i) ? 1 : 0;
-  }
-  // 사본 2 — 왼쪽 아래 열(비트 0~6) + 오른쪽 위 행(비트 7~14).
-  // 열은 7비트에서 멈춘다: 그 아래 칸(size-8)은 다크 모듈 자리다.
-  for (let i = 0; i <= 6; i += 1) {
-    matrix.modules[(size - 1 - i) * size + 8] = bit(i) ? 1 : 0;
-  }
-  for (let i = 7; i <= 14; i += 1) {
-    matrix.modules[8 * size + (size - 15 + i)] = bit(i) ? 1 : 0;
-  }
+  const put = (x: number, y: number, i: number) => {
+    matrix.modules[y * size + x] = ((bits >> i) & 1) === 1 ? 1 : 0;
+  };
+  // 표준 배치(ISO 18004). 처음 구현은 두 사본 모두 진행 방향이 표준과
+  // 정반대라 스캐너가 마스크조차 판독하지 못했다(red-review — 자체
+  // 테스트는 같은 뒤집힌 규약으로 읽어서 통과했었다).
+  // 사본 1: 왼쪽 위 열(비트 0~7, 타이밍 6은 건너뜀) → 행(비트 8~14).
+  for (let i = 0; i <= 5; i += 1) put(8, i, i);
+  put(8, 7, 6);
+  put(8, 8, 7);
+  put(7, 8, 8);
+  for (let i = 9; i <= 14; i += 1) put(14 - i, 8, i);
+  // 사본 2: 오른쪽 위 행(비트 0~7) + 왼쪽 아래 열(비트 8~14).
+  for (let i = 0; i <= 7; i += 1) put(size - 1 - i, 8, i);
+  for (let i = 8; i <= 14; i += 1) put(8, size - 15 + i, i);
 }
 
 // 마스크 벌점(N1~N4).

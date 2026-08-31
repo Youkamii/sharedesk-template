@@ -10,13 +10,15 @@ const FORMAT_M = [
 
 function readFormat(modules: boolean[][]): number {
   const size = modules.length;
-  // 사본 2에서 읽는다 — 표준 배치: 왼쪽 아래 열 7비트 + 오른쪽 위 행 8비트.
+  // 사본 2에서 표준 배치(ISO 18004)대로 읽는다: 오른쪽 위 행 8비트 +
+  // 왼쪽 아래 열 7비트. 인코더와 같은 커스텀 규약으로 읽으면 배치가
+  // 통째로 틀려도 통과해 버린다 — 실제로 그랬다(red-review).
   let bits = 0;
-  for (let i = 0; i <= 6; i += 1) {
-    bits |= (modules[size - 1 - i][8] ? 1 : 0) << i;
+  for (let i = 0; i <= 7; i += 1) {
+    bits |= (modules[8][size - 1 - i] ? 1 : 0) << i;
   }
-  for (let i = 7; i <= 14; i += 1) {
-    bits |= (modules[8][size - 15 + i] ? 1 : 0) << i;
+  for (let i = 8; i <= 14; i += 1) {
+    bits |= (modules[size - 15 + i][8] ? 1 : 0) << i;
   }
   return bits;
 }
@@ -100,5 +102,48 @@ test("SVG 패스는 quiet zone을 지키고 어두운 칸 수와 일치한다", 
   for (const rect of rects) {
     const [, x, y] = rect.match(/M(\d+) (\d+)/)!;
     assert.ok(Number(x) >= 4 && Number(y) >= 4);
+  }
+});
+
+// ── 실디코더 교차 검증 ───────────────────────────────────────────────
+// 구조 테스트는 인코더와 같은 가정을 공유하면 함께 틀릴 수 있다 — 실제로
+// 포맷 배치가 역순인데 자체 리더도 역순으로 읽어 통과했었다(red-review).
+// 독립 구현(jsQR, devDependency)으로 "폰이 읽는가"를 직접 판정한다.
+import jsQR from "jsqr";
+
+function rasterize(modules: boolean[][], scale = 4, quiet = 4) {
+  const size = (modules.length + quiet * 2) * scale;
+  const data = new Uint8ClampedArray(size * size * 4).fill(255);
+  for (let y = 0; y < modules.length; y += 1) {
+    for (let x = 0; x < modules.length; x += 1) {
+      if (!modules[y][x]) continue;
+      for (let dy = 0; dy < scale; dy += 1) {
+        for (let dx = 0; dx < scale; dx += 1) {
+          const index =
+            (((y + quiet) * scale + dy) * size + (x + quiet) * scale + dx) * 4;
+          data[index] = 0;
+          data[index + 1] = 0;
+          data[index + 2] = 0;
+        }
+      }
+    }
+  }
+  return { data, width: size, height: size };
+}
+
+test("독립 디코더(jsQR)가 모든 버전대의 QR을 원문 그대로 읽는다", () => {
+  const samples = [
+    "https://a.io/x",
+    "https://youkamii-sharedesk.vercel.app/join?code=ABCD-EFGH-IJKL-MNOP",
+    "https://youkamii-sharedesk.vercel.app/api/share/" + "f".repeat(48),
+    "한글 링크도 그대로 https://example.com/공유",
+    "x".repeat(180),
+  ];
+  for (const text of samples) {
+    const qr = encodeQr(text);
+    const image = rasterize(qr.modules);
+    const decoded = jsQR(image.data, image.width, image.height);
+    assert.ok(decoded, `디코드 실패 (v${qr.version}): ${text.slice(0, 40)}…`);
+    assert.equal(decoded!.data, text, `내용 불일치 (v${qr.version})`);
   }
 });

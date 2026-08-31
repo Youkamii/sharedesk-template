@@ -106,7 +106,13 @@ export default function MobileFilesView({
   const searchSeqRef = useRef(0);
   // 롱프레스 액션 시트(#15 A-1). 폰에는 우클릭이 없다 — 길게 누르면
   // 파일 정리 동작이 올라온다.
-  const [sheet, setSheet] = useState<MobileEntry | null>(null);
+  // moveUpTo: "상위 폴더로 이동"의 목적지. 목록에서는 탐색 경로 기준,
+  // 검색 결과에서는 그 항목의 실제 breadcrumbs 기준 — 검색에서 trail을
+  // 쓰면 보고 있지도 않던 폴더로 배송된다(red-review).
+  const [sheet, setSheet] = useState<{
+    entry: MobileEntry;
+    moveUpTo: string | null;
+  } | null>(null);
   const [sheetInfo, setSheetInfo] = useState<{
     uploadedBy: string | null;
     uploadedAt: string | null;
@@ -139,6 +145,13 @@ export default function MobileFilesView({
   );
 
   const currentId = trail.length > 0 ? trail[trail.length - 1].id : rootId;
+  // 목록 항목의 "상위 폴더로 이동" 목적지 — 루트에서는 없음.
+  const listMoveUpTo =
+    trail.length > 0
+      ? trail.length >= 2
+        ? trail[trail.length - 2].id
+        : rootId
+      : null;
   const currentName =
     trail.length > 0 ? trail[trail.length - 1].name : t("공유 바탕화면");
 
@@ -283,7 +296,7 @@ export default function MobileFilesView({
 
   // 길게 누르면(500ms) 시트, 움직이면 취소. 안드로이드는 롱프레스가
   // contextmenu로도 오므로 함께 받는다. 발동 직후의 click은 삼킨다.
-  function longPressProps(entry: MobileEntry) {
+  function longPressProps(entry: MobileEntry, moveUpTo: string | null) {
     const cancel = () => {
       if (longPressTimerRef.current !== null) {
         window.clearTimeout(longPressTimerRef.current);
@@ -297,7 +310,7 @@ export default function MobileFilesView({
         longPressTimerRef.current = window.setTimeout(() => {
           longPressTimerRef.current = null;
           suppressClickRef.current = true;
-          setSheet(entry);
+          setSheet({ entry, moveUpTo });
         }, 500);
       },
       onPointerUp: cancel,
@@ -308,7 +321,7 @@ export default function MobileFilesView({
         event.preventDefault();
         cancel();
         suppressClickRef.current = true;
-        setSheet(entry);
+        setSheet({ entry, moveUpTo });
       },
     };
   }
@@ -378,22 +391,24 @@ export default function MobileFilesView({
   }
 
   // 이동은 폴더 픽커 대신 "상위 폴더로"만 — 폰에서 가장 흔한 정리 동선이고
-  // 목록 응답의 version(낙관적 잠금)만으로 끝난다.
-  function sheetMoveUp(entry: MobileEntry) {
-    const parentId = trail.length >= 2 ? trail[trail.length - 2].id : rootId;
+  // 목록 응답의 version(낙관적 잠금)만으로 끝난다. 목적지는 시트를 열 때
+  // 항목의 문맥(목록=trail, 검색=breadcrumbs)에서 이미 계산돼 있다.
+  function sheetMoveUp(entry: MobileEntry, targetFolderId: string) {
     void sheetRun(async () => {
       await mobileJson("/api/drive/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: entry.id,
-          targetFolderId: parentId,
+          targetFolderId,
           expectedVersion: entry.version,
         }),
       });
       closeSheet();
       setNotice({ text: t("상위 폴더로 옮겼습니다"), kind: "info" });
       reload();
+      // 검색 결과가 떠 있으면 그 목록도 낡았다 — 같은 검색어로 갱신.
+      if (searchState?.status === "done") void runSearch(searchState.query);
     });
   }
 
@@ -487,20 +502,11 @@ export default function MobileFilesView({
     if (log) log.scrollTop = log.scrollHeight;
   }, [chatMessages]);
 
-  useEffect(() => {
-    // 접속 표시(#15 A-6) — 폰으로 들어와 있어도 데스크톱의 접속자 목록에
-    // 보인다. 빈 본문이면 서버가 세션의 lease로 처리한다.
-    const ping = () =>
-      void fetch(apiPath("/api/presence"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-        cache: "no-store",
-      }).catch(() => undefined);
-    ping();
-    const timer = window.setInterval(ping, 30_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // 접속 표시는 이 컴포넌트가 직접 보내지 않는다 — FilesView는 훅을 전부
+  // 돌린 뒤에 모바일 분기로 갈라지므로, 데스크톱 presence 하트비트(tabId·
+  // transfers를 갖춘 정식 본문)가 폰에서도 이미 돌고 있다. 여기서 어설픈
+  // 핑을 더 보내면 서버 검증(tabId·transfers 필수)에 걸려 400만 쌓는다
+  // (red-review — 처음 넣었던 빈 본문 핑이 정확히 그 꼴이었다).
 
   async function sendChat() {
     const text = chatText.trim();
@@ -836,7 +842,14 @@ export default function MobileFilesView({
                   <button
                     type="button"
                     className={styles.row}
-                    {...longPressProps(hit.entry)}
+                    {...longPressProps(
+                      hit.entry,
+                      // 검색 히트의 실제 위치 기준: 마지막 칸이 부모,
+                      // 그 앞 칸이 "상위" 목적지다. 루트 직속이면 없음.
+                      hit.breadcrumbs.length >= 2
+                        ? hit.breadcrumbs[hit.breadcrumbs.length - 2].id
+                        : null,
+                    )}
                     onClick={() => {
                       if (consumeLongPress()) return;
                       if (hit.entry.isFolder) {
@@ -882,7 +895,7 @@ export default function MobileFilesView({
               <button
                 type="button"
                 className={styles.row}
-                {...longPressProps(entry)}
+                {...longPressProps(entry, listMoveUpTo)}
                 onClick={() => {
                   if (consumeLongPress()) return;
                   openEntry(entry);
@@ -984,10 +997,10 @@ export default function MobileFilesView({
           <div
             className={styles.sheet}
             role="menu"
-            aria-label={t("{name} 메뉴", { name: sheet.name })}
+            aria-label={t("{name} 메뉴", { name: sheet.entry.name })}
             onClick={(event) => event.stopPropagation()}
           >
-            <strong className={styles.sheetTitle}>{sheet.name}</strong>
+            <strong className={styles.sheetTitle}>{sheet.entry.name}</strong>
             {sheetInfo ? (
               <dl className={styles.sheetProps}>
                 <dt>{t("올린 사람")}</dt>
@@ -997,7 +1010,7 @@ export default function MobileFilesView({
                     ? ` · ${new Date(sheetInfo.uploadedAt).toLocaleString()}`
                     : ""}
                 </dd>
-                {!sheet.isFolder && (
+                {!sheet.entry.isFolder && (
                   <>
                     <dt>{t("크기")}</dt>
                     <dd>{formatSize(sheetInfo.size)}</dd>
@@ -1021,24 +1034,24 @@ export default function MobileFilesView({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => sheetRename(sheet)}
+                  onClick={() => sheetRename(sheet.entry)}
                 >
                   {t("이름 바꾸기")}
                 </button>
-                {trail.length > 0 && sheet.version && (
+                {sheet.moveUpTo && sheet.entry.version && (
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => sheetMoveUp(sheet)}
+                    onClick={() => sheetMoveUp(sheet.entry, sheet.moveUpTo!)}
                   >
                     {t("상위 폴더로 이동")}
                   </button>
                 )}
-                {!sheet.isFolder && (
+                {!sheet.entry.isFolder && (
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => sheetQuickLink(sheet)}
+                    onClick={() => sheetQuickLink(sheet.entry)}
                   >
                     {t("1시간 빠른 공유")}
                   </button>
@@ -1046,11 +1059,11 @@ export default function MobileFilesView({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => sheetProperties(sheet)}
+                  onClick={() => sheetProperties(sheet.entry)}
                 >
                   {t("속성")}
                 </button>
-                {sheet.isFolder && allowUpload && (
+                {sheet.entry.isFolder && allowUpload && (
                   <div
                     className={styles.sheetSwatches}
                     role="group"
@@ -1063,7 +1076,7 @@ export default function MobileFilesView({
                       title={t("기본")}
                       aria-label={t("기본")}
                       disabled={busy}
-                      onClick={() => sheetColor(sheet, null)}
+                      onClick={() => sheetColor(sheet.entry, null)}
                     />
                     {FOLDER_COLOR_IDS.map((colorId) => (
                       <button
@@ -1074,7 +1087,7 @@ export default function MobileFilesView({
                         title={t(FOLDER_COLOR_LABELS[colorId])}
                         aria-label={t(FOLDER_COLOR_LABELS[colorId])}
                         disabled={busy}
-                        onClick={() => sheetColor(sheet, colorId)}
+                        onClick={() => sheetColor(sheet.entry, colorId)}
                       />
                     ))}
                   </div>
@@ -1083,7 +1096,7 @@ export default function MobileFilesView({
                   type="button"
                   className={styles.sheetDanger}
                   disabled={busy}
-                  onClick={() => sheetTrash(sheet)}
+                  onClick={() => sheetTrash(sheet.entry)}
                 >
                   {t("휴지통에 넣기")}
                 </button>

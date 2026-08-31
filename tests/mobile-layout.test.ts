@@ -295,10 +295,19 @@ test("롱프레스 시트로 폰에서 파일을 정리한다 (#15 A-1)", async 
   );
 
   // 길게 누르면(500ms) 시트가 뜨고, 발동 직후의 click은 삼킨다.
-  assert.match(source, /\{\.\.\.longPressProps\(entry\)\}/);
-  assert.match(source, /\{\.\.\.longPressProps\(hit\.entry\)\}/, "검색 결과에서도");
+  assert.match(source, /\{\.\.\.longPressProps\(entry, listMoveUpTo\)\}/);
+  assert.match(
+    source,
+    /longPressProps\(\s*hit\.entry,[\s\S]{0,300}?hit\.breadcrumbs\[hit\.breadcrumbs\.length - 2\]\.id/,
+    "검색 결과의 이동 목적지는 trail이 아니라 그 항목의 breadcrumbs다",
+  );
   assert.match(source, /\}, 500\);/);
   assert.match(source, /if \(consumeLongPress\(\)\) return;/);
+  // 이동 목적지는 시트를 열 때 문맥에서 확정된다 — trail을 다시 보지 않는다.
+  assert.match(
+    source,
+    /function sheetMoveUp\(entry: MobileEntry, targetFolderId: string\)/,
+  );
 
   // 이름 변경·이동은 서버의 낙관적 잠금(expectedVersion)을 그대로 쓴다.
   const renameBlock = source.slice(
@@ -336,6 +345,8 @@ test("모바일 채팅은 열려 있을 때만 폴링하고 손님에겐 없다 
   assert.match(source, /if \(!chatOpen\) return;/);
   assert.match(source, /window\.setInterval\(\(\) => void loadChat\(false\), 4_000\)/);
   assert.match(source, /\/api\/chat\$\{after \? `\?after=/);
-  // 폰 접속자도 데스크톱 접속자 목록에 보인다 — presence 하트비트.
-  assert.match(source, /\/api\/presence/);
+  // presence 핑은 여기서 보내지 않는다 — FilesView가 훅을 전부 돌린 뒤
+  // 모바일 분기로 갈라지므로 정식 하트비트가 이미 동승한다. 빈 본문 핑을
+  // 추가하면 서버 검증(tabId·transfers)에 걸려 400만 쌓는다(red-review).
+  assert.doesNotMatch(source, /\/api\/presence/);
 });
