@@ -836,4 +836,5 @@ export const ZH: Record<string, string> = {
   "올리지 못했습니다 · {failures}": "上传失败 · {failures}",
   "(눌러서 닫기)": "（点按关闭）",
   "사진 찍기": "拍照",
+  "검색 닫기": "关闭搜索",
 };

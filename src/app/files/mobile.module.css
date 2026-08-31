@@ -251,6 +251,88 @@
   font-size: 11px;
 }
 
+/* 전체 검색(#15 A-3) — 상단 바를 검색 폼으로 전환한다. */
+.searchToggle {
+  display: flex;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  color: #fff8e7;
+  background: transparent;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  box-shadow: inset 1px 1px 0 rgb(255 248 231 / 25%);
+  font: inherit;
+  font-size: 16px;
+}
+
+.searchToggle:active {
+  color: #10172b;
+  background: #ffd27d;
+}
+
+.searchForm {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  gap: 6px;
+}
+
+.searchForm input {
+  min-width: 0;
+  flex: 1;
+  height: 36px;
+  padding: 0 8px;
+  color: #1b1b2f;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 14px;
+}
+
+.searchForm button {
+  min-width: 52px;
+  flex: none;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  font: inherit;
+  font-size: 13px;
+}
+
+.resultItem {
+  display: flex;
+  align-items: stretch;
+}
+
+.resultItem .row {
+  min-width: 0;
+  flex: 1;
+}
+
+.locButton {
+  width: 44px;
+  flex: none;
+  color: #7d7180;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #d8c7a5;
+  border-left: 1px solid #d8c7a5;
+  border-radius: 0;
+  font: inherit;
+  font-size: 11px;
+}
+
+.locButton:active {
+  color: #10172b;
+  background: #ffd27d;
+}
+
 .logoutButton {
   min-width: 44px;
   min-height: 36px;

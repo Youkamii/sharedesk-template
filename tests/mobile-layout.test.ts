@@ -204,3 +204,20 @@ test("모바일 독의 카메라 버튼은 찍자마자 같은 직행 경로로 
   const cameraBlock = source.slice(source.indexOf('capture="environment"'));
   assert.match(cameraBlock, /void uploadFiles\(event\.target\.files\)/);
 });
+
+test("모바일에서 전체 검색으로 찾고 원래 위치로 이동한다 (#15 A-3)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // 기존 검색 라우트를 그대로 쓴다 — 서버는 완성돼 있고 화면만 얹는다.
+  assert.match(source, /\/api\/drive\/search\?query=/);
+  // 늦게 도착한 옛 검색 응답이 새 결과를 덮으면 안 된다.
+  assert.match(source, /searchSeqRef\.current !== seq/);
+  // 결과에서 폴더는 그 폴더로, 위치 버튼은 담긴 폴더로 이동한다.
+  assert.match(source, /goToCrumbs\(\[\s*\.\.\.hit\.breadcrumbs,/);
+  assert.match(source, /goToCrumbs\(hit\.breadcrumbs\)/);
+  // 서버 breadcrumbs 첫 칸은 루트 — trail에는 루트를 넣지 않는다.
+  assert.match(source, /crumbs\.slice\(1\)/);
+});

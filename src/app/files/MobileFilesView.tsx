@@ -39,6 +39,13 @@ type Props = {
 // 들어온 폴더를 쌓아 두고 뒤로가기로 하나씩 벗긴다.
 type Crumb = { id: string; name: string };
 
+// 검색 결과 한 줄 — 서버 StorageSearchResult의 부분집합(#15 A-3).
+type SearchHit = {
+  entry: MobileEntry;
+  breadcrumbs: Crumb[];
+  path: string;
+};
+
 export default function MobileFilesView({
   locale,
   rootId,
@@ -70,6 +77,21 @@ export default function MobileFilesView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  // 전체 검색(#15 A-3). 서버(search.ts)는 완성돼 있고 화면만 얹는다.
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchState, setSearchState] = useState<
+    | { status: "loading"; query: string }
+    | {
+        status: "done";
+        query: string;
+        results: SearchHit[];
+        truncated: boolean;
+      }
+    | { status: "error"; query: string }
+    | null
+  >(null);
+  const searchSeqRef = useRef(0);
 
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
@@ -150,6 +172,55 @@ export default function MobileFilesView({
 
   function goUp() {
     setTrail((current) => current.slice(0, -1));
+  }
+
+  // 검색은 제출 시 1회 — 폰에서 타이핑마다 전체 트리를 훑게 하면 서버의
+  // 탐색 예산만 태운다.
+  async function runSearch(rawQuery: string) {
+    const query = rawQuery.trim();
+    if (!query) return;
+    const seq = ++searchSeqRef.current;
+    setSearchState({ status: "loading", query });
+    try {
+      const response = await fetch(
+        apiPath(
+          `/api/drive/search?query=${encodeURIComponent(query)}&folderId=${encodeURIComponent(rootId)}`,
+        ),
+        { cache: "no-store" },
+      );
+      if (response.status === 401) {
+        router.replace("/");
+        return;
+      }
+      if (!response.ok) throw new Error("search");
+      const body = (await response.json()) as {
+        results?: SearchHit[];
+        truncated?: boolean;
+      };
+      if (searchSeqRef.current !== seq) return; // 늦은 응답은 버린다
+      setSearchState({
+        status: "done",
+        query,
+        results: body.results ?? [],
+        truncated: body.truncated === true,
+      });
+    } catch {
+      if (searchSeqRef.current !== seq) return;
+      setSearchState({ status: "error", query });
+    }
+  }
+
+  function closeSearch() {
+    searchSeqRef.current += 1;
+    setSearchMode(false);
+    setSearchQuery("");
+    setSearchState(null);
+  }
+
+  // 서버 breadcrumbs의 첫 칸은 루트(ShareDesk)다 — trail은 루트를 뺀다.
+  function goToCrumbs(crumbs: Crumb[]) {
+    setTrail(crumbs.slice(1));
+    closeSearch();
   }
 
   async function createFolder() {
@@ -319,33 +390,73 @@ export default function MobileFilesView({
   return (
     <main className={styles.screen}>
       <header className={styles.bar}>
-        {trail.length > 0 ? (
-          <button
-            type="button"
-            className={styles.backButton}
-            onClick={goUp}
-            aria-label={t("뒤로")}
-          >
-            ◀
-          </button>
+        {searchMode ? (
+          <>
+            <button
+              type="button"
+              className={styles.backButton}
+              onClick={closeSearch}
+              aria-label={t("검색 닫기")}
+            >
+              ✕
+            </button>
+            <form
+              className={styles.searchForm}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void runSearch(searchQuery);
+              }}
+            >
+              <input
+                type="search"
+                value={searchQuery}
+                placeholder={t("파일 검색")}
+                aria-label={t("전체 파일 검색어")}
+                spellCheck={false}
+                onChange={(event) => setSearchQuery(event.target.value)}
+              />
+              <button type="submit">{t("검색")}</button>
+            </form>
+          </>
         ) : (
-          <span className={styles.brandMark} aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-        )}
-        <strong className={styles.title}>{currentName}</strong>
-        {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다 — 데스크
-            밖으로 나가는 문은 스페이스 선택 하나(로그아웃은 그 화면에),
-            손님만 로그아웃 직행이다(#14). */}
-        {isGuest ? (
-          <LogoutButton locale={locale} className={styles.logoutButton} />
-        ) : (
-          <a href="/spaces" className={styles.logoutButton}>
-            {t("나가기")}
-          </a>
+          <>
+            {trail.length > 0 ? (
+              <button
+                type="button"
+                className={styles.backButton}
+                onClick={goUp}
+                aria-label={t("뒤로")}
+              >
+                ◀
+              </button>
+            ) : (
+              <span className={styles.brandMark} aria-hidden="true">
+                <i />
+                <i />
+                <i />
+                <i />
+              </span>
+            )}
+            <strong className={styles.title}>{currentName}</strong>
+            <button
+              type="button"
+              className={styles.searchToggle}
+              onClick={() => setSearchMode(true)}
+              aria-label={t("전체 파일 검색")}
+            >
+              ⌕
+            </button>
+            {/* 목록 화면에는 작업표시줄이 없다. 나갈 길을 상단에 둔다 — 데스크
+                밖으로 나가는 문은 스페이스 선택 하나(로그아웃은 그 화면에),
+                손님만 로그아웃 직행이다(#14). */}
+            {isGuest ? (
+              <LogoutButton locale={locale} className={styles.logoutButton} />
+            ) : (
+              <a href="/spaces" className={styles.logoutButton}>
+                {t("나가기")}
+              </a>
+            )}
+          </>
         )}
       </header>
 
@@ -370,7 +481,60 @@ export default function MobileFilesView({
       )}
 
       <ul className={styles.list}>
-        {loading ? (
+        {searchState ? (
+          searchState.status === "loading" ? (
+            <li className={styles.empty} role="status">
+              {t("찾는 중")}
+            </li>
+          ) : searchState.status === "error" ? (
+            <li className={styles.empty}>{t("검색하지 못했어요")}</li>
+          ) : searchState.results.length === 0 ? (
+            <li className={styles.empty}>{t("검색 결과가 없습니다")}</li>
+          ) : (
+            <>
+              {searchState.truncated && (
+                <li className={styles.empty}>
+                  {t("일부 결과만 표시했습니다")}
+                </li>
+              )}
+              {searchState.results.map((hit) => (
+                <li key={hit.entry.id} className={styles.resultItem}>
+                  <button
+                    type="button"
+                    className={styles.row}
+                    onClick={() => {
+                      if (hit.entry.isFolder) {
+                        goToCrumbs([
+                          ...hit.breadcrumbs,
+                          { id: hit.entry.id, name: hit.entry.name },
+                        ]);
+                      } else {
+                        openEntry(hit.entry);
+                      }
+                    }}
+                  >
+                    <span className={styles.rowIcon} aria-hidden="true">
+                      <PixelFileIcon entry={hit.entry} size={28} />
+                    </span>
+                    <span className={styles.rowText}>
+                      <span className={styles.rowName}>{hit.entry.name}</span>
+                      <span className={styles.rowMeta}>{hit.path}</span>
+                    </span>
+                  </button>
+                  {/* 파일을 열지 않고 담긴 폴더로 가는 두 번째 손잡이. */}
+                  <button
+                    type="button"
+                    className={styles.locButton}
+                    aria-label={t("원래 위치 열기")}
+                    onClick={() => goToCrumbs(hit.breadcrumbs)}
+                  >
+                    ▶
+                  </button>
+                </li>
+              ))}
+            </>
+          )
+        ) : loading ? (
           <li className={styles.empty} role="status">
             {t("불러오는 중입니다…")}
           </li>
