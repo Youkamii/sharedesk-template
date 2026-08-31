@@ -189,3 +189,18 @@ test("모바일 업로드는 진행 상황을 실시간으로 보여준다 (#14)
   assert.match(mobile, /<progress max=\{100\} value=\{progress\.percent\} \/>/);
   assert.match(css, /\.uploadProgress \{/);
 });
+
+test("모바일 독의 카메라 버튼은 찍자마자 같은 직행 경로로 올린다 (#15 A-2)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  // capture가 폰에서 카메라를 바로 연다 — 갤러리 경유 3단계를 없앤다.
+  assert.match(source, /accept="image\/\*"/);
+  assert.match(source, /capture="environment"/);
+  assert.match(source, /사진 찍기/);
+  // 카메라 입력도 일반 업로드와 같은 uploadFiles(직행 세션·진행 표시)를 탄다.
+  const cameraBlock = source.slice(source.indexOf('capture="environment"'));
+  assert.match(cameraBlock, /void uploadFiles\(event\.target\.files\)/);
+});

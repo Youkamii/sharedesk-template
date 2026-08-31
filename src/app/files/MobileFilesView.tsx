@@ -68,6 +68,8 @@ export default function MobileFilesView({
     percent: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
@@ -429,6 +431,14 @@ export default function MobileFilesView({
             <span aria-hidden="true">⬆</span>
             {t("올리기")}
           </button>
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={busy}
+          >
+            <span aria-hidden="true">◉</span>
+            {t("사진 찍기")}
+          </button>
           <button type="button" onClick={createFolder} disabled={busy}>
             <span aria-hidden="true">＋</span>
             {t("새 폴더")}
@@ -437,6 +447,22 @@ export default function MobileFilesView({
             ref={fileInputRef}
             type="file"
             multiple
+            className={styles.hiddenInput}
+            onChange={(event) => {
+              if (event.target.files?.length) {
+                void uploadFiles(event.target.files);
+              }
+              event.target.value = "";
+            }}
+          />
+          {/* capture는 폰에서 카메라를 바로 연다. 카메라가 없는 환경은
+              브라우저가 알아서 파일 선택으로 폴백한다. 업로드는 위와 같은
+              직행 경로(uploadFiles → uploadOne)라 크기 상한이 없다. */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
             className={styles.hiddenInput}
             onChange={(event) => {
               if (event.target.files?.length) {

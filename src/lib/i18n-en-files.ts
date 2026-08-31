@@ -603,4 +603,5 @@ export const EN_FILES: Record<string, string> = {
   "두 번 눌러 열기": "Double-click to open",
   "올리지 못했습니다 · {failures}": "Upload failed · {failures}",
   "(눌러서 닫기)": "(tap to dismiss)",
+  "사진 찍기": "Take a photo",
 };
