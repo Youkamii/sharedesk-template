@@ -1360,6 +1360,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                         <QrCodeToggle
                           value={`${window.location.origin}/join?code=${encodeURIComponent(lastAccess.code)}`}
                           label="QR"
+                          closeLabel={t("닫기")}
                           className={buttonClass}
                         />
                       </div>
@@ -1480,6 +1481,7 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                       <QrCodeToggle
                                         value={`${window.location.origin}/join?code=${encodeURIComponent(invitation.code!)}`}
                                         label="QR"
+                                        closeLabel={t("닫기")}
                                         className={buttonClass}
                                       />
                                       </>

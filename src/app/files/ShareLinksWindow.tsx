@@ -209,6 +209,7 @@ export default function ShareLinksWindow({
                   <QrCodeToggle
                     value={`${window.location.origin}/api/share/${link.linkId}`}
                     label="QR"
+                    closeLabel={t("닫기")}
                   />
                   <button
                     type="button"

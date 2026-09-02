@@ -1313,13 +1313,60 @@
   margin: 0;
 }
 
-/* 공개 폴더 관리 탭의 간격(#14): 행 안 요소는 flex gap, 항목 사이는
-   구분선과 여백으로 띄운다. */
-.folderRow {
+/* 공개 폴더 관리 탭(#14): 이름·상태는 머리줄, 버튼은 그 아래 액션줄로
+   분리한다 — 한 flex 줄에 전부 섞여 "중구난방"이던 배치를 정리(#16 전 UI 지적). */
+.createForm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-top: 16px;
+  padding: 14px;
+  background: #e5d6b7;
+  border: 2px solid #8f806d;
+  box-shadow:
+    inset 2px 2px 0 var(--admin-paper),
+    inset -2px -2px 0 #a38e71;
+}
+
+.createForm .field {
+  flex: 1;
+  min-width: 220px;
+}
+
+.createForm .pixelButton {
+  min-height: 40px;
+}
+
+.folderHead {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.folderHead strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.folderActions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dotted #b7a98e;
+}
+
+/* 위험 동작(등록 해제)은 오른쪽 끝으로 밀어 일반 버튼 무리와 떼어 놓는다. */
+.folderRemove {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
 }
 
 .folderDetail {

@@ -444,6 +444,7 @@ export default function QuickLinkWindow({
                   <QrCodeToggle
                     value={shareUrl(item.link.linkId)}
                     label="QR"
+                    closeLabel={t("닫기")}
                   />
                   <button
                     type="button"

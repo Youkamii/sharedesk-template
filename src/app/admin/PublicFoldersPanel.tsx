@@ -373,6 +373,7 @@ export default function PublicFoldersPanel({
           {notice && <p role="status">{notice}</p>}
 
           <form
+            className={styles.createForm}
             onSubmit={(event) => {
               event.preventDefault();
               void createFolder();
@@ -407,11 +408,13 @@ export default function PublicFoldersPanel({
                 const opened = openId === folder.id;
                 return (
                   <li key={folder.id}>
-                    <div className={styles.folderRow}>
+                    <div className={styles.folderHead}>
                       <strong>{folder.name}</strong>
                       <span className={styles.statusBadge}>
                         {statusLabel(folder)}
                       </span>
+                    </div>
+                    <div className={styles.folderActions}>
                       <button
                         type="button"
                         className={styles.pixelButton}
@@ -435,6 +438,7 @@ export default function PublicFoldersPanel({
                       <QrCodeToggle
                         value={`${window.location.origin}${folder.url}`}
                         label="QR"
+                        closeLabel={t("닫기")}
                         className={styles.pixelButton}
                       />
                       <button
@@ -455,13 +459,13 @@ export default function PublicFoldersPanel({
                         {opened ? t("접기") : t("설정·파일")}
                       </button>
                       {confirmRemove === folder.id ? (
-                        <>
+                        <span className={styles.folderRemove}>
                           <span className={styles.muted}>
                             {t("정말 해제할까요?")}
                           </span>
                           <button
                             type="button"
-                            className={styles.dangerButton}
+                            className={`${styles.pixelButton} ${styles.dangerButton}`}
                             disabled={busy}
                             onClick={() => void removeRegistration(folder)}
                           >
@@ -474,11 +478,11 @@ export default function PublicFoldersPanel({
                           >
                             {t("취소")}
                           </button>
-                        </>
+                        </span>
                       ) : (
                         <button
                           type="button"
-                          className={styles.dangerButton}
+                          className={`${styles.pixelButton} ${styles.dangerButton} ${styles.folderRemove}`}
                           onClick={() => setConfirmRemove(folder.id)}
                         >
                           {t("등록 해제")}
@@ -691,7 +695,7 @@ export default function PublicFoldersPanel({
                                 </span>
                                 <button
                                   type="button"
-                                  className={styles.dangerButton}
+                                  className={`${styles.pixelButton} ${styles.dangerButton}`}
                                   disabled={busy}
                                   onClick={() => void deleteEntry(folder, entry)}
                                 >

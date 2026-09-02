@@ -447,6 +447,7 @@ export default function ShareLinkDialog({
                   <QrCodeToggle
                     value={shareUrl(createdLinkId)}
                     label="QR"
+                    closeLabel={t("닫기")}
                     className={styles.secondaryButton}
                     style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
                   />
