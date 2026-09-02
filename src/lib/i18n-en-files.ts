@@ -551,6 +551,8 @@ export const EN_FILES: Record<string, string> = {
 
   // 공개 폴더 화면 (#10)
   "공개폴더: {name}": "Public folder: {name}",
+  "관리자: 아이콘을 끌어 위치를 바꿀 수 있습니다": "Admin: drag icons to rearrange them",
+  "위치를 저장하지 못했습니다": "Couldn't save the position",
   "이 공개 폴더는 닫혀 있습니다": "This public folder is closed",
   "아직 파일이 없습니다": "No files yet",
   "올리는 중 {current}/{total}": "Uploading {current}/{total}",

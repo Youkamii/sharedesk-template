@@ -110,11 +110,14 @@ export default function PublicFolderView({
   token,
   name,
   isDeskUser,
+  isAdmin,
   locale,
 }: {
   token: string;
   name: string;
   isDeskUser: boolean;
+  // 관리자만 아이콘을 끌어 배치를 바꾼다(방문자가 보는 위치가 된다).
+  isAdmin: boolean;
   locale: Locale;
 }) {
   const t = useCallback(
@@ -165,6 +168,19 @@ export default function PublicFolderView({
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // 관리자 끌어놓기 진행 상태. ref는 포인터 이벤트 사이의 시작점·원위치,
+  // state는 끌리는 동안 그릴 논리 좌표(uiScale 반영)다.
+  const dragRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
@@ -363,6 +379,91 @@ export default function PublicFolderView({
     return result;
   }, [files, listing]);
 
+  // 관리자 끌어놓기(요청: 관리자는 공유폴더에서 파일 위치를 바꾼다). 데스크
+  // 폴더 창과 같은 격자에 스냅하고, 이미 차 있는 칸이면 가장 가까운 빈 칸으로
+  // 보낸다 — 아이콘이 겹쳐 파묻히는 일이 없게.
+  const nearestFreeCell = useCallback(
+    (x: number, y: number, movingId: string) => {
+      const occupied = new Set<string>();
+      for (const entry of files) {
+        if (entry.id === movingId) continue;
+        const placed = placements[entry.id];
+        if (placed) occupied.add(`${placed.x},${placed.y}`);
+      }
+      const column = Math.max(
+        0,
+        Math.round((x - ICON_INSET_X) / ICON_COLUMN_WIDTH),
+      );
+      const row = Math.max(0, Math.round((y - ICON_INSET_Y) / ICON_ROW_HEIGHT));
+      for (let ring = 0; ring <= 8; ring += 1) {
+        let best: { x: number; y: number } | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (let dc = -ring; dc <= ring; dc += 1) {
+          for (let dr = -ring; dr <= ring; dr += 1) {
+            if (Math.max(Math.abs(dc), Math.abs(dr)) !== ring) continue;
+            const c = column + dc;
+            const r = row + dr;
+            if (c < 0 || r < 0) continue;
+            const cell = {
+              x: ICON_INSET_X + c * ICON_COLUMN_WIDTH,
+              y: ICON_INSET_Y + r * ICON_ROW_HEIGHT,
+            };
+            if (occupied.has(`${cell.x},${cell.y}`)) continue;
+            const distance = Math.hypot(cell.x - x, cell.y - y);
+            if (distance < bestDistance) {
+              best = cell;
+              bestDistance = distance;
+            }
+          }
+        }
+        if (best) return best;
+      }
+      return null;
+    },
+    [files, placements],
+  );
+
+  // 저장은 낙관적으로 먼저 그리고, 실패하면 원위치로 되돌린다. 서버는
+  // entry id → layoutKey 변환과 버전을 채워 데스크 폴더 배치에 쓴다.
+  const placeIcon = useCallback(
+    async (entry: PublicEntry, target: { x: number; y: number }) => {
+      const previous = listing?.positions[entry.id];
+      setListing((current) =>
+        current
+          ? {
+              ...current,
+              positions: { ...current.positions, [entry.id]: target },
+            }
+          : current,
+      );
+      try {
+        const response = await fetch(`/api/public-folder/${token}/layout`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: entry.id, x: target.x, y: target.y }),
+        });
+        const body = (await response.json().catch(() => null)) as {
+          positions?: Listing["positions"];
+        } | null;
+        if (!response.ok || !body?.positions) throw new Error("layout");
+        const saved = body.positions;
+        setListing((current) =>
+          current ? { ...current, positions: saved } : current,
+        );
+      } catch {
+        setListing((current) => {
+          if (!current) return current;
+          const positions = { ...current.positions };
+          if (previous) positions[entry.id] = previous;
+          else delete positions[entry.id];
+          return { ...current, positions };
+        });
+        setNotice(t("위치를 저장하지 못했습니다"));
+      }
+    },
+    [listing, token, t],
+  );
+
   if (closed) {
     return (
       <main className={desktopStyles.viewport}>
@@ -525,13 +626,99 @@ export default function PublicFolderView({
             {visibleFiles.map((entry) => {
               const placement = placements[entry.id];
               const selected = selectedId === entry.id;
+              const dragging = drag?.id === entry.id;
               return (
                 <div
                   key={entry.id}
                   className={`${desktopStyles.desktopIcon} ${
                     selected ? desktopStyles.iconSelected : ""
                   }`}
-                  style={{ left: placement.x, top: placement.y }}
+                  style={{
+                    left: dragging ? drag.x : placement.x,
+                    top: dragging ? drag.y : placement.y,
+                    ...(isAdmin
+                      ? {
+                          touchAction: "none" as const,
+                          cursor: dragging ? "grabbing" : "grab",
+                        }
+                      : {}),
+                    ...(dragging ? { zIndex: 5 } : {}),
+                  }}
+                  // 관리자만 끌어 배치를 바꾼다 — 방문자에게는 핸들러 자체가
+                  // 붙지 않는다. 4px 넘게 움직여야 끌기로 본다(클릭과 구분).
+                  onPointerDown={
+                    isAdmin
+                      ? (event) => {
+                          if (event.button !== 0) return;
+                          setSelectedId(entry.id);
+                          dragRef.current = {
+                            id: entry.id,
+                            startX: event.clientX,
+                            startY: event.clientY,
+                            originX: placement.x,
+                            originY: placement.y,
+                            moved: false,
+                          };
+                          try {
+                            event.currentTarget.setPointerCapture(event.pointerId);
+                          } catch {
+                            // 이미 놓인 포인터(합성 이벤트 등)면 캡처 없이 진행한다.
+                          }
+                        }
+                      : undefined
+                  }
+                  onPointerMove={
+                    isAdmin
+                      ? (event) => {
+                          const current = dragRef.current;
+                          if (!current || current.id !== entry.id) return;
+                          const dx = (event.clientX - current.startX) / uiScale;
+                          const dy = (event.clientY - current.startY) / uiScale;
+                          if (!current.moved && Math.hypot(dx, dy) < 4) return;
+                          current.moved = true;
+                          setDrag({
+                            id: entry.id,
+                            x: Math.max(0, current.originX + dx),
+                            y: Math.max(0, current.originY + dy),
+                          });
+                        }
+                      : undefined
+                  }
+                  onPointerUp={
+                    isAdmin
+                      ? (event) => {
+                          const current = dragRef.current;
+                          dragRef.current = null;
+                          setDrag(null);
+                          if (!current || current.id !== entry.id || !current.moved) {
+                            return;
+                          }
+                          const target = nearestFreeCell(
+                            current.originX +
+                              (event.clientX - current.startX) / uiScale,
+                            current.originY +
+                              (event.clientY - current.startY) / uiScale,
+                            entry.id,
+                          );
+                          if (
+                            !target ||
+                            (target.x === current.originX &&
+                              target.y === current.originY)
+                          ) {
+                            return;
+                          }
+                          void placeIcon(entry, target);
+                        }
+                      : undefined
+                  }
+                  onPointerCancel={
+                    isAdmin
+                      ? () => {
+                          dragRef.current = null;
+                          setDrag(null);
+                        }
+                      : undefined
+                  }
                 >
                   <button
                     type="button"
@@ -604,6 +791,11 @@ export default function PublicFolderView({
             <span className={desktopStyles.preferenceCheck} aria-hidden="true" />
             <span>{t("다운로드 우선")}</span>
           </label>
+          {isAdmin && (
+            <span className={desktopStyles.desktopLabel}>
+              {t("관리자: 아이콘을 끌어 위치를 바꿀 수 있습니다")}
+            </span>
+          )}
           {uploading && (
             <span role="status" className={desktopStyles.desktopLabel}>
               {t("올리는 중 {current}/{total}", uploading)}

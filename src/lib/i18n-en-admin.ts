@@ -196,6 +196,7 @@ export const EN_ADMIN: Record<string, string> = {
   "주소 복사": "Copy address",
   "주소를 복사했습니다": "Address copied",
   "설정·파일": "Settings & files",
+  "공개 폴더 열기": "Open public folder",
   "접기": "Collapse",
   "저장했습니다": "Saved",
   "등록을 해제했습니다. 파일은 데스크에 남아 있습니다.": "Unregistered. The files remain on the desk.",

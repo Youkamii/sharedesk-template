@@ -1,6 +1,5 @@
 "use client";
 
-import ShareOutButton from "../ShareOutButton";
 import QrCodeToggle from "../QrCodeToggle";
 
 import { useCallback, useEffect, useState } from "react";
@@ -11,8 +10,8 @@ import { ROLE_LABELS, USER_ROLES, type UserRole } from "@/lib/roles";
 import styles from "./admin.module.css";
 
 // 공개 폴더 관리 패널(#10) — 설정 화면의 별도 탭. 목록·생성·설정 변경·
-// 파일 목록 확인·삭제·등록 해제를 담당한다. 파일 조작은 기존 drive API를
-// 재사용한다(관리자는 editor 권한을 충족).
+// 등록 해제를 담당한다. 파일 자체는 여기서 다루지 않는다 — 관리자는 공개
+// 폴더 화면(/public/<token>)에서 데스크처럼 보고 아이콘 위치까지 바꾼다.
 
 interface AdminPublicFolder {
   id: string;
@@ -37,13 +36,6 @@ interface BaseUser {
   status: string;
 }
 
-interface FolderEntry {
-  id: string;
-  name: string;
-  isFolder: boolean;
-  size: number | null;
-}
-
 const GIB = 1024 * 1024 * 1024;
 
 function bytesAsInputGiB(value: number | null): string {
@@ -59,13 +51,6 @@ function bytesFromInputGiB(value: string): number | null | undefined {
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.round(parsed * GIB);
-}
-
-function formatBytes(value: number | null): string {
-  if (value === null) return "";
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
-  if (value < GIB) return `${Math.round(value / (1024 * 1024))} MiB`;
-  return `${Math.round((value / GIB) * 100) / 100} GiB`;
 }
 
 // datetime-local 입력(관리자 브라우저 로컬 시간) ↔ UTC ISO 저장값 변환.
@@ -186,7 +171,6 @@ export default function PublicFoldersPanel({
   const [openId, setOpenId] = useState<string | null>(null);
   const [form, setForm] = useState<SettingsFormState | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [entries, setEntries] = useState<Record<string, FolderEntry[]>>({});
   // 상태 라벨용 기준 시각 — 목록을 불러온 시점의 스냅샷(렌더 중 Date.now()
   // 호출은 순수성 규칙 위반이라 로드 시점에 고정한다).
   const [loadedAt, setLoadedAt] = useState(0);
@@ -304,28 +288,6 @@ export default function PublicFoldersPanel({
       reload();
     });
 
-  const loadEntries = (folder: AdminPublicFolder) =>
-    run(async () => {
-      const body = await api(
-        `/api/drive/list?folderId=${encodeURIComponent(folder.folderId)}`,
-        { method: "GET" },
-      );
-      const list = Array.isArray(body.entries)
-        ? (body.entries as FolderEntry[])
-        : [];
-      setEntries((current) => ({ ...current, [folder.id]: list }));
-    });
-
-  const deleteEntry = (folder: AdminPublicFolder, entry: FolderEntry) =>
-    run(async () => {
-      await api("/api/drive/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: entry.id }),
-      });
-      await loadEntries(folder);
-    });
-
   const copyUrl = async (folder: AdminPublicFolder) => {
     const url = `${window.location.origin}${folder.url}`;
     try {
@@ -422,19 +384,6 @@ export default function PublicFoldersPanel({
                       >
                         {t("주소 복사")}
                       </button>
-                      <ShareOutButton
-                        url={`${window.location.origin}${folder.url}`}
-                        title={folder.name}
-                        label={t("공유")}
-                        className={styles.pixelButton}
-                        onOutcome={(outcome) => {
-                          if (outcome === "copied") {
-                            setNotice(t("주소를 복사했습니다"));
-                          } else if (outcome === "manual") {
-                            setNotice(`${window.location.origin}${folder.url}`);
-                          }
-                        }}
-                      />
                       <QrCodeToggle
                         value={`${window.location.origin}${folder.url}`}
                         label="QR"
@@ -453,11 +402,22 @@ export default function PublicFoldersPanel({
                           }
                           setOpenId(folder.id);
                           setForm(formStateOf(folder));
-                          void loadEntries(folder);
                         }}
                       >
-                        {opened ? t("접기") : t("설정·파일")}
+                        {opened ? t("접기") : t("설정")}
                       </button>
+                      {/* 파일은 공개 폴더 화면에서 다룬다 — 관리자는 거기서
+                          아이콘을 끌어 방문자가 보는 위치를 바꾼다. */}
+                      {!folder.missing && (
+                        <a
+                          href={folder.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${styles.pixelButton} ${styles.folderOpenLink}`}
+                        >
+                          {t("공개 폴더 열기")}
+                        </a>
+                      )}
                       {confirmRemove === folder.id ? (
                         <span className={styles.folderRemove}>
                           <span className={styles.muted}>
@@ -672,39 +632,6 @@ export default function PublicFoldersPanel({
                             {t("저장")}
                           </button>
                         </form>
-
-                        <h3>{t("파일 목록")}</h3>
-                        {entries[folder.id] === undefined ? (
-                          <p>{t("불러오는 중…")}</p>
-                        ) : entries[folder.id].length === 0 ? (
-                          <p className={styles.muted}>
-                            {t("아직 파일이 없습니다")}
-                          </p>
-                        ) : (
-                          <ul className={styles.plainList}>
-                            {entries[folder.id].map((entry) => (
-                              <li key={entry.id} className={styles.fileRow}>
-                                <span className={styles.fileName}>
-                                  {entry.name}
-                                  {entry.size !== null && (
-                                    <span className={styles.muted}>
-                                      {" "}
-                                      · {formatBytes(entry.size)}
-                                    </span>
-                                  )}
-                                </span>
-                                <button
-                                  type="button"
-                                  className={`${styles.pixelButton} ${styles.dangerButton}`}
-                                  disabled={busy}
-                                  onClick={() => void deleteEntry(folder, entry)}
-                                >
-                                  {t("삭제")}
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
                       </div>
                     )}
                   </li>

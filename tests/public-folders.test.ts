@@ -536,11 +536,50 @@ test("배선: 관리 API·화면 — admin 러너·identity 비노출·보상 �
   const panel = await read("src/app/admin/PublicFoldersPanel.tsx");
   assert.match(panel, /confirmRemove/, "등록 해제는 2단계 확인");
   assert.match(panel, /datetime-local/, "공개 시각은 로컬 입력 ↔ UTC ISO 변환");
-  assert.match(
+  // 파일 목록·공유 버튼은 관리 패널에서 뺐다 — 파일은 공개 폴더 화면에서
+  // 다룬다(관리자 끌어놓기). 패널에는 그 화면으로 가는 링크만 남는다.
+  assert.doesNotMatch(
     panel,
     /\/api\/drive\/list\?folderId=/,
-    "파일 목록은 기존 드라이브 API 재사용",
+    "관리 패널에 파일 목록이 없다",
   );
+  assert.doesNotMatch(panel, /<ShareOutButton/, "관리 패널에 공유 버튼이 없다");
+  assert.match(panel, /href=\{folder\.url\}/, "공개 폴더 열기 링크");
+});
+
+test("관리자는 공개 폴더 화면에서 아이콘을 끌어 배치를 바꾼다", async () => {
+  const read = (relative: string) =>
+    readFile(new URL(`../${relative}`, import.meta.url), "utf8");
+
+  const route = await read("src/app/api/public-folder/[token]/layout/route.ts");
+  assert.match(route, /runWithSpace\(null/, "공개 폴더는 기본 데스크 문맥");
+  assert.match(
+    route,
+    /resolveOpenPublicFolder\(token\)/,
+    "공개 3종과 같은 판정(닫힘·죽은 대상은 404)",
+  );
+  assert.match(route, /if \(!session\?\.isAdmin\)/, "관리자만 배치를 바꾼다");
+  assert.match(route, /updateLayout\(/, "데스크 폴더 배치에 저장");
+  assert.match(
+    route,
+    /getFolderListingWithLayout\(folderId\)/,
+    "옮기기 전 나머지 아이콘 좌표를 고정 — 하나 옮길 때 남들이 안 밀린다",
+  );
+  assert.match(
+    route,
+    /resolved\.target\.layoutKey/,
+    "폴더 identity 검증은 updateLayout이 한다",
+  );
+
+  const page = await read("src/app/public/[token]/page.tsx");
+  assert.match(page, /isAdmin=\{resolved\.isAdmin\}/);
+
+  const view = await read("src/app/public/[token]/PublicFolderView.tsx");
+  assert.match(view, /\/api\/public-folder\/\$\{token\}\/layout/);
+  assert.match(view, /setPointerCapture\(event\.pointerId\)/);
+  // 방문자에게는 끌기가 없다 — 핸들러 자체가 붙지 않는다.
+  assert.match(view, /onPointerDown=\{\s*isAdmin\s*\?/);
+  assert.match(view, /nearestFreeCell/, "격자 스냅 + 빈 칸으로");
 });
 
 test("배선: 폴더 색·공유 배지·확장자 아이콘 (#14 12·13·14)", async () => {

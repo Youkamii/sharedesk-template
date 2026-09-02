@@ -35,7 +35,13 @@ export default async function PublicFolderPage({
     // 같은 공통 판정.
     if (!(await resolvePublicFolderTarget(folder))) return null;
     const settings = await getDeskSettingsOrDefault();
-    return { folder, isDeskUser: session !== null, settings };
+    return {
+      folder,
+      isDeskUser: session !== null,
+      // 관리자는 이 화면에서 아이콘을 끌어 방문자가 보는 배치를 바꾼다.
+      isAdmin: session?.isAdmin === true,
+      settings,
+    };
   });
   if (!resolved) notFound();
 
@@ -48,6 +54,7 @@ export default async function PublicFolderPage({
       token={token}
       name={resolved.folder.name}
       isDeskUser={resolved.isDeskUser}
+      isAdmin={resolved.isAdmin}
       locale={locale}
     />
   );

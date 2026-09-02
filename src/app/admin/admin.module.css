@@ -1390,18 +1390,12 @@
   gap: 10px;
 }
 
-.fileRow {
-  display: flex;
-  gap: 8px;
+/* 공개 폴더 화면으로 가는 링크(a)도 pixelButton을 쓴다 — 버튼과 같은 줄에
+   같은 높이로 서도록 정렬만 잡는다. */
+.folderOpenLink {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-}
-
-.fileName {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-decoration: none;
 }
 
 .plainList {

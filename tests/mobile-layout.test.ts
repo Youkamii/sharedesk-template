@@ -239,12 +239,12 @@ test("링크 내보내기는 폰에서 공유 시트, 데스크톱은 기존 복
   assert.match(button, /const canShare = useNativeShare\(\);/);
   assert.match(button, /if \(!canShare\) return null;/);
 
-  // 링크를 만들거나 복사하는 다섯 화면 전부에 공유 버튼이 붙는다.
+  // 링크를 만들거나 복사하는 네 화면에 공유 버튼이 붙는다(공개 폴더 관리
+  // 패널은 요청으로 뺐다 — 주소 복사·QR만 남는다).
   for (const file of [
     "files/QuickLinkWindow.tsx",
     "files/ShareLinksWindow.tsx",
     "files/ShareLinkDialog.tsx",
-    "admin/PublicFoldersPanel.tsx",
     "admin/AdminView.tsx",
   ]) {
     const source = await readFile(
