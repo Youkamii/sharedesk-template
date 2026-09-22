@@ -142,9 +142,6 @@ test("모바일 업로드도 데스크탑과 같은 직행 경로를 쓴다 (#14
   for (const source of [desktop, mobile]) {
     assert.match(source, /\/api\/drive\/upload-session/);
     assert.match(source, /session\.mode === "direct"/);
-    assert.match(source, /import\s*\{[^}]*\bcreatePendingUploadFlow\b[^}]*\}\s*from "@\/lib\/client\/pending-upload-flow"/);
-    assert.match(source, /flow\.uploadDirect\(record, file,/);
-    assert.doesNotMatch(source, /\buploadResumable\b/);
   }
 
   // 세션을 건너뛰고 파일 전체를 서버로 POST하면 서버리스 본문 상한에 걸린다.
@@ -204,7 +201,7 @@ test("모바일 독의 카메라 버튼은 찍자마자 같은 직행 경로로 
   // 카메라 입력도 일반 업로드와 같은 uploadFiles(직행 세션·진행 표시)를 탄다.
   const cameraBlock = source.slice(source.indexOf('capture="environment"'));
   assert.match(cameraBlock, /void uploadFiles\(event\.target\.files, \{ resumable: false \}\)/);
-  assert.match(source, /flow\.uploadDirect\(record, file, onProgress, \{ keepOnFailure: options\.resumable \}\)/);
+  assert.match(source, /flow\.uploadDirect\(record, file, onProgress, \{ persist: options\.resumable \}\)/);
 });
 
 test("모바일에서 전체 검색으로 찾고 원래 위치로 이동한다 (#15 A-3)", async () => {
@@ -359,7 +356,6 @@ test("모바일 직행 업로드는 공용 이어받기와 기록 저장소를 �
     "utf8",
   );
 
-  assert.match(source, /import\s*\{[^}]*\bcreatePendingUploadFlow\b[^}]*\}\s*from "@\/lib\/client\/pending-upload-flow"/);
   assert.match(source, /import\s*\{[^}]*\bcreateIndexedDbPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
   assert.match(source, /이어받을 업로드/);
   assert.doesNotMatch(source, /uploadWithProgress\(\s*session\.url/);

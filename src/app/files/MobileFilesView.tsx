@@ -623,12 +623,14 @@ export default function MobileFilesView({
     }
     return parsed as T;
   }, [router, t]);
+  const uploadSessionJsonRef = useRef(uploadSessionJson);
 
   useEffect(() => {
+    uploadSessionJsonRef.current = uploadSessionJson;
     // 렌더 중에는 만들지 않고 브라우저에 마운트된 뒤 저장소를 준비한다.
     const flow = pendingUploadFlowRef.current ??= createPendingUploadFlow({
       store: createIndexedDbPendingUploadStore(),
-      post: uploadSessionJson,
+      post: (path, body) => uploadSessionJsonRef.current(path, body),
       onRecordsChange: setPendingUploads,
     });
     flow.setContext(pendingUploadContext(window.location.pathname, userEmail));
@@ -665,6 +667,10 @@ export default function MobileFilesView({
   async function resumePendingUpload(record: PendingUpload, file: File) {
     if (!allowUpload || busy) return;
     const flow = pendingUploadFlowRef.current!;
+    if (!flow.isTrusted(record)) {
+      await flow.remove(record.id).catch(() => undefined);
+      return;
+    }
     const updateProgress = (sent: number, total: number) => {
       setProgress({
         name: record.name,
@@ -679,8 +685,7 @@ export default function MobileFilesView({
     activeUploadCountRef.current += 1;
     updateProgress(record.uploadedBytes, record.size);
     try {
-      const resumable = await flow.checkResumable(record);
-      if (resumable === "untrusted") return;
+      const resumable = await flow.checkReservation(record);
       if (resumable === "reservation-expired") {
         setNotice({
           text: t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
@@ -731,7 +736,7 @@ export default function MobileFilesView({
         parentId: currentId,
         file,
       });
-      return flow.uploadDirect(record, file, onProgress, { keepOnFailure: options.resumable });
+      return flow.uploadDirect(record, file, onProgress, { persist: options.resumable });
     }
     const reservationQuery = session.reservationId
       ? `&reservationId=${encodeURIComponent(session.reservationId)}`

@@ -6607,6 +6607,10 @@ export default function FilesView({
   async function resumePendingUpload(record: PendingUpload, file: File) {
     if (!allowUpload || activeTransfersRef.current.has(record.id)) return;
     const flow = pendingUploadFlowRef.current!;
+    if (!flow.isTrusted(record)) {
+      await flow.remove(record.id).catch(() => undefined);
+      return;
+    }
     const updateTransfer = (transferred: number, total: number) => {
       reportTransferProgress({
         id: record.id,
@@ -6618,8 +6622,7 @@ export default function FilesView({
     };
     updateTransfer(record.uploadedBytes, record.size);
     try {
-      const resumable = await flow.checkResumable(record);
-      if (resumable === "untrusted") return;
+      const resumable = await flow.checkReservation(record);
       if (resumable === "reservation-expired") {
         setNotice(t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
           name: record.name,
@@ -6669,14 +6672,14 @@ export default function FilesView({
       if (session.mode === "direct") {
         const flow = pendingUploadFlowRef.current!;
         const record = flow.createRecord({
+          // 세션을 받기 전부터 보고한 전송 id로 중복 재개도 막는다.
+          id: transferId,
           sessionUrl: session.url,
           reservationId: session.reservationId ?? null,
           parentId: folderId,
           file,
         });
-        // 세션을 받기 전부터 보고한 전송 id로 중복 재개도 막는다.
-        record.id = transferId;
-        return await flow.uploadDirect(record, file, updateTransfer, { keepOnFailure: true });
+        return await flow.uploadDirect(record, file, updateTransfer, { persist: true });
       }
       const reservationQuery = session.reservationId
         ? `&reservationId=${encodeURIComponent(session.reservationId)}`

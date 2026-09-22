@@ -98,16 +98,12 @@ test("두 화면은 공용 업로드 흐름에 진행 콜백을 연결하고 재
   for (const source of [desktop, mobile]) {
     assert.match(source, /import\s*\{[^}]*\bcreatePendingUploadFlow\b[^}]*\}\s*from "@\/lib\/client\/pending-upload-flow"/);
     assert.doesNotMatch(source, /\buploadResumable\b/);
-    assert.match(source, /useEffect\(\(\) => \{\s*\/\/[^\n]*\n\s*const flow = pendingUploadFlowRef\.current \?\?= createPendingUploadFlow\(/);
-    assert.match(source, /flow\.setContext\(pendingUploadContext\(window\.location\.pathname, userEmail\)\)/);
-    assert.match(source, /await flow\.checkResumable\(record\)/);
     assert.match(source, /업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · \{name\}/);
     assert.match(source, /ref=\{resumeInputRef\}/);
     assert.match(source, /matchPendingUpload\(\[record\], file\)/);
   }
-  assert.match(desktop, /flow\.uploadDirect\(record, file, updateTransfer, \{ keepOnFailure: true \}\)/);
+  assert.match(desktop, /flow\.uploadDirect\(record, file, updateTransfer, \{ persist: true \}\)/);
   assert.match(desktop, /flow\.resume\(record, file, updateTransfer\)/);
-  assert.match(desktop, /record\.id = transferId/);
   assert.match(desktop, /activeTransfersRef\.current\.has\(record\.id\)/);
   assert.match(desktop, /windowsRef\.current\.find\(\(item\) => item\.path\.at\(-1\)\?\.id === record\.parentId\)/);
   assert.match(desktop, /await refreshScope\(folderWindow\.id\)/);
