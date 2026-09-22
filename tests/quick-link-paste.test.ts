@@ -75,3 +75,20 @@ test("붙여넣기 리스너는 창이 맨 앞일 때만 붙는다 (#14)", async
   // 클립보드에 파일이 없으면(글자만) 기본 동작을 막지 않는다.
   assert.match(source, /if \(files\.length === 0\) return;\s*\n\s*event\.preventDefault\(\);/);
 });
+
+test("간이 링크 직접 업로드는 끊겨도 서버 위치부터 이어 올린다 (#24)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/QuickLinkWindow.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from\s*"@\/lib\/client\/transfer"/,
+  );
+  assert.match(
+    source,
+    /await uploadResumable\(\{\s*sessionUrl: session\.url,\s*file,\s*startOffset: 0,\s*verifyOffset: false,/,
+  );
+  assert.doesNotMatch(source, /uploadWithProgress\(\s*session\.url\s*,/);
+});

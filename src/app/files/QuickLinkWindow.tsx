@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
 import {
   startUploadReservationHeartbeat,
+  uploadResumable,
   uploadWithProgress,
 } from "@/lib/client/transfer";
 import type { ShareLink } from "@/lib/share-links";
@@ -189,27 +190,22 @@ export default function QuickLinkWindow({
           session.reservationId,
         );
         try {
-          const upload = await uploadWithProgress(
-            session.url,
-            "PUT",
+          const { fileId } = await uploadResumable({
+            sessionUrl: session.url,
             file,
-            null,
-            (sent, total) => patchItem(item.id, { progress: total ? sent / total : 0 }),
-          );
-          if (upload.status < 200 || upload.status >= 300) {
-            throw new Error(t("드라이브 업로드에 실패했습니다"));
-          }
-          const uploaded = JSON.parse(upload.responseText || "null") as {
-            id?: string;
-          } | null;
-          if (!uploaded?.id) throw new Error(t("업로드 결과를 확인하지 못했습니다"));
+            startOffset: 0,
+            verifyOffset: false,
+            onProgress: (transferred, total) =>
+              patchItem(item.id, { progress: total ? transferred / total : 0 }),
+          });
+          if (fileId === null) throw new Error(t("업로드 결과를 확인하지 못했습니다"));
           const finalized = await apiJson<{ link?: unknown }>(
             apiPath("/api/drive/quick-link"),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                fileId: uploaded.id,
+                fileId,
                 name: file.name,
                 reservationId: session.reservationId,
               }),
