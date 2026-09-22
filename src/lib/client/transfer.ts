@@ -159,11 +159,14 @@ type ResumableResponse = UploadResult & { range: string | null };
 
 class RetryableUploadError extends Error {}
 
+// 이어올릴 수 없는 오류만 호출부에서 기록을 지울 수 있게 구분한다.
+export class PermanentUploadError extends Error {}
+
 function resumableHttpError(status: number): Error {
   const message = `드라이브 업로드에 실패했습니다 (HTTP ${status})`;
   return status === 0 || (status >= 500 && status < 600)
     ? new RetryableUploadError(message)
-    : new Error(message);
+    : new PermanentUploadError(message);
 }
 
 function sendXhr(options: {
@@ -284,18 +287,18 @@ export async function uploadResumable(options: {
         continue;
       }
       checkAborted();
-      if (status.kind === "gone") throw new Error("드라이브 업로드 세션이 만료되었습니다");
+      if (status.kind === "gone") throw new PermanentUploadError("드라이브 업로드 세션이 만료되었습니다");
       if (status.kind === "complete") {
         onProgress?.(total, total);
         return { fileId: status.fileId, responseText };
       }
-      if (status.offset > total) throw new Error("서버의 업로드 위치가 파일 크기를 넘었습니다");
+      if (status.offset > total) throw new PermanentUploadError("서버의 업로드 위치가 파일 크기를 넘었습니다");
       await onChunkSent?.(status.offset);
       if (!recovering) {
         if (status.offset > offset) {
           retries = 0;
         } else if (retries >= 3) {
-          throw new Error("드라이브 업로드가 더 진행되지 않습니다");
+          throw new PermanentUploadError("드라이브 업로드가 더 진행되지 않습니다");
         } else {
           retries += 1;
         }

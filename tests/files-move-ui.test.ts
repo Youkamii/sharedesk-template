@@ -1813,5 +1813,5 @@ test("폴더 드롭은 기존 파일 업로드 경로를 그대로 남긴다", a
   // 업로드 권한·로딩 가드는 그대로.
   assert.match(source, /if \(!allowUpload \|\| data\.loading\) return;/);
   // 파일 진행 UI는 기존 uploadOne(=reportTransferProgress)을 그대로 쓴다.
-  assert.match(source, /await uploadOne\(target\.file, target\.parentId\);/);
+  assert.match(source, /await uploadOne\(target\.file, target\.parentId, scopeId\);/);
 });

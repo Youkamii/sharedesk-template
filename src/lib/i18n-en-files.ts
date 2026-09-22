@@ -227,6 +227,18 @@ export const EN_FILES: Record<string, string> = {
   // 업로드 · 메모장 생성
   "드라이브 업로드에 실패했습니다": "Drive upload failed",
   "업로드에 실패했습니다": "Upload failed",
+  // 새로고침 뒤 이어올리기
+  "이어받을 업로드 {count}개": "{count} uploads to resume",
+  "파일 다시 선택": "Select file again",
+  "버리기": "Discard",
+  "이어받을 파일을 여기에 놓아 주세요": "Drop files here to resume uploading",
+  "선택한 파일이 이어받을 업로드와 다릅니다 · {name}":
+    "The selected file doesn't match the upload to resume · {name}",
+  "업로드 세션이 만료되어 처음부터 다시 올려야 합니다 · {name}":
+    "The upload session expired. Upload the file again from the start · {name}",
+  "{name} 업로드를 이어받아 완료했습니다": "Resumed and finished uploading {name}",
+  "업로드 기록을 불러오지 못했습니다": "Couldn't load pending uploads",
+  "업로드 기록을 지우지 못했습니다": "Couldn't discard the pending upload",
   "실패": "failed",
   "일부 파일을 올리지 못했습니다 · {failures}":
     "Some files didn't upload · {failures}",

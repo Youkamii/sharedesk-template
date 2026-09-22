@@ -705,3 +705,37 @@ test("기록 저장 실패는 전송 오류로 재시도하지 않고 그대로 
   }), (error) => error === failure);
   assert.equal(fake.requests.length, 1);
 });
+
+test("데스크톱 직접 업로드는 기록을 먼저 저장하고 조각 전송으로 이어올린다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
+  assert.match(view, /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from "@\/lib\/client\/transfer"/);
+  assert.match(view, /import\s*\{[^}]*\bopenPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
+  assert.match(view, /이어받을 업로드/);
+  assert.doesNotMatch(view, /uploadWithProgress\(\s*session\.url/);
+
+  const direct = view.slice(
+    view.indexOf('if (session.mode === "direct")'),
+    view.indexOf("const reservationQuery = session.reservationId"),
+  );
+  const savedAt = direct.indexOf("await getPendingUploadStore().put(record)");
+  assert.ok(savedAt >= 0 && savedAt < direct.indexOf("await uploadResumable("));
+  assert.match(direct, /onProgress: updateTransfer/);
+  assert.match(direct, /onChunkSent: \(offset\) => savePendingUploadProgress\(record, offset\)/);
+  assert.match(view, /uploadOne\(file: File, folderId: string, scopeId: string\)/);
+  assert.match(view, /uploadOne\(file, folderId, scopeId\)/);
+  assert.match(view, /uploadOne\(target\.file, target\.parentId, scopeId\)/);
+});
+
+test("이어올리기 목록은 파일을 대조하고 서버 위치와 현재 열린 창을 확인한다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
+  assert.match(view, /useEffect\(\(\) => \{\s*void reloadPendingUploads\(\)/);
+  assert.match(view, /ref=\{resumeInputRef\}/);
+  assert.match(view, /matchPendingUpload\(\[record\], file\)/);
+  assert.match(view, /matchPendingUpload\(pendingUploads, file\)/);
+  assert.match(view, /queryResumableStatus\(record\.sessionUrl, record\.size\)/);
+  assert.match(view, /startOffset: status\.offset/);
+  assert.match(view, /windowsRef\.current\.some\(\(item\) => item\.id === record\.scopeId\)[\s\S]*?: ROOT_SCOPE/);
+  assert.match(view, /if \(!records\.length\) setResumePanelOpen\(false\)/);
+});
