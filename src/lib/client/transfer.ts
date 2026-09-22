@@ -164,7 +164,7 @@ export class PermanentUploadError extends Error {}
 
 function resumableHttpError(status: number): Error {
   const message = `드라이브 업로드에 실패했습니다 (HTTP ${status})`;
-  return status === 0 || (status >= 500 && status < 600)
+  return status === 0 || status === 429 || (status >= 500 && status < 600)
     ? new RetryableUploadError(message)
     : new PermanentUploadError(message);
 }
@@ -232,37 +232,25 @@ export async function uploadResumable(options: {
   sessionUrl: string;
   file: Blob;
   startOffset?: number;
+  verifyOffset?: boolean;
   chunkSize?: number;
   onProgress?: (transferred: number, total: number) => void;
   onChunkSent?: (offset: number) => void | Promise<void>;
-  signal?: AbortSignal;
   xhrFactory?: () => XMLHttpRequest;
-}): Promise<{ fileId: string | null; responseText: string }> {
-  const { sessionUrl, file, signal, onProgress, onChunkSent } = options;
+}): Promise<{ fileId: string | null }> {
+  const { sessionUrl, file, onProgress, onChunkSent } = options;
   const total = file.size;
   let offset = options.startOffset ?? 0;
-  let request: XMLHttpRequest | undefined;
-  const checkAborted = () => {
-    if (signal?.aborted) throw new DOMException("중단됨", "AbortError");
-  };
-  checkAborted();
-  const xhrFactory = () => {
-    checkAborted();
-    request = options.xhrFactory ? options.xhrFactory() : new XMLHttpRequest();
-    return request;
-  };
+  const xhrFactory = options.xhrFactory ?? (() => new XMLHttpRequest());
 
   const run = async () => {
     let retries = 0;
-    let recovering = false;
+    let recovering = options.verifyOffset ?? false;
     for (;;) {
-      checkAborted();
       let status: ResumableStatus;
-      let responseText: string;
       try {
         if (recovering) {
           status = await queryResumableStatus(sessionUrl, total, xhrFactory);
-          responseText = request?.responseText ?? "";
         } else {
           const range = nextChunkRange(offset, total, options.chunkSize);
           const start = offset;
@@ -273,11 +261,7 @@ export async function uploadResumable(options: {
             xhrFactory,
             onProgress: (loaded) => onProgress?.(start + loaded, total),
           });
-          if (response.status === 404 || response.status === 410) {
-            throw resumableHttpError(response.status);
-          }
           status = resumableStatus(response);
-          responseText = response.responseText;
         }
       } catch (error) {
         if (!(error instanceof RetryableUploadError) || retries >= 3) throw error;
@@ -286,11 +270,10 @@ export async function uploadResumable(options: {
         recovering = true;
         continue;
       }
-      checkAborted();
       if (status.kind === "gone") throw new PermanentUploadError("드라이브 업로드 세션이 만료되었습니다");
       if (status.kind === "complete") {
         onProgress?.(total, total);
-        return { fileId: status.fileId, responseText };
+        return { fileId: status.fileId };
       }
       if (status.offset > total) throw new PermanentUploadError("서버의 업로드 위치가 파일 크기를 넘었습니다");
       await onChunkSent?.(status.offset);
@@ -308,18 +291,5 @@ export async function uploadResumable(options: {
     }
   };
 
-  let abort = () => {};
-  const aborted = new Promise<never>((_, reject) => {
-    abort = () => {
-      reject(new DOMException("중단됨", "AbortError"));
-      request?.abort();
-    };
-  });
-  signal?.addEventListener("abort", abort, { once: true });
-  try {
-    // 조각 기록을 저장하는 동안 중단해도 호출자는 바로 결과를 받는다.
-    return await Promise.race([run(), aborted]);
-  } finally {
-    signal?.removeEventListener("abort", abort);
-  }
+  return run();
 }

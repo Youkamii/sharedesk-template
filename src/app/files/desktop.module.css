@@ -2600,8 +2600,9 @@ button.userName {
   padding: 9px;
   color: #fff8e7;
   background: #182446;
-  border: 2px solid #ffd27d;
-  box-shadow: 5px 5px 0 rgb(5 9 20 / 72%);
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #465b83, inset -2px -2px 0 #0d162d, 5px 5px 0 rgb(5 9 20 / 72%);
+  font: inherit;
 }
 
 .downloadPanelHeader {
@@ -2677,6 +2678,7 @@ button.userName {
 /* 목록을 닫아도 진행 중이면 작업표시줄에 남는 칩 — 눌러 다시 연다. */
 .downloadChip {
   display: flex;
+  min-width: 0;
   max-width: 190px;
   height: 38px;
   align-items: center;
@@ -2685,7 +2687,8 @@ button.userName {
   color: #10172b;
   background: #61b3a6;
   border: 2px solid #0a1020;
-  box-shadow: inset 2px 2px 0 #b7e4dc, inset -2px -2px 0 #2d5c5b;
+  box-shadow: inset 2px 2px 0 var(--download-chip-highlight, #b7e4dc), inset -2px -2px 0 var(--download-chip-shadow, #2d5c5b);
+  font: inherit;
 }
 
 .downloadChip span:last-child {
@@ -2694,58 +2697,28 @@ button.userName {
   white-space: nowrap;
 }
 
-.downloadChip:active { box-shadow: inset 2px 2px 0 #2d5c5b; }
+.downloadChip:active,
+.downloadChip[aria-expanded="true"] { box-shadow: inset 2px 2px 0 var(--download-chip-shadow, #2d5c5b); }
 
 /* 이어올리기 목록(#22) — 다운로드 목록 옆에 같은 픽셀 모양으로 띄운다. */
 .resumeChip {
-  display: flex;
-  min-width: 0;
+  --download-chip-highlight: #fff4d2;
+  --download-chip-shadow: #b5754f;
   max-width: 210px;
-  height: 38px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  color: #10172b;
   background: #ffd27d;
-  border: 2px solid #0a1020;
-  box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f;
-  font: inherit;
 }
-
-.resumeChip span:last-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.resumeChip:active,
-.resumeChip[aria-expanded="true"] { box-shadow: inset 2px 2px 0 #b5754f; }
 
 .resumePanel {
-  position: fixed;
   right: 354px;
-  bottom: 152px;
-  z-index: 1200;
-  display: grid;
   width: 340px;
-  max-width: calc(100% - 36px);
-  gap: 7px;
-  padding: 9px;
-  color: #fff8e7;
-  background: #182446;
-  border: 2px solid #0a1020;
-  box-shadow: inset 2px 2px 0 #465b83, inset -2px -2px 0 #0d162d, 5px 5px 0 rgb(5 9 20 / 72%);
-  font: inherit;
 }
 
 .resumePanel .downloadPanelHeader { grid-template-columns: minmax(0, 1fr) auto; }
 .resumeHint { margin: 0; color: #cdd5e8; font-size: 11px; }
 
 .resumeRow {
-  display: grid;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
   padding-top: 7px;
-  border-top: 1px solid #34486d;
 }
 
 .resumeActions { display: flex; gap: 7px; }

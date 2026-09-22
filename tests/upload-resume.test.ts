@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  PermanentUploadError,
   RESUMABLE_CHUNK_SIZE,
   nextChunkRange,
   parseResumableRangeHeader,
@@ -12,15 +13,15 @@ import {
   createIndexedDbPendingUploadStore,
   createMemoryPendingUploadStore,
   isPendingUploadExpired,
+  isTrustedResumableSessionUrl,
   listPendingUploads,
   matchPendingUpload,
-  openPendingUploadStore,
-  pruneExpired,
   type PendingUpload,
 } from "../src/lib/client/pending-uploads";
 
 const CHUNK = 256 * 1024;
-const SESSION_URL = "https://upload.example.test/session";
+const SESSION_URL = "https://www.googleapis.com/upload/drive/v3/files?upload_id=test";
+const CONTEXT = "desk:user@example.test";
 const NOW = 1_800_000_000_000;
 
 type ScriptedResponse = {
@@ -29,8 +30,6 @@ type ScriptedResponse = {
   responseText?: string;
   event?: "load" | "error" | "timeout";
   loaded?: number[];
-  pending?: boolean;
-  onSend?: () => void;
 };
 
 type FakeListener = (event: { loaded: number; total: number; lengthComputable: boolean }) => void;
@@ -42,7 +41,6 @@ class FakeXhr {
   url = "";
   body: Blob | null = null;
   headers = new Map<string, string>();
-  aborted = false;
   private listeners = new Map<string, FakeListener[]>();
   private progressListeners: FakeListener[] = [];
   upload = {
@@ -81,26 +79,18 @@ class FakeXhr {
 
   send(body: Blob | null) {
     this.body = body;
-    this.response.onSend?.();
     queueMicrotask(() => {
-      if (this.aborted) return;
       for (const loaded of this.response.loaded ?? []) {
         for (const listener of this.progressListeners) {
           listener({ loaded, total: 0, lengthComputable: false });
         }
-        if (this.aborted) return;
       }
-      if (this.response.pending) return;
       this.status = this.response.status ?? 0;
       this.responseText = this.response.responseText ?? "";
       this.emit(this.response.event ?? "load");
     });
   }
 
-  abort() {
-    this.aborted = true;
-    this.emit("abort");
-  }
 }
 
 function scriptedXhr(responses: ScriptedResponse[]) {
@@ -131,11 +121,10 @@ function pending(overrides: Partial<PendingUpload> = {}): PendingUpload {
     sessionUrl: SESSION_URL,
     reservationId: null,
     parentId: "root",
-    scopeId: "scope:desk/root",
+    context: CONTEXT,
     name: "영상.mp4",
     size: 1024,
     lastModified: NOW - 1000,
-    mimeType: "video/mp4",
     uploadedBytes: 0,
     createdAt: NOW,
     updatedAt: NOW,
@@ -192,7 +181,7 @@ test("파일 이름·크기·수정 시각이 모두 같은 기록 중 최근에
   assert.deepEqual(records, order);
 });
 
-test("생성부터 일주일이 지난 기록을 만료 처리하고 원본 목록은 보존한다", () => {
+test("생성부터 일주일이 지난 기록을 만료 처리한다", () => {
   assert.equal(PENDING_UPLOAD_TTL_MS, 7 * 24 * 60 * 60 * 1000);
   const expired = pending({ createdAt: NOW - PENDING_UPLOAD_TTL_MS });
   const old = pending({ createdAt: NOW - PENDING_UPLOAD_TTL_MS - 1 });
@@ -201,9 +190,6 @@ test("생성부터 일주일이 지난 기록을 만료 처리하고 원본 목�
   assert.equal(isPendingUploadExpired(expired, NOW), true);
   assert.equal(isPendingUploadExpired(old, NOW), true);
   assert.equal(isPendingUploadExpired(fresh, NOW), false);
-  const records = [expired, fresh, old];
-  assert.deepEqual(pruneExpired(records, NOW), [fresh]);
-  assert.deepEqual(records, [expired, fresh, old]);
 });
 
 test("메모리 저장소는 기록을 저장·갱신·삭제하고 외부 객체 변경과 분리한다", async () => {
@@ -230,13 +216,40 @@ test("대기 목록은 만료 기록을 실제로 지우고 생성 시각 순서
   const earlier = pending({ createdAt: NOW - 2 });
   const expired = pending({ createdAt: NOW - PENDING_UPLOAD_TTL_MS });
   await Promise.all([later, expired, earlier].map((record) => store.put(record)));
-  assert.deepEqual(await listPendingUploads(store, NOW), [earlier, later]);
+  assert.deepEqual(await listPendingUploads(store, CONTEXT, NOW), [earlier, later]);
   assert.deepEqual(await store.list(), [later, earlier]);
+});
+
+test("다른 데스크나 사용자의 기록은 목록에서만 제외하고 저장소에 남긴다", async () => {
+  const fake = fakeIndexedDb();
+  const store = createIndexedDbPendingUploadStore(undefined, fake.factory);
+  const mine = pending();
+  const otherDesk = pending({ context: "other:user@example.test" });
+  const otherUser = pending({ context: "desk:other@example.test" });
+  for (const record of [mine, otherDesk, otherUser]) await store.put(record);
+  assert.deepEqual(await listPendingUploads(store, CONTEXT, NOW), [mine]);
+  const reopened = createIndexedDbPendingUploadStore(undefined, fake.factory);
+  assert.deepEqual(await reopened.list(), [mine, otherDesk, otherUser]);
+  assert.deepEqual(await listPendingUploads(reopened, otherDesk.context, NOW), [otherDesk]);
+  assert.deepEqual(await listPendingUploads(reopened, otherUser.context, NOW), [otherUser]);
+});
+
+test("구글 업로드 경로로 시작하는 HTTPS 세션 URL만 신뢰한다", () => {
+  assert.equal(isTrustedResumableSessionUrl(SESSION_URL), true);
+  assert.equal(isTrustedResumableSessionUrl("https://www.googleapis.com/upload/"), true);
+  for (const url of [
+    "", "http://www.googleapis.com/upload/drive/v3/files",
+    "https://www.googleapis.com/upload", "https://www.googleapis.com/drive/v3/files",
+    "https://www.googleapis.com.evil.test/upload/", "https://www.googleapis.com@evil.test/upload/",
+    "https://evil.test/upload/", " https://www.googleapis.com/upload/",
+  ]) {
+    assert.equal(isTrustedResumableSessionUrl(url), false);
+  }
 });
 
 test("IndexedDB가 없는 Node에서도 가져오기와 기본 저장소 사용이 가능하다", async () => {
   assert.equal(typeof indexedDB, "undefined");
-  const store = openPendingUploadStore();
+  const store = createIndexedDbPendingUploadStore();
   const record = pending();
   await store.put(record);
   assert.deepEqual(await store.list(), [record]);
@@ -461,7 +474,7 @@ test("308 뒤에 기록 저장을 기다린 다음 마지막 조각을 보내 20
       offsets.push(offset);
     },
   });
-  assert.deepEqual(result, { fileId: "abc", responseText: '{"id":"abc"}' });
+  assert.deepEqual(result, { fileId: "abc" });
   assertRanges(fake.requests, [`bytes 0-${CHUNK - 1}/${file.size}`, `bytes ${CHUNK}-${file.size - 1}/${file.size}`]);
   assert.deepEqual(offsets, [CHUNK]);
   assert.deepEqual(progress, [[CHUNK / 2, file.size], [CHUNK, file.size], [file.size, file.size], [file.size, file.size]]);
@@ -532,13 +545,13 @@ test("서버 오류 뒤 Range가 없는 308을 받으면 처음부터 다시 보
   assert.deepEqual(offsets, [0]);
 });
 
-test("복구 조회에서 이미 완료된 경우 파일 정보와 실제 응답 본문을 반환한다", async () => {
+test("복구 조회에서 이미 완료된 경우 파일 ID만 반환한다", async () => {
   const responseText = '{"id":"abc","name":"완료"}';
   const fake = scriptedXhr([{ event: "error" }, { status: 200, responseText }]);
   const result = await uploadResumable({
     sessionUrl: SESSION_URL, file: new Blob(["hello"]), xhrFactory: fake.xhrFactory,
   });
-  assert.deepEqual(result, { fileId: "abc", responseText });
+  assert.deepEqual(result, { fileId: "abc" });
   assertRanges(fake.requests, ["bytes 0-4/5", "bytes */5"]);
 });
 
@@ -553,13 +566,43 @@ test("복구 조회에서 세션이 만료되면 전송을 멈춘다", async () 
 });
 
 test("조각 전송의 4xx 오류는 재시도 없이 한국어 HTTP 오류로 반환한다", async () => {
-  for (const status of [400, 401, 403, 404, 410, 429]) {
+  for (const status of [400, 401, 403]) {
     const fake = scriptedXhr([{ status }]);
     await assert.rejects(uploadResumable({
       sessionUrl: SESSION_URL, file: new Blob(["hello"]), xhrFactory: fake.xhrFactory,
-    }), { message: `드라이브 업로드에 실패했습니다 (HTTP ${status})` });
+    }), { name: "Error", message: `드라이브 업로드에 실패했습니다 (HTTP ${status})` });
     assert.equal(fake.requests.length, 1);
   }
+});
+
+test("조각 전송에서 세션이 만료되면 영구 오류로 반환한다", async () => {
+  for (const status of [404, 410]) {
+    const fake = scriptedXhr([{ status }]);
+    await assert.rejects(uploadResumable({
+      sessionUrl: SESSION_URL, file: new Blob(["hello"]), xhrFactory: fake.xhrFactory,
+    }), (error) => {
+      assert.ok(error instanceof PermanentUploadError);
+      assert.equal(error.message, "드라이브 업로드 세션이 만료되었습니다");
+      return true;
+    });
+    assert.equal(fake.requests.length, 1);
+  }
+});
+
+test("429 뒤 상태를 다시 조회하고 서버에 저장된 위치부터 이어 보낸다", async () => {
+  const fake = scriptedXhr([
+    { status: 429 },
+    { status: 308, range: "bytes=0-1" },
+    { status: 200, responseText: '{"id":"abc"}' },
+  ]);
+  const offsets: number[] = [];
+  const result = await uploadResumable({
+    sessionUrl: SESSION_URL, file: new Blob(["hello"]), xhrFactory: fake.xhrFactory,
+    onChunkSent: (offset) => { offsets.push(offset); },
+  });
+  assert.deepEqual(result, { fileId: "abc" });
+  assertRanges(fake.requests, ["bytes 0-4/5", "bytes */5", "bytes 2-4/5"]);
+  assert.deepEqual(offsets, [2]);
 });
 
 test("같은 조각은 처음 전송 뒤 최대 세 번까지만 다시 보낸다", async () => {
@@ -635,62 +678,45 @@ test("시작 위치가 파일 끝이면 조회로 실제 완료 여부를 확인
   assertRanges(fake.requests, ["bytes */5"]);
 });
 
-function isAbortError(error: unknown): boolean {
-  assert.ok(error instanceof DOMException);
-  assert.equal(error.name, "AbortError");
-  assert.equal(error.message, "중단됨");
-  return true;
-}
-
-test("이미 중단된 신호는 요청을 만들지 않고 정확한 AbortError를 반환한다", async () => {
-  const controller = new AbortController();
-  controller.abort();
-  const fake = scriptedXhr([]);
-  await assert.rejects(uploadResumable({
-    sessionUrl: SESSION_URL, file: new Blob(["hello"]), signal: controller.signal, xhrFactory: fake.xhrFactory,
-  }), isAbortError);
-  assert.equal(fake.requests.length, 0);
-});
-
-test("전송 도중 중단하면 XHR을 취소하고 재시도하지 않는다", async () => {
-  const controller = new AbortController();
-  const fake = scriptedXhr([{ pending: true, loaded: [1] }]);
-  await assert.rejects(uploadResumable({
-    sessionUrl: SESSION_URL,
-    file: new Blob(["hello"]),
-    signal: controller.signal,
-    xhrFactory: fake.xhrFactory,
-    onProgress: () => controller.abort(),
-  }), isAbortError);
-  assert.equal(fake.requests.length, 1);
-  assert.equal(fake.requests[0].aborted, true);
-});
-
-test("복구 조회 중에도 신호로 XHR을 취소한다", async () => {
-  const controller = new AbortController();
-  const fake = scriptedXhr([{ event: "error" }, { pending: true, onSend: () => controller.abort() }]);
-  await assert.rejects(uploadResumable({
-    sessionUrl: SESSION_URL, file: new Blob(["hello"]), signal: controller.signal, xhrFactory: fake.xhrFactory,
-  }), isAbortError);
-  assert.equal(fake.requests[1].aborted, true);
-  assertRanges(fake.requests, ["bytes 0-4/5", "bytes */5"]);
-});
-
-test("기록 저장을 기다리는 동안 중단해도 즉시 반환하고 다음 조각을 보내지 않는다", async () => {
-  const controller = new AbortController();
-  const fake = scriptedXhr([{ status: 308, range: `bytes=0-${CHUNK - 1}` }]);
-  await assert.rejects(uploadResumable({
-    sessionUrl: SESSION_URL,
-    file: new Blob([new Uint8Array(CHUNK + 1)]),
-    chunkSize: CHUNK,
-    signal: controller.signal,
-    xhrFactory: fake.xhrFactory,
-    onChunkSent: () => {
-      controller.abort();
-      return new Promise<void>(() => {});
+test("이어올리기는 먼저 서버 위치를 확인하고 기록 저장 뒤 그 위치부터 보낸다", async () => {
+  const fake = scriptedXhr([
+    { status: 308, range: "bytes=0-1" },
+    { status: 201, responseText: '{"id":"abc"}' },
+  ]);
+  const offsets: number[] = [];
+  const result = await uploadResumable({
+    sessionUrl: SESSION_URL, file: new Blob(["hello"]), startOffset: 4,
+    verifyOffset: true, xhrFactory: fake.xhrFactory,
+    onChunkSent: async (offset) => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(fake.requests.length, 1);
+      offsets.push(offset);
     },
-  }), isAbortError);
-  assert.equal(fake.requests.length, 1);
+  });
+  assert.deepEqual(result, { fileId: "abc" });
+  assertRanges(fake.requests, ["bytes */5", "bytes 2-4/5"]);
+  assert.deepEqual(offsets, [2]);
+});
+
+test("이어올리기 첫 조회에서 완료 또는 만료이면 조각을 보내지 않는다", async () => {
+  for (const status of [200, 201, 404, 410]) {
+    const fake = scriptedXhr([{ status, responseText: '{"id":"abc"}' }]);
+    const upload = uploadResumable({
+      sessionUrl: SESSION_URL, file: new Blob(["hello"]),
+      verifyOffset: true, xhrFactory: fake.xhrFactory,
+    });
+    if (status < 300) {
+      assert.deepEqual(await upload, { fileId: "abc" });
+    } else {
+      await assert.rejects(upload, (error) => {
+        assert.ok(error instanceof PermanentUploadError);
+        assert.equal(error.message, "드라이브 업로드 세션이 만료되었습니다");
+        return true;
+      });
+    }
+    assertRanges(fake.requests, ["bytes */5"]);
+    assert.equal(fake.requests[0].body, null);
+  }
 });
 
 test("기록 저장 실패는 전송 오류로 재시도하지 않고 그대로 전달한다", async () => {
@@ -710,7 +736,7 @@ test("데스크톱 직접 업로드는 기록을 먼저 저장하고 조각 전�
   const { readFile } = await import("node:fs/promises");
   const view = await readFile("src/app/files/FilesView.tsx", "utf8");
   assert.match(view, /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from "@\/lib\/client\/transfer"/);
-  assert.match(view, /import\s*\{[^}]*\bopenPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
+  assert.match(view, /import\s*\{[^}]*\bcreateIndexedDbPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
   assert.match(view, /이어받을 업로드/);
   assert.doesNotMatch(view, /uploadWithProgress\(\s*session\.url/);
 
@@ -719,23 +745,55 @@ test("데스크톱 직접 업로드는 기록을 먼저 저장하고 조각 전�
     view.indexOf("const reservationQuery = session.reservationId"),
   );
   const savedAt = direct.indexOf("await getPendingUploadStore().put(record)");
-  assert.ok(savedAt >= 0 && savedAt < direct.indexOf("await uploadResumable("));
-  assert.match(direct, /onProgress: updateTransfer/);
-  assert.match(direct, /onChunkSent: \(offset\) => savePendingUploadProgress\(record, offset\)/);
-  assert.match(view, /uploadOne\(file: File, folderId: string, scopeId: string\)/);
-  assert.match(view, /uploadOne\(file, folderId, scopeId\)/);
-  assert.match(view, /uploadOne\(target\.file, target\.parentId, scopeId\)/);
+  assert.ok(savedAt >= 0 && savedAt < direct.indexOf("await transferPendingUpload("));
+  assert.match(direct, /transferPendingUpload\(record, file, updateTransfer, \{\s*verifyOffset: false,\s*startOffset: 0/);
+  assert.match(direct, /try \{\s*await getPendingUploadStore\(\)\.put\(record\);\s*\} catch \{/);
+  const transfer = view.slice(
+    view.indexOf("async function transferPendingUpload("),
+    view.indexOf("async function discardPendingUpload("),
+  );
+  assert.match(transfer, /startUploadReservationHeartbeat\(record\.reservationId \?\? undefined\)/);
+  assert.match(transfer, /await uploadResumable\(\{\s*sessionUrl: record\.sessionUrl/);
+  assert.match(transfer, /onProgress: updateTransfer/);
+  assert.match(transfer, /onChunkSent: \(offset\) => savePendingUploadProgress\(record, offset\)/);
+  assert.match(transfer, /startOffset: options\.startOffset/);
+  assert.match(transfer, /verifyOffset: options\.verifyOffset/);
+  assert.match(transfer, /await completePendingUpload\(record, result\.fileId\)/);
+  assert.match(transfer, /finally \{\s*stopHeartbeat\(\)/);
+  assert.match(view, /uploadOne\(file: File, folderId: string\)/);
+  assert.match(view, /uploadOne\(file, folderId\)/);
+  assert.match(view, /uploadOne\(target\.file, target\.parentId\)/);
 });
 
 test("이어올리기 목록은 파일을 대조하고 서버 위치와 현재 열린 창을 확인한다", async () => {
   const { readFile } = await import("node:fs/promises");
   const view = await readFile("src/app/files/FilesView.tsx", "utf8");
-  assert.match(view, /useEffect\(\(\) => \{\s*void reloadPendingUploads\(\)/);
+  assert.match(view, /useEffect\(\(\) => \{\s*const pendingUploadContext = `\$\{spaceSlugFromPathname\(window\.location\.pathname\) \?\? ""\}:\$\{userEmail\}`;\s*pendingUploadContextRef\.current = pendingUploadContext;\s*void reloadPendingUploads\(\)/);
+  assert.match(view, /listPendingUploads\(getPendingUploadStore\(\), pendingUploadContextRef\.current\)/);
+  assert.match(view, /context: pendingUploadContextRef\.current/);
   assert.match(view, /ref=\{resumeInputRef\}/);
   assert.match(view, /matchPendingUpload\(\[record\], file\)/);
   assert.match(view, /matchPendingUpload\(pendingUploads, file\)/);
-  assert.match(view, /queryResumableStatus\(record\.sessionUrl, record\.size\)/);
-  assert.match(view, /startOffset: status\.offset/);
-  assert.match(view, /windowsRef\.current\.some\(\(item\) => item\.id === record\.scopeId\)[\s\S]*?: ROOT_SCOPE/);
+  assert.match(view, /transferPendingUpload\(record, file, updateTransfer, \{\s*verifyOffset: true,\s*startOffset: record\.uploadedBytes/);
+  assert.doesNotMatch(view, /queryResumableStatus|record\.scopeId/);
+  assert.match(view, /windowsRef\.current\.find\(\(item\) => item\.path\.at\(-1\)\?\.id === record\.parentId\)/);
+  assert.match(view, /if \(folderWindow\) \{\s*await refreshScope\(folderWindow\.id\);\s*\} else if \(record\.parentId === ROOT_ID\) \{\s*await refreshScope\(ROOT_SCOPE\);/);
   assert.match(view, /if \(!records\.length\) setResumePanelOpen\(false\)/);
+});
+
+test("이어올리기는 신뢰한 세션과 예약을 확인하고 복구 가능한 실패 기록을 남긴다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
+  const resume = view.slice(view.indexOf("async function resumePendingUpload("), view.indexOf("async function uploadOne("));
+  assert.match(resume, /if \(!isTrustedResumableSessionUrl\(record\.sessionUrl\)\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);\s*return;/);
+  assert.match(resume, /if \(record\.reservationId\) \{\s*try \{\s*await apiJson\(apiPath\("\/api\/drive\/upload-reservation"\)/);
+  assert.ok(resume.indexOf('apiPath("/api/drive/upload-reservation")') < resume.indexOf("await transferPendingUpload("));
+  assert.match(resume, /error\.status === 409\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);\s*setNotice\(t\("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · \{name\}"/);
+  assert.doesNotMatch(view, /isPermanentUploadFailure/);
+  assert.match(view, /error\.status === 409\) \{\s*throw new PermanentUploadError\(error\.message\);/);
+  assert.equal((view.match(/if \(error instanceof PermanentUploadError\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);/g) ?? []).length, 2);
+  assert.match(view, /async function savePendingUploadProgress[\s\S]*?try \{\s*await getPendingUploadStore\(\)\.put\(updated\);\s*\} catch \{[\s\S]*?setPendingUploads\(\(current\) => current\.map\(/);
+  assert.match(view, /async function removePendingUpload\(id: string\) \{\s*setPendingUploads\(\(current\) => current\.filter\(\(item\) => item\.id !== id\)\);/);
+  assert.match(view, /else \{\s*setPendingUploads\(\(current\) => \[\s*\.\.\.current\.filter\(\(item\) => item\.id !== record\.id\),\s*record,/);
+  assert.equal((view.match(/(?:await|void) reloadPendingUploads\(\)/g) ?? []).length, 1);
 });

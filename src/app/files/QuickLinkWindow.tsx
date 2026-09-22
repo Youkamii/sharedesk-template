@@ -81,11 +81,26 @@ export default function QuickLinkWindow({
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<QuickItem[]>([]);
+  const hasActiveUploadRef = useRef(false);
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
       translate(locale, text, vars),
     [locale],
   );
+
+  useEffect(() => {
+    hasActiveUploadRef.current = items.some((item) => item.status === "uploading");
+  }, [items]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasActiveUploadRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
     if (linksRevision === 0) return;

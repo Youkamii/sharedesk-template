@@ -1,6 +1,6 @@
 "use client";
 
-import { apiPath } from "@/lib/client/api-path";
+import { apiPath, spaceSlugFromPathname } from "@/lib/client/api-path";
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -81,9 +81,10 @@ import {
 } from "@/lib/client/layout-key-migration";
 import { previewDiscardReason } from "@/lib/client/preview-draft";
 import {
+  createIndexedDbPendingUploadStore,
+  isTrustedResumableSessionUrl,
   listPendingUploads,
   matchPendingUpload,
-  openPendingUploadStore,
   type PendingUpload,
   type PendingUploadStore,
 } from "@/lib/client/pending-uploads";
@@ -97,7 +98,6 @@ import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   formatTransferBytes,
   PermanentUploadError,
-  queryResumableStatus,
   startUploadReservationHeartbeat,
   streamDownloadToDisk,
   transferProgressText,
@@ -633,15 +633,6 @@ function errorMessage(value: unknown, fallback: string) {
   return value instanceof Error ? value.message : fallback;
 }
 
-function isPermanentUploadFailure(error: unknown) {
-  return error instanceof PermanentUploadError || (
-    error instanceof Error &&
-    "status" in error &&
-    typeof error.status === "number" &&
-    error.status >= 400 && error.status < 500
-  );
-}
-
 // 서버가 준 저장소 주소는 링크로 그대로 열리므로 GitHub 주소만 신뢰한다.
 function resolveStarPageUrl(value: unknown): string {
   return typeof value === "string" && value.startsWith("https://github.com/")
@@ -820,6 +811,7 @@ export default function FilesView({
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const resumeUploadRef = useRef<PendingUpload | null>(null);
   const pendingUploadStoreRef = useRef<PendingUploadStore | null>(null);
+  const pendingUploadContextRef = useRef("");
   const uploadScopeRef = useRef(ROOT_SCOPE);
   const rootDataRef = useRef<FolderData>(blankFolder());
   const windowsRef = useRef<DeskWindow[]>([]);
@@ -1031,13 +1023,13 @@ export default function FilesView({
 
   // 브라우저에서 목록을 읽거나 업로드할 때만 저장소를 연다.
   const getPendingUploadStore = useCallback(() => {
-    pendingUploadStoreRef.current ??= openPendingUploadStore();
+    pendingUploadStoreRef.current ??= createIndexedDbPendingUploadStore();
     return pendingUploadStoreRef.current;
   }, []);
 
   const reloadPendingUploads = useCallback(async () => {
     try {
-      const records = await listPendingUploads(getPendingUploadStore());
+      const records = await listPendingUploads(getPendingUploadStore(), pendingUploadContextRef.current);
       setPendingUploads(records);
       if (!records.length) setResumePanelOpen(false);
     } catch (error) {
@@ -1046,8 +1038,10 @@ export default function FilesView({
   }, [getPendingUploadStore, setNotice, t]);
 
   useEffect(() => {
+    const pendingUploadContext = `${spaceSlugFromPathname(window.location.pathname) ?? ""}:${userEmail}`;
+    pendingUploadContextRef.current = pendingUploadContext;
     void reloadPendingUploads();
-  }, [reloadPendingUploads]);
+  }, [reloadPendingUploads, userEmail]);
 
   const [transientPositions, setTransientPositions] = useState<
     Record<string, Placement>
@@ -6603,29 +6597,66 @@ export default function FilesView({
   }
 
   async function savePendingUploadProgress(record: PendingUpload, uploadedBytes: number) {
-    const updated = { ...record, uploadedBytes, updatedAt: Date.now() };
-    await getPendingUploadStore().put(updated);
+    // 호출자가 들고 있는 record도 같이 갱신해, 실패 뒤 목록에 넣을 때 최신 진행량이 보이게 한다.
+    record.uploadedBytes = uploadedBytes;
+    record.updatedAt = Date.now();
+    const updated = { ...record };
+    try {
+      await getPendingUploadStore().put(updated);
+    } catch {
+      // 기록을 저장하지 못해도 파일 전송은 계속한다.
+    }
     setPendingUploads((current) => current.map((item) =>
       item.id === record.id ? updated : item,
     ));
   }
 
   async function removePendingUpload(id: string) {
+    setPendingUploads((current) => current.filter((item) => item.id !== id));
     await getPendingUploadStore().remove(id);
-    await reloadPendingUploads();
   }
 
   async function completePendingUpload(record: PendingUpload, fileId: string | null) {
     // 완료 알림만 실패했을 때도 다음에는 전송이 끝난 위치부터 확인한다.
     await savePendingUploadProgress(record, record.size);
     if (record.reservationId && fileId) {
-      await apiJson(apiPath("/api/drive/upload-complete"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reservationId: record.reservationId, fileId }),
-      });
+      try {
+        await apiJson(apiPath("/api/drive/upload-complete"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reservationId: record.reservationId, fileId }),
+        });
+      } catch (error) {
+        if (error instanceof Error && "status" in error && error.status === 409) {
+          throw new PermanentUploadError(error.message);
+        }
+        throw error;
+      }
     }
-    await removePendingUpload(record.id);
+    await removePendingUpload(record.id).catch(() => undefined);
+  }
+
+  async function transferPendingUpload(
+    record: PendingUpload,
+    file: File,
+    updateTransfer: (transferred: number, total: number) => void,
+    options: { verifyOffset: boolean; startOffset: number },
+  ) {
+    const stopHeartbeat = startUploadReservationHeartbeat(record.reservationId ?? undefined);
+    try {
+      const result = await uploadResumable({
+        sessionUrl: record.sessionUrl,
+        file,
+        startOffset: options.startOffset,
+        verifyOffset: options.verifyOffset,
+        onProgress: updateTransfer,
+        onChunkSent: (offset) => savePendingUploadProgress(record, offset),
+      });
+      await completePendingUpload(record, result.fileId);
+      return result.fileId;
+    } finally {
+      stopHeartbeat();
+    }
   }
 
   async function discardPendingUpload(record: PendingUpload) {
@@ -6639,6 +6670,10 @@ export default function FilesView({
 
   async function resumePendingUpload(record: PendingUpload, file: File) {
     if (!allowUpload || activeTransfersRef.current.has(record.id)) return;
+    if (!isTrustedResumableSessionUrl(record.sessionUrl)) {
+      await removePendingUpload(record.id).catch(() => undefined);
+      return;
+    }
     const updateTransfer = (transferred: number, total: number) => {
       reportTransferProgress({
         id: record.id,
@@ -6649,54 +6684,48 @@ export default function FilesView({
       });
     };
     updateTransfer(record.uploadedBytes, record.size);
-    let stopHeartbeat = () => {};
     try {
-      const status = await queryResumableStatus(record.sessionUrl, record.size);
-      if (status.kind === "gone") {
-        await removePendingUpload(record.id);
-        setNotice(t("업로드 세션이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
-          name: record.name,
-        }));
-        return;
+      if (record.reservationId) {
+        try {
+          await apiJson(apiPath("/api/drive/upload-reservation"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reservationId: record.reservationId }),
+          });
+        } catch (error) {
+          if (error instanceof Error && "status" in error && error.status === 409) {
+            await removePendingUpload(record.id).catch(() => undefined);
+            setNotice(t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
+              name: record.name,
+            }));
+            return;
+          }
+          throw error;
+        }
       }
-      let fileId: string | null;
-      if (status.kind === "complete") {
-        fileId = status.fileId;
-        updateTransfer(record.size, record.size);
-      } else {
-        // 새로고침 직전 기록보다 서버에 저장된 위치를 우선한다.
-        await savePendingUploadProgress(record, status.offset);
-        updateTransfer(status.offset, record.size);
-        stopHeartbeat = startUploadReservationHeartbeat(record.reservationId ?? undefined);
-        const result = await uploadResumable({
-          sessionUrl: record.sessionUrl,
-          file,
-          startOffset: status.offset,
-          onProgress: updateTransfer,
-          onChunkSent: (offset) => savePendingUploadProgress(record, offset),
-        });
-        fileId = result.fileId;
-      }
-      await completePendingUpload(record, fileId);
+      await transferPendingUpload(record, file, updateTransfer, {
+        verifyOffset: true,
+        startOffset: record.uploadedBytes,
+      });
       // 전송하는 동안 창이 닫혔을 수도 있으므로 현재 창 목록을 확인한다.
-      const scopeId = windowsRef.current.some((item) => item.id === record.scopeId)
-        ? record.scopeId
-        : ROOT_SCOPE;
-      await refreshScope(scopeId);
+      const folderWindow = windowsRef.current.find((item) => item.path.at(-1)?.id === record.parentId);
+      if (folderWindow) {
+        await refreshScope(folderWindow.id);
+      } else if (record.parentId === ROOT_ID) {
+        await refreshScope(ROOT_SCOPE);
+      }
       setNotice(t("{name} 업로드를 이어받아 완료했습니다", { name: record.name }));
     } catch (error) {
-      if (isPermanentUploadFailure(error)) {
+      if (error instanceof PermanentUploadError) {
         await removePendingUpload(record.id).catch(() => undefined);
       }
       setNotice(errorMessage(error, t("업로드에 실패했습니다")));
     } finally {
-      stopHeartbeat();
       reportTransferProgress(null, record.id);
-      await reloadPendingUploads();
     }
   }
 
-  async function uploadOne(file: File, folderId: string, scopeId: string) {
+  async function uploadOne(file: File, folderId: string) {
     const mimeType = file.type || "application/octet-stream";
     const transferId = crypto.randomUUID();
     const updateTransfer = (transferred: number, total: number) => {
@@ -6727,36 +6756,35 @@ export default function FilesView({
           sessionUrl: session.url,
           reservationId: session.reservationId ?? null,
           parentId: folderId,
-          scopeId,
+          context: pendingUploadContextRef.current,
           name: file.name,
           size: file.size,
           lastModified: file.lastModified,
-          mimeType,
           uploadedBytes: 0,
           createdAt: now,
           updatedAt: now,
         };
-        // 첫 바이트를 보내기 전에 기록 저장이 끝나야 새로고침 뒤 이어올릴 수 있다.
-        await getPendingUploadStore().put(record);
-        const stopHeartbeat = startUploadReservationHeartbeat(
-          session.reservationId,
-        );
+        // 새로고침 뒤 이어올릴 수 있게 첫 전송 전에 기록 저장을 시도한다.
         try {
-          const result = await uploadResumable({
-            sessionUrl: session.url,
-            file,
-            onProgress: updateTransfer,
-            onChunkSent: (offset) => savePendingUploadProgress(record, offset),
+          await getPendingUploadStore().put(record);
+        } catch {
+          // 기록을 저장하지 못해도 파일 전송은 시작한다.
+        }
+        try {
+          return await transferPendingUpload(record, file, updateTransfer, {
+            verifyOffset: false,
+            startOffset: 0,
           });
-          await completePendingUpload(record, result.fileId);
-          return result.fileId;
         } catch (error) {
-          if (isPermanentUploadFailure(error)) {
-            await removePendingUpload(record.id);
+          if (error instanceof PermanentUploadError) {
+            await removePendingUpload(record.id).catch(() => undefined);
+          } else {
+            setPendingUploads((current) => [
+              ...current.filter((item) => item.id !== record.id),
+              record,
+            ]);
           }
           throw error;
-        } finally {
-          stopHeartbeat();
         }
       }
       const reservationQuery = session.reservationId
@@ -6783,7 +6811,6 @@ export default function FilesView({
       return body?.entry?.id ?? null;
     } finally {
       reportTransferProgress(null, transferId);
-      await reloadPendingUploads();
     }
   }
 
@@ -6796,7 +6823,7 @@ export default function FilesView({
     for (let index = 0; index < list.length; index += 1) {
       const file = list[index];
       try {
-        await uploadOne(file, folderId, scopeId);
+        await uploadOne(file, folderId);
       } catch (error) {
         failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
       }
@@ -6889,7 +6916,7 @@ export default function FilesView({
     let uploaded = 0;
     for (const target of ready) {
       try {
-        await uploadOne(target.file, target.parentId, scopeId);
+        await uploadOne(target.file, target.parentId);
         uploaded += 1;
       } catch (error) {
         fileFailures.push(
@@ -6955,7 +6982,7 @@ export default function FilesView({
     setContextMenu(null);
     let uploadedId: string | null;
     try {
-      uploadedId = await uploadOne(file, folderId, scopeId);
+      uploadedId = await uploadOne(file, folderId);
     } catch (error) {
       setNotice(errorMessage(error, t("새 메모장을 만들지 못했습니다")));
       return;
@@ -9242,7 +9269,7 @@ export default function FilesView({
         {pendingUploads.length > 0 && (
           <button
             type="button"
-            className={styles.resumeChip}
+            className={`${styles.downloadChip} ${styles.resumeChip}`}
             aria-expanded={resumePanelOpen}
             aria-controls="pending-upload-panel"
             onClick={() => setResumePanelOpen((open) => !open)}
@@ -10598,7 +10625,7 @@ export default function FilesView({
       {resumePanelOpen && pendingUploads.length > 0 && (
         <section
           id="pending-upload-panel"
-          className={styles.resumePanel}
+          className={`${styles.downloadPanel} ${styles.resumePanel}`}
           data-testid="resume-upload-panel"
           aria-label={t("이어받을 업로드 {count}개", { count: pendingUploads.length })}
           onDragOver={(event) => {
@@ -10640,7 +10667,7 @@ export default function FilesView({
             {pendingUploads.map((record) => {
               const uploading = activeTransfers.some((item) => item.id === record.id);
               return (
-                <li key={record.id} className={styles.resumeRow} aria-busy={uploading}>
+                <li key={record.id} className={`${styles.downloadRow} ${styles.resumeRow}`} aria-busy={uploading}>
                   <span className={styles.downloadName} title={record.name}>{record.name}</span>
                   <span className={styles.downloadState}>
                     {formatTransferBytes(record.uploadedBytes)} / {formatTransferBytes(record.size)}

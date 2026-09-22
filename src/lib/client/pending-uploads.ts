@@ -6,11 +6,10 @@ export type PendingUpload = {
   sessionUrl: string;
   reservationId: string | null;
   parentId: string;
-  scopeId: string;
+  context: string;
   name: string;
   size: number;
   lastModified: number;
-  mimeType: string;
   uploadedBytes: number;
   createdAt: number;
   updatedAt: number;
@@ -106,17 +105,13 @@ export function createIndexedDbPendingUploadStore(
   };
 }
 
-export function openPendingUploadStore(): PendingUploadStore {
-  return createIndexedDbPendingUploadStore();
+export function isTrustedResumableSessionUrl(url: string): boolean {
+  return url.startsWith("https://www.googleapis.com/upload/");
 }
 
 export function isPendingUploadExpired(record: PendingUpload, now = Date.now()): boolean {
   // 구글 resumable 세션 URL은 만든 지 일주일이면 죽는다 — 생성 시각 기준으로 지운다.
   return now - record.createdAt >= PENDING_UPLOAD_TTL_MS;
-}
-
-export function pruneExpired(records: PendingUpload[], now = Date.now()): PendingUpload[] {
-  return records.filter((record) => !isPendingUploadExpired(record, now));
 }
 
 export function matchPendingUpload(
@@ -133,11 +128,14 @@ export function matchPendingUpload(
 
 export async function listPendingUploads(
   store: PendingUploadStore,
+  context: string,
   now = Date.now(),
 ): Promise<PendingUpload[]> {
   const records = await store.list();
   await Promise.all(records
     .filter((record) => isPendingUploadExpired(record, now))
     .map((record) => store.remove(record.id)));
-  return pruneExpired(records, now).sort((left, right) => left.createdAt - right.createdAt);
+  return records
+    .filter((record) => record.context === context && !isPendingUploadExpired(record, now))
+    .sort((left, right) => left.createdAt - right.createdAt);
 }

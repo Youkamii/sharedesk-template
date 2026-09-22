@@ -236,6 +236,8 @@ export const EN_FILES: Record<string, string> = {
     "The selected file doesn't match the upload to resume · {name}",
   "업로드 세션이 만료되어 처음부터 다시 올려야 합니다 · {name}":
     "The upload session expired. Upload the file again from the start · {name}",
+  "업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}":
+    "The upload reservation expired. Upload the file again from the start · {name}",
   "{name} 업로드를 이어받아 완료했습니다": "Resumed and finished uploading {name}",
   "업로드 기록을 불러오지 못했습니다": "Couldn't load pending uploads",
   "업로드 기록을 지우지 못했습니다": "Couldn't discard the pending upload",

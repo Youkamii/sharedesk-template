@@ -54,15 +54,17 @@ test("업로드와 다운로드는 실제 바이트 진행을 접속자 목록�
   assert.match(css, /\.transferRow progress\s*\{/);
 });
 
-test("업로드 중에는 데스크톱과 모바일에서 페이지 이탈을 확인한다", async () => {
-  const [view, mobileView] = await Promise.all([
+test("업로드 중에는 데스크톱과 모바일, 간이 링크에서 페이지 이탈을 확인한다", async () => {
+  const [view, mobileView, quickLinkView] = await Promise.all([
     readFile("src/app/files/FilesView.tsx", "utf8"),
     readFile("src/app/files/MobileFilesView.tsx", "utf8"),
+    readFile("src/app/files/QuickLinkWindow.tsx", "utf8"),
   ]);
   const beforeUnloadEffect =
     /useEffect\(\(\) => \{\s*const handleBeforeUnload = [\s\S]*?\n  \}, \[\]\);/;
   const desktopEffect = view.match(beforeUnloadEffect)?.[0] ?? "";
   const mobileEffect = mobileView.match(beforeUnloadEffect)?.[0] ?? "";
+  const quickLinkEffect = quickLinkView.match(beforeUnloadEffect)?.[0] ?? "";
 
   assert.match(desktopEffect, /activeTransfersRef\.current\.values\(\)/);
   assert.match(desktopEffect, /transfer\.kind === "upload"/);
@@ -71,7 +73,10 @@ test("업로드 중에는 데스크톱과 모바일에서 페이지 이탈을 �
     /if \(!activePreviewDiscardReason\(\) && !hasActiveUpload\) return;/,
   );
   assert.match(mobileEffect, /if \(activeUploadCountRef\.current <= 0\) return;/);
-  for (const effect of [desktopEffect, mobileEffect]) {
+  assert.match(quickLinkEffect, /if \(!hasActiveUploadRef\.current\) return;/);
+  assert.match(quickLinkView, /const hasActiveUploadRef = useRef\(false\)/);
+  assert.match(quickLinkView, /useEffect\(\(\) => \{\s*hasActiveUploadRef\.current = items\.some\(\(item\) => item\.status === "uploading"\);\s*\}, \[items\]\);/);
+  for (const effect of [desktopEffect, mobileEffect, quickLinkEffect]) {
     assert.match(effect, /event\.preventDefault\(\)/);
     assert.match(effect, /event\.returnValue = ""/);
     assert.match(effect, /window\.addEventListener\("beforeunload", handleBeforeUnload\)/);
