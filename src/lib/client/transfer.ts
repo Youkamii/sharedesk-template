@@ -163,10 +163,11 @@ class RetryableUploadError extends Error {}
 export class PermanentUploadError extends Error {}
 
 function resumableHttpError(status: number): Error {
-  const message = `드라이브 업로드에 실패했습니다 (HTTP ${status})`;
-  return status === 0 || status === 429 || (status >= 500 && status < 600)
+  const message = "드라이브 업로드에 실패했습니다";
+  const error = status === 0 || status === 429 || (status >= 500 && status < 600)
     ? new RetryableUploadError(message)
     : new PermanentUploadError(message);
+  return Object.assign(error, { status });
 }
 
 function sendXhr(options: {

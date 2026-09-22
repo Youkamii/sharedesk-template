@@ -1,4 +1,5 @@
 export const PENDING_UPLOAD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const PENDING_UPLOAD_OPEN_TIMEOUT_MS = 3000;
 
 // 새 기록의 id는 crypto.randomUUID(), 생성·수정 시간은 Date.now()로 만든다.
 export type PendingUpload = {
@@ -55,16 +56,29 @@ function runUploadRequest<T>(
 export function createIndexedDbPendingUploadStore(
   dbName = "sharedesk-pending-uploads",
   indexedDbFactory?: IDBFactory,
+  openTimeoutMs = PENDING_UPLOAD_OPEN_TIMEOUT_MS,
 ): PendingUploadStore {
   const memory = createMemoryPendingUploadStore();
   let database: Promise<IDBDatabase | null> | undefined;
   const open = () => {
     database ??= new Promise<IDBDatabase | null>((resolve) => {
+      // 열기 응답이 없으면 메모리로 전환하고, 뒤늦게 열린 연결은 닫는다.
+      let settled = false;
+      const timeout = setTimeout(() => finish(null), openTimeoutMs);
+      const finish = (connection: IDBDatabase | null) => {
+        if (settled) {
+          connection?.close();
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve(connection);
+      };
       try {
         // 가져오기나 저장소 생성 시점에는 브라우저 API를 읽지 않는다.
         const factory = indexedDbFactory ?? (typeof indexedDB === "undefined" ? undefined : indexedDB);
         if (!factory) {
-          resolve(null);
+          finish(null);
           return;
         }
         const request = factory.open(dbName, 1);
@@ -73,14 +87,14 @@ export function createIndexedDbPendingUploadStore(
             request.result.createObjectStore("uploads", { keyPath: "id" });
           }
         };
-        request.onerror = () => resolve(null);
+        request.onerror = () => finish(null);
         request.onsuccess = () => {
           const connection = request.result;
           connection.onversionchange = () => connection.close();
-          resolve(connection);
+          finish(connection);
         };
       } catch {
-        resolve(null);
+        finish(null);
       }
     });
     return database;

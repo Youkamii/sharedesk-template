@@ -193,8 +193,6 @@ export default function QuickLinkWindow({
           const { fileId } = await uploadResumable({
             sessionUrl: session.url,
             file,
-            startOffset: 0,
-            verifyOffset: false,
             onProgress: (transferred, total) =>
               patchItem(item.id, { progress: total ? transferred / total : 0 }),
           });
@@ -249,7 +247,7 @@ export default function QuickLinkWindow({
     } catch (error) {
       patchItem(item.id, {
         status: "failed",
-        error: error instanceof Error ? error.message : t("업로드에 실패했습니다"),
+        error: error instanceof Error ? t(error.message) : t("업로드에 실패했습니다"),
       });
     }
   }

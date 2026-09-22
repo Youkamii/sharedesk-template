@@ -226,6 +226,11 @@ export const EN_FILES: Record<string, string> = {
 
   // 업로드 · 메모장 생성
   "드라이브 업로드에 실패했습니다": "Drive upload failed",
+  "드라이브 업로드 세션이 만료되었습니다": "The Drive upload session expired",
+  "네트워크 연결이 끊겼습니다": "The network connection was lost",
+  "업로드 응답 시간이 초과되었습니다": "The upload response timed out",
+  "드라이브 업로드가 더 진행되지 않습니다": "The Drive upload is no longer progressing",
+  "서버의 업로드 위치가 파일 크기를 넘었습니다": "The server's upload offset exceeds the file size",
   "업로드에 실패했습니다": "Upload failed",
   // 새로고침 뒤 이어올리기
   "이어받을 업로드 {count}개": "{count} uploads to resume",
@@ -234,8 +239,6 @@ export const EN_FILES: Record<string, string> = {
   "이어받을 파일을 여기에 놓아 주세요": "Drop files here to resume uploading",
   "선택한 파일이 이어받을 업로드와 다릅니다 · {name}":
     "The selected file doesn't match the upload to resume · {name}",
-  "업로드 세션이 만료되어 처음부터 다시 올려야 합니다 · {name}":
-    "The upload session expired. Upload the file again from the start · {name}",
   "업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}":
     "The upload reservation expired. Upload the file again from the start · {name}",
   "{name} 업로드를 이어받아 완료했습니다": "Resumed and finished uploading {name}",

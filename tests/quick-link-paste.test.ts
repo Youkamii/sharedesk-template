@@ -86,9 +86,7 @@ test("간이 링크 직접 업로드는 끊겨도 서버 위치부터 이어 올
     source,
     /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from\s*"@\/lib\/client\/transfer"/,
   );
-  assert.match(
-    source,
-    /await uploadResumable\(\{\s*sessionUrl: session\.url,\s*file,\s*startOffset: 0,\s*verifyOffset: false,/,
-  );
+  assert.match(source, /uploadResumable\(\{/);
+  assert.match(source, /sessionUrl: session\.url/);
   assert.doesNotMatch(source, /uploadWithProgress\(\s*session\.url\s*,/);
 });

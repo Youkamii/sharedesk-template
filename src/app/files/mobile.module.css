@@ -90,7 +90,7 @@
 
 /* 새로고침 뒤에도 같은 파일을 골라 이어올릴 수 있다(#23). */
 .resumeBanner {
-  border: 2px solid #0a1020;
+  border: 2px solid #10172b;
   box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
 }
 
@@ -116,18 +116,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.resumeActions button {
-  min-height: 44px;
-  flex: 1;
-  padding: 4px 8px;
-  color: #10172b;
-  background: #fff4d2;
-  border: 2px solid #0a1020;
-  border-radius: 0;
-  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
-  font: inherit;
 }
 
 .list {
@@ -209,7 +197,8 @@
   border-top: 2px solid #080d1c;
 }
 
-.dock button {
+.dock button,
+.resumeActions button {
   display: flex;
   min-height: 44px;
   flex: 1;
@@ -223,6 +212,10 @@
   box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
   font: inherit;
   font-size: 13px;
+}
+
+.resumeActions button {
+  background: #fff4d2;
 }
 
 .dock button:disabled,

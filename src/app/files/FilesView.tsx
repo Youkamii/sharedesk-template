@@ -6612,8 +6612,8 @@ export default function FilesView({
   }
 
   async function removePendingUpload(id: string) {
-    setPendingUploads((current) => current.filter((item) => item.id !== id));
     await getPendingUploadStore().remove(id);
+    setPendingUploads((current) => current.filter((item) => item.id !== id));
   }
 
   async function completePendingUpload(record: PendingUpload, fileId: string | null) {
@@ -6719,7 +6719,7 @@ export default function FilesView({
       if (error instanceof PermanentUploadError) {
         await removePendingUpload(record.id).catch(() => undefined);
       }
-      setNotice(errorMessage(error, t("업로드에 실패했습니다")));
+      setNotice(t(errorMessage(error, t("업로드에 실패했습니다"))));
     } finally {
       reportTransferProgress(null, record.id);
     }
@@ -6825,7 +6825,7 @@ export default function FilesView({
       try {
         await uploadOne(file, folderId);
       } catch (error) {
-        failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
+        failed.push(`${file.name}: ${t(errorMessage(error, t("실패")))}`);
       }
     }
     setNotice(

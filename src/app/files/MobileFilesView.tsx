@@ -108,7 +108,6 @@ export default function MobileFilesView({
   const pendingUploadContextRef = useRef("");
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [resumingUploadId, setResumingUploadId] = useState<string | null>(null);
-  const currentIdRef = useRef(rootId);
   // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
   const cameraInputRef = useRef<HTMLInputElement>(null);
   // 전체 검색(#15 A-3). 서버(search.ts)는 완성돼 있고 화면만 얹는다.
@@ -220,7 +219,6 @@ export default function MobileFilesView({
   }, []);
 
   useEffect(() => {
-    currentIdRef.current = currentId;
     // 늦게 도착한 옛 응답이 새 폴더를 덮지 않게 한다.
     let alive = true;
     void (async () => {
@@ -670,13 +668,13 @@ export default function MobileFilesView({
   }
 
   async function removePendingUpload(id: string) {
-    setPendingUploads((current) => current.filter((item) => item.id !== id));
     await getPendingUploadStore().remove(id);
+    setPendingUploads((current) => current.filter((item) => item.id !== id));
   }
 
-  async function completePendingUpload(record: PendingUpload, fileId: string | null) {
+  async function completePendingUpload(record: PendingUpload, fileId: string | null, resumable = true) {
     // 완료 알림만 실패했을 때도 전송이 끝난 위치부터 확인한다.
-    await savePendingUploadProgress(record, record.size);
+    if (resumable) await savePendingUploadProgress(record, record.size);
     if (record.reservationId && fileId) {
       try {
         await uploadSessionJson("/api/drive/upload-complete", {
@@ -690,14 +688,14 @@ export default function MobileFilesView({
         throw error;
       }
     }
-    await removePendingUpload(record.id).catch(() => undefined);
+    if (resumable) await removePendingUpload(record.id).catch(() => undefined);
   }
 
   async function transferPendingUpload(
     record: PendingUpload,
     file: File,
     onProgress: (sent: number, total: number) => void,
-    options: { verifyOffset: boolean; startOffset: number },
+    options: { verifyOffset: boolean; startOffset: number; resumable?: boolean },
   ) {
     const stopHeartbeat = startUploadReservationHeartbeat(record.reservationId ?? undefined);
     try {
@@ -707,9 +705,11 @@ export default function MobileFilesView({
         startOffset: options.startOffset,
         verifyOffset: options.verifyOffset,
         onProgress,
-        onChunkSent: (offset) => savePendingUploadProgress(record, offset),
+        onChunkSent: options.resumable === false
+          ? undefined
+          : (offset) => savePendingUploadProgress(record, offset),
       });
-      await completePendingUpload(record, result.fileId);
+      await completePendingUpload(record, result.fileId, options.resumable);
       return result.fileId;
     } finally {
       stopHeartbeat();
@@ -729,7 +729,7 @@ export default function MobileFilesView({
   }
 
   async function resumePendingUpload(record: PendingUpload, file: File) {
-    if (!allowUpload || busy || activeUploadCountRef.current > 0) return;
+    if (!allowUpload || busy) return;
     if (!isTrustedResumableSessionUrl(record.sessionUrl)) {
       await removePendingUpload(record.id).catch(() => undefined);
       return;
@@ -775,14 +775,13 @@ export default function MobileFilesView({
         text: t("{name} 업로드를 이어받아 완료했습니다", { name: record.name }),
         kind: "info",
       });
-      // 전송 중 폴더를 옮겼다면 지금 보고 있는 폴더만 새로 읽는다.
-      if (record.parentId === currentIdRef.current) reload();
+      reload();
     } catch (error) {
       if (error instanceof PermanentUploadError) {
         await removePendingUpload(record.id).catch(() => undefined);
       }
       setNotice({
-        text: error instanceof Error ? error.message : t("업로드에 실패했습니다"),
+        text: error instanceof Error ? t(error.message) : t("업로드에 실패했습니다"),
         kind: "error",
       });
     } finally {
@@ -800,6 +799,7 @@ export default function MobileFilesView({
   async function uploadOne(
     file: File,
     onProgress: (sent: number, total: number) => void,
+    options: { resumable: boolean },
   ) {
     const mimeType = file.type || "application/octet-stream";
     const session = await uploadSessionJson<UploadSession>(
@@ -821,18 +821,22 @@ export default function MobileFilesView({
         createdAt: now,
         updatedAt: now,
       };
-      // 새로고침 뒤 이어올릴 수 있게 첫 전송 전에 기록 저장을 시도한다.
-      try {
-        await getPendingUploadStore().put(record);
-      } catch {
-        // 기록을 저장하지 못해도 파일 전송은 시작한다.
+      // 다시 고를 수 있는 파일만 첫 전송 전에 기록 저장을 시도한다.
+      if (options.resumable) {
+        try {
+          await getPendingUploadStore().put(record);
+        } catch {
+          // 기록을 저장하지 못해도 파일 전송은 시작한다.
+        }
       }
       try {
         return await transferPendingUpload(record, file, onProgress, {
           verifyOffset: false,
           startOffset: 0,
+          resumable: options.resumable,
         });
       } catch (error) {
+        if (!options.resumable) throw error;
         if (error instanceof PermanentUploadError) {
           await removePendingUpload(record.id).catch(() => undefined);
         } else {
@@ -872,7 +876,7 @@ export default function MobileFilesView({
     }
   }
 
-  async function uploadFiles(files: FileList) {
+  async function uploadFiles(files: FileList, options = { resumable: true }) {
     setBusy(true);
     setNotice(null);
     // 서버가 알려 준 이유를 그대로 보여준다. 예전에는 실패 개수만 세서
@@ -900,11 +904,11 @@ export default function MobileFilesView({
             total: list.length,
             percent,
           });
-        });
+        }, options);
       } catch (error) {
         failures.push(
           `${file.name}: ${
-            error instanceof Error ? error.message : t("실패")
+            error instanceof Error ? t(error.message) : t("실패")
           }`,
         );
       } finally {
@@ -1051,7 +1055,7 @@ export default function MobileFilesView({
                   <div className={styles.resumeActions}>
                     <button
                       type="button"
-                      disabled={!allowUpload || busy || uploading}
+                      disabled={!allowUpload || busy}
                       onClick={() => {
                         resumeUploadRef.current = record;
                         resumeInputRef.current?.click();
@@ -1445,7 +1449,7 @@ export default function MobileFilesView({
             className={styles.hiddenInput}
             onChange={(event) => {
               if (event.target.files?.length) {
-                void uploadFiles(event.target.files);
+                void uploadFiles(event.target.files, { resumable: false });
               }
               event.target.value = "";
             }}

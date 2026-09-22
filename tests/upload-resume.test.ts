@@ -298,6 +298,32 @@ test("IndexedDB 열기의 비동기 오류도 메모리 저장소로 전환한�
   assert.equal(opens, 1);
 });
 
+test("IndexedDB 열기 응답이 없으면 메모리로 전환하고 뒤늦게 열린 연결을 닫는다", { timeout: 1000 }, async () => {
+  let opens = 0;
+  let closes = 0;
+  const request = {
+    result: { close() { closes += 1; } },
+    onsuccess: null as (() => void) | null,
+  };
+  const factory = {
+    open() {
+      opens += 1;
+      return request;
+    },
+  } as unknown as IDBFactory;
+  const store = createIndexedDbPendingUploadStore(undefined, factory, 20);
+  const first = pending();
+  const second = pending();
+  await Promise.all([store.put(first), store.put(second)]);
+  assert.deepEqual(await store.list(), [first, second]);
+  request.onsuccess?.();
+  assert.equal(closes, 1);
+  await store.put({ ...second, uploadedBytes: 512 });
+  await store.remove(first.id);
+  assert.deepEqual(await store.list(), [{ ...second, uploadedBytes: 512 }]);
+  assert.equal(opens, 1);
+});
+
 function fakeIndexedDb() {
   const records = new Map<string, PendingUpload>();
   const state = {
@@ -444,7 +470,8 @@ test("상태 조회의 HTTP 오류와 네트워크 오류는 호출자에게 전
   for (const status of [400, 403, 500, 503]) {
     const fake = scriptedXhr([{ status }]);
     await assert.rejects(queryResumableStatus(SESSION_URL, 10, fake.xhrFactory), {
-      message: `드라이브 업로드에 실패했습니다 (HTTP ${status})`,
+      message: "드라이브 업로드에 실패했습니다",
+      status,
     });
   }
   const fake = scriptedXhr([{ event: "error" }]);
@@ -570,7 +597,7 @@ test("조각 전송의 4xx 오류는 재시도 없이 한국어 HTTP 오류로 �
     const fake = scriptedXhr([{ status }]);
     await assert.rejects(uploadResumable({
       sessionUrl: SESSION_URL, file: new Blob(["hello"]), xhrFactory: fake.xhrFactory,
-    }), { name: "Error", message: `드라이브 업로드에 실패했습니다 (HTTP ${status})` });
+    }), { name: "Error", message: "드라이브 업로드에 실패했습니다", status });
     assert.equal(fake.requests.length, 1);
   }
 });
@@ -793,7 +820,7 @@ test("이어올리기는 신뢰한 세션과 예약을 확인하고 복구 가�
   assert.match(view, /error\.status === 409\) \{\s*throw new PermanentUploadError\(error\.message\);/);
   assert.equal((view.match(/if \(error instanceof PermanentUploadError\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);/g) ?? []).length, 2);
   assert.match(view, /async function savePendingUploadProgress[\s\S]*?try \{\s*await getPendingUploadStore\(\)\.put\(updated\);\s*\} catch \{[\s\S]*?setPendingUploads\(\(current\) => current\.map\(/);
-  assert.match(view, /async function removePendingUpload\(id: string\) \{\s*setPendingUploads\(\(current\) => current\.filter\(\(item\) => item\.id !== id\)\);/);
+  assert.match(view, /async function removePendingUpload\(id: string\) \{\s*await getPendingUploadStore\(\)\.remove\(id\);\s*setPendingUploads\(\(current\) => current\.filter\(\(item\) => item\.id !== id\)\);/);
   assert.match(view, /else \{\s*setPendingUploads\(\(current\) => \[\s*\.\.\.current\.filter\(\(item\) => item\.id !== record\.id\),\s*record,/);
   assert.equal((view.match(/(?:await|void) reloadPendingUploads\(\)/g) ?? []).length, 1);
 });

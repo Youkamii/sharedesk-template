@@ -119,7 +119,7 @@ test("모바일 목록 화면은 터치에 맞는 크기와 안전 영역을 쓴
   );
   // 터치 대상은 44px 이상 (DESIGN.md: 터치 화면은 comfortable).
   assert.match(css, /\.row\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px/);
-  assert.match(css, /\.dock button\s*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px/);
+  assert.match(css, /\.dock button[^{}]*\{[^}]*min-height:\s*(4[4-9]|[5-9]\d)px/);
   // 홈 인디케이터에 버튼이 가리지 않게 한다.
   assert.match(css, /env\(safe-area-inset-bottom\)/);
   // 주소창이 접혔다 펴져도 화면이 잘리지 않게 한다.
@@ -202,7 +202,7 @@ test("모바일 독의 카메라 버튼은 찍자마자 같은 직행 경로로 
   assert.match(source, /사진 찍기/);
   // 카메라 입력도 일반 업로드와 같은 uploadFiles(직행 세션·진행 표시)를 탄다.
   const cameraBlock = source.slice(source.indexOf('capture="environment"'));
-  assert.match(cameraBlock, /void uploadFiles\(event\.target\.files\)/);
+  assert.match(cameraBlock, /void uploadFiles\(event\.target\.files, \{ resumable: false \}\)/);
 });
 
 test("모바일에서 전체 검색으로 찾고 원래 위치로 이동한다 (#15 A-3)", async () => {
