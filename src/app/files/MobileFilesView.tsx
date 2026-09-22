@@ -1,6 +1,6 @@
 "use client";
 
-import { apiPath, spaceSlugFromPathname } from "@/lib/client/api-path";
+import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -11,18 +11,17 @@ import {
 } from "@/lib/client/mobile-listing";
 import {
   formatTransferBytes,
-  PermanentUploadError,
-  startUploadReservationHeartbeat,
-  uploadResumable,
   uploadWithProgress,
 } from "@/lib/client/transfer";
 import {
+  createPendingUploadFlow,
+  pendingUploadContext,
+  type PendingUploadFlow,
+} from "@/lib/client/pending-upload-flow";
+import {
   createIndexedDbPendingUploadStore,
-  isTrustedResumableSessionUrl,
-  listPendingUploads,
   matchPendingUpload,
   type PendingUpload,
-  type PendingUploadStore,
 } from "@/lib/client/pending-uploads";
 import { NOTICE_DURATION_MS } from "@/lib/client/use-auto-dismiss-notice";
 import { FOLDER_COLOR_IDS } from "@/lib/folder-color-ids";
@@ -104,8 +103,7 @@ export default function MobileFilesView({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resumeInputRef = useRef<HTMLInputElement>(null);
   const resumeUploadRef = useRef<PendingUpload | null>(null);
-  const pendingUploadStoreRef = useRef<PendingUploadStore | null>(null);
-  const pendingUploadContextRef = useRef("");
+  const pendingUploadFlowRef = useRef<PendingUploadFlow | null>(null);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [resumingUploadId, setResumingUploadId] = useState<string | null>(null);
   // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
@@ -181,32 +179,6 @@ export default function MobileFilesView({
   const error = loading ? null : (loaded?.error ?? null);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
-
-  const getPendingUploadStore = useCallback(() => {
-    pendingUploadStoreRef.current ??= createIndexedDbPendingUploadStore();
-    return pendingUploadStoreRef.current;
-  }, []);
-
-  useEffect(() => {
-    const context = `${spaceSlugFromPathname(window.location.pathname) ?? ""}:${userEmail}`;
-    pendingUploadContextRef.current = context;
-    let alive = true;
-    void (async () => {
-      try {
-        const records = await listPendingUploads(getPendingUploadStore(), context);
-        if (alive) setPendingUploads(records);
-      } catch (error) {
-        if (!alive) return;
-        setNotice({
-          text: error instanceof Error ? error.message : t("업로드 기록을 불러오지 못했습니다"),
-          kind: "error",
-        });
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [getPendingUploadStore, t, userEmail]);
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -628,7 +600,7 @@ export default function MobileFilesView({
     }
   }
 
-  async function uploadSessionJson<T>(path: string, body: unknown): Promise<T> {
+  const uploadSessionJson = useCallback(async <T,>(path: string, body: unknown): Promise<T> => {
     const response = await fetch(apiPath(path), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -636,7 +608,7 @@ export default function MobileFilesView({
     });
     if (response.status === 401) {
       router.replace("/");
-      throw new Error(t("세션이 만료되었습니다"));
+      throw Object.assign(new Error(t("세션이 만료되었습니다")), { status: response.status });
     }
     const parsed = (await response.json().catch(() => null)) as {
       error?: string;
@@ -650,76 +622,38 @@ export default function MobileFilesView({
       throw Object.assign(error, { status: response.status });
     }
     return parsed as T;
-  }
+  }, [router, t]);
 
-  async function savePendingUploadProgress(record: PendingUpload, uploadedBytes: number) {
-    // 실패 뒤 목록에 넣을 때도 마지막으로 저장한 진행량이 보이게 한다.
-    record.uploadedBytes = uploadedBytes;
-    record.updatedAt = Date.now();
-    const updated = { ...record };
-    try {
-      await getPendingUploadStore().put(updated);
-    } catch {
-      // 기록을 저장하지 못해도 파일 전송은 계속한다.
-    }
-    setPendingUploads((current) => current.map((item) =>
-      item.id === record.id ? updated : item,
-    ));
-  }
-
-  async function removePendingUpload(id: string) {
-    await getPendingUploadStore().remove(id);
-    setPendingUploads((current) => current.filter((item) => item.id !== id));
-  }
-
-  async function completePendingUpload(record: PendingUpload, fileId: string | null, resumable = true) {
-    // 완료 알림만 실패했을 때도 전송이 끝난 위치부터 확인한다.
-    if (resumable) await savePendingUploadProgress(record, record.size);
-    if (record.reservationId && fileId) {
+  useEffect(() => {
+    // 렌더 중에는 만들지 않고 브라우저에 마운트된 뒤 저장소를 준비한다.
+    const flow = pendingUploadFlowRef.current ??= createPendingUploadFlow({
+      store: createIndexedDbPendingUploadStore(),
+      post: uploadSessionJson,
+      onRecordsChange: setPendingUploads,
+    });
+    flow.setContext(pendingUploadContext(window.location.pathname, userEmail));
+    let alive = true;
+    void (async () => {
       try {
-        await uploadSessionJson("/api/drive/upload-complete", {
-          reservationId: record.reservationId,
-          fileId,
-        });
+        const records = await flow.load();
+        if (alive) setPendingUploads(records);
       } catch (error) {
-        if (error instanceof Error && "status" in error && error.status === 409) {
-          throw new PermanentUploadError(error.message);
-        }
-        throw error;
+        if (!alive) return;
+        setNotice({
+          text: error instanceof Error ? error.message : t("업로드 기록을 불러오지 못했습니다"),
+          kind: "error",
+        });
       }
-    }
-    if (resumable) await removePendingUpload(record.id).catch(() => undefined);
-  }
-
-  async function transferPendingUpload(
-    record: PendingUpload,
-    file: File,
-    onProgress: (sent: number, total: number) => void,
-    options: { verifyOffset: boolean; startOffset: number; resumable?: boolean },
-  ) {
-    const stopHeartbeat = startUploadReservationHeartbeat(record.reservationId ?? undefined);
-    try {
-      const result = await uploadResumable({
-        sessionUrl: record.sessionUrl,
-        file,
-        startOffset: options.startOffset,
-        verifyOffset: options.verifyOffset,
-        onProgress,
-        onChunkSent: options.resumable === false
-          ? undefined
-          : (offset) => savePendingUploadProgress(record, offset),
-      });
-      await completePendingUpload(record, result.fileId, options.resumable);
-      return result.fileId;
-    } finally {
-      stopHeartbeat();
-    }
-  }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [t, uploadSessionJson, userEmail]);
 
   async function discardPendingUpload(record: PendingUpload) {
     if (resumingUploadId === record.id) return;
     try {
-      await removePendingUpload(record.id);
+      await pendingUploadFlowRef.current!.remove(record.id);
     } catch (error) {
       setNotice({
         text: error instanceof Error ? error.message : t("업로드 기록을 지우지 못했습니다"),
@@ -730,10 +664,7 @@ export default function MobileFilesView({
 
   async function resumePendingUpload(record: PendingUpload, file: File) {
     if (!allowUpload || busy) return;
-    if (!isTrustedResumableSessionUrl(record.sessionUrl)) {
-      await removePendingUpload(record.id).catch(() => undefined);
-      return;
-    }
+    const flow = pendingUploadFlowRef.current!;
     const updateProgress = (sent: number, total: number) => {
       setProgress({
         name: record.name,
@@ -748,38 +679,24 @@ export default function MobileFilesView({
     activeUploadCountRef.current += 1;
     updateProgress(record.uploadedBytes, record.size);
     try {
-      if (record.reservationId) {
-        try {
-          await uploadSessionJson("/api/drive/upload-reservation", {
-            reservationId: record.reservationId,
-          });
-        } catch (error) {
-          if (error instanceof Error && "status" in error && error.status === 409) {
-            await removePendingUpload(record.id).catch(() => undefined);
-            setNotice({
-              text: t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
-                name: record.name,
-              }),
-              kind: "error",
-            });
-            return;
-          }
-          throw error;
-        }
+      const resumable = await flow.checkResumable(record);
+      if (resumable === "untrusted") return;
+      if (resumable === "reservation-expired") {
+        setNotice({
+          text: t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
+            name: record.name,
+          }),
+          kind: "error",
+        });
+        return;
       }
-      await transferPendingUpload(record, file, updateProgress, {
-        verifyOffset: true,
-        startOffset: record.uploadedBytes,
-      });
+      await flow.resume(record, file, updateProgress);
       setNotice({
         text: t("{name} 업로드를 이어받아 완료했습니다", { name: record.name }),
         kind: "info",
       });
       reload();
     } catch (error) {
-      if (error instanceof PermanentUploadError) {
-        await removePendingUpload(record.id).catch(() => undefined);
-      }
       setNotice({
         text: error instanceof Error ? t(error.message) : t("업로드에 실패했습니다"),
         kind: "error",
@@ -807,46 +724,14 @@ export default function MobileFilesView({
       { parentId: currentId, name: file.name, mimeType, size: file.size },
     );
     if (session.mode === "direct") {
-      const now = Date.now();
-      const record: PendingUpload = {
-        id: crypto.randomUUID(),
+      const flow = pendingUploadFlowRef.current!;
+      const record = flow.createRecord({
         sessionUrl: session.url,
         reservationId: session.reservationId ?? null,
         parentId: currentId,
-        context: pendingUploadContextRef.current,
-        name: file.name,
-        size: file.size,
-        lastModified: file.lastModified,
-        uploadedBytes: 0,
-        createdAt: now,
-        updatedAt: now,
-      };
-      // 다시 고를 수 있는 파일만 첫 전송 전에 기록 저장을 시도한다.
-      if (options.resumable) {
-        try {
-          await getPendingUploadStore().put(record);
-        } catch {
-          // 기록을 저장하지 못해도 파일 전송은 시작한다.
-        }
-      }
-      try {
-        return await transferPendingUpload(record, file, onProgress, {
-          verifyOffset: false,
-          startOffset: 0,
-          resumable: options.resumable,
-        });
-      } catch (error) {
-        if (!options.resumable) throw error;
-        if (error instanceof PermanentUploadError) {
-          await removePendingUpload(record.id).catch(() => undefined);
-        } else {
-          setPendingUploads((current) => [
-            ...current.filter((item) => item.id !== record.id),
-            record,
-          ]);
-        }
-        throw error;
-      }
+        file,
+      });
+      return flow.uploadDirect(record, file, onProgress, { keepOnFailure: options.resumable });
     }
     const reservationQuery = session.reservationId
       ? `&reservationId=${encodeURIComponent(session.reservationId)}`

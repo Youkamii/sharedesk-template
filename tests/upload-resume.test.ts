@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import {
+  createPendingUploadFlow,
+  pendingUploadContext,
+  type PendingUploadPoster,
+} from "../src/lib/client/pending-upload-flow";
 import {
   PermanentUploadError,
   RESUMABLE_CHUNK_SIZE,
@@ -759,68 +764,297 @@ test("기록 저장 실패는 전송 오류로 재시도하지 않고 그대로 
   assert.equal(fake.requests.length, 1);
 });
 
-test("데스크톱 직접 업로드는 기록을 먼저 저장하고 조각 전송으로 이어올린다", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
-  assert.match(view, /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from "@\/lib\/client\/transfer"/);
-  assert.match(view, /import\s*\{[^}]*\bcreateIndexedDbPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
-  assert.match(view, /이어받을 업로드/);
-  assert.doesNotMatch(view, /uploadWithProgress\(\s*session\.url/);
+function pendingFlow(t: TestContext, responses: ScriptedResponse[] = [], postResponses: unknown[] = []) {
+  const store = createMemoryPendingUploadStore();
+  const xhr = scriptedXhr(responses);
+  let records: PendingUpload[] = [];
+  const storedAtRequest: Promise<PendingUpload[]>[] = [];
+  const storedAtPost: Promise<PendingUpload[]>[] = [];
+  const postCalls: Array<{ path: string; body: unknown }> = [];
+  const post = t.mock.fn<PendingUploadPoster>(async (path, body) => {
+    const index = postCalls.length;
+    postCalls.push({ path, body });
+    storedAtPost.push(store.list());
+    assert.ok(index < postResponses.length, "예정에 없는 POST 요청이 발생했습니다");
+    const response = postResponses[index];
+    if (response instanceof Error) throw response;
+    return response;
+  });
+  const onRecordsChange = t.mock.fn((update: (current: PendingUpload[]) => PendingUpload[]) => {
+    records = update(records);
+  });
+  const callbacks: Array<() => void> = [];
+  const stopped: number[] = [];
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: {
+      location: { pathname: "/files" },
+      setInterval(callback: () => void) {
+        callbacks.push(callback);
+        return callbacks.length;
+      },
+      clearInterval(id: number) {
+        stopped.push(id);
+      },
+    },
+  });
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+    // 성공·실패 어느 경로에서도 시작한 예약 갱신을 모두 멈춰야 한다.
+    assert.deepEqual(stopped, callbacks.map((_, index) => index + 1));
+  });
+  const flow = createPendingUploadFlow({
+    store,
+    post,
+    onRecordsChange,
+    xhrFactory: () => {
+      storedAtRequest.push(store.list());
+      return xhr.xhrFactory();
+    },
+  });
+  flow.setContext(CONTEXT);
+  const file = new File(["hello"], "영상.mp4", { lastModified: NOW - 1000 });
+  const record = flow.createRecord({
+    sessionUrl: SESSION_URL, reservationId: "reservation", parentId: "root", file,
+  });
+  return {
+    flow, store, xhr, file, record, postCalls, storedAtRequest, storedAtPost, onRecordsChange, callbacks,
+    get records() { return records; },
+    async seed(...initial: PendingUpload[]) {
+      for (const item of initial) await store.put(item);
+      records = initial.map((item) => ({ ...item }));
+    },
+  };
+}
 
-  const direct = view.slice(
-    view.indexOf('if (session.mode === "direct")'),
-    view.indexOf("const reservationQuery = session.reservationId"),
-  );
-  const savedAt = direct.indexOf("await getPendingUploadStore().put(record)");
-  assert.ok(savedAt >= 0 && savedAt < direct.indexOf("await transferPendingUpload("));
-  assert.match(direct, /transferPendingUpload\(record, file, updateTransfer, \{\s*verifyOffset: false,\s*startOffset: 0/);
-  assert.match(direct, /try \{\s*await getPendingUploadStore\(\)\.put\(record\);\s*\} catch \{/);
-  const transfer = view.slice(
-    view.indexOf("async function transferPendingUpload("),
-    view.indexOf("async function discardPendingUpload("),
-  );
-  assert.match(transfer, /startUploadReservationHeartbeat\(record\.reservationId \?\? undefined\)/);
-  assert.match(transfer, /await uploadResumable\(\{\s*sessionUrl: record\.sessionUrl/);
-  assert.match(transfer, /onProgress: updateTransfer/);
-  assert.match(transfer, /onChunkSent: \(offset\) => savePendingUploadProgress\(record, offset\)/);
-  assert.match(transfer, /startOffset: options\.startOffset/);
-  assert.match(transfer, /verifyOffset: options\.verifyOffset/);
-  assert.match(transfer, /await completePendingUpload\(record, result\.fileId\)/);
-  assert.match(transfer, /finally \{\s*stopHeartbeat\(\)/);
-  assert.match(view, /uploadOne\(file: File, folderId: string\)/);
-  assert.match(view, /uploadOne\(file, folderId\)/);
-  assert.match(view, /uploadOne\(target\.file, target\.parentId\)/);
+test("공용 흐름은 파일 정보와 문맥으로 기록을 만들고 현재 문맥의 살아 있는 기록만 읽는다", async (t) => {
+  t.mock.method(Date, "now", () => NOW);
+  assert.equal(pendingUploadContext("/sea/files", "user@example.test"), "sea:user@example.test");
+  assert.equal(pendingUploadContext("/files", "user@example.test"), ":user@example.test");
+  assert.equal(pendingUploadContext("/sea/files", "other@example.test"), "sea:other@example.test");
+  const h = pendingFlow(t);
+  assert.equal(h.flow.context, CONTEXT);
+  assert.deepEqual(h.record, {
+    id: h.record.id, sessionUrl: SESSION_URL, reservationId: "reservation", parentId: "root",
+    context: CONTEXT, name: h.file.name, size: h.file.size, lastModified: h.file.lastModified,
+    uploadedBytes: 0, createdAt: NOW, updatedAt: NOW,
+  });
+  assert.match(h.record.id, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(await h.store.list(), []);
+  const other = pending({ context: "other:user@example.test" });
+  const expired = pending({ createdAt: NOW - PENDING_UPLOAD_TTL_MS });
+  await h.seed(h.record, other, expired);
+  assert.deepEqual(await h.flow.load(), [h.record]);
+  assert.deepEqual(await h.store.list(), [h.record, other]);
+  assert.equal(h.onRecordsChange.mock.callCount(), 0);
 });
 
-test("이어올리기 목록은 파일을 대조하고 서버 위치와 현재 열린 창을 확인한다", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
-  assert.match(view, /useEffect\(\(\) => \{\s*const pendingUploadContext = `\$\{spaceSlugFromPathname\(window\.location\.pathname\) \?\? ""\}:\$\{userEmail\}`;\s*pendingUploadContextRef\.current = pendingUploadContext;\s*void reloadPendingUploads\(\)/);
-  assert.match(view, /listPendingUploads\(getPendingUploadStore\(\), pendingUploadContextRef\.current\)/);
-  assert.match(view, /context: pendingUploadContextRef\.current/);
-  assert.match(view, /ref=\{resumeInputRef\}/);
-  assert.match(view, /matchPendingUpload\(\[record\], file\)/);
-  assert.match(view, /matchPendingUpload\(pendingUploads, file\)/);
-  assert.match(view, /transferPendingUpload\(record, file, updateTransfer, \{\s*verifyOffset: true,\s*startOffset: record\.uploadedBytes/);
-  assert.doesNotMatch(view, /queryResumableStatus|record\.scopeId/);
-  assert.match(view, /windowsRef\.current\.find\(\(item\) => item\.path\.at\(-1\)\?\.id === record\.parentId\)/);
-  assert.match(view, /if \(folderWindow\) \{\s*await refreshScope\(folderWindow\.id\);\s*\} else if \(record\.parentId === ROOT_ID\) \{\s*await refreshScope\(ROOT_SCOPE\);/);
-  assert.match(view, /if \(!records\.length\) setResumePanelOpen\(false\)/);
+test("직접 업로드는 첫 바이트 전에 저장하고 완료 알림 뒤 기록을 지운다", async (t) => {
+  const h = pendingFlow(t, [{ status: 201, responseText: '{"id":"abc"}', loaded: [2] }], [{}]);
+  const other = pending();
+  await h.seed(other);
+  const originalPut = h.store.put;
+  t.mock.method(h.store, "put", async (record: PendingUpload) => {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await originalPut(record);
+  });
+  const heartbeatRequests: Array<{ url: unknown; body: unknown }> = [];
+  t.mock.method(globalThis, "fetch", async (url: unknown, init?: RequestInit) => {
+    heartbeatRequests.push({ url, body: JSON.parse(String(init?.body)) });
+    return new Response("{}");
+  });
+  const progress: number[][] = [];
+  const result = await h.flow.uploadDirect(h.record, h.file, (sent, total) => {
+    progress.push([sent, total]);
+    if (progress.length === 1) h.callbacks[0]();
+  }, { keepOnFailure: true });
+  assert.equal(result, "abc");
+  assertRanges(h.xhr.requests, ["bytes 0-4/5"]);
+  assert.deepEqual(await h.storedAtRequest[0], [other, { ...h.record, uploadedBytes: 0, updatedAt: h.record.createdAt }]);
+  assert.deepEqual(progress, [[2, 5], [5, 5]]);
+  assert.deepEqual(h.postCalls, [{
+    path: "/api/drive/upload-complete", body: { reservationId: "reservation", fileId: "abc" },
+  }]);
+  assert.deepEqual(await h.storedAtPost[0], [other, h.record]);
+  assert.equal(h.record.uploadedBytes, 5);
+  assert.deepEqual(await h.store.list(), [other]);
+  assert.deepEqual(h.records, [other]);
+  assert.deepEqual(heartbeatRequests, [{
+    url: "/api/drive/upload-reservation", body: { reservationId: "reservation" },
+  }]);
 });
 
-test("이어올리기는 신뢰한 세션과 예약을 확인하고 복구 가능한 실패 기록을 남긴다", async () => {
-  const { readFile } = await import("node:fs/promises");
-  const view = await readFile("src/app/files/FilesView.tsx", "utf8");
-  const resume = view.slice(view.indexOf("async function resumePendingUpload("), view.indexOf("async function uploadOne("));
-  assert.match(resume, /if \(!isTrustedResumableSessionUrl\(record\.sessionUrl\)\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);\s*return;/);
-  assert.match(resume, /if \(record\.reservationId\) \{\s*try \{\s*await apiJson\(apiPath\("\/api\/drive\/upload-reservation"\)/);
-  assert.ok(resume.indexOf('apiPath("/api/drive/upload-reservation")') < resume.indexOf("await transferPendingUpload("));
-  assert.match(resume, /error\.status === 409\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);\s*setNotice\(t\("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · \{name\}"/);
-  assert.doesNotMatch(view, /isPermanentUploadFailure/);
-  assert.match(view, /error\.status === 409\) \{\s*throw new PermanentUploadError\(error\.message\);/);
-  assert.equal((view.match(/if \(error instanceof PermanentUploadError\) \{\s*await removePendingUpload\(record\.id\)\.catch\(\(\) => undefined\);/g) ?? []).length, 2);
-  assert.match(view, /async function savePendingUploadProgress[\s\S]*?try \{\s*await getPendingUploadStore\(\)\.put\(updated\);\s*\} catch \{[\s\S]*?setPendingUploads\(\(current\) => current\.map\(/);
-  assert.match(view, /async function removePendingUpload\(id: string\) \{\s*await getPendingUploadStore\(\)\.remove\(id\);\s*setPendingUploads\(\(current\) => current\.filter\(\(item\) => item\.id !== id\)\);/);
-  assert.match(view, /else \{\s*setPendingUploads\(\(current\) => \[\s*\.\.\.current\.filter\(\(item\) => item\.id !== record\.id\),\s*record,/);
-  assert.equal((view.match(/(?:await|void) reloadPendingUploads\(\)/g) ?? []).length, 1);
+for (const keepOnFailure of [true, false]) {
+  test(`직접 업로드 네트워크 실패는 keepOnFailure=${keepOnFailure}에 따라 기록을 남기거나 지운다`, async (t) => {
+    const h = pendingFlow(t, [
+      { status: 308, range: "bytes=0-1" },
+      ...Array.from({ length: 4 }, (): ScriptedResponse => ({ event: "error" })),
+    ]);
+    const other = pending();
+    await h.seed(h.record, other);
+    await assert.rejects(h.flow.uploadDirect(h.record, h.file, () => {}, { keepOnFailure }), (error) => {
+      assert.ok(error instanceof Error && !(error instanceof PermanentUploadError));
+      assert.equal(error.message, "네트워크 연결이 끊겼습니다");
+      return true;
+    });
+    assert.equal(h.record.uploadedBytes, 2);
+    assert.deepEqual(h.records, keepOnFailure ? [other, h.record] : [other]);
+    assert.deepEqual(await h.store.list(), keepOnFailure ? [h.record, other] : [other]);
+    assert.deepEqual(h.postCalls, []);
+  });
+}
+
+for (const status of [409, 401]) {
+  test(`업로드 완료 알림의 ${status} 응답은 ${status === 409 ? "영구 오류로 기록을 지운다" : "완료 위치를 남긴다"}`, async (t) => {
+    const failure = Object.assign(new Error("완료 알림 실패"), { status });
+    const h = pendingFlow(t, [{ status: 200, responseText: '{"id":"abc"}' }], [failure]);
+    await h.seed(h.record);
+    await assert.rejects(h.flow.uploadDirect(h.record, h.file, () => {}, { keepOnFailure: true }), (error) => {
+      if (status === 409) {
+        assert.ok(error instanceof PermanentUploadError);
+        assert.equal(error.message, failure.message);
+      } else {
+        assert.equal(error, failure);
+      }
+      return true;
+    });
+    assert.deepEqual(h.postCalls, [{
+      path: "/api/drive/upload-complete", body: { reservationId: "reservation", fileId: "abc" },
+    }]);
+    assert.equal(h.record.uploadedBytes, 5);
+    assert.deepEqual(await h.storedAtPost[0], [h.record]);
+    assert.deepEqual(await h.store.list(), status === 409 ? [] : [h.record]);
+    assert.deepEqual(h.records, status === 409 ? [] : [h.record]);
+  });
+}
+
+test("신뢰하지 않는 재개 URL은 기록을 지우고 서버에 요청하지 않는다", async (t) => {
+  const h = pendingFlow(t);
+  h.record.sessionUrl = "https://example.test/upload/";
+  await h.seed(h.record);
+  assert.equal(await h.flow.checkResumable(h.record), "untrusted");
+  assert.deepEqual(await h.store.list(), []);
+  assert.deepEqual(h.records, []);
+  assert.deepEqual(h.postCalls, []);
+  assert.equal(h.xhr.requests.length, 0);
+});
+
+for (const status of [200, 409, 401, 500]) {
+  test(`재개 예약 확인의 ${status} 응답은 ${status === 409 ? "기록을 지우고 만료를 알린다" : "기록을 유지한다"}`, async (t) => {
+    const response = status === 200 ? {} : Object.assign(new Error("예약 확인 실패"), { status });
+    const h = pendingFlow(t, [], [response]);
+    await h.seed(h.record);
+    if (status === 200 || status === 409) {
+      assert.equal(await h.flow.checkResumable(h.record), status === 200 ? "ok" : "reservation-expired");
+    } else {
+      await assert.rejects(h.flow.checkResumable(h.record), (error) => error === response);
+    }
+    assert.deepEqual(h.postCalls, [{
+      path: "/api/drive/upload-reservation", body: { reservationId: "reservation" },
+    }]);
+    assert.deepEqual(await h.store.list(), status === 409 ? [] : [h.record]);
+    assert.deepEqual(h.records, status === 409 ? [] : [h.record]);
+    assert.equal(h.xhr.requests.length, 0);
+  });
+}
+
+test("예약이 없는 기록은 확인 요청과 heartbeat 없이 전송을 완료한다", async (t) => {
+  const h = pendingFlow(t, [{ status: 200, responseText: '{"id":"abc"}' }]);
+  h.record.reservationId = null;
+  assert.equal(await h.flow.checkResumable(h.record), "ok");
+  assert.equal(await h.flow.uploadDirect(h.record, h.file, () => {}, { keepOnFailure: true }), "abc");
+  assert.deepEqual(h.postCalls, []);
+  assert.deepEqual(h.callbacks, []);
+  assert.deepEqual(await h.store.list(), []);
+});
+
+test("재개는 예약을 확인한 뒤 서버 위치를 조회하고 남은 바이트만 보내 완료한다", async (t) => {
+  const h = pendingFlow(t, [
+    { status: 308, range: "bytes=0-1" },
+    { status: 201, responseText: '{"id":"abc"}', loaded: [1] },
+  ], [{}, {}]);
+  h.record.uploadedBytes = 4;
+  await h.seed(h.record);
+  const progress: number[][] = [];
+  assert.equal(await h.flow.checkResumable(h.record), "ok");
+  assert.equal(await h.flow.resume(h.record, h.file, (sent, total) => progress.push([sent, total])), "abc");
+  assertRanges(h.xhr.requests, ["bytes */5", "bytes 2-4/5"]);
+  assert.equal(h.xhr.requests[0].body, null);
+  assert.equal(await h.xhr.requests[1].body?.text(), "llo");
+  assert.equal((await h.storedAtRequest[1])[0].uploadedBytes, 2);
+  assert.deepEqual(progress, [[3, 5], [5, 5]]);
+  assert.deepEqual(h.postCalls, [
+    { path: "/api/drive/upload-reservation", body: { reservationId: "reservation" } },
+    { path: "/api/drive/upload-complete", body: { reservationId: "reservation", fileId: "abc" } },
+  ]);
+  assert.deepEqual(await h.store.list(), []);
+  assert.deepEqual(h.records, []);
+});
+
+test("첫 저장과 진행량 저장이 실패해도 직접 업로드와 완료 알림은 계속한다", async (t) => {
+  const h = pendingFlow(t, [
+    { status: 308, range: "bytes=0-1" }, { status: 201, responseText: '{"id":"abc"}' },
+  ], [{}]);
+  const other = pending();
+  await h.seed(h.record, other);
+  const put = t.mock.method(h.store, "put", async () => { throw new Error("저장 실패"); });
+  const progress = t.mock.fn(() => {
+    assert.equal(h.records[0].uploadedBytes, 2);
+    assert.equal(h.record.uploadedBytes, 2);
+  });
+  assert.equal(await h.flow.uploadDirect(h.record, h.file, progress, { keepOnFailure: true }), "abc");
+  assert.equal(put.mock.callCount(), 3);
+  assert.equal(progress.mock.callCount(), 1);
+  assert.equal(h.record.uploadedBytes, 5);
+  assert.equal(h.postCalls[0].path, "/api/drive/upload-complete");
+  assert.deepEqual(await h.store.list(), [other]);
+  assert.deepEqual(h.records, [other]);
+});
+
+test("기록 삭제는 저장소가 먼저이며 삭제 실패 시 화면 기록을 바꾸지 않는다", async (t) => {
+  const h = pendingFlow(t);
+  await h.seed(h.record);
+  const before = h.records;
+  const failure = new Error("삭제 실패");
+  t.mock.method(h.store, "remove", async () => { throw failure; });
+  await assert.rejects(h.flow.remove(h.record.id), (error) => error === failure);
+  assert.equal(h.records, before);
+  assert.deepEqual(await h.store.list(), [h.record]);
+  assert.equal(h.onRecordsChange.mock.callCount(), 0);
+});
+
+for (const method of ["uploadDirect", "resume"] as const) {
+  test(`${method}의 영구 오류는 기록을 지우며 삭제 실패가 원래 오류를 가리지 않는다`, async (t) => {
+    for (const removeFails of [false, true]) {
+      await t.test(`삭제 실패=${removeFails}`, async (subtest) => {
+        const h = pendingFlow(subtest, [{ status: 410 }]);
+        await h.seed(h.record);
+        if (removeFails) {
+          subtest.mock.method(h.store, "remove", async () => { throw new Error("삭제 실패"); });
+        }
+        const upload = method === "resume"
+          ? h.flow.resume(h.record, h.file, () => {})
+          : h.flow.uploadDirect(h.record, h.file, () => {}, { keepOnFailure: true });
+        await assert.rejects(upload, (error) => {
+          assert.ok(error instanceof PermanentUploadError);
+          assert.equal(error.message, "드라이브 업로드 세션이 만료되었습니다");
+          return true;
+        });
+        assert.deepEqual(await h.store.list(), removeFails ? [h.record] : []);
+        assert.deepEqual(h.records, removeFails ? [h.record] : []);
+      });
+    }
+  });
+}
+
+test("재개 중 네트워크 실패는 원래 기록과 진행량을 남긴다", async (t) => {
+  const h = pendingFlow(t, Array.from({ length: 4 }, () => ({ event: "error" })));
+  h.record.uploadedBytes = 2;
+  await h.seed(h.record);
+  await assert.rejects(h.flow.resume(h.record, h.file, () => {}), { message: "네트워크 연결이 끊겼습니다" });
+  assertRanges(h.xhr.requests, Array(4).fill("bytes */5"));
+  assert.deepEqual(await h.store.list(), [h.record]);
+  assert.deepEqual(h.records, [h.record]);
 });
