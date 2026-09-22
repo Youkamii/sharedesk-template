@@ -7597,6 +7597,7 @@ export default function FilesView({
     return (
       <MobileFilesView
         locale={locale}
+        userEmail={userEmail}
         rootId={ROOT_ID}
         allowUpload={allowUpload}
         isGuest={isGuest}

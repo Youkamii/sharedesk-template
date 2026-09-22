@@ -88,6 +88,48 @@
   background: #a3323c;
 }
 
+/* 새로고침 뒤에도 같은 파일을 골라 이어올릴 수 있다(#23). */
+.resumeBanner {
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
+}
+
+.resumeList {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resumeRow {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.resumeRow + .resumeRow {
+  border-top: 1px solid #9c8c78;
+}
+
+.resumeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.resumeActions button {
+  min-height: 44px;
+  flex: 1;
+  padding: 4px 8px;
+  color: #10172b;
+  background: #fff4d2;
+  border: 2px solid #0a1020;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78;
+  font: inherit;
+}
+
 .list {
   flex: 1;
   margin: 0;
@@ -183,12 +225,14 @@
   font-size: 13px;
 }
 
-.dock button:disabled {
+.dock button:disabled,
+.resumeActions button:disabled {
   color: #686474;
   background: #9c8c78;
 }
 
-.dock button:active:not(:disabled) {
+.dock button:active:not(:disabled),
+.resumeActions button:active:not(:disabled) {
   box-shadow: inset -2px -2px 0 #fff8e7, inset 2px 2px 0 #9c8c78;
 }
 

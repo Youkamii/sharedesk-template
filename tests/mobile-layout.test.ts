@@ -350,3 +350,15 @@ test("모바일 채팅은 열려 있을 때만 폴링하고 손님에겐 없다 
   // 추가하면 서버 검증(tabId·transfers)에 걸려 400만 쌓는다(red-review).
   assert.doesNotMatch(source, /\/api\/presence/);
 });
+
+test("모바일 직행 업로드는 공용 이어받기와 기록 저장소를 쓴다 (#23)", async () => {
+  const source = await readFile(
+    new URL("../src/app/files/MobileFilesView.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /import\s*\{[^}]*\buploadResumable\b[^}]*\}\s*from "@\/lib\/client\/transfer"/);
+  assert.match(source, /import\s*\{[^}]*\bcreateIndexedDbPendingUploadStore\b[^}]*\}\s*from "@\/lib\/client\/pending-uploads"/);
+  assert.match(source, /이어받을 업로드/);
+  assert.doesNotMatch(source, /uploadWithProgress\(\s*session\.url/);
+});

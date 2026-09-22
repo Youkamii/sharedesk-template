@@ -1,6 +1,6 @@
 "use client";
 
-import { apiPath } from "@/lib/client/api-path";
+import { apiPath, spaceSlugFromPathname } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
@@ -10,9 +10,20 @@ import {
   type MobileEntry,
 } from "@/lib/client/mobile-listing";
 import {
+  formatTransferBytes,
+  PermanentUploadError,
   startUploadReservationHeartbeat,
+  uploadResumable,
   uploadWithProgress,
 } from "@/lib/client/transfer";
+import {
+  createIndexedDbPendingUploadStore,
+  isTrustedResumableSessionUrl,
+  listPendingUploads,
+  matchPendingUpload,
+  type PendingUpload,
+  type PendingUploadStore,
+} from "@/lib/client/pending-uploads";
 import { NOTICE_DURATION_MS } from "@/lib/client/use-auto-dismiss-notice";
 import { FOLDER_COLOR_IDS } from "@/lib/folder-color-ids";
 import LogoutButton from "../LogoutButton";
@@ -31,6 +42,7 @@ type UploadSession =
 
 type Props = {
   locale: Locale;
+  userEmail: string;
   rootId: string;
   allowUpload: boolean;
   // 손님은 스페이스 선택(/spaces)에 갈 수 없어 로그아웃만 보인다(#14).
@@ -60,6 +72,7 @@ const FOLDER_COLOR_LABELS: Record<string, string> = {
 
 export default function MobileFilesView({
   locale,
+  userEmail,
   rootId,
   allowUpload,
   isGuest = false,
@@ -89,6 +102,13 @@ export default function MobileFilesView({
   // 한 번 등록한 이탈 방지 핸들러에서도 현재 업로드 개수를 읽는다.
   const activeUploadCountRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const resumeInputRef = useRef<HTMLInputElement>(null);
+  const resumeUploadRef = useRef<PendingUpload | null>(null);
+  const pendingUploadStoreRef = useRef<PendingUploadStore | null>(null);
+  const pendingUploadContextRef = useRef("");
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const [resumingUploadId, setResumingUploadId] = useState<string | null>(null);
+  const currentIdRef = useRef(rootId);
   // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
   const cameraInputRef = useRef<HTMLInputElement>(null);
   // 전체 검색(#15 A-3). 서버(search.ts)는 완성돼 있고 화면만 얹는다.
@@ -163,6 +183,32 @@ export default function MobileFilesView({
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
+  const getPendingUploadStore = useCallback(() => {
+    pendingUploadStoreRef.current ??= createIndexedDbPendingUploadStore();
+    return pendingUploadStoreRef.current;
+  }, []);
+
+  useEffect(() => {
+    const context = `${spaceSlugFromPathname(window.location.pathname) ?? ""}:${userEmail}`;
+    pendingUploadContextRef.current = context;
+    let alive = true;
+    void (async () => {
+      try {
+        const records = await listPendingUploads(getPendingUploadStore(), context);
+        if (alive) setPendingUploads(records);
+      } catch (error) {
+        if (!alive) return;
+        setNotice({
+          text: error instanceof Error ? error.message : t("업로드 기록을 불러오지 못했습니다"),
+          kind: "error",
+        });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [getPendingUploadStore, t, userEmail]);
+
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (activeUploadCountRef.current <= 0) return;
@@ -174,6 +220,7 @@ export default function MobileFilesView({
   }, []);
 
   useEffect(() => {
+    currentIdRef.current = currentId;
     // 늦게 도착한 옛 응답이 새 폴더를 덮지 않게 한다.
     let alive = true;
     void (async () => {
@@ -597,13 +644,153 @@ export default function MobileFilesView({
       error?: string;
     } | null;
     if (!response.ok) {
-      throw new Error(
+      const error = new Error(
         typeof parsed?.error === "string"
           ? t(parsed.error)
           : t("업로드에 실패했습니다"),
       );
+      throw Object.assign(error, { status: response.status });
     }
     return parsed as T;
+  }
+
+  async function savePendingUploadProgress(record: PendingUpload, uploadedBytes: number) {
+    // 실패 뒤 목록에 넣을 때도 마지막으로 저장한 진행량이 보이게 한다.
+    record.uploadedBytes = uploadedBytes;
+    record.updatedAt = Date.now();
+    const updated = { ...record };
+    try {
+      await getPendingUploadStore().put(updated);
+    } catch {
+      // 기록을 저장하지 못해도 파일 전송은 계속한다.
+    }
+    setPendingUploads((current) => current.map((item) =>
+      item.id === record.id ? updated : item,
+    ));
+  }
+
+  async function removePendingUpload(id: string) {
+    setPendingUploads((current) => current.filter((item) => item.id !== id));
+    await getPendingUploadStore().remove(id);
+  }
+
+  async function completePendingUpload(record: PendingUpload, fileId: string | null) {
+    // 완료 알림만 실패했을 때도 전송이 끝난 위치부터 확인한다.
+    await savePendingUploadProgress(record, record.size);
+    if (record.reservationId && fileId) {
+      try {
+        await uploadSessionJson("/api/drive/upload-complete", {
+          reservationId: record.reservationId,
+          fileId,
+        });
+      } catch (error) {
+        if (error instanceof Error && "status" in error && error.status === 409) {
+          throw new PermanentUploadError(error.message);
+        }
+        throw error;
+      }
+    }
+    await removePendingUpload(record.id).catch(() => undefined);
+  }
+
+  async function transferPendingUpload(
+    record: PendingUpload,
+    file: File,
+    onProgress: (sent: number, total: number) => void,
+    options: { verifyOffset: boolean; startOffset: number },
+  ) {
+    const stopHeartbeat = startUploadReservationHeartbeat(record.reservationId ?? undefined);
+    try {
+      const result = await uploadResumable({
+        sessionUrl: record.sessionUrl,
+        file,
+        startOffset: options.startOffset,
+        verifyOffset: options.verifyOffset,
+        onProgress,
+        onChunkSent: (offset) => savePendingUploadProgress(record, offset),
+      });
+      await completePendingUpload(record, result.fileId);
+      return result.fileId;
+    } finally {
+      stopHeartbeat();
+    }
+  }
+
+  async function discardPendingUpload(record: PendingUpload) {
+    if (resumingUploadId === record.id) return;
+    try {
+      await removePendingUpload(record.id);
+    } catch (error) {
+      setNotice({
+        text: error instanceof Error ? error.message : t("업로드 기록을 지우지 못했습니다"),
+        kind: "error",
+      });
+    }
+  }
+
+  async function resumePendingUpload(record: PendingUpload, file: File) {
+    if (!allowUpload || busy || activeUploadCountRef.current > 0) return;
+    if (!isTrustedResumableSessionUrl(record.sessionUrl)) {
+      await removePendingUpload(record.id).catch(() => undefined);
+      return;
+    }
+    const updateProgress = (sent: number, total: number) => {
+      setProgress({
+        name: record.name,
+        current: 1,
+        total: 1,
+        percent: total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0,
+      });
+    };
+    setBusy(true);
+    setNotice(null);
+    setResumingUploadId(record.id);
+    activeUploadCountRef.current += 1;
+    updateProgress(record.uploadedBytes, record.size);
+    try {
+      if (record.reservationId) {
+        try {
+          await uploadSessionJson("/api/drive/upload-reservation", {
+            reservationId: record.reservationId,
+          });
+        } catch (error) {
+          if (error instanceof Error && "status" in error && error.status === 409) {
+            await removePendingUpload(record.id).catch(() => undefined);
+            setNotice({
+              text: t("업로드 예약이 만료되어 처음부터 다시 올려야 합니다 · {name}", {
+                name: record.name,
+              }),
+              kind: "error",
+            });
+            return;
+          }
+          throw error;
+        }
+      }
+      await transferPendingUpload(record, file, updateProgress, {
+        verifyOffset: true,
+        startOffset: record.uploadedBytes,
+      });
+      setNotice({
+        text: t("{name} 업로드를 이어받아 완료했습니다", { name: record.name }),
+        kind: "info",
+      });
+      // 전송 중 폴더를 옮겼다면 지금 보고 있는 폴더만 새로 읽는다.
+      if (record.parentId === currentIdRef.current) reload();
+    } catch (error) {
+      if (error instanceof PermanentUploadError) {
+        await removePendingUpload(record.id).catch(() => undefined);
+      }
+      setNotice({
+        text: error instanceof Error ? error.message : t("업로드에 실패했습니다"),
+        kind: "error",
+      });
+    } finally {
+      activeUploadCountRef.current -= 1;
+      setResumingUploadId(null);
+      setProgress(null);
+      setBusy(false);
+    }
   }
 
   // 데스크탑(FilesView)과 같은 경로로 올린다. 예전에는 파일 전체를 앱 서버로
@@ -620,32 +807,41 @@ export default function MobileFilesView({
       { parentId: currentId, name: file.name, mimeType, size: file.size },
     );
     if (session.mode === "direct") {
-      const stopHeartbeat = startUploadReservationHeartbeat(
-        session.reservationId,
-      );
+      const now = Date.now();
+      const record: PendingUpload = {
+        id: crypto.randomUUID(),
+        sessionUrl: session.url,
+        reservationId: session.reservationId ?? null,
+        parentId: currentId,
+        context: pendingUploadContextRef.current,
+        name: file.name,
+        size: file.size,
+        lastModified: file.lastModified,
+        uploadedBytes: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      // 새로고침 뒤 이어올릴 수 있게 첫 전송 전에 기록 저장을 시도한다.
       try {
-        const uploaded = await uploadWithProgress(
-          session.url,
-          "PUT",
-          file,
-          null,
-          onProgress,
-        );
-        if (uploaded.status < 200 || uploaded.status >= 300) {
-          throw new Error(t("드라이브 업로드에 실패했습니다"));
+        await getPendingUploadStore().put(record);
+      } catch {
+        // 기록을 저장하지 못해도 파일 전송은 시작한다.
+      }
+      try {
+        return await transferPendingUpload(record, file, onProgress, {
+          verifyOffset: false,
+          startOffset: 0,
+        });
+      } catch (error) {
+        if (error instanceof PermanentUploadError) {
+          await removePendingUpload(record.id).catch(() => undefined);
+        } else {
+          setPendingUploads((current) => [
+            ...current.filter((item) => item.id !== record.id),
+            record,
+          ]);
         }
-        const body = JSON.parse(uploaded.responseText || "null") as {
-          id?: string;
-        } | null;
-        if (session.reservationId && body?.id) {
-          await uploadSessionJson("/api/drive/upload-complete", {
-            reservationId: session.reservationId,
-            fileId: body.id,
-          });
-        }
-        return;
-      } finally {
-        stopHeartbeat();
+        throw error;
       }
     }
     const reservationQuery = session.reservationId
@@ -833,6 +1029,49 @@ export default function MobileFilesView({
         <p className={styles.error} role="alert">
           {error}
         </p>
+      )}
+
+      {pendingUploads.length > 0 && (
+        <section
+          className={`${styles.notice} ${styles.resumeBanner}`}
+          aria-label={t("이어받을 업로드 {count}개", { count: pendingUploads.length })}
+        >
+          <strong>{t("이어받을 업로드 {count}개", { count: pendingUploads.length })}</strong>
+          <ul className={styles.resumeList}>
+            {pendingUploads.map((record) => {
+              const uploading = resumingUploadId === record.id;
+              return (
+                <li key={record.id} className={styles.resumeRow} aria-busy={uploading}>
+                  <div className={styles.rowText}>
+                    <span className={styles.rowName} title={record.name}>{record.name}</span>
+                    <span className={styles.rowMeta}>
+                      {formatTransferBytes(record.uploadedBytes)} / {formatTransferBytes(record.size)}
+                    </span>
+                  </div>
+                  <div className={styles.resumeActions}>
+                    <button
+                      type="button"
+                      disabled={!allowUpload || busy || uploading}
+                      onClick={() => {
+                        resumeUploadRef.current = record;
+                        resumeInputRef.current?.click();
+                      }}
+                    >
+                      {t("파일 다시 선택")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={uploading}
+                      onClick={() => void discardPendingUpload(record)}
+                    >
+                      {t("버리기")}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       <ul className={styles.list}>
@@ -1171,6 +1410,28 @@ export default function MobileFilesView({
                 void uploadFiles(event.target.files);
               }
               event.target.value = "";
+            }}
+          />
+          <input
+            ref={resumeInputRef}
+            type="file"
+            className={styles.hiddenInput}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              const record = resumeUploadRef.current;
+              event.target.value = "";
+              resumeUploadRef.current = null;
+              if (!file || !record) return;
+              if (!matchPendingUpload([record], file)) {
+                setNotice({
+                  text: t("선택한 파일이 이어받을 업로드와 다릅니다 · {name}", {
+                    name: record.name,
+                  }),
+                  kind: "error",
+                });
+                return;
+              }
+              void resumePendingUpload(record, file);
             }}
           />
           {/* capture는 폰에서 카메라를 바로 연다. 카메라가 없는 환경은
