@@ -1636,7 +1636,10 @@ export default function FilesView({
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!activePreviewDiscardReason()) return;
+      const hasActiveUpload = [...activeTransfersRef.current.values()].some(
+        (transfer) => transfer.kind === "upload",
+      );
+      if (!activePreviewDiscardReason() && !hasActiveUpload) return;
       event.preventDefault();
       event.returnValue = "";
     };

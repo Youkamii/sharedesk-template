@@ -53,3 +53,34 @@ test("업로드와 다운로드는 실제 바이트 진행을 접속자 목록�
   assert.match(css, /\.memberTransfers\s*\{/);
   assert.match(css, /\.transferRow progress\s*\{/);
 });
+
+test("업로드 중에는 데스크톱과 모바일에서 페이지 이탈을 확인한다", async () => {
+  const [view, mobileView] = await Promise.all([
+    readFile("src/app/files/FilesView.tsx", "utf8"),
+    readFile("src/app/files/MobileFilesView.tsx", "utf8"),
+  ]);
+  const beforeUnloadEffect =
+    /useEffect\(\(\) => \{\s*const handleBeforeUnload = [\s\S]*?\n  \}, \[\]\);/;
+  const desktopEffect = view.match(beforeUnloadEffect)?.[0] ?? "";
+  const mobileEffect = mobileView.match(beforeUnloadEffect)?.[0] ?? "";
+
+  assert.match(desktopEffect, /activeTransfersRef\.current\.values\(\)/);
+  assert.match(desktopEffect, /transfer\.kind === "upload"/);
+  assert.match(
+    desktopEffect,
+    /if \(!activePreviewDiscardReason\(\) && !hasActiveUpload\) return;/,
+  );
+  assert.match(mobileEffect, /if \(activeUploadCountRef\.current <= 0\) return;/);
+  for (const effect of [desktopEffect, mobileEffect]) {
+    assert.match(effect, /event\.preventDefault\(\)/);
+    assert.match(effect, /event\.returnValue = ""/);
+    assert.match(effect, /window\.addEventListener\("beforeunload", handleBeforeUnload\)/);
+    assert.match(effect, /window\.removeEventListener\("beforeunload", handleBeforeUnload\)/);
+  }
+  assert.match(mobileView, /const activeUploadCountRef = useRef\(0\)/);
+  assert.match(
+    mobileView,
+    /activeUploadCountRef\.current \+= 1;\s*try \{\s*await uploadOne\(/,
+  );
+  assert.match(mobileView, /finally \{\s*activeUploadCountRef\.current -= 1;/);
+});

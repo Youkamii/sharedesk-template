@@ -86,6 +86,8 @@ export default function MobileFilesView({
     total: number;
     percent: number;
   } | null>(null);
+  // 한 번 등록한 이탈 방지 핸들러에서도 현재 업로드 개수를 읽는다.
+  const activeUploadCountRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 카메라 직결(#15 A-2). 갤러리 저장을 거치지 않고 찍자마자 올린다.
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -160,6 +162,16 @@ export default function MobileFilesView({
   const error = loading ? null : (loaded?.error ?? null);
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (activeUploadCountRef.current <= 0) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
 
   useEffect(() => {
     // 늦게 도착한 옛 응답이 새 폴더를 덮지 않게 한다.
@@ -679,6 +691,7 @@ export default function MobileFilesView({
         total: list.length,
         percent: 0,
       });
+      activeUploadCountRef.current += 1;
       try {
         await uploadOne(file, (sent, total) => {
           const percent =
@@ -698,6 +711,8 @@ export default function MobileFilesView({
             error instanceof Error ? error.message : t("실패")
           }`,
         );
+      } finally {
+        activeUploadCountRef.current -= 1;
       }
     }
     setProgress(null);
