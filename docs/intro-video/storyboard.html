@@ -1,0 +1,2654 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>ShareDesk 소개 영상 스토리보드</title>
+<!--
+  ShareDesk 소개 영상 스토리보드 (1920x1080, 30fps, 무음 + 한국어 자막)
+
+  이 페이지의 모든 움직임은 전역 시간값 window.seek(t)(초)로만 그려진다.
+  CSS animation / transition / requestAnimationFrame / Date.now 를 그림에 쓰지 않는다.
+  render.mjs 가 t = 0, 1/30, 2/30 ... 을 넣고 한 장씩 스크린샷을 찍으므로
+  같은 t 는 언제 호출해도 같은 화면이어야 한다(결정론).
+
+  아래 미리보기 막대만 예외로 실제 시계를 써서 seek 를 반복 호출한다.
+  render.mjs 는 window.prepareRender() 로 미리보기 막대를 끄고 시작한다.
+-->
+<style>
+  @font-face {
+    font-family: "Galmuri11";
+    src: url("../../public/fonts/Galmuri11.woff2") format("woff2");
+    font-display: block;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #05070f;
+  }
+
+  body {
+    font-family: "Galmuri11", "Malgun Gothic", sans-serif;
+    color: #fff4d2;
+    -webkit-font-smoothing: none;
+  }
+
+  /* ---------------- 무대 ---------------- */
+  #stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    background: #10172b;
+    transform-origin: top left;
+  }
+
+  #content {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 930px;
+    overflow: hidden;
+    background: #0b1020;
+  }
+
+  .layer {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+
+  /* ---------------- 자막 띠 ---------------- */
+  #band {
+    position: absolute;
+    top: 930px;
+    left: 0;
+    width: 1920px;
+    height: 150px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 100px;
+    background: #0b1122;
+    border-top: 4px solid #2f4670;
+    box-shadow: 0 -6px 0 rgb(5 9 20 / 60%);
+  }
+
+  #cap {
+    width: 100%;
+    color: #fff4d2;
+    font-size: 33px;
+    line-height: 1.42;
+    text-align: center;
+    white-space: pre-line;
+    text-shadow: 3px 3px 0 #05080f;
+  }
+
+  #blackout {
+    position: absolute;
+    inset: 0;
+    z-index: 900;
+    background: #05070f;
+    opacity: 0;
+  }
+
+  /* ---------------- 공통 픽셀 조각 ---------------- */
+  .pix {
+    image-rendering: pixelated;
+  }
+
+  .brandMark {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    background: #0b1021;
+    border: 4px solid #f2a56f;
+    box-shadow: 4px 4px 0 #080b17;
+  }
+  .brandMark i:nth-child(1) { background: #ffd27d; }
+  .brandMark i:nth-child(2) { background: #61b3a6; }
+  .brandMark i:nth-child(3) { background: #e96872; }
+  .brandMark i:nth-child(4) { background: #79a8e8; }
+
+  .panel {
+    color: #fff4d2;
+    background: rgb(22 33 65 / 98%);
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 rgb(89 114 158 / 70%), inset -4px -4px 0 #111b33, 8px 8px 0 rgb(5 9 20 / 60%);
+  }
+
+  .cursor {
+    position: absolute;
+    z-index: 800;
+    width: 36px;
+    height: 57px;
+    pointer-events: none;
+  }
+
+  /* ---------------- 장면 1 · 훅 ---------------- */
+  #hookWall {
+    position: absolute;
+    inset: 0;
+    background-position: center center;
+    background-size: cover;
+    opacity: 0;
+  }
+
+  #hookScan {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(to bottom, rgb(5 9 20 / 0%) 0 3px, rgb(5 9 20 / 34%) 3px 6px);
+    opacity: 0.5;
+  }
+
+  #hookInner {
+    position: absolute;
+    left: 0;
+    top: 250px;
+    width: 1920px;
+    text-align: center;
+  }
+
+  #hookLogoRow {
+    display: inline-flex;
+    align-items: center;
+    gap: 28px;
+    opacity: 0;
+  }
+
+  #hookLogoRow .brandMark {
+    width: 84px;
+    height: 84px;
+  }
+
+  #hookWord {
+    color: #ffd27d;
+    font-size: 99px;
+    letter-spacing: 0.02em;
+    text-shadow: 6px 6px 0 #0a0d1b;
+  }
+
+  #hookTag {
+    margin-top: 54px;
+    color: #fff4d2;
+    font-size: 44px;
+    text-shadow: 4px 4px 0 #0a0d1b;
+    min-height: 60px;
+  }
+
+  #hookTagCaret {
+    display: inline-block;
+    width: 22px;
+    height: 38px;
+    margin-left: 8px;
+    vertical-align: -6px;
+    background: #f2a56f;
+  }
+
+  #hookRule {
+    width: 0;
+    height: 8px;
+    margin: 46px auto 0;
+    background: #f2a56f;
+    box-shadow: 0 4px 0 #6b3f26;
+  }
+
+  /* ---------------- 장면 2 · 문제 ---------------- */
+  #problemInner {
+    position: absolute;
+    left: 360px;
+    top: 205px;
+    width: 1200px;
+  }
+
+  .probRow {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    width: 100%;
+    margin-bottom: 30px;
+    padding: 26px 34px;
+    font-size: 38px;
+    opacity: 0;
+  }
+
+  .probGlyph {
+    flex: 0 0 auto;
+    width: 72px;
+    height: 72px;
+  }
+
+  #probPunch {
+    margin-top: 52px;
+    color: #ffd27d;
+    font-size: 55px;
+    text-align: center;
+    text-shadow: 5px 5px 0 #0a0d1b;
+    opacity: 0;
+  }
+
+  /* ---------------- 장면 3 · 참여 ---------------- */
+  #joinInner {
+    position: absolute;
+    left: 0;
+    top: 80px;
+    width: 1920px;
+    text-align: center;
+  }
+
+  .joinBox {
+    display: inline-flex;
+    align-items: center;
+    gap: 22px;
+    padding: 24px 40px;
+    font-size: 36px;
+    opacity: 0;
+  }
+
+  .joinBox .brandMark {
+    width: 46px;
+    height: 46px;
+  }
+
+  .joinArrow {
+    margin: 22px auto;
+    color: #f2a56f;
+    font-size: 54px;
+    opacity: 0;
+  }
+
+  #joinBranch {
+    width: 980px;
+    margin: 30px auto 0;
+    text-align: left;
+  }
+
+  .joinChip {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 20px;
+    padding: 18px 30px;
+    font-size: 32px;
+    opacity: 0;
+  }
+
+  .joinChip .tree {
+    color: #61b3a6;
+    font-size: 32px;
+  }
+
+  .joinChip .avatar {
+    width: 40px;
+    height: 40px;
+    background: #61b3a6;
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 #b9e1cf;
+  }
+
+  #joinCode {
+    display: inline-flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 26px;
+    padding: 20px 34px;
+    color: #10172b;
+    background: #f4e7c5;
+    border: 4px solid #10172b;
+    box-shadow: inset 4px 4px 0 #fff8e7, inset -4px -4px 0 #9c8c78, 8px 8px 0 rgb(5 9 20 / 55%);
+    font-size: 34px;
+    opacity: 0;
+  }
+
+  #joinCodeValue {
+    min-width: 300px;
+    color: #2d3a54;
+    letter-spacing: 0.14em;
+    text-align: left;
+  }
+
+  #joinCodeOk {
+    color: #2d5c5b;
+    opacity: 0;
+  }
+
+  /* ---------------- 장면 4~7 · 데스크 모형 ---------------- */
+  #desk {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: #10172b;
+    font-size: 22px;
+  }
+
+  .wall {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+  }
+
+  #wStars {
+    mix-blend-mode: screen;
+  }
+
+  #wallTint {
+    position: absolute;
+    inset: 0;
+    background: rgb(8 13 31 / 14%);
+  }
+
+  #wallName {
+    position: absolute;
+    right: 40px;
+    top: 96px;
+    padding: 14px 26px;
+    font-size: 30px;
+    opacity: 0;
+  }
+
+  /* 상단 막대 */
+  #topBar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 1920px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    color: #fff8e7;
+    background: rgb(13 20 41 / 94%);
+    border-bottom: 4px solid #2f4670;
+    box-shadow: 0 4px 0 rgb(5 9 20 / 68%);
+  }
+
+  #topBar .left, #topBar .right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  #topBar .brandMark {
+    width: 34px;
+    height: 34px;
+    border-width: 3px;
+    gap: 3px;
+    padding: 3px;
+  }
+
+  #topBar strong {
+    color: #ffd27d;
+    font-size: 26px;
+    text-shadow: 3px 3px 0 #0a0d1b;
+  }
+
+  #deskLabel {
+    padding-left: 16px;
+    color: #aebad3;
+    border-left: 2px solid #465578;
+  }
+
+  #presenceBtn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    border: 4px solid transparent;
+  }
+
+  #presenceBtn .liveDot {
+    width: 18px;
+    height: 18px;
+    background: #61b3a6;
+    box-shadow: 0 0 0 3px rgb(97 179 166 / 32%);
+  }
+
+  /* 아이콘 */
+  .dIcon {
+    position: absolute;
+    z-index: 2;
+    display: flex;
+    width: 164px;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 6px;
+    border: 4px solid transparent;
+  }
+
+  .dIcon svg {
+    filter: drop-shadow(4px 4px 0 rgb(5 9 20 / 48%));
+  }
+
+  .dIcon span {
+    max-width: 156px;
+    overflow: hidden;
+    color: #fff8e7;
+    font-size: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: -2px -2px 0 #111629, 2px -2px 0 #111629, -2px 2px 0 #111629, 2px 2px 0 #111629, 4px 4px 0 #111629;
+  }
+
+  .dIcon.sel {
+    background: rgb(47 70 112 / 72%);
+    border-color: #ffd27d;
+    box-shadow: inset 0 0 0 4px #1a294a, 4px 4px 0 #0a1020;
+  }
+
+  #trashLauncher {
+    position: absolute;
+    z-index: 3;
+    left: 1744px;
+    top: 660px;
+    display: flex;
+    width: 132px;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  #trashLauncher span {
+    color: #fff8e7;
+    font-size: 22px;
+    text-shadow: 3px 3px 0 #0a1020;
+  }
+
+  /* 창 */
+  .win {
+    position: absolute;
+    z-index: 20;
+    display: grid;
+    grid-template-rows: 56px 72px minmax(0, 1fr) 44px;
+    overflow: hidden;
+    color: #1b1b2f;
+    background: #f4e7c5;
+    border: 4px solid #10172b;
+    box-shadow: inset 4px 4px 0 #fff8e7, inset -4px -4px 0 #7d7180, 12px 12px 0 rgb(5 9 20 / 58%);
+    opacity: 0;
+  }
+
+  .win.act {
+    z-index: 30;
+    box-shadow: inset 4px 4px 0 #fff8e7, inset -4px -4px 0 #7d7180, 12px 12px 0 rgb(5 9 20 / 72%), 0 0 0 4px #ffd27d;
+  }
+
+  .winTitle {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+    padding: 0 8px 0 16px;
+    color: #e0e4ed;
+    background: #596078;
+    border-bottom: 4px solid #10172b;
+    font-size: 22px;
+  }
+
+  .win.act .winTitle {
+    color: #fff8e7;
+    background: #2d5c5b;
+  }
+
+  .winTitle strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .winCtl {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  .winCtl i {
+    position: relative;
+    display: block;
+    width: 46px;
+    height: 40px;
+    background: #f4e7c5;
+    border: 4px solid #1b1b2f;
+    box-shadow: inset 4px 4px 0 #fff8e7, inset -4px -4px 0 #8f806d;
+  }
+
+  .winCtl i.cl { background: #c9615f; }
+
+  .winCtl i.mn::after {
+    content: "";
+    position: absolute;
+    left: 8px;
+    bottom: 6px;
+    width: 18px;
+    height: 4px;
+    background: #1b1b2f;
+  }
+
+  .winCtl i.mx::after {
+    content: "";
+    position: absolute;
+    left: 7px;
+    top: 5px;
+    width: 20px;
+    height: 18px;
+    border: 4px solid #1b1b2f;
+  }
+
+  .winCtl i.cl::after {
+    content: "×";
+    position: absolute;
+    left: 0;
+    top: -6px;
+    width: 100%;
+    color: #1b1b2f;
+    font-size: 28px;
+    text-align: center;
+  }
+
+  .winTool {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    background: #e5d6b7;
+    border-bottom: 4px solid #9c8c78;
+  }
+
+  .addr {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    padding: 10px 14px;
+    color: #2d3a54;
+    background: #fff8e7;
+    border: 4px solid #1b1b2f;
+    box-shadow: inset 3px 3px 0 #c7b994;
+    font-size: 22px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tbtn {
+    flex: 0 0 auto;
+    padding: 10px 16px;
+    color: #1b1b2f;
+    background: #e5d6b7;
+    border: 4px solid #1b1b2f;
+    box-shadow: inset 3px 3px 0 #fff8e7, inset -3px -3px 0 #9c8c78;
+    font-size: 22px;
+    white-space: nowrap;
+  }
+
+  .tbtn.on {
+    color: #fff8e7;
+    background: #2d5c5b;
+    box-shadow: inset 3px 3px 0 #61b3a6, inset -3px -3px 0 #16332f;
+  }
+
+  .winBody {
+    position: relative;
+    overflow: hidden;
+    background: #f4e7c5;
+  }
+
+  .winStat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    color: #4b4f60;
+    background: #e5d6b7;
+    border-top: 4px solid #9c8c78;
+    font-size: 20px;
+  }
+
+  .fIcon {
+    position: absolute;
+    display: flex;
+    width: 140px;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 6px;
+    border: 4px solid transparent;
+  }
+
+  .fIcon span {
+    max-width: 132px;
+    overflow: hidden;
+    color: #1b1b2f;
+    font-size: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 2px 2px 0 #fff8e7;
+  }
+
+  .fIcon.sel {
+    background: #9cc7bf;
+    border-color: #2d5c5b;
+    box-shadow: inset 0 0 0 4px #d7e4cc, 4px 4px 0 #6c6d6c;
+  }
+
+  /* 미리보기 창 */
+  #previewImgWrap {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #1b1b2f;
+  }
+
+  #previewImgWrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  #previewTextWrap {
+    position: absolute;
+    inset: 0;
+    padding: 24px 28px;
+    color: #1b1b2f;
+    background: #fff8e7;
+    font-size: 24px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    opacity: 0;
+  }
+
+  #previewCaret {
+    display: inline-block;
+    width: 14px;
+    height: 26px;
+    vertical-align: -4px;
+    background: #2d5c5b;
+  }
+
+  /* 폴더 메모 창 */
+  #noteText {
+    position: absolute;
+    inset: 0;
+    padding: 22px 26px;
+    color: #1b1b2f;
+    background: #fff8e7;
+    font-size: 24px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+
+  /* 채팅 창 */
+  #winChat .winBody {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+    background: #182446;
+  }
+
+  .chatMsg {
+    max-width: 92%;
+    padding: 14px 18px;
+    color: #1b1b2f;
+    background: #f4e7c5;
+    border: 4px solid #0a1020;
+    box-shadow: 4px 4px 0 rgb(5 9 20 / 45%);
+    font-size: 22px;
+    opacity: 0;
+  }
+
+  .chatMsg b {
+    display: block;
+    margin-bottom: 6px;
+    color: #2d5c5b;
+    font-size: 19px;
+  }
+
+  .chatMsg.mine {
+    align-self: flex-end;
+    background: #9cc7bf;
+  }
+
+  #chatComposer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 0 14px;
+    background: #e5d6b7;
+    border-top: 4px solid #9c8c78;
+  }
+
+  /* 간이 링크 만들기 창 */
+  #quickDrop {
+    position: absolute;
+    inset: 20px;
+    display: grid;
+    place-items: center;
+    color: #6b6552;
+    background: #efe2c0;
+    border: 6px dashed #b5a57f;
+    font-size: 26px;
+    text-align: center;
+  }
+
+  #quickCard {
+    position: absolute;
+    left: 240px;
+    top: 60px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 22px;
+    color: #1b1b2f;
+    background: #fff8e7;
+    border: 4px solid #1b1b2f;
+    box-shadow: 6px 6px 0 rgb(5 9 20 / 40%);
+    font-size: 22px;
+    opacity: 0;
+  }
+
+  #quickRow {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 24px;
+    padding: 18px 22px;
+    color: #1b1b2f;
+    background: #fff8e7;
+    border: 4px solid #1b1b2f;
+    box-shadow: inset 3px 3px 0 #ffffff, 6px 6px 0 rgb(5 9 20 / 34%);
+    opacity: 0;
+  }
+
+  .bar {
+    height: 22px;
+    margin: 12px 0 0;
+    background: #d8ccb1;
+    border: 4px solid #1b1b2f;
+  }
+
+  .bar i {
+    display: block;
+    height: 100%;
+    background: #f2a56f;
+  }
+
+  .linkLine {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 12px;
+    font-size: 21px;
+  }
+
+  .linkLine code {
+    flex: 1;
+    overflow: hidden;
+    padding: 8px 12px;
+    color: #2d3a54;
+    background: #efe2c0;
+    border: 3px solid #9c8c78;
+    font-family: inherit;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hourBadge {
+    padding: 6px 12px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 3px solid #1b1b2f;
+    font-size: 19px;
+  }
+
+  /* 생성된 링크 창 */
+  .shareRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 16px;
+    padding: 18px 22px;
+    border-bottom: 4px solid #d8ccb1;
+    font-size: 22px;
+    opacity: 0;
+  }
+
+  .shareRow.stopped {
+    color: #8a8477;
+    background: #e9dcbd;
+  }
+
+  .shareRow small {
+    display: block;
+    margin-top: 6px;
+    color: #6b6552;
+    font-size: 19px;
+  }
+
+  /* 우클릭 메뉴 */
+  #ctxMenu {
+    position: absolute;
+    z-index: 60;
+    width: 380px;
+    padding: 10px 0;
+    color: #1b1b2f;
+    background: #f4e7c5;
+    border: 4px solid #10172b;
+    box-shadow: inset 4px 4px 0 #fff8e7, 10px 10px 0 rgb(5 9 20 / 55%);
+    opacity: 0;
+  }
+
+  .mItem {
+    padding: 12px 24px;
+    font-size: 24px;
+  }
+
+  .mItem.hot {
+    color: #fff8e7;
+    background: #2d5c5b;
+  }
+
+  .mItem.danger { color: #a53c46; }
+
+  .mSep {
+    height: 4px;
+    margin: 8px 10px;
+    background: #9c8c78;
+    box-shadow: 0 2px 0 #fff8e7;
+  }
+
+  /* 알림 */
+  #toast {
+    position: absolute;
+    z-index: 70;
+    left: 560px;
+    top: 690px;
+    width: 800px;
+    padding: 22px 28px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 #fff4d2, inset -4px -4px 0 #b5754f, 8px 8px 0 rgb(5 9 20 / 55%);
+    font-size: 26px;
+    opacity: 0;
+  }
+
+  #toast code {
+    font-family: inherit;
+  }
+
+  /* 접속자 패널 */
+  #presencePanel {
+    position: absolute;
+    z-index: 50;
+    right: 24px;
+    top: 72px;
+    width: 460px;
+    padding: 22px 24px;
+    opacity: 0;
+  }
+
+  #presencePanel > strong {
+    display: block;
+    margin-bottom: 16px;
+    color: #ffd27d;
+    font-size: 24px;
+  }
+
+  .pMember {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-top: 3px solid #2f4670;
+    font-size: 22px;
+  }
+
+  .pMember i {
+    width: 18px;
+    height: 18px;
+    background: #61b3a6;
+  }
+
+  .pMember em {
+    margin-left: auto;
+    color: #ffd27d;
+    font-size: 20px;
+    font-style: normal;
+  }
+
+  /* 역할 패널 */
+  #rolePanel {
+    position: absolute;
+    z-index: 50;
+    left: 540px;
+    top: 240px;
+    width: 880px;
+    padding: 30px 34px;
+    background: #162141;
+    opacity: 0;
+  }
+
+  #rolePanel > strong {
+    display: block;
+    margin-bottom: 18px;
+    color: #ffd27d;
+    font-size: 26px;
+  }
+
+  .roleRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 0;
+    border-top: 3px solid #2f4670;
+    font-size: 22px;
+    opacity: 0;
+  }
+
+  .roleTag {
+    flex: 0 0 auto;
+    min-width: 168px;
+    padding: 8px 14px;
+    color: #10172b;
+    border: 3px solid #0a1020;
+    font-size: 21px;
+    text-align: center;
+  }
+
+  .roleTag.a { background: #61b3a6; }
+  .roleTag.b { background: #ffd27d; }
+  .roleTag.c { background: #aebad3; }
+
+  /* 용량 도넛 */
+  #quotaPanel {
+    position: absolute;
+    z-index: 55;
+    left: 500px;
+    top: 150px;
+    width: 920px;
+    padding: 40px 48px;
+    opacity: 0;
+  }
+
+  #quotaPanel > strong {
+    display: block;
+    margin-bottom: 30px;
+    color: #ffd27d;
+    font-size: 30px;
+  }
+
+  #quotaWrap {
+    display: flex;
+    align-items: center;
+    gap: 56px;
+  }
+
+  #donut {
+    position: relative;
+    display: grid;
+    width: 320px;
+    height: 320px;
+    flex: 0 0 auto;
+    place-items: center;
+    background: conic-gradient(#61b3a6 0 0%, #ffd27d 0% 0%, #766f69 0% 100%);
+    border: 10px solid #080d1c;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 6px #f4e7c5, inset 0 0 0 14px rgb(8 13 28 / 28%), 8px 8px 0 rgb(5 9 20 / 42%);
+  }
+
+  #donut::before {
+    content: "";
+    position: absolute;
+    width: 176px;
+    height: 176px;
+    background: #f4e7c5;
+    border: 8px solid #080d1c;
+    border-radius: 50%;
+    box-shadow: inset 6px 6px 0 #c7b994;
+  }
+
+  #donutCenter {
+    position: relative;
+    z-index: 1;
+    color: #1b1b2f;
+    text-align: center;
+  }
+
+  #donutCenter strong {
+    display: block;
+    font-size: 28px;
+  }
+
+  #donutCenter small {
+    color: #555b69;
+    font-size: 22px;
+  }
+
+  #quotaLegend {
+    flex: 1;
+    font-size: 26px;
+  }
+
+  .legRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 3px solid #2f4670;
+  }
+
+  .legRow i {
+    width: 24px;
+    height: 24px;
+    border: 3px solid #0a1020;
+  }
+
+  .legRow b {
+    margin-left: auto;
+    color: #fff8e7;
+    font-weight: normal;
+  }
+
+  #quotaNote {
+    margin-top: 18px;
+    color: #aebad3;
+    font-size: 22px;
+  }
+
+  /* 언어 칩 */
+  #langRow {
+    position: absolute;
+    z-index: 55;
+    left: 0;
+    top: 560px;
+    width: 1920px;
+    display: flex;
+    justify-content: center;
+    gap: 22px;
+    opacity: 0;
+  }
+
+  .langChip {
+    padding: 20px 32px;
+    color: #fff4d2;
+    background: rgb(24 36 70 / 94%);
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 rgb(89 114 158 / 70%), inset -4px -4px 0 #111b33, 6px 6px 0 rgb(5 9 20 / 55%);
+    font-size: 32px;
+  }
+
+  .langChip.on {
+    color: #10172b;
+    background: #ffd27d;
+    box-shadow: inset 4px 4px 0 #fff4d2, inset -4px -4px 0 #b5754f, 6px 6px 0 rgb(5 9 20 / 55%);
+  }
+
+  /* 이어받기 패널 */
+  #resumePanel {
+    position: absolute;
+    z-index: 58;
+    left: 1120px;
+    top: 500px;
+    width: 700px;
+    padding: 24px 26px;
+    opacity: 0;
+  }
+
+  #resumePanel > strong {
+    display: block;
+    color: #ffd27d;
+    font-size: 26px;
+  }
+
+  #resumePanel p {
+    margin: 10px 0 16px;
+    color: #cdd5e8;
+    font-size: 21px;
+  }
+
+  .resumeRow {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 0;
+    border-top: 3px solid #2f4670;
+    font-size: 22px;
+  }
+
+  .resumeRow b {
+    flex: 1;
+    overflow: hidden;
+    font-weight: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .miniBtn {
+    padding: 8px 16px;
+    color: #fff8e7;
+    background: #26385d;
+    border: 3px solid #0a1020;
+    box-shadow: inset 3px 3px 0 #59729e, inset -3px -3px 0 #111b33;
+    font-size: 20px;
+  }
+
+  /* 작업표시줄 */
+  #taskBar {
+    position: absolute;
+    z-index: 100;
+    left: 0;
+    bottom: 0;
+    width: 1920px;
+    height: 84px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 16px;
+    color: #fff8e7;
+    background: #10172b;
+    border-top: 4px solid #51658d;
+    box-shadow: 0 -8px 0 rgb(5 9 20 / 46%);
+  }
+
+  .tbBtn {
+    display: flex;
+    height: 64px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    color: #fff8e7;
+    background: #26385d;
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 #59729e, inset -4px -4px 0 #111b33, 4px 4px 0 #070b16;
+    font-size: 22px;
+    white-space: nowrap;
+  }
+
+  #deskBtn {
+    min-width: 150px;
+    color: #10172b;
+    background: #ffd27d;
+    box-shadow: inset 4px 4px 0 #fff4d2, inset -4px -4px 0 #b5754f, 4px 4px 0 #070b16;
+  }
+
+  #deskBtn .mark {
+    width: 26px;
+    height: 26px;
+    background: #2d5c5b;
+    border: 4px solid #10172b;
+    box-shadow: inset 5px 5px 0 #61b3a6;
+  }
+
+  #winTasks {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .tbBtn.on {
+    color: #10172b;
+    background: #61b3a6;
+    box-shadow: inset 4px 4px 0 #b9e1cf, inset -4px -4px 0 #2d5c5b, 4px 4px 0 #070b16;
+  }
+
+  .tbBtn.blink {
+    background: #385279;
+    box-shadow: inset 4px 4px 0 #7389b0, inset -4px -4px 0 #172342, 0 0 0 4px #ffd27d;
+  }
+
+  #chatBadge {
+    display: grid;
+    min-width: 32px;
+    height: 32px;
+    place-items: center;
+    padding: 0 8px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 4px solid #0a1020;
+    box-shadow: 2px 2px 0 #070b16;
+    font-size: 19px;
+  }
+
+  #upChip {
+    display: flex;
+    height: 64px;
+    max-width: 460px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 #fff4d2, inset -4px -4px 0 #b5754f;
+    font-size: 22px;
+    white-space: nowrap;
+  }
+
+  #resumeChip {
+    display: flex;
+    height: 64px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 18px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 4px solid #0a1020;
+    box-shadow: inset 4px 4px 0 #fff4d2, inset -4px -4px 0 #b5754f;
+    font-size: 22px;
+    white-space: nowrap;
+  }
+
+  #dlPref {
+    display: flex;
+    height: 64px;
+    align-items: center;
+    gap: 12px;
+    padding: 0 16px;
+    color: #cdd5e8;
+    border: 4px solid transparent;
+    font-size: 21px;
+    white-space: nowrap;
+  }
+
+  #dlPref i {
+    width: 26px;
+    height: 26px;
+    background: #182446;
+    border: 4px solid #51658d;
+  }
+
+  #tray {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    white-space: nowrap;
+  }
+
+  #clock {
+    color: #cdd5e8;
+    font-size: 22px;
+  }
+
+  /* ---------------- 장면 8 · 마무리 ---------------- */
+  #outroShotWrap {
+    position: absolute;
+    inset: 0;
+    background: #0b1020;
+  }
+
+  #outroShot {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 930px;
+    object-fit: contain;
+  }
+
+  #outroVeil {
+    position: absolute;
+    inset: 0;
+    background: #080d1f;
+    opacity: 0;
+  }
+
+  /* 글자가 앉는 자리만 위아래로 부드럽게 더 어둡게 눌러 준다 */
+  #outroPlate {
+    position: absolute;
+    left: 0;
+    top: 190px;
+    width: 1920px;
+    height: 470px;
+    background: linear-gradient(
+      to bottom,
+      rgb(8 13 31 / 0%) 0,
+      #080d1f 100px,
+      #080d1f 370px,
+      rgb(8 13 31 / 0%) 470px
+    );
+    opacity: 0;
+  }
+
+  #outroInner {
+    position: absolute;
+    left: 0;
+    top: 240px;
+    width: 1920px;
+    text-align: center;
+  }
+
+  #outroInner > div {
+    width: 100%;
+  }
+
+  #outroLogoRow {
+    display: inline-flex;
+    align-items: center;
+    gap: 26px;
+    opacity: 0;
+  }
+
+  #outroLogoRow .brandMark {
+    width: 76px;
+    height: 76px;
+  }
+
+  #outroWord {
+    color: #ffd27d;
+    font-size: 88px;
+    text-shadow: 6px 6px 0 #0a0d1b;
+  }
+
+  #outroUrl {
+    display: inline-flex;
+    align-items: center;
+    gap: 20px;
+    margin-top: 60px;
+    padding: 26px 44px;
+    color: #10172b;
+    background: #f4e7c5;
+    border: 4px solid #10172b;
+    box-shadow: inset 4px 4px 0 #fff8e7, inset -4px -4px 0 #9c8c78, 10px 10px 0 rgb(5 9 20 / 55%);
+    font-size: 38px;
+    opacity: 0;
+  }
+
+  #outroSub {
+    margin-top: 44px;
+    color: #fff4d2;
+    font-size: 34px;
+    text-shadow: 4px 4px 0 #0a0d1b;
+    opacity: 0;
+  }
+
+  /* ---------------- 미리보기 막대 (렌더 때는 숨김) ---------------- */
+  #previewBar {
+    position: fixed;
+    z-index: 5000;
+    right: 20px;
+    bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 18px;
+    color: #fff4d2;
+    background: rgb(11 17 34 / 96%);
+    border: 3px solid #51658d;
+    font-family: "Galmuri11", sans-serif;
+    font-size: 18px;
+  }
+
+  #previewBar button {
+    padding: 8px 16px;
+    color: #10172b;
+    background: #ffd27d;
+    border: 3px solid #0a1020;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  #previewBar input[type="range"] {
+    width: 420px;
+  }
+
+  body.rendering #previewBar { display: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="content"></div>
+  <div id="band"><div id="cap"></div></div>
+  <div id="blackout"></div>
+</div>
+
+<div id="previewBar">
+  <button id="pvPlay" type="button">재생</button>
+  <input id="pvRange" type="range" min="0" max="81" step="0.01" value="0" />
+  <span id="pvTime">0.00s</span>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   0. 상수
+   ============================================================ */
+const STAGE_W = 1920;
+const STAGE_H = 1080;
+const CONTENT_H = 930;   // 자막 띠 위 본 화면 높이
+const DURATION = 81;     // 초
+
+const ART = {
+  dusk: "../../public/art/sharedesk-dusk.png",
+  night: "../../public/art/wall-night.png",
+  dawn: "../../public/art/wall-dawn.png",
+  tide: "../../public/art/wall-tide.png",
+  stars: "../../public/art/wall-tide-stars.png",
+  shot: "../sharedesk-desktop.png",
+};
+
+/* ============================================================
+   1. 픽셀 조각 만들기
+   ============================================================ */
+const IC = {
+  outline: "#1b1b2f",
+  shadow: "#0e1830",
+  paper: "#f4e7c5",
+  light: "#fff8e7",
+  teal: "#2d5c5b",
+  moss: "#6f8b72",
+  amber: "#ffd98b",
+  orange: "#e7a064",
+  coral: "#c9615f",
+  blue: "#416b8d",
+};
+
+// src/app/files/PixelFileIcon.tsx 의 경로를 그대로 옮겨 왔다.
+function svgFrame(inner, size) {
+  return '<svg class="pix" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" shape-rendering="crispEdges">' + inner + "</svg>";
+}
+
+function fileShell(inner) {
+  return (
+    '<path d="M4 3H15L21 9V22H4Z" fill="' + IC.shadow + '" transform="translate(2 2)"/>' +
+    '<path d="M2 1H14L20 7V20H2Z" fill="' + IC.outline + '"/>' +
+    '<path d="M4 3H13V8H18V18H4Z" fill="' + IC.paper + '"/>' +
+    '<path d="M14 3L18 7H14Z" fill="' + IC.light + '"/>' + inner
+  );
+}
+
+const FOLDER_PALETTE = {
+  default: [IC.amber, IC.light, IC.orange],
+  blue: ["#79a8e8", "#b8d4f6", "#4a6fae"],
+  green: ["#8fbf7f", "#c6e3b8", "#5f8b57"],
+  violet: ["#a97fc9", "#d3b3ea", "#7a5595"],
+};
+
+function icon(kind, size, color) {
+  size = size || 96;
+  if (kind === "folder") {
+    const p = FOLDER_PALETTE[color || "default"];
+    return svgFrame(
+      '<path d="M4 7H10L12 9H21V21H4Z" fill="' + IC.shadow + '" transform="translate(2 2)"/>' +
+        '<path d="M2 5H9L11 7H20V19H2Z" fill="' + IC.outline + '"/>' +
+        '<path d="M4 7H8L10 9H18V17H4Z" fill="' + p[0] + '"/>' +
+        '<path d="M4 9H18V11H4Z" fill="' + p[1] + '"/>' +
+        '<path d="M4 15H18V17H4Z" fill="' + p[2] + '"/>',
+      size
+    );
+  }
+  if (kind === "text") {
+    return svgFrame(fileShell('<path d="M6 10H16V11H6ZM6 12H14V13H6ZM6 14H16V15H6ZM6 16H12V17H6Z" fill="' + IC.teal + '"/>'), size);
+  }
+  if (kind === "image") {
+    return svgFrame(
+      fileShell(
+        '<path d="M5 9H17V17H5Z" fill="' + IC.blue + '"/>' +
+          '<path d="M6 15L9 12L11 14L14 11L17 15V17H6Z" fill="' + IC.moss + '"/>' +
+          '<path d="M7 10H9V12H7Z" fill="' + IC.amber + '"/>'
+      ),
+      size
+    );
+  }
+  if (kind === "pdf") {
+    return svgFrame(
+      fileShell(
+        '<path d="M5 10H17V17H5Z" fill="' + IC.coral + '"/>' +
+          '<path d="M7 12H11V14H9V16H7ZM12 12H16V14H14V16H12Z" fill="' + IC.light + '"/>'
+      ),
+      size
+    );
+  }
+  if (kind === "slides") {
+    return svgFrame(
+      fileShell(
+        '<path d="M5 9H17V17H5Z" fill="' + IC.orange + '"/>' +
+          '<path d="M6 10H16V16H6Z" fill="' + IC.light + '"/>' +
+          '<path d="M7 13H9V15H7ZM10 11H12V15H10ZM13 12H15V15H13Z" fill="' + IC.coral + '"/>'
+      ),
+      size
+    );
+  }
+  if (kind === "video") {
+    return svgFrame(
+      fileShell(
+        '<path d="M5 9H17V17H5Z" fill="' + IC.teal + '"/>' +
+          '<path d="M9 11L14 13L9 16Z" fill="' + IC.amber + '"/>' +
+          '<path d="M5 9H7V11H5ZM15 9H17V11H15ZM5 15H7V17H5ZM15 15H17V17H15Z" fill="' + IC.light + '"/>'
+      ),
+      size
+    );
+  }
+  if (kind === "archive") {
+    return svgFrame(
+      '<path d="M4 6H22V22H4Z" fill="' + IC.shadow + '" transform="translate(2 2)"/>' +
+        '<path d="M2 4H20V20H2Z" fill="' + IC.outline + '"/>' +
+        '<path d="M4 6H18V18H4Z" fill="' + IC.orange + '"/>' +
+        '<path d="M4 6H18V9H4Z" fill="' + IC.amber + '"/>' +
+        '<path d="M10 6H13V18H10Z" fill="' + IC.teal + '"/>' +
+        '<path d="M11 8H13V10H11ZM10 11H12V13H10ZM11 14H13V16H11Z" fill="' + IC.light + '"/>',
+      size
+    );
+  }
+  // document
+  return svgFrame(
+    fileShell('<path d="M6 10H16V12H6ZM6 14H16V16H6Z" fill="' + IC.teal + '"/><path d="M6 6H10V8H6Z" fill="' + IC.orange + '"/>'),
+    size
+  );
+}
+
+// 휴지통 — FilesView.tsx 의 경로 그대로.
+function trashSvg(w) {
+  return (
+    '<svg class="pix" width="' + w + '" height="' + Math.round((w * 36) / 32) + '" viewBox="0 0 32 36" shape-rendering="crispEdges" style="filter:drop-shadow(4px 4px 0 #0a1020)">' +
+    '<path d="M9 14H29L27 36H11Z" fill="#0a1020"/>' +
+    '<path d="M7 12H27L25 34H9Z" fill="#1b1b2f"/>' +
+    '<path d="M10 15H24L22 31H12Z" fill="#aab4a7"/>' +
+    '<path d="M12 15H15L14 29H12Z" fill="#eef1dc"/>' +
+    '<path d="M17 15H19V29H17Z" fill="#65756f"/>' +
+    '<path d="M21 15H23L22 29H20Z" fill="#65756f"/>' +
+    '<path d="M12 29H22V31H12Z" fill="#7f8f86"/>' +
+    '<path d="M5 8H29V14H3V10H5Z" fill="#0a1020"/>' +
+    '<path d="M3 6H27V8H29V12H1V8H3Z" fill="#1b1b2f"/>' +
+    '<path d="M5 8H25V10H3V8Z" fill="#d9dfcf"/>' +
+    '<path d="M11 0H21V2H23V6H19V4H13V6H9V2H11Z" fill="#1b1b2f"/>' +
+    '<path d="M13 2H19V4H13Z" fill="#eef1dc"/>' +
+    "</svg>"
+  );
+}
+
+// 픽셀 커서 — 12x19 도트를 rect 로 찍는다.
+const CURSOR_OUT = [
+  "X...........",
+  "XX..........",
+  "XXX.........",
+  "XXXX........",
+  "XXXXX.......",
+  "XXXXXX......",
+  "XXXXXXX.....",
+  "XXXXXXXX....",
+  "XXXXXXXXX...",
+  "XXXXXXXXXX..",
+  "XXXXXXXXXXX.",
+  "XXXXXXXXXXXX",
+  "XXXXXXXX....",
+  "XXXXXXXX....",
+  "XXX..XXXX...",
+  "XX....XXXX..",
+  "X.....XXXX..",
+  ".......XXXX.",
+  "........XXX.",
+];
+const CURSOR_IN = [
+  "............",
+  ".X..........",
+  ".XX.........",
+  ".XXX........",
+  ".XXXX.......",
+  ".XXXXX......",
+  ".XXXXXX.....",
+  ".XXXXXXX....",
+  ".XXXXXXXX...",
+  ".XXXXXXX....",
+  ".XXXXXX.....",
+  ".XXXXX......",
+  ".XXXXX......",
+  ".XX..XX.....",
+  ".X....XX....",
+  "......XX....",
+  ".......XX...",
+  "........XX..",
+  "............",
+];
+
+function bitmapRects(rows, fill) {
+  let out = "";
+  for (let y = 0; y < rows.length; y += 1) {
+    const row = rows[y];
+    let x = 0;
+    while (x < row.length) {
+      if (row[x] === "X") {
+        let w = 1;
+        while (x + w < row.length && row[x + w] === "X") w += 1;
+        out += '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="1" fill="' + fill + '"/>';
+        x += w;
+      } else {
+        x += 1;
+      }
+    }
+  }
+  return out;
+}
+
+function cursorSvg() {
+  return (
+    '<svg width="36" height="57" viewBox="0 0 12 19" shape-rendering="crispEdges" style="filter:drop-shadow(3px 3px 0 rgba(5,9,20,.55))">' +
+    bitmapRects(CURSOR_OUT, "#10172b") +
+    bitmapRects(CURSOR_IN, "#fff8e7") +
+    "</svg>"
+  );
+}
+
+function brandMark(cls) {
+  return '<span class="brandMark ' + (cls || "") + '"><i></i><i></i><i></i><i></i></span>';
+}
+
+/* ============================================================
+   2. 화면 만들기
+   ============================================================ */
+const content = document.getElementById("content");
+
+const HTML = [];
+
+/* --- 장면 1 · 훅 --- */
+HTML.push(
+  '<div class="layer" id="lyHook">' +
+    '<div id="hookWall" class="pix" style="background-image:url(' + ART.dusk + ')"></div>' +
+    '<div id="hookScan"></div>' +
+    '<div id="hookInner">' +
+      '<div id="hookLogoRow">' + brandMark() + '<span id="hookWord">ShareDesk</span></div>' +
+      '<div id="hookTag"><span id="hookTagText"></span><span id="hookTagCaret"></span></div>' +
+      '<div id="hookRule"></div>' +
+    "</div>" +
+    '<div class="cursor" id="curHook">' + cursorSvg() + "</div>" +
+  "</div>"
+);
+
+/* --- 장면 2 · 문제 --- */
+const PROB_ROWS = [
+  ["chat", "“링크 좀 보내 주세요”"],
+  ["lock", "“권한 열어 주실 수 있나요?”"],
+  ["disk", "파일은 각자 클라우드에 흩어지고"],
+];
+
+// 어두운 패널 위에 올라가므로 테두리를 밝은 크림색으로 쓴다.
+const PG_LINE = "#fff4d2";
+
+function probGlyph(kind) {
+  if (kind === "chat") {
+    return (
+      '<svg class="probGlyph pix" viewBox="0 0 24 24" shape-rendering="crispEdges">' +
+      '<path d="M1 2H16V13H8L4 17V13H1Z" fill="' + PG_LINE + '"/>' +
+      '<path d="M3 4H14V11H7L6 12V11H3Z" fill="#ffd27d"/>' +
+      '<path d="M9 9H23V20H20V23L17 20H9Z" fill="' + PG_LINE + '"/>' +
+      '<path d="M11 11H21V18H11Z" fill="#61b3a6"/>' +
+      "</svg>"
+    );
+  }
+  if (kind === "lock") {
+    return (
+      '<svg class="probGlyph pix" viewBox="0 0 24 24" shape-rendering="crispEdges">' +
+      '<path d="M6 3H18V12H15V6H9V12H6Z" fill="' + PG_LINE + '"/>' +
+      '<path d="M3 11H21V22H3Z" fill="' + PG_LINE + '"/>' +
+      '<path d="M5 13H19V20H5Z" fill="#f2a56f"/>' +
+      '<path d="M11 15H13V18H11Z" fill="#10172b"/>' +
+      "</svg>"
+    );
+  }
+  return (
+    '<svg class="probGlyph pix" viewBox="0 0 24 24" shape-rendering="crispEdges">' +
+    '<path d="M1 3H12V10H1Z" fill="' + PG_LINE + '"/><path d="M3 5H10V8H3Z" fill="#79a8e8"/>' +
+    '<path d="M12 8H23V15H12Z" fill="' + PG_LINE + '"/><path d="M14 10H21V13H14Z" fill="#61b3a6"/>' +
+    '<path d="M2 14H13V21H2Z" fill="' + PG_LINE + '"/><path d="M4 16H11V19H4Z" fill="#e96872"/>' +
+    "</svg>"
+  );
+}
+
+HTML.push(
+  '<div class="layer" id="lyProblem">' +
+    '<div id="problemInner">' +
+      PROB_ROWS.map(function (r, i) {
+        return '<div class="probRow panel" id="probRow' + i + '">' + probGlyph(r[0]) + "<span>" + r[1] + "</span></div>";
+      }).join("") +
+      '<div id="probPunch">같은 바탕화면 하나면 됩니다</div>' +
+    "</div>" +
+  "</div>"
+);
+
+/* --- 장면 3 · 참여 --- */
+HTML.push(
+  '<div class="layer" id="lyJoin">' +
+    '<div id="joinInner">' +
+      '<div class="joinBox panel" id="joinTop">' +
+        '<svg class="pix" width="46" height="46" viewBox="0 0 24 24" shape-rendering="crispEdges">' +
+        '<path d="M9 2H15L22 15H16Z" fill="#ffd27d"/><path d="M9 2L2 15H9L15 2Z" fill="#61b3a6"/>' +
+        '<path d="M2 15H22L19 21H5Z" fill="#79a8e8"/></svg>' +
+        "<span>호스트 한 사람의 Google Drive</span>" +
+      "</div>" +
+      '<div class="joinArrow" id="joinArrow">↕</div>' +
+      '<div class="joinBox panel" id="joinMid">' + brandMark() + "<span>같은 ShareDesk 주소</span></div>" +
+      '<div id="joinBranch">' +
+        '<div class="joinChip panel" id="joinChip0"><span class="tree">├─</span><span class="avatar"></span><span>호스트의 Google 계정</span></div>' +
+        '<div class="joinChip panel" id="joinChip1"><span class="tree">├─</span><span class="avatar"></span><span>참여자 A의 Google 계정</span></div>' +
+        '<div class="joinChip panel" id="joinChip2"><span class="tree">└─</span><span class="avatar"></span><span>참여자 B의 Google 계정</span></div>' +
+      "</div>" +
+      '<div id="joinCode"><span>초대 코드</span><span id="joinCodeValue"></span><span id="joinCodeOk">✔ 참여 완료</span></div>' +
+    "</div>" +
+  "</div>"
+);
+
+/* --- 장면 4~7 · 데스크 모형 --- */
+const DESK_ICONS = [
+  { id: "di0", kind: "folder", color: "default", name: "문서", x: 48, y: 88 },
+  { id: "di1", kind: "folder", color: "blue", name: "사진", x: 216, y: 88 },
+  { id: "di2", kind: "folder", color: "green", name: "영상", x: 384, y: 88 },
+  { id: "di3", kind: "text", color: null, name: "보고서.txt", x: 552, y: 88 },
+  { id: "di4", kind: "image", color: null, name: "여름사진.png", x: 48, y: 280 },
+  { id: "di5", kind: "pdf", color: null, name: "안내서.pdf", x: 216, y: 280 },
+  { id: "di6", kind: "slides", color: null, name: "발표자료.pptx", x: 384, y: 280 },
+  { id: "di7", kind: "archive", color: null, name: "자료묶음.zip", x: 552, y: 280 },
+];
+
+function deskIconHtml(d) {
+  return (
+    '<div class="dIcon" id="' + d.id + '" style="left:' + d.x + "px;top:" + d.y + 'px">' +
+    icon(d.kind, 96, d.color) +
+    "<span>" + d.name + "</span></div>"
+  );
+}
+
+function folderIconHtml(id, kind, name, x, y, color) {
+  return (
+    '<div class="fIcon" id="' + id + '" style="left:' + x + "px;top:" + y + 'px">' +
+    icon(kind, 76, color) +
+    "<span>" + name + "</span></div>"
+  );
+}
+
+function winCtl(withMax) {
+  return '<div class="winCtl"><i class="mn"></i>' + (withMax ? '<i class="mx"></i>' : "") + '<i class="cl"></i></div>';
+}
+
+HTML.push(
+  '<div class="layer" id="lyDesk"><div id="desk">' +
+    '<img class="wall pix" id="wDusk" src="' + ART.dusk + '" alt="" />' +
+    '<img class="wall pix" id="wNight" src="' + ART.night + '" alt="" />' +
+    '<img class="wall pix" id="wDawn" src="' + ART.dawn + '" alt="" />' +
+    '<img class="wall pix" id="wTide" src="' + ART.tide + '" alt="" />' +
+    '<img class="wall pix" id="wStars" src="' + ART.stars + '" alt="" />' +
+    '<div id="wallTint"></div>' +
+    '<div class="panel" id="wallName">해 질 녘</div>' +
+
+    // 상단 막대
+    '<div id="topBar">' +
+      '<div class="left">' + brandMark() + "<strong>ShareDesk</strong><span id=\"deskLabel\">공유 바탕화면</span></div>" +
+      '<div class="right"><div id="presenceBtn"><span class="liveDot"></span><span id="presenceText">함께 쓰는 중 · 3명</span></div></div>' +
+    "</div>" +
+
+    // 바탕화면 아이콘
+    DESK_ICONS.map(deskIconHtml).join("") +
+    '<div id="trashLauncher">' + trashSvg(64) + "<span>휴지통</span></div>" +
+
+    // 폴더 창
+    '<div class="win" id="winDocs" style="left:720px;top:120px;width:760px;height:560px">' +
+      '<div class="winTitle"><strong>문서</strong>' + winCtl(true) + "</div>" +
+      '<div class="winTool"><span class="tbtn">←</span><span class="addr">/ 문서</span><span class="tbtn">+ 폴더</span><span class="tbtn">↑ 올리기</span><span class="tbtn">폴더 메모</span></div>' +
+      '<div class="winBody" id="docsBody">' +
+        folderIconHtml("fi0", "text", "보고서.txt", 30, 24) +
+        folderIconHtml("fi1", "text", "회의록.txt", 190, 24) +
+        folderIconHtml("fi2", "folder", "2026 자료", 350, 24, "violet") +
+        folderIconHtml("fi3", "image", "여름사진.png", 510, 24) +
+        folderIconHtml("fi4", "pdf", "안내서.pdf", 30, 200) +
+        folderIconHtml("fi5", "video", "여행영상.mp4", 190, 200) +
+      "</div>" +
+      '<div class="winStat"><span>6개 항목</span><span>아이콘을 끌어 위치를 바꾸고, 폴더 위에 놓으면 그 안으로 옮겨져요</span></div>' +
+    "</div>" +
+
+    // 미리보기 창
+    '<div class="win" id="winPreview" style="left:1080px;top:300px;width:740px;height:500px">' +
+      '<div class="winTitle"><strong id="previewTitle">여름사진.png</strong>' + winCtl(true) + "</div>" +
+      '<div class="winTool"><span class="tbtn" id="previewTool0">미리보기</span><span class="tbtn">다운로드</span><span class="tbtn" id="previewSave">저장</span></div>' +
+      '<div class="winBody">' +
+        '<div id="previewImgWrap"><img class="pix" id="previewImg" src="' + ART.dawn + '" alt="" /></div>' +
+        '<div id="previewTextWrap"><span id="previewText"></span><span id="previewCaret"></span></div>' +
+      "</div>" +
+      '<div class="winStat"><span id="previewStat">사진 · 2.4 MB</span><span>미리보기</span></div>' +
+    "</div>" +
+
+    // 폴더 메모 창
+    '<div class="win" id="winNote" style="left:220px;top:470px;width:540px;height:330px;grid-template-rows:56px minmax(0,1fr) 44px">' +
+      '<div class="winTitle"><strong>폴더 메모 · 문서</strong>' + winCtl(true) + "</div>" +
+      '<div class="winBody"><div id="noteText"></div></div>' +
+      '<div class="winStat"><span>모두에게 보입니다</span><span>자동 저장</span></div>' +
+    "</div>" +
+
+    // 채팅 창
+    '<div class="win" id="winChat" style="left:1300px;top:250px;width:520px;height:520px;grid-template-rows:56px minmax(0,1fr) 64px">' +
+      '<div class="winTitle"><strong>채팅</strong><div class="winCtl"><i class="mn"></i><i class="cl"></i></div></div>' +
+      '<div class="winBody">' +
+        '<div class="chatMsg" id="chat0"><b>민준</b>사진 올려 뒀어요</div>' +
+        '<div class="chatMsg mine" id="chat1"><b>하늘</b>고마워요! 문서 폴더로 옮겨 둘게요</div>' +
+        '<div class="chatMsg" id="chat2"><b>서연</b>확인했습니다 👍</div>' +
+      "</div>" +
+      '<div id="chatComposer"><span class="addr">메시지 입력…</span><span class="tbtn on">보내기</span></div>' +
+    "</div>" +
+
+    // 간이 링크 만들기 창
+    '<div class="win" id="winQuick" style="left:560px;top:150px;width:780px;height:580px;grid-template-rows:56px 72px minmax(0,1fr) 44px">' +
+      '<div class="winTitle"><strong>간이 링크 만들기</strong>' + winCtl(true) + "</div>" +
+      '<div class="winTool"><span class="addr">파일을 창 안에 놓으면 업로드가 끝나는 즉시 1시간 링크를 만듭니다</span></div>' +
+      '<div class="winBody">' +
+        '<div id="quickDrop">여기에 파일을 놓아 주세요</div>' +
+        '<div id="quickCard">' + icon("video", 44) + "<span>여행영상.mp4 · 248 MB</span></div>" +
+        '<div id="quickRow">' +
+          '<div style="display:flex;align-items:center;gap:14px;font-size:22px">' + icon("video", 36) + '<span id="quickRowName">여행영상.mp4</span><span class="hourBadge" id="quickBadge">1시간</span></div>' +
+          '<div class="bar"><i id="quickBar" style="width:0%"></i></div>' +
+          '<div class="linkLine" id="quickLink"><code>https://desk.example/s/7fQ2k9</code><span class="tbtn">복사</span></div>' +
+        "</div>" +
+      "</div>" +
+      '<div class="winStat"><span id="quickStat">대기 중</span><span>1시간이 지나면 링크가 닫힙니다</span></div>' +
+    "</div>" +
+
+    // 생성된 링크 창
+    '<div class="win" id="winLinks" style="left:600px;top:200px;width:940px;height:520px;grid-template-rows:56px 72px minmax(0,1fr) 44px">' +
+      '<div class="winTitle"><strong>생성된 링크</strong>' + winCtl(true) + "</div>" +
+      '<div class="winTool"><span class="addr">관리할 수 있는 활성 링크</span><span class="tbtn">새로고침</span></div>' +
+      '<div class="winBody">' +
+        '<div class="shareRow" id="shr0"><div>안내서.pdf<small>남은 시간 52분</small></div><span class="tbtn">복사</span><span class="tbtn">멈추기</span></div>' +
+        '<div class="shareRow" id="shr1"><div>여행영상.mp4<small>남은 시간 59분</small></div><span class="tbtn">복사</span><span class="tbtn" id="shr1Stop">멈추기</span></div>' +
+        '<div class="shareRow" id="shr2"><div>2026 자료<small>남은 시간 12분</small></div><span class="tbtn">복사</span><span class="tbtn">멈추기</span></div>' +
+      "</div>" +
+      '<div class="winStat"><span id="linksStat">활성 링크 3개</span><span>언제든 공유를 멈출 수 있습니다</span></div>' +
+    "</div>" +
+
+    // 우클릭 메뉴
+    '<div id="ctxMenu" style="left:330px;top:370px">' +
+      '<div class="mItem">열기</div>' +
+      '<div class="mItem">미리보기</div>' +
+      '<div class="mItem">다운로드</div>' +
+      '<div class="mSep"></div>' +
+      '<div class="mItem" id="ctxShare">공유 링크 만들기</div>' +
+      '<div class="mItem">이름 바꾸기</div>' +
+      '<div class="mSep"></div>' +
+      '<div class="mItem danger">삭제</div>' +
+    "</div>" +
+
+    // 알림
+    '<div id="toast">링크를 복사했습니다 · <code>https://desk.example/s/7fQ2k9</code> · 1시간 뒤 닫힘</div>' +
+
+    // 접속자 패널
+    '<div class="panel" id="presencePanel">' +
+      "<strong>함께 쓰는 중 · 3명</strong>" +
+      '<div class="pMember"><i></i><span>하늘 (호스트)</span><em>수정 가능</em></div>' +
+      '<div class="pMember"><i></i><span>민준</span><em>올리기 가능</em></div>' +
+      '<div class="pMember"><i></i><span>서연</span><em>보기 전용</em></div>' +
+    "</div>" +
+
+    // 역할 패널
+    '<div class="panel" id="rolePanel">' +
+      "<strong>참여자 역할 · 관리자 화면</strong>" +
+      '<div class="roleRow" id="role0"><span class="roleTag a">수정 가능</span><span>올리기·이름 바꾸기·공유 링크</span></div>' +
+      '<div class="roleRow" id="role1"><span class="roleTag b">올리기 가능</span><span>파일 올리기와 내려받기</span></div>' +
+      '<div class="roleRow" id="role2"><span class="roleTag c">보기 전용</span><span>보고 내려받기만</span></div>' +
+    "</div>" +
+
+    // 용량 도넛
+    '<div class="panel" id="quotaPanel">' +
+      "<strong>용량 · 관리자 화면</strong>" +
+      '<div id="quotaWrap">' +
+        '<div id="donut"><div id="donutCenter"><strong id="donutUsed">0 GB</strong><small id="donutPct">0%</small></div></div>' +
+        '<div id="quotaLegend">' +
+          '<div class="legRow"><i style="background:#61b3a6"></i><span>데스크 사용량</span><b id="legUsed">0 GB</b></div>' +
+          '<div class="legRow"><i style="background:#ffd27d"></i><span>업로드 중</span><b id="legRes">0 GB</b></div>' +
+          '<div class="legRow"><i style="background:#766f69"></i><span>남은 용량</span><b id="legFree">0 GB</b></div>' +
+          '<div id="quotaNote">데스크 제한 20 GB · Drive 전체 2 TB</div>' +
+        "</div>" +
+      "</div>" +
+    "</div>" +
+
+    // 언어 칩
+    '<div id="langRow">' +
+      ["English", "한국어", "日本語", "हिन्दी", "中文"]
+        .map(function (s, i) {
+          return '<div class="langChip" id="lang' + i + '">' + s + "</div>";
+        })
+        .join("") +
+    "</div>" +
+
+    // 이어받기 패널
+    '<div class="panel" id="resumePanel">' +
+      "<strong>이어받을 업로드 2개</strong>" +
+      "<p>이어받을 파일을 여기에 놓아 주세요</p>" +
+      '<div class="resumeRow"><b>여행영상.mp4 · 248 MB 중 94 MB</b><span class="miniBtn">이어받기</span><span class="miniBtn">지우기</span></div>' +
+      '<div class="resumeRow"><b>자료묶음.zip · 512 MB 중 210 MB</b><span class="miniBtn">이어받기</span><span class="miniBtn">지우기</span></div>' +
+    "</div>" +
+
+    // 작업표시줄
+    '<div id="taskBar">' +
+      '<div class="tbBtn" id="deskBtn"><span class="mark"></span><span>책상</span></div>' +
+      '<div id="winTasks">' +
+        '<div class="tbBtn" id="tbDocs">문서</div>' +
+        '<div class="tbBtn" id="tbPreview">여름사진.png</div>' +
+        '<div class="tbBtn" id="tbNote">폴더 메모</div>' +
+        '<div class="tbBtn" id="tbQuick">간이 링크 만들기</div>' +
+        '<div class="tbBtn" id="tbLinks">생성된 링크</div>' +
+      "</div>" +
+      '<div class="tbBtn" id="tbChat"><span>▤</span><span>채팅</span><span id="chatBadge">3</span></div>' +
+      '<div id="upChip"><span>↕</span><span id="upChipText">전송 중 2개 · 여행영상.mp4 · 38%</span></div>' +
+      '<div id="resumeChip"><span>↑</span><span>이어받을 업로드 2개</span></div>' +
+      '<div id="dlPref"><i></i><span>다운로드 우선</span></div>' +
+      '<div id="tray"><div class="tbBtn">하늘 · 호스트</div><div class="tbBtn">나가기</div><span id="clock">오후 06:03</span></div>' +
+    "</div>" +
+
+    '<div class="cursor" id="curDesk">' + cursorSvg() + "</div>" +
+  "</div></div>"
+);
+
+/* --- 장면 8 · 마무리 --- */
+HTML.push(
+  '<div class="layer" id="lyOutro">' +
+    '<div id="outroShotWrap"><img class="pix" id="outroShot" src="' + ART.shot + '" alt="" /></div>' +
+    '<div id="outroVeil"></div>' +
+    '<div id="outroPlate"></div>' +
+    '<div id="outroInner">' +
+      '<div><div id="outroLogoRow">' + brandMark() + '<span id="outroWord">ShareDesk</span></div></div>' +
+      '<div><div id="outroUrl"><span>github.com/Youkamii/sharedesk-template</span></div></div>' +
+      '<div><div id="outroSub">설치 안내는 저장소의 README에 있습니다</div></div>' +
+    "</div>" +
+  "</div>"
+);
+
+content.innerHTML = HTML.join("");
+
+/* ============================================================
+   3. 손잡이 모으기
+   ============================================================ */
+const $ = function (id) {
+  return document.getElementById(id);
+};
+
+const cap = $("cap");
+const blackout = $("blackout");
+
+/* ============================================================
+   4. 시간 도우미 (모두 순수 함수 — 실제 시계를 쓰지 않는다)
+   ============================================================ */
+function clamp01(v) {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+// start 에서 시작해 dur 동안 0 → 1
+function ramp(t, start, dur) {
+  if (dur <= 0) return t >= start ? 1 : 0;
+  return clamp01((t - start) / dur);
+}
+
+function easeOut(p) {
+  return 1 - Math.pow(1 - p, 3);
+}
+
+function easeInOut(p) {
+  return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+}
+
+// start 에 나타나 end 에 사라진다 (fd 초 동안 부드럽게)
+function window01(t, start, end, fd) {
+  fd = fd === undefined ? 0.3 : fd;
+  if (t < start || t > end) return 0;
+  return Math.min(1, Math.min((t - start) / fd, (end - t) / fd));
+}
+
+function lerp(a, b, p) {
+  return a + (b - a) * p;
+}
+
+// 깜빡임 — period 초마다 0/1 이 뒤집힌다
+function blink(t, period) {
+  return Math.floor(t / period) % 2 === 0 ? 1 : 0;
+}
+
+function typed(text, t, start, cps) {
+  const n = Math.floor(Math.max(0, t - start) * cps);
+  return text.slice(0, Math.min(text.length, n));
+}
+
+function op(el, v) {
+  if (el) el.style.opacity = String(v);
+}
+
+function show(el, on) {
+  if (el) el.style.display = on ? "" : "none";
+}
+
+function cls(el, name, on) {
+  if (!el) return;
+  if (on) el.classList.add(name);
+  else el.classList.remove(name);
+}
+
+// 창 열림 — 0.14s 동안 작게에서 제 크기로
+function openWin(el, t, start, end) {
+  if (!el) return 0;
+  const a = window01(t, start, end, 0.22);
+  op(el, a);
+  const g = ramp(t, start, 0.14);
+  const s = lerp(0.9, 1, easeOut(g));
+  el.style.transform = a > 0 ? "scale(" + s.toFixed(4) + ")" : "scale(1)";
+  return a;
+}
+
+/* ============================================================
+   5. 자막
+   ============================================================ */
+const CAPS = [
+  [0.7, 4.3, "누군가 먼저 와서 불을 켜 둔 작업실처럼"],
+  [4.4, 7.0, "ShareDesk — 한 사람의 Google Drive, 모두의 바탕화면"],
+  [7.3, 9.6, "파일 하나 나누는 일은 늘 번거롭습니다."],
+  [9.6, 12.0, "링크를 부탁하고, 권한을 열어 달라 하고,\n파일은 각자 클라우드에 흩어집니다."],
+  [12.0, 15.0, "복잡한 권한 설정 없이\n파일을 한자리에 모아 둡니다."],
+  [15.3, 17.4, "호스트 한 사람만 처음에 한 번 설치합니다."],
+  [17.4, 19.8, "참여자는 같은 주소에서 각자의 Google 계정으로 로그인하고,"],
+  [19.8, 22.2, "초대 코드만 넣으면 같은 파일과 폴더를 함께 씁니다."],
+  [22.2, 24.0, "참여자의 개인 Drive 파일은 읽지 않습니다.\n별도 데이터베이스도 필요하지 않습니다."],
+  [24.4, 26.6, "파일과 폴더를 바탕화면 아이콘처럼 놓습니다."],
+  [26.6, 28.6, "폴더는 창으로 열어 여럿이 함께 정리합니다."],
+  [28.6, 30.6, "사진·영상·오디오·PDF·텍스트는 바로 볼 수 있고,"],
+  [30.6, 32.6, ".txt 파일은 여럿이 함께 고칠 수 있습니다."],
+  [32.6, 34.4, "폴더마다 공유 메모를 남겨 둘 수 있습니다."],
+  [34.4, 36.0, "창은 최소화하거나 최대화할 수 있습니다."],
+  [36.4, 39.2, "초대 코드로 사람을 받고,\n지금 누가 와 있는지 확인합니다."],
+  [39.2, 40.9, "새 메시지가 오면 채팅 버튼이 반짝이고\n읽지 않은 수를 보여 줍니다."],
+  [40.9, 44.2, "대화는 채팅 버튼에서 바로 엽니다.\n(채팅 창은 최소화만 됩니다)"],
+  [44.2, 47.0, "수정 가능 · 올리기 가능 · 보기 전용 —\n역할은 관리자 화면에서 바꿉니다."],
+  [47.4, 50.4, "우클릭 한 번으로 로그인 없는 1시간 공유 링크를\n만들고 바로 복사합니다."],
+  [50.4, 53.4, "간이 링크 만들기 창에 파일을 놓으면,\n업로드가 끝나는 즉시 1시간 링크를 줍니다."],
+  [53.4, 56.0, "생성된 링크 창에서 활성 링크를 모아 보고,\n언제든 공유를 멈출 수 있습니다."],
+  [56.0, 58.2, "큰 파일을 올리다 새로고침을 해도"],
+  [58.2, 60.0, "이어받을 업로드가 남아 있어 그 자리에서 다시 올립니다."],
+  [60.4, 63.6, "옛날 디스크 느낌의 도넛이\n데스크 사용량 · 업로드 중 · 남은 용량을 보여 줍니다."],
+  [63.6, 68.6, "배경은 해 질 녘 · 깊은 밤 · 여명 · 밤바다 네 가지.\n고른 배경은 각자의 브라우저에 저장됩니다."],
+  [68.6, 71.0, "화면 언어는 영어 · 한국어 · 일본어 · 힌디어 · 중국어\n다섯 가지입니다."],
+  [71.4, 74.4, "설치는 호스트 한 사람, 한 번이면 됩니다."],
+  [74.4, 77.6, "초대받은 참여자는 아무것도 설치하지 않습니다."],
+  [77.6, 80.4, "github.com/Youkamii/sharedesk-template\n설치 안내는 README에 있습니다."],
+];
+
+function drawCaption(t) {
+  let text = "";
+  let alpha = 0;
+  for (let i = 0; i < CAPS.length; i += 1) {
+    const c = CAPS[i];
+    if (t >= c[0] && t < c[1]) {
+      text = c[2];
+      alpha = Math.min(1, Math.min((t - c[0]) / 0.22, (c[1] - t) / 0.22));
+      break;
+    }
+  }
+  if (cap.textContent !== text) cap.textContent = text;
+  op(cap, clamp01(alpha));
+}
+
+/* ============================================================
+   6. 장면 그리기
+   ============================================================ */
+
+/* --- 장면 1 --- */
+const HOOK_TAG = "한 사람의 Google Drive, 모두의 바탕화면";
+
+function drawHook(t) {
+  // 장면끼리는 잠깐 어두워졌다 다음 장면이 올라오게 붙여 둔다.
+  const on = window01(t, 0, 7.1, 0.3);
+  op($("lyHook"), on);
+  if (on <= 0) return;
+
+  op($("hookWall"), lerp(0, 0.4, easeOut(ramp(t, 0.4, 2.6))));
+
+  // 커서가 화면 가운데로 와서 한 번 누른다
+  const mp = easeInOut(ramp(t, 0.35, 1.25));
+  const cx = lerp(250, 905, mp);
+  const cy = lerp(700, 455, mp);
+  const pressed = t >= 1.62 && t < 1.78 ? 0.84 : 1;
+  const cur = $("curHook");
+  cur.style.transform = "translate(" + Math.round(cx) + "px," + Math.round(cy) + "px) scale(" + pressed + ")";
+  op(cur, window01(t, 0.2, 2.5, 0.25));
+
+  // 로고가 튀어 오른다
+  const lg = ramp(t, 1.76, 0.3);
+  const row = $("hookLogoRow");
+  op(row, clamp01(lg * 1.4));
+  row.style.transform = "scale(" + lerp(0.78, 1, easeOut(lg)).toFixed(4) + ")";
+
+  // 부제는 한 글자씩
+  const txt = typed(HOOK_TAG, t, 2.45, 17);
+  const tagEl = $("hookTagText");
+  if (tagEl.textContent !== txt) tagEl.textContent = txt;
+  const caretOn = t >= 2.4 && t < 5.2 ? blink(t - 2.4, 0.4) : 0;
+  op($("hookTagCaret"), caretOn);
+
+  // 밑줄
+  $("hookRule").style.width = Math.round(lerp(0, 760, easeOut(ramp(t, 4.35, 0.75)))) + "px";
+  op($("hookRule"), t >= 4.35 ? 1 : 0);
+}
+
+/* --- 장면 2 --- */
+function drawProblem(t) {
+  const on = window01(t, 7.1, 15.1, 0.3);
+  op($("lyProblem"), on);
+  if (on <= 0) return;
+
+  const starts = [7.35, 8.85, 10.35];
+  for (let i = 0; i < 3; i += 1) {
+    const el = $("probRow" + i);
+    const p = ramp(t, starts[i], 0.32);
+    const dim = t >= 12.0 ? lerp(1, 0.32, ramp(t, 12.0, 0.45)) : 1;
+    op(el, p * dim);
+    el.style.transform = "translateX(" + Math.round(lerp(-46, 0, easeOut(p))) + "px)";
+  }
+
+  const punch = $("probPunch");
+  const pp = ramp(t, 12.15, 0.35);
+  op(punch, pp);
+  punch.style.transform = "scale(" + lerp(0.9, 1, easeOut(pp)).toFixed(4) + ")";
+}
+
+/* --- 장면 3 --- */
+function drawJoin(t) {
+  const on = window01(t, 15.1, 23.95, 0.3);
+  op($("lyJoin"), on);
+  if (on <= 0) return;
+
+  const top = $("joinTop");
+  const tp = ramp(t, 15.25, 0.32);
+  op(top, tp);
+  top.style.transform = "translateY(" + Math.round(lerp(-34, 0, easeOut(tp))) + "px)";
+
+  const ar = $("joinArrow");
+  op(ar, ramp(t, 16.1, 0.25) * (t >= 16.1 ? 0.55 + 0.45 * blink(t - 16.1, 0.45) : 0));
+
+  const mid = $("joinMid");
+  const mp = ramp(t, 16.55, 0.32);
+  op(mid, mp);
+  mid.style.transform = "scale(" + lerp(0.9, 1, easeOut(mp)).toFixed(4) + ")";
+
+  const chipStart = [17.4, 18.05, 18.7];
+  for (let i = 0; i < 3; i += 1) {
+    const el = $("joinChip" + i);
+    const p = ramp(t, chipStart[i], 0.28);
+    op(el, p);
+    el.style.transform = "translateX(" + Math.round(lerp(-40, 0, easeOut(p))) + "px)";
+  }
+
+  const code = $("joinCode");
+  op(code, ramp(t, 19.7, 0.3));
+  const codeText = typed("DUSK-ROOM-24", t, 20.0, 7);
+  const cv = $("joinCodeValue");
+  const caret = t >= 20.0 && t < 21.7 ? (blink(t - 20.0, 0.35) ? "_" : " ") : "";
+  const wanted = codeText + caret;
+  if (cv.textContent !== wanted) cv.textContent = wanted;
+  op($("joinCodeOk"), ramp(t, 21.75, 0.25));
+}
+
+/* --- 장면 4~7 · 데스크 --- */
+const NOTE_TEXT = "· 사진은 ‘사진’ 폴더에 모아 주세요\n· 보고서.txt 는 다 같이 고치는 중\n· 다음 모임 자료는 2026 자료 안에";
+const PREVIEW_TEXT = "2026 상반기 보고서\n\n1. 파일은 한곳에 모읍니다.\n2. 폴더 메모로 약속을 남깁니다.\n3. 링크는 한 시간만 열어 둡니다.";
+
+function drawDesk(t) {
+  const on = Math.min(window01(t, 23.95, 71.1, 0.4), 1);
+  op($("lyDesk"), on);
+  if (on <= 0) return;
+
+  /* ---- 배경 ---- */
+  // 63.9~68.2 사이에 해 질 녘 → 깊은 밤 → 여명 → 밤바다
+  const duskA = 1 - clamp01(ramp(t, 63.9, 0.7));
+  const nightA = clamp01(ramp(t, 63.9, 0.7)) * (1 - clamp01(ramp(t, 65.3, 0.7)));
+  const dawnA = clamp01(ramp(t, 65.3, 0.7)) * (1 - clamp01(ramp(t, 66.7, 0.7)));
+  const tideA = clamp01(ramp(t, 66.7, 0.7));
+  op($("wDusk"), duskA);
+  op($("wNight"), nightA);
+  op($("wDawn"), dawnA);
+  op($("wTide"), tideA);
+  // 밤바다의 별빛만 살짝 흔들린다 (계단식으로 — 실제 화면의 steps 연출과 같은 결)
+  const starStep = Math.floor(((t * 1000) % 2400) / 300);
+  op($("wStars"), tideA * (0.28 + 0.05 * (starStep % 3)));
+
+  const wallNames = [
+    [63.9, 65.3, "깊은 밤"],
+    [65.3, 66.7, "여명"],
+    [66.7, 68.4, "밤바다"],
+  ];
+  let wn = 0;
+  let wnText = "해 질 녘";
+  for (let i = 0; i < wallNames.length; i += 1) {
+    if (t >= wallNames[i][0] && t < wallNames[i][1]) {
+      wn = window01(t, wallNames[i][0], wallNames[i][1], 0.25);
+      wnText = wallNames[i][2];
+    }
+  }
+  if (t >= 63.0 && t < 63.9) {
+    wn = window01(t, 63.0, 64.0, 0.25);
+    wnText = "해 질 녘";
+  }
+  const wallNameEl = $("wallName");
+  if (wallNameEl.textContent !== wnText) wallNameEl.textContent = wnText;
+  op(wallNameEl, wn);
+
+  /* ---- 바탕화면 아이콘 ---- */
+  // ‘사진’ 폴더를 끌어다 아래로 옮긴다 (24.9 ~ 26.2)
+  const dragP = easeInOut(ramp(t, 24.95, 1.15));
+  const di1 = $("di1");
+  const dx = Math.round(lerp(0, -168, dragP));
+  const dy = Math.round(lerp(0, 380, dragP));
+  di1.style.transform = "translate(" + dx + "px," + dy + "px)";
+  cls(di1, "sel", t >= 24.8 && t < 26.6);
+  op(di1, t >= 24.95 && t < 26.15 ? 0.72 : 1);
+
+  // 파일 선택 표시
+  cls($("di5"), "sel", t >= 47.5 && t < 50.2);
+  cls($("di0"), "sel", t >= 26.45 && t < 27.4);
+
+  /* ---- 커서 ---- */
+  const curDesk = $("curDesk");
+  let cx = 300;
+  let cy = 300;
+  let curOn = 0;
+  let curScale = 1;
+  if (t >= 24.5 && t < 27.6) {
+    // 아이콘 끌기 → 문서 폴더 두 번 누르기
+    const p1 = easeInOut(ramp(t, 24.55, 0.4));
+    const p2 = easeInOut(ramp(t, 24.95, 1.15));
+    const p3 = easeInOut(ramp(t, 26.2, 0.35));
+    cx = lerp(lerp(700, 300, p1), 132, p2);
+    cy = lerp(lerp(560, 150, p1), 530, p2);
+    cx = lerp(cx, 120, p3);
+    cy = lerp(cy, 150, p3);
+    curOn = window01(t, 24.5, 27.6, 0.25);
+    curScale = (t >= 26.5 && t < 26.62) || (t >= 26.68 && t < 26.8) ? 0.84 : 1;
+  } else if (t >= 47.4 && t < 50.3) {
+    // 안내서.pdf 우클릭 → 공유 링크 만들기
+    const p1 = easeInOut(ramp(t, 47.45, 0.45));
+    const p2 = easeInOut(ramp(t, 48.55, 0.5));
+    cx = lerp(300, 300, p1);
+    cy = lerp(500, 340, p1);
+    cx = lerp(cx, 430, p2);
+    cy = lerp(cy, 520, p2);
+    curOn = window01(t, 47.4, 50.3, 0.25);
+    curScale = t >= 49.0 && t < 49.14 ? 0.84 : 1;
+  } else if (t >= 53.6 && t < 55.4) {
+    // 생성된 링크 창에서 멈추기 누르기
+    const p1 = easeInOut(ramp(t, 53.7, 0.7));
+    cx = lerp(1120, 1452, p1);
+    cy = lerp(600, 458, p1);
+    curOn = window01(t, 53.6, 55.4, 0.25);
+    curScale = t >= 54.62 && t < 54.76 ? 0.84 : 1;
+  }
+  op(curDesk, curOn);
+  curDesk.style.transform = "translate(" + Math.round(cx) + "px," + Math.round(cy) + "px) scale(" + curScale + ")";
+
+  /* ---- 창 ---- */
+  const aDocs = openWin($("winDocs"), t, 26.85, 47.2);
+  const aPrev = openWin($("winPreview"), t, 28.55, 36.3);
+  const aNote = openWin($("winNote"), t, 32.55, 36.3);
+  const aChat = openWin($("winChat"), t, 40.85, 44.25);
+  const aQuick = openWin($("winQuick"), t, 50.4, 53.35);
+  const aLinks = openWin($("winLinks"), t, 53.45, 56.0);
+
+  // 활성 창 테두리
+  cls($("winDocs"), "act", t >= 26.85 && t < 28.55);
+  cls($("winPreview"), "act", t >= 28.55 && t < 32.55);
+  cls($("winNote"), "act", t >= 32.55 && t < 36.3);
+  cls($("winChat"), "act", t >= 40.85 && t < 44.25);
+  cls($("winQuick"), "act", aQuick > 0);
+  cls($("winLinks"), "act", aLinks > 0);
+
+  // 최소화·최대화 단추 강조 (34.4~36.0)
+  const ctlHi = t >= 34.5 && t < 35.9 ? blink(t - 34.5, 0.3) : 0;
+  const ctls = $("winNote").querySelectorAll(".winCtl i");
+  for (let i = 0; i < ctls.length; i += 1) {
+    ctls[i].style.outline = ctlHi && i < 2 ? "4px solid #ffd27d" : "none";
+  }
+
+  // 미리보기 창 — 사진에서 .txt 편집으로
+  const toText = t >= 30.6;
+  op($("previewTextWrap"), toText ? 1 : 0);
+  op($("previewImgWrap"), toText ? 0 : 1);
+  const pTitle = $("previewTitle");
+  const wantTitle = toText ? "보고서.txt" : "여름사진.png";
+  if (pTitle.textContent !== wantTitle) pTitle.textContent = wantTitle;
+  const pStat = $("previewStat");
+  const wantStat = toText ? "텍스트 · 함께 고치는 중" : "사진 · 2.4 MB";
+  if (pStat.textContent !== wantStat) pStat.textContent = wantStat;
+  cls($("previewTool0"), "on", !toText);
+  cls($("previewSave"), "on", toText);
+  const pt = typed(PREVIEW_TEXT, t, 30.75, 26);
+  const pTextEl = $("previewText");
+  if (pTextEl.textContent !== pt) pTextEl.textContent = pt;
+  op($("previewCaret"), toText ? blink(t - 30.6, 0.4) : 0);
+
+  // 폴더 메모 — 한 글자씩
+  const nt = typed(NOTE_TEXT, t, 32.7, 36);
+  const noteEl = $("noteText");
+  if (noteEl.textContent !== nt) noteEl.textContent = nt;
+
+  // 채팅 메시지
+  const chatStart = [41.15, 42.15, 43.2];
+  for (let i = 0; i < 3; i += 1) {
+    const el = $("chat" + i);
+    const p = ramp(t, chatStart[i], 0.22);
+    op(el, p * aChat);
+    el.style.transform = "translateY(" + Math.round(lerp(14, 0, easeOut(p))) + "px)";
+  }
+
+  // 간이 링크 만들기 — 파일이 떨어지고 → 올라가고 → 링크가 생긴다
+  const dropP = easeInOut(ramp(t, 50.75, 0.45));
+  const qc = $("quickCard");
+  op(qc, window01(t, 50.7, 52.0, 0.2) * aQuick);
+  qc.style.transform = "translateY(" + Math.round(lerp(-120, 150, dropP)) + "px)";
+  const upP = clamp01(ramp(t, 51.25, 1.05));
+  op($("quickRow"), window01(t, 51.2, 53.35, 0.22) * aQuick);
+  $("quickBar").style.width = Math.round(upP * 100) + "%";
+  op($("quickLink"), ramp(t, 52.35, 0.25));
+  const qStat = $("quickStat");
+  const wantQ = upP >= 1 ? "완료 · 링크 준비됨" : "올리는 중 " + Math.round(upP * 100) + "%";
+  if (qStat.textContent !== wantQ) qStat.textContent = wantQ;
+  op($("quickDrop"), aQuick > 0 ? (t >= 50.9 ? 0.25 : 1) : 1);
+
+  // 생성된 링크 — 줄이 하나씩, 두 번째 줄을 멈춘다
+  const shrStart = [53.6, 53.85, 54.1];
+  for (let i = 0; i < 3; i += 1) {
+    op($("shr" + i), ramp(t, shrStart[i], 0.22) * aLinks);
+  }
+  const stopped = t >= 54.72;
+  cls($("shr1"), "stopped", stopped);
+  const shr1Stop = $("shr1Stop");
+  const wantStop = stopped ? "멈춤" : "멈추기";
+  if (shr1Stop.textContent !== wantStop) shr1Stop.textContent = wantStop;
+  const linksStat = $("linksStat");
+  const wantLs = stopped ? "활성 링크 2개 · 1개 멈춤" : "활성 링크 3개";
+  if (linksStat.textContent !== wantLs) linksStat.textContent = wantLs;
+
+  // 우클릭 메뉴와 알림
+  op($("ctxMenu"), window01(t, 47.85, 49.12, 0.12));
+  cls($("ctxShare"), "hot", t >= 48.6);
+  op($("toast"), window01(t, 49.15, 50.35, 0.22));
+
+  // 접속자 패널 / 역할 패널
+  op($("presencePanel"), window01(t, 36.55, 39.1, 0.25));
+  const pbOn = t >= 36.35 && t < 39.3;
+  $("presenceBtn").style.borderColor = pbOn ? "#ffd27d" : "transparent";
+  $("presenceBtn").style.background = pbOn ? "rgb(47 70 112 / 72%)" : "transparent";
+
+  const rolePanelA = window01(t, 44.3, 47.0, 0.28);
+  op($("rolePanel"), rolePanelA);
+  for (let i = 0; i < 3; i += 1) {
+    const el = $("role" + i);
+    const p = ramp(t, 44.45 + i * 0.35, 0.25);
+    op(el, p * rolePanelA);
+    el.style.transform = "translateX(" + Math.round(lerp(28, 0, easeOut(p))) + "px)";
+  }
+
+  // 용량 도넛
+  const quotaA = window01(t, 60.45, 63.5, 0.3);
+  op($("quotaPanel"), quotaA);
+  const qp = easeOut(clamp01(ramp(t, 60.7, 1.35)));
+  const usedGb = 12.6 * qp;
+  const resGb = 1.8 * qp;
+  const limitGb = 20;
+  const usedPct = (usedGb / limitGb) * 100;
+  const totalPct = ((usedGb + resGb) / limitGb) * 100;
+  $("donut").style.background =
+    "conic-gradient(#61b3a6 0 " + usedPct.toFixed(2) + "%, #ffd27d " + usedPct.toFixed(2) + "% " + totalPct.toFixed(2) + "%, #766f69 " + totalPct.toFixed(2) + "% 100%)";
+  setText($("donutUsed"), usedGb.toFixed(1) + " GB");
+  setText($("donutPct"), Math.round(totalPct) + "%");
+  setText($("legUsed"), usedGb.toFixed(1) + " GB");
+  setText($("legRes"), resGb.toFixed(1) + " GB");
+  setText($("legFree"), Math.max(0, limitGb - usedGb - resGb).toFixed(1) + " GB");
+
+  // 언어 칩
+  const langA = window01(t, 68.75, 71.2, 0.3);
+  op($("langRow"), langA);
+  const pick = Math.min(4, Math.floor(Math.max(0, t - 68.95) / 0.42));
+  for (let i = 0; i < 5; i += 1) {
+    const el = $("lang" + i);
+    const p = ramp(t, 68.85 + i * 0.12, 0.22);
+    op(el, p * langA);
+    el.style.transform = "translateY(" + Math.round(lerp(22, 0, easeOut(p))) + "px)";
+    cls(el, "on", langA > 0 && i === pick);
+  }
+
+  // 이어받기 패널
+  op($("resumePanel"), window01(t, 58.35, 60.3, 0.28));
+
+  /* ---- 작업표시줄 ---- */
+  show($("tbDocs"), aDocs > 0);
+  show($("tbPreview"), aPrev > 0);
+  show($("tbNote"), aNote > 0);
+  show($("tbQuick"), aQuick > 0);
+  show($("tbLinks"), aLinks > 0);
+  setText($("tbPreview"), toText ? "보고서.txt" : "여름사진.png");
+  cls($("tbDocs"), "on", t >= 26.85 && t < 28.55);
+  cls($("tbPreview"), "on", t >= 28.55 && t < 32.55);
+  cls($("tbNote"), "on", t >= 32.55 && t < 36.3);
+  cls($("tbQuick"), "on", aQuick > 0);
+  cls($("tbLinks"), "on", aLinks > 0);
+
+  // 채팅 단추 — 읽지 않은 수가 있으면 반짝인다
+  const chatUnread = t >= 39.25 && t < 40.85;
+  show($("tbChat"), true);
+  show($("chatBadge"), chatUnread);
+  cls($("tbChat"), "blink", chatUnread && blink(t - 39.25, 0.6) === 1);
+  cls($("tbChat"), "on", aChat > 0);
+
+  // 전송 중 칩 (56.0~57.05 사이 올리는 중, 새로고침 뒤에는 사라진다)
+  const upOn = t >= 55.9 && t < 57.05;
+  show($("upChip"), upOn);
+  if (upOn) {
+    const pct = Math.round(lerp(18, 41, clamp01(ramp(t, 55.9, 1.1))));
+    setText($("upChipText"), "전송 중 2개 · 여행영상.mp4 · " + pct + "%");
+  }
+
+  // 새로고침 뒤 이어받기 칩
+  const resumeOn = t >= 57.5 && t < 60.3;
+  show($("resumeChip"), resumeOn);
+  $("resumeChip").style.outline = resumeOn && blink(t - 57.5, 0.55) ? "4px solid #ffd27d" : "none";
+
+  setText($("presenceText"), "함께 쓰는 중 · 3명");
+}
+
+function setText(el, v) {
+  if (el && el.textContent !== v) el.textContent = v;
+}
+
+/* --- 새로고침 번쩍임 (장면 6) --- */
+const flash = document.createElement("div");
+flash.style.cssText = "position:absolute;inset:0;z-index:850;background:#fff8e7;opacity:0;pointer-events:none";
+content.appendChild(flash);
+
+function drawFlash(t) {
+  // 57.05 에 화면이 한 번 하얗게 번쩍이고 57.45 까지 돌아온다
+  let a = 0;
+  if (t >= 57.02 && t < 57.5) {
+    a = t < 57.14 ? clamp01((t - 57.02) / 0.1) : clamp01((57.5 - t) / 0.34);
+  }
+  op(flash, a);
+}
+
+/* --- 장면 8 --- */
+function drawOutro(t) {
+  const on = window01(t, 71.1, 81.2, 0.5);
+  op($("lyOutro"), on);
+  if (on <= 0) return;
+
+  // 실제 화면을 1.4초 정도 그대로 보여 준 뒤 어둡게 덮는다.
+  op($("outroVeil"), lerp(0.06, 0.94, easeOut(ramp(t, 72.5, 1.1))));
+  op($("outroPlate"), lerp(0, 0.9, easeOut(ramp(t, 72.7, 1.0))));
+
+  const lg = ramp(t, 73.2, 0.4);
+  const row = $("outroLogoRow");
+  op(row, lg);
+  row.style.transform = "scale(" + lerp(0.86, 1, easeOut(lg)).toFixed(4) + ")";
+
+  const up = ramp(t, 74.4, 0.4);
+  const url = $("outroUrl");
+  op(url, up);
+  url.style.transform = "translateY(" + Math.round(lerp(26, 0, easeOut(up))) + "px)";
+
+  op($("outroSub"), ramp(t, 75.4, 0.4));
+}
+
+/* ============================================================
+   7. seek — 이 영상의 유일한 시간 입구
+   ============================================================ */
+function seek(t) {
+  if (!isFinite(t)) t = 0;
+  if (t < 0) t = 0;
+  if (t > DURATION) t = DURATION;
+
+  drawHook(t);
+  drawProblem(t);
+  drawJoin(t);
+  drawDesk(t);
+  drawFlash(t);
+  drawOutro(t);
+  drawCaption(t);
+
+  // 처음과 끝은 검은 화면에서 들어오고 나간다
+  let black = 0;
+  if (t < 0.6) black = 1 - clamp01(t / 0.6);
+  if (t > 79.6) black = Math.max(black, clamp01((t - 79.6) / 1.2));
+  op(blackout, black);
+
+  // 자막 띠도 마지막에는 함께 어두워진다
+  op(document.getElementById("band"), 1);
+}
+
+window.seek = seek;
+window.DURATION = DURATION;
+window.STAGE_W = STAGE_W;
+window.STAGE_H = STAGE_H;
+
+/* ============================================================
+   8. 준비 완료 알림 — render.mjs 가 기다린다
+   ============================================================ */
+window.__ready = (async function () {
+  const urls = Object.keys(ART).map(function (k) {
+    return ART[k];
+  });
+  await Promise.all(
+    urls.map(function (u) {
+      return new Promise(function (res) {
+        const im = new Image();
+        im.onload = res;
+        im.onerror = res;
+        im.src = u;
+      });
+    })
+  );
+  if (document.fonts && document.fonts.ready) {
+    try {
+      await document.fonts.load('33px "Galmuri11"');
+      await document.fonts.ready;
+    } catch (e) {
+      /* 글꼴을 못 읽어도 렌더는 계속한다 */
+    }
+  }
+  seek(0);
+  return true;
+})();
+
+window.prepareRender = function () {
+  document.body.classList.add("rendering");
+  if (pvTimer !== null) {
+    cancelAnimationFrame(pvTimer);
+    pvTimer = null;
+  }
+  fitStage(1);
+  return true;
+};
+
+/* ============================================================
+   9. 미리보기 (사람이 브라우저에서 열었을 때만 쓴다)
+   ============================================================ */
+function fitStage(force) {
+  const stage = document.getElementById("stage");
+  const s = force !== undefined ? force : Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+  if (Math.abs(s - 1) < 0.0001) {
+    stage.style.transform = "none";
+  } else {
+    stage.style.transform = "scale(" + s + ")";
+  }
+}
+
+let pvTimer = null;
+let pvT0 = 0;
+let pvBase = 0;
+const pvRange = document.getElementById("pvRange");
+const pvTime = document.getElementById("pvTime");
+const pvPlay = document.getElementById("pvPlay");
+pvRange.max = String(DURATION);
+
+function pvSet(t) {
+  seek(t);
+  pvRange.value = String(t);
+  pvTime.textContent = t.toFixed(2) + "s";
+}
+
+function pvLoop() {
+  const now = performance.now();
+  let t = pvBase + (now - pvT0) / 1000;
+  if (t >= DURATION) {
+    t = DURATION;
+    pvSet(t);
+    pvStop();
+    return;
+  }
+  pvSet(t);
+  pvTimer = requestAnimationFrame(pvLoop);
+}
+
+function pvStop() {
+  if (pvTimer !== null) cancelAnimationFrame(pvTimer);
+  pvTimer = null;
+  pvPlay.textContent = "재생";
+}
+
+pvPlay.addEventListener("click", function () {
+  if (pvTimer !== null) {
+    pvStop();
+    return;
+  }
+  pvBase = parseFloat(pvRange.value) || 0;
+  if (pvBase >= DURATION) pvBase = 0;
+  pvT0 = performance.now();
+  pvPlay.textContent = "멈춤";
+  pvTimer = requestAnimationFrame(pvLoop);
+});
+
+pvRange.addEventListener("input", function () {
+  pvStop();
+  pvSet(parseFloat(pvRange.value) || 0);
+});
+
+window.addEventListener("resize", function () {
+  if (!document.body.classList.contains("rendering")) fitStage();
+});
+
+if (new URLSearchParams(location.search).has("render")) {
+  document.body.classList.add("rendering");
+  fitStage(1);
+} else {
+  fitStage();
+}
+
+seek(0);
+</script>
+</body>
+</html>
