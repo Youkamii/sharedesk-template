@@ -13,6 +13,8 @@ import { SPACE_HEADER } from "@/lib/space-slug";
 import { getSpace } from "@/lib/spaces";
 import { findUserById, getDeskSettingsOrDefault } from "@/lib/users";
 import { isOwnerRegistryConfigured } from "@/lib/owner-registry";
+import { isWidgetCookieStore } from "@/lib/widget-mode";
+import WidgetView from "../widget/WidgetView";
 import FilesView from "./FilesView";
 
 export default async function FilesPage() {
@@ -52,6 +54,17 @@ export default async function FilesPage() {
   // 로그인은 되어 있으므로 자기(기본) 데스크로 돌려보낸다.
   if (result.kind === "not-member") redirect("/files");
   const session = result.session;
+  // 데스크톱 위젯 껍데기 안이면 위젯 화면 — 같은 세션·같은 스페이스 문맥이다
+  if (isWidgetCookieStore(cookieStore)) {
+    return (
+      <WidgetView
+        userName={session.name}
+        isAdmin={session.isAdmin}
+        role={session.role}
+        locale={locale}
+      />
+    );
+  }
   // 닉네임(#13): 진실 원천은 기본 데스크 명단 — 스페이스 화면에서도 같다.
   const baseUser = session.isGuest
     ? null

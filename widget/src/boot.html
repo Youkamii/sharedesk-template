@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ShareDesk Widget</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #10172b; }
+      body { display: grid; place-items: center; }
+      .mark { display: grid; width: 36px; height: 36px; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: #0b1021; border: 3px solid #f2a56f; box-shadow: 3px 3px 0 #080b17; }
+      .mark i:nth-child(1) { background: #ffd27d; }
+      .mark i:nth-child(2) { background: #61b3a6; }
+      .mark i:nth-child(3) { background: #e96872; }
+      .mark i:nth-child(4) { background: #79a8e8; }
+    </style>
+  </head>
+  <body data-tauri-drag-region="deep">
+    <!-- 껍데기가 위젯 쿠키를 심는 동안 잠깐 보이는 부팅 화면 — 곧 데스크로 넘어간다 -->
+    <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+  </body>
+</html>

@@ -23,6 +23,9 @@
 # misc
 .DS_Store
 *.pem
+# 위젯 업데이트 서명 비밀키 (tauri signer generate) — 저장소 밖(~/.tauri)에 둔다
+*.key
+.tauri/
 
 # debug
 npm-debug.log*

@@ -9,8 +9,11 @@ import { LOCALE_COOKIE, parseLocale, resolveEffectiveLocale, translate,
 } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { getAccessKeys } from "@/lib/session-token";
+import { isWidgetCookieStore } from "@/lib/widget-mode";
 import KeyForm from "./KeyForm";
 import pixel from "./unconfigured.module.css";
+import WidgetFrame from "./widget/WidgetFrame";
+import widgetStyles from "./widget/widget.module.css";
 
 
 const GOOGLE_LOGIN_ENV = [
@@ -145,6 +148,48 @@ export default async function Home({
     translate(locale, text, vars);
 
   const { error } = await searchParams;
+
+  // 데스크톱 위젯 안의 로그인 — 같은 로그인 수단을 작은 창에 맞는 카드로 보여 준다.
+  if (isWidgetCookieStore(cookieStore)) {
+    return (
+      <WidgetFrame locale={locale}>
+        <div className={widgetStyles.authCard}>
+          <h1>{t("데스크에 로그인")}</h1>
+          <p>
+            {googleLoginEnabled
+              ? t(
+                  "초대받은 데스크에 내 Google 계정으로 로그인합니다. 처음 한 번만 호스트가 준 초대 코드를 입력합니다.",
+                )
+              : t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
+          </p>
+          {error && (
+            <p className={widgetStyles.authError} role="alert">
+              {t(ERRORS[error] ?? "로그인에 실패했습니다.")}
+            </p>
+          )}
+          {googleLoginEnabled ? (
+            <Link
+              href="/api/auth/google"
+              prefetch={false}
+              className={widgetStyles.authPrimary}
+            >
+              {t("Google로 계속하기")}
+            </Link>
+          ) : null}
+          {keyLoginEnabled && (
+            <>
+              {googleLoginEnabled && (
+                <div className={widgetStyles.authDivider}>{t("또는 손님용 키")}</div>
+              )}
+              <div className={widgetStyles.authForm}>
+                <KeyForm locale={locale} />
+              </div>
+            </>
+          )}
+        </div>
+      </WidgetFrame>
+    );
+  }
 
   return (
     <main className="relative flex flex-1 items-center justify-center p-6">

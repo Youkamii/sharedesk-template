@@ -13,6 +13,8 @@ export const RESERVED_SLUGS = new Set([
   "files",
   "join",
   "pending",
+  // src/app/widget — 데스크톱 위젯 화면 컴포넌트 폴더 (라우트는 아니지만 폴더가 있다)
+  "widget",
   // public/ 자산과 프레임워크 경로
   "art",
   "fonts",

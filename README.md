@@ -72,6 +72,7 @@ One install address is one desk; a single installation does not contain several 
 - **To run your own production server:** [Detailed install guide](./docs/INSTALL.md)
 - **Already installed:** [Update guide](./docs/UPDATE.md)
 - **Just for yourself on your own computer:** [Local personal use](./docs/LOCAL.md)
+- **Optional:** [Desktop widget](./docs/WIDGET.md)
 
 Invited participants install nothing. Sign in at the ShareDesk address your host sent you and enter the invitation code — that's all.
 

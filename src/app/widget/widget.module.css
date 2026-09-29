@@ -1,0 +1,715 @@
+/* 데스크톱 위젯 화면 — 손바닥 크기(기본 340×520) 창에 맞춘 Dusk Room OS.
+   토큰·픽셀 프레임은 desktop.module.css와 같고, 자유 배치 캔버스 대신 격자를 쓴다. */
+
+.widget {
+  --night: #10172b;
+  --panel: #182446;
+  --title: #2f4670;
+  --peach: #f2a56f;
+  --amber: #ffd27d;
+  --cream: #fff4d2;
+  --teal: #61b3a6;
+  --ink: #111629;
+  --error: #e96872;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--cream);
+  background: var(--night);
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 12px;
+  user-select: none;
+  isolation: isolate;
+}
+
+.widget button,
+.widget input {
+  font: inherit;
+}
+
+.widget button:focus-visible,
+.widget a:focus-visible,
+.widget input:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.wallpaper {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--night);
+  background-image: url("/art/sharedesk-dusk.png");
+  background-position: center bottom;
+  background-size: cover;
+  image-rendering: pixelated;
+}
+
+.wallpaper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(8 13 31 / 22%);
+}
+
+/* ── 머리띠(드래그 영역) ─────────────────────────────────────────────── */
+
+.band {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 8px;
+  color: #fff8e7;
+  background: rgb(13 20 41 / 94%);
+  border-bottom: 2px solid var(--title);
+  box-shadow: 0 2px 0 rgb(5 9 20 / 68%);
+  cursor: grab;
+}
+
+.band:active {
+  cursor: grabbing;
+}
+
+.brandMark {
+  display: grid;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: #0b1021;
+  border: 2px solid var(--peach);
+  box-shadow: 2px 2px 0 #080b17;
+  pointer-events: none;
+}
+
+.brandMark i:nth-child(1) { background: #ffd27d; }
+.brandMark i:nth-child(2) { background: #61b3a6; }
+.brandMark i:nth-child(3) { background: #e96872; }
+.brandMark i:nth-child(4) { background: #79a8e8; }
+
+.bandTitle {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--amber);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-shadow: 2px 2px 0 #0a0d1b;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.bandButton {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 5px;
+  color: #fff8e7;
+  background: var(--panel);
+  border: 0;
+  box-shadow: inset -2px -2px 0 #0b1021, inset 2px 2px 0 #34508a;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bandButton:hover {
+  background: #26385d;
+}
+
+.bandButton[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--amber);
+  box-shadow: inset -2px -2px 0 #b58d3f, inset 2px 2px 0 #fff0c2;
+}
+
+.modeSwitch {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  background: var(--teal);
+  box-shadow: 0 0 0 2px #182446, 2px 2px 0 #0a1020;
+  animation: liveBlink 2.8s steps(2, end) infinite;
+}
+
+.liveDotError {
+  background: var(--error);
+  animation: none;
+}
+
+@keyframes liveBlink {
+  50% { opacity: 0.35; }
+}
+
+/* ── 서랍 모드(미니 데스크) ─────────────────────────────────────────── */
+
+.desk {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.crumbs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  color: #d8dff0;
+  background: rgb(13 20 41 / 78%);
+  border-bottom: 2px solid #1e2c4c;
+}
+
+.crumbs span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.grid {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  grid-auto-rows: max-content;
+  gap: 2px;
+  padding: 8px 6px 12px;
+  overflow: auto;
+  align-content: start;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.icon {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 3px 5px;
+  color: #fff8e7;
+  background: transparent;
+  border: 2px solid transparent;
+  cursor: default;
+}
+
+.icon svg {
+  flex: 0 0 auto;
+  image-rendering: pixelated;
+  filter: drop-shadow(2px 2px 0 rgb(5 9 20 / 48%));
+}
+
+.iconName {
+  display: -webkit-box;
+  width: 100%;
+  overflow: hidden;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  text-shadow:
+    -1px -1px 0 #111629,
+    1px -1px 0 #111629,
+    -1px 1px 0 #111629,
+    1px 1px 0 #111629,
+    2px 2px 0 #111629;
+}
+
+.iconSelected {
+  background: rgb(47 70 112 / 72%);
+  border-color: var(--amber);
+  box-shadow: inset 0 0 0 2px #1a294a, 2px 2px 0 #0a1020;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  display: flex;
+  min-height: 140px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 8px;
+  padding: 16px;
+  color: #d8dff0;
+  text-align: center;
+  border: 2px dashed #3a4f7c;
+  background: rgb(13 20 41 / 55%);
+}
+
+.empty strong {
+  color: var(--amber);
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #fff8e7;
+  text-align: center;
+  background: rgb(18 31 57 / 88%);
+  border: 4px dashed var(--amber);
+  pointer-events: none;
+}
+
+.dropOverlay strong {
+  color: var(--amber);
+  font-size: 15px;
+}
+
+.transferBar {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  color: #fff8e7;
+  background: rgb(13 20 41 / 94%);
+  border-top: 2px solid var(--title);
+  font-size: 11px;
+}
+
+.transferBar span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transferBar em {
+  color: var(--amber);
+  font-style: normal;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.transferBar progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 6px;
+  accent-color: var(--teal);
+}
+
+/* ── 창가 모드 ───────────────────────────────────────────────────────── */
+
+.windowMode {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.panel {
+  padding: 10px;
+  color: #fff8e7;
+  background: rgb(24 36 70 / 92%);
+  border: 2px solid var(--title);
+  box-shadow: inset 2px 2px 0 #34508a, 3px 3px 0 rgb(5 9 20 / 62%);
+}
+
+.panel h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 8px;
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.panel h2 small {
+  color: #aebad3;
+  font-size: 11px;
+}
+
+.panel ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.member {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding-top: 5px;
+  border-top: 1px solid #34486d;
+}
+
+.member > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberDot {
+  width: 7px;
+  height: 7px;
+  background: var(--teal);
+  box-shadow: 1px 1px 0 #0a1020;
+}
+
+.tag {
+  padding: 1px 5px;
+  color: var(--ink);
+  background: var(--teal);
+  font-size: 10px;
+}
+
+.tagBusy {
+  background: var(--amber);
+}
+
+.muted {
+  margin: 0;
+  color: #cdd5e8;
+  line-height: 1.6;
+}
+
+.recent {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 2px;
+  color: #fff8e7;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid #34486d;
+  cursor: pointer;
+}
+
+.recent:hover {
+  background: rgb(255 210 125 / 12%);
+}
+
+.recent > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent time {
+  color: #aebad3;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+
+.storage {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.donut {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  background: conic-gradient(
+    var(--peach) 0 var(--used, 0%),
+    var(--amber) var(--used, 0%) var(--reserved, 0%),
+    #26385d var(--reserved, 0%) 100%
+  );
+  border: 2px solid #0a1020;
+  border-radius: 50%;
+  box-shadow: 2px 2px 0 rgb(5 9 20 / 62%);
+}
+
+.donut::after {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  background: var(--panel);
+  border: 2px solid #0a1020;
+  border-radius: 50%;
+}
+
+.storageRows {
+  display: grid;
+  gap: 3px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+}
+
+.storageRows span {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.storageRows b {
+  color: var(--amber);
+  font-weight: 400;
+}
+
+.wide {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  color: var(--ink);
+  background: var(--peach);
+  border: 0;
+  box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0;
+  cursor: pointer;
+}
+
+.wide:hover {
+  background: #ffb787;
+}
+
+/* ── 알림·메뉴 ───────────────────────────────────────────────────────── */
+
+.notice {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  z-index: 90;
+  padding: 7px 9px;
+  color: var(--ink);
+  background: var(--amber);
+  border: 2px solid #0a1020;
+  box-shadow: 3px 3px 0 rgb(5 9 20 / 62%);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  animation: noticeIn 220ms ease-out;
+}
+
+@keyframes noticeIn {
+  from { transform: translateY(6px); opacity: 0; }
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 3000;
+  display: flex;
+  width: 196px;
+  flex-direction: column;
+  padding: 5px;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 5px 5px 0 rgb(5 9 20 / 62%);
+  animation: menuIn 100ms steps(2, end);
+}
+
+@keyframes menuIn {
+  from { transform: translateY(-4px); opacity: 0; }
+}
+
+.menuItem {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  color: #1b1b2f;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  color: #10172b;
+  background: var(--amber);
+  outline: 0;
+}
+
+.menuSeparator {
+  height: 2px;
+  margin: 4px 3px;
+  background: #9c8c78;
+  box-shadow: 0 1px 0 #fff8e7;
+}
+
+/* ── 로그인·가입·차단 화면(위젯 변형) ────────────────────────────────── */
+
+.authBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 12px;
+  overflow: auto;
+}
+
+.authCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 4px 4px 0 rgb(5 9 20 / 62%);
+}
+
+.authCard h1 {
+  margin: 0;
+  color: #2d5c5b;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.authCard p {
+  margin: 0;
+  color: #4a4a5c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.authCard strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.authCard small {
+  color: #74717d;
+  font-size: 10px;
+}
+
+.authError {
+  padding: 6px 8px;
+  color: #fff8e7;
+  background: #a53c46;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.authPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: var(--peach);
+  border: 0;
+  box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.authPrimary:hover {
+  background: #ffb787;
+}
+
+.authDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #74717d;
+  font-size: 10px;
+}
+
+.authDivider::before,
+.authDivider::after {
+  content: "";
+  height: 2px;
+  flex: 1;
+  background: #9c8c78;
+  box-shadow: 0 1px 0 #fff8e7;
+}
+
+/* KeyForm·JoinCodeForm은 웹용 Tailwind 스타일이다. 위젯 카드 안에서는 픽셀 프레임으로 덮는다. */
+.authForm input {
+  padding: 8px 9px;
+  color: var(--ink);
+  background: #fff8e7;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+  user-select: text;
+}
+
+.authForm button {
+  padding: 8px 9px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0 #1b3a39, inset 2px 2px 0 #5f8f8d;
+  cursor: pointer;
+}
+
+.authForm button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.authForm p {
+  color: #a53c46;
+}
+
+.authFoot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 2px solid #9c8c78;
+  text-align: center;
+}
+
+.authFoot button {
+  padding: 0;
+  color: #2d5c5b;
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot,
+  .notice,
+  .contextMenu {
+    animation: none;
+  }
+}

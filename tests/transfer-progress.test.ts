@@ -23,10 +23,11 @@ test("전송 진행량은 사람이 읽기 쉬운 단위로 표시한다", () =>
 });
 
 test("업로드와 다운로드는 실제 바이트 진행을 접속자 목록에 보고한다", async () => {
-  const [view, helper, css] = await Promise.all([
+  const [view, helper, css, presenceTab] = await Promise.all([
     readFile("src/app/files/FilesView.tsx", "utf8"),
     readFile("src/lib/client/transfer.ts", "utf8"),
     readFile("src/app/files/desktop.module.css", "utf8"),
+    readFile("src/lib/client/presence-tab.ts", "utf8"),
   ]);
 
   assert.match(helper, /XMLHttpRequest/);
@@ -42,7 +43,10 @@ test("업로드와 다운로드는 실제 바이트 진행을 접속자 목록�
   assert.doesNotMatch(helper, /response\.blob\(\)|arrayBuffer\(\)/);
   assert.match(view, /transfers: \[\.\.\.activeTransfersRef\.current\.values\(\)\]/);
   assert.match(view, /tabId: getPresenceTabId\(\)/);
-  assert.match(view, /window\.sessionStorage\.getItem\("sharedesk\.presence-tab"\)/);
+  // 탭 식별값은 위젯 화면과 공유하는 모듈(presence-tab.ts)이 sessionStorage에 둔다
+  assert.match(view, /getPresenceTabId = useCallback\(\(\) => presenceTabId\(\), \[\]\)/);
+  assert.match(presenceTab, /PRESENCE_TAB_KEY = "sharedesk\.presence-tab"/);
+  assert.match(presenceTab, /window\.sessionStorage\.getItem\(PRESENCE_TAB_KEY\)/);
   assert.match(view, /setActiveTransfers\(\[\.\.\.activeTransfersRef\.current\.values\(\)\]\)/);
   assert.match(view, /Math\.max\(0, 1_500 - visibleFor\)/);
   assert.match(view, /window\.setInterval\(\(\) => void readPresence\(\), 1_000\)/);

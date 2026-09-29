@@ -1,0 +1,71 @@
+[English](./WIDGET.md) · [한국어](./WIDGET.ko.md) · [日本語](./WIDGET.ja.md) · [हिन्दी](./WIDGET.hi.md) · **中文**
+
+# ShareDesk 桌面小组件
+
+ShareDesk 小组件是一个可选功能：把桌面以一个小窗口放在电脑桌面的角落。不安装它，ShareDesk 的所有功能在浏览器里照常可用。小组件不是另一个应用，而是 **打开同一个桌面地址的专用窗口**，画面由桌面服务器绘制。主机更新 ShareDesk 后，小组件的画面也会立即更新。
+
+小组件与浏览器标签页的不同有四点：
+
+- 它始终在屏幕上。从资源管理器或 Finder 把文件拖到它上面，文件就会上传到桌面。
+- 可以浮在其他窗口之上（默认），也可以收进托盘。
+- **窗边** 模式一眼就能看到谁在线和最近上传的文件。
+- 可以同时运行多个，每个用不同账号登录不同的桌面。
+
+小组件里没有聊天。预览、重命名、回收站这类较大的操作，请用小组件的 `↗` 按钮打开浏览器完成。
+
+## 安装
+
+1. 在 [小组件下载页](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) 获取你的操作系统对应的安装文件。Windows 版是 [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe)（始终指向最新版本的固定地址）。macOS 文件会在 Mac 上构建并上传后出现。
+2. 运行安装文件。不需要管理员权限。
+3. 首次启动时会询问 **桌面地址**。粘贴主机给你的 ShareDesk 地址（例如 `https://desk.example.com`），然后按 `打开桌面`。
+4. 像在浏览器里一样登录。Google 登录和邀请码输入都在小组件窗口内完成。
+
+如果 Windows 提示"未知发布者"，点 `更多信息 → 仍要运行` 继续。安装文件没有代码签名，但小组件的自动更新会用单独的签名密钥校验。
+
+## 使用
+
+- 拖动顶部的横条移动窗口，拖动窗口边缘调整大小。
+- **抽屉**：桌面的文件和文件夹以网格排列。放入文件即上传到当前查看的文件夹。双击文件夹进入，用 `← 返回` 退出。双击文件即下载。右键菜单提供下载、复制 1 小时链接和上传文件。
+- **窗边**：当前在线人数、最近上传的 5 个文件，管理员还能看到桌面容量。点击文件即下载。
+- `↗` 在默认浏览器中打开桌面。`–` 把小组件收进托盘，点击托盘图标即可恢复。
+- 托盘图标右键菜单：显示/隐藏小组件、总在最前、登录时启动、更改桌面地址、在浏览器中打开桌面、检查更新、退出。
+
+小组件与浏览器标签页以相同的频率检查桌面。收进托盘期间检查频率会大幅降低，以节省主机的服务器。
+
+## 多个桌面、多个账号
+
+一个小组件只保存一个桌面地址。要并排放另一个桌面，就用不同的 **配置** 再启动一个。每个配置单独保存登录状态和桌面地址，因此同一个 Google 账号可以同时登录桌面 A 和桌面 B。
+
+在快捷方式的目标末尾加上配置名：
+
+```text
+"C:\Users\我\AppData\Local\ShareDesk Widget\sharedesk-widget.exe" --profile work
+```
+
+配置名只能使用字母、数字、`-` 和 `_`。不指定时为 `default`。再加上 `--desk https://desk.example.com` 可以跳过首次启动画面，直接打开该地址。
+
+## 自动更新
+
+小组件会在启动后不久以及你在托盘菜单选择 `检查更新` 时，检查是否有新的外壳版本。如果有，托盘菜单会出现 `安装更新`，点击后下载、安装并重新启动。在你点击之前，小组件不会自行重启。
+
+桌面画面本身来自服务器，因此无论外壳是否更新都始终是最新的。
+
+## 数据位置与删除
+
+配置（Cookie、桌面地址、窗口位置）位于用户文件夹下。
+
+- Windows：`%APPDATA%\com.youkamii.sharedesk-widget\profiles\<配置>`
+- macOS：`~/Library/Application Support/com.youkamii.sharedesk-widget/profiles/<配置>`
+
+卸载小组件后这个文件夹仍会保留，要彻底清除请一并删除。小组件只与桌面服务器、登录时的 Google，以及检查和下载更新时的 GitHub 公开发布通信。这与桌面画面在浏览器中的通信相同。
+
+## 面向主机的发布方法
+
+小组件外壳位于本仓库的 `widget/` 文件夹，发布到公开模板仓库的固定发布 `widget`（prerelease）。发布用的电脑需要 Rust、Node、已登录的 `gh` 以及签名私钥（`~/.tauri/sharedesk-widget.key`）。
+
+```powershell
+node scripts/widget-release.mjs --dry-run   # 构建、签名并检查 latest.json
+node scripts/widget-release.mjs             # 上传到发布
+```
+
+提升版本时，请同时修改 `widget/src-tauri/tauri.conf.json`、`widget/src-tauri/Cargo.toml` 和 `widget/package.json` 中的版本号。在 Mac 上运行同一命令，macOS 文件会加入同一个发布。

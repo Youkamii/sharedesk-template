@@ -3,7 +3,10 @@ import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
+import { isWidgetCookieStore } from "@/lib/widget-mode";
 import LogoutButton from "../LogoutButton";
+import WidgetFrame from "../widget/WidgetFrame";
+import widgetStyles from "../widget/widget.module.css";
 
 export default async function PendingPage() {
   const cookieStore = await cookies();
@@ -19,6 +22,24 @@ export default async function PendingPage() {
   );
   const t = (text: string, vars?: Record<string, string | number>) =>
     translate(locale, text, vars);
+
+  if (isWidgetCookieStore(cookieStore)) {
+    return (
+      <WidgetFrame locale={locale}>
+        <div className={widgetStyles.authCard}>
+          <h1>{t("접근이 막혀 있습니다")}</h1>
+          <p>{t("관리자가 이 계정의 접근을 막았습니다.")}</p>
+          <div>
+            <strong>{me.name}</strong>
+            <small>{me.email}</small>
+          </div>
+          <div className={widgetStyles.authFoot}>
+            <LogoutButton locale={locale} className="" />
+          </div>
+        </div>
+      </WidgetFrame>
+    );
+  }
 
   return (
     <main className="relative flex flex-1 items-center justify-center p-6">

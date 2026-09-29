@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "로컬 페이지(첫 실행 주소 입력·부팅 화면)에서 쓰는 권한",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "allow-hide-widget",
+    "allow-save-desk-url",
+    "allow-widget-info"
+  ]
+}

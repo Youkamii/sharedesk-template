@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ShareDesk Widget</title>
+    <style>
+      :root {
+        --night: #10172b;
+        --panel: #182446;
+        --peach: #f2a56f;
+        --amber: #ffd27d;
+        --cream: #fff4d2;
+        --teal: #61b3a6;
+        --error: #e96872;
+        --window: #f4e7c5;
+        --ink: #111629;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        display: flex;
+        flex-direction: column;
+        color: var(--cream);
+        background: var(--night);
+        font: 13px/1.5 ui-monospace, "Cascadia Mono", Consolas, "Galmuri11", monospace;
+        user-select: none;
+        overflow: hidden;
+      }
+      .band {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 10px;
+        background: rgb(13 20 41 / 94%);
+        border-bottom: 2px solid #2f4670;
+        cursor: grab;
+      }
+      .mark {
+        display: grid;
+        width: 18px;
+        height: 18px;
+        grid-template-columns: 1fr 1fr;
+        gap: 2px;
+        padding: 2px;
+        background: #0b1021;
+        border: 2px solid var(--peach);
+        box-shadow: 2px 2px 0 #080b17;
+        pointer-events: none;
+      }
+      .mark i:nth-child(1) { background: var(--amber); }
+      .mark i:nth-child(2) { background: var(--teal); }
+      .mark i:nth-child(3) { background: var(--error); }
+      .mark i:nth-child(4) { background: #79a8e8; }
+      .band strong { color: var(--amber); font-size: 14px; flex: 1; pointer-events: none; }
+      .band button {
+        width: 24px;
+        height: 22px;
+        color: var(--cream);
+        background: var(--panel);
+        border: 0;
+        box-shadow: inset -2px -2px 0 #0b1021, inset 2px 2px 0 #34508a;
+        font: inherit;
+        cursor: pointer;
+      }
+      main { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+      h1 { margin: 0; color: var(--amber); font-size: 15px; }
+      p { margin: 0; color: #c9d3ea; font-size: 12px; }
+      label { display: block; color: #aebad3; font-size: 11px; margin-bottom: 4px; }
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        color: var(--ink);
+        background: var(--window);
+        border: 0;
+        box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fff8e7;
+        font: inherit;
+        user-select: text;
+      }
+      input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+      .go {
+        padding: 9px 12px;
+        color: var(--ink);
+        background: var(--peach);
+        border: 0;
+        box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .go:disabled { opacity: 0.5; cursor: default; }
+      .error { color: var(--error); min-height: 1.5em; }
+      footer { padding: 8px 16px 12px; color: #6f7d9c; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <header class="band" data-tauri-drag-region="deep">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <strong>ShareDesk</strong>
+      <button type="button" id="hide" title="Hide">–</button>
+    </header>
+    <main>
+      <h1 id="title">Which desk should this widget open?</h1>
+      <p id="help">Paste the ShareDesk address your host gave you. You will sign in inside the widget, just like in a browser.</p>
+      <form id="form">
+        <label for="url" id="label">Desk address</label>
+        <input id="url" name="url" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://desk.example.com" />
+        <p class="error" id="error" role="alert"></p>
+        <button class="go" type="submit" id="go">Open desk</button>
+      </form>
+    </main>
+    <footer id="footer"></footer>
+    <script>
+      const T = {
+        en: {
+          title: "Which desk should this widget open?",
+          help: "Paste the ShareDesk address your host gave you. You will sign in inside the widget, just like in a browser.",
+          label: "Desk address",
+          go: "Open desk",
+          invalid: "That does not look like a desk address.",
+          failed: "Could not open the desk.",
+          footer: "Widget {v} · profile {p}",
+        },
+        ko: {
+          title: "이 위젯이 열 데스크는 어디인가요?",
+          help: "호스트가 준 ShareDesk 주소를 붙여 넣으세요. 로그인은 브라우저처럼 위젯 안에서 합니다.",
+          label: "데스크 주소",
+          go: "데스크 열기",
+          invalid: "데스크 주소로 보이지 않습니다.",
+          failed: "데스크를 열지 못했습니다.",
+          footer: "위젯 {v} · 프로필 {p}",
+        },
+        ja: {
+          title: "このウィジェットで開くデスクは？",
+          help: "ホストから受け取った ShareDesk のアドレスを貼り付けてください。ログインはブラウザと同じくウィジェット内で行います。",
+          label: "デスクのアドレス",
+          go: "デスクを開く",
+          invalid: "デスクのアドレスではないようです。",
+          failed: "デスクを開けませんでした。",
+          footer: "ウィジェット {v} · プロファイル {p}",
+        },
+        hi: {
+          title: "यह विजेट कौन-सा डेस्क खोले?",
+          help: "होस्ट से मिला ShareDesk पता यहाँ चिपकाएँ। साइन-इन ब्राउज़र की तरह विजेट के अंदर ही होगा।",
+          label: "डेस्क पता",
+          go: "डेस्क खोलें",
+          invalid: "यह डेस्क पता जैसा नहीं लगता।",
+          failed: "डेस्क नहीं खुल सका।",
+          footer: "विजेट {v} · प्रोफ़ाइल {p}",
+        },
+        zh: {
+          title: "这个小组件要打开哪个桌面？",
+          help: "粘贴主机给你的 ShareDesk 地址。登录会像浏览器一样在小组件内完成。",
+          label: "桌面地址",
+          go: "打开桌面",
+          invalid: "这看起来不像桌面地址。",
+          failed: "无法打开桌面。",
+          footer: "小组件 {v} · 配置 {p}",
+        },
+      };
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args);
+      const $ = (id) => document.getElementById(id);
+      let t = T.en;
+      const apply = (info) => {
+        t = T[info.language] || T.en;
+        document.documentElement.lang = info.language;
+        $("title").textContent = t.title;
+        $("help").textContent = t.help;
+        $("label").textContent = t.label;
+        $("go").textContent = t.go;
+        $("footer").textContent = t.footer.replace("{v}", info.version).replace("{p}", info.profile);
+        if (info.desk_url) $("url").value = info.desk_url;
+      };
+      invoke("widget_info").then(apply).catch(() => {});
+      $("hide").addEventListener("click", () => invoke("hide_widget").catch(() => {}));
+      $("form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const url = $("url").value.trim();
+        $("error").textContent = "";
+        $("go").disabled = true;
+        try {
+          await invoke("save_desk_url", { url });
+        } catch (reason) {
+          const codes = ["empty", "invalid", "scheme", "host", "credentials"];
+          $("error").textContent = codes.includes(reason) ? t.invalid : t.failed;
+          $("go").disabled = false;
+        }
+      });
+      $("url").focus();
+    </script>
+  </body>
+</html>

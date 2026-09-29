@@ -1,0 +1,37 @@
+[package]
+name = "sharedesk-widget"
+version = "0.1.0"
+description = "ShareDesk desktop widget — a thin shell that opens a desk in widget mode"
+authors = ["Youkamii"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.89"
+
+[lib]
+# 이름 충돌 방지용 접미사 (Windows에서 bin과 lib 이름이 같으면 안 된다)
+name = "sharedesk_widget_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# macos-private-api: 맥에서 투명 창을 그리는 데 필요 (tauri.conf.json의 macOSPrivateApi와 짝)
+tauri = { version = "2.11", features = ["tray-icon", "macos-private-api"] }
+# 새 창(target=_blank)과 트레이의 "브라우저에서 열기"를 기본 브라우저로 보낸다
+tauri-plugin-opener = "2"
+# 껍데기 자동 갱신 — 공개 템플릿 저장소의 고정 릴리스 latest.json을 본다
+tauri-plugin-updater = "2"
+# 부팅 시 자동 실행 — 프로필 인자를 그대로 넘긴다
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 트레이 메뉴 언어를 OS 언어에서 고른다
+sys-locale = "0.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

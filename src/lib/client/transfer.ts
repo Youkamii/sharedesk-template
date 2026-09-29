@@ -83,6 +83,16 @@ type SaveFilePicker = (options: {
   suggestedName: string;
 }) => Promise<SaveFileHandle>;
 
+// 저장 대화상자를 못 쓰는 브라우저의 마지막 수단 — 앵커 클릭으로 브라우저 다운로드에 넘긴다.
+export function nativeDownload(url: string, fileName: string): void {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 export async function streamDownloadToDisk(
   url: string,
   name: string,

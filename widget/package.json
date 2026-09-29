@@ -1,0 +1,17 @@
+{
+  "name": "sharedesk-widget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ShareDesk desktop widget — a thin Tauri shell that opens a desk in widget mode",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon src-tauri/icons/source.png",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

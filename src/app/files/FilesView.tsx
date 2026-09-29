@@ -97,8 +97,15 @@ import {
   type RootDesktopCorrection,
 } from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
+import { createApiJson } from "@/lib/client/api-json";
+import { errorMessage, isAbortError } from "@/lib/client/errors";
+import {
+  normalizePresenceSnapshot,
+  presenceTabId,
+} from "@/lib/client/presence-tab";
 import {
   formatTransferBytes,
+  nativeDownload as nativeDownloadUrl,
   streamDownloadToDisk,
   transferProgressText,
   type TransferProgress,
@@ -587,10 +594,6 @@ function abortAllRequests(requests: Map<string, ScopedRequest>) {
   requests.clear();
 }
 
-function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
 function formatSize(bytes: number | null) {
   if (bytes === null) return "폴더";
   if (bytes === 0) return "0 B";
@@ -626,10 +629,6 @@ function formatDate(iso: string | null, dateLocale: string) {
     dateStyle: "short",
     timeStyle: "short",
   });
-}
-
-function errorMessage(value: unknown, fallback: string) {
-  return value instanceof Error ? value.message : fallback;
 }
 
 // 서버가 준 저장소 주소는 링크로 그대로 열리므로 GitHub 주소만 신뢰한다.
@@ -840,7 +839,6 @@ export default function FilesView({
   const presenceReadControllerRef = useRef<AbortController | null>(null);
   const presenceRequestIdRef = useRef(0);
   const presenceReadRequestIdRef = useRef(0);
-  const presenceTabIdRef = useRef("");
   const activeTransfersRef = useRef(new Map<string, TransferProgress>());
   // 동시 다운로드 목록(#103) — 화면 갱신용 state와 별개로, 큐 계산은 항상
   // 최신 값이 필요하므로 ref를 단일 진실 원천으로 두고 state는 거울로 쓴다.
@@ -1408,43 +1406,13 @@ export default function FilesView({
     }
   }, []);
 
-  const getPresenceTabId = useCallback(() => {
-    if (presenceTabIdRef.current) return presenceTabIdRef.current;
-    let tabId = "";
-    try {
-      tabId = window.sessionStorage.getItem("sharedesk.presence-tab") ?? "";
-    } catch {
-      // 저장소가 막힌 브라우저에서는 이 탭을 연 동안만 식별값을 유지한다.
-    }
-    presenceTabIdRef.current = tabId || crypto.randomUUID();
-    if (!tabId) {
-      try {
-        window.sessionStorage.setItem(
-          "sharedesk.presence-tab",
-          presenceTabIdRef.current,
-        );
-      } catch {
-        // 메모리에 든 식별값만으로도 현재 탭은 분리된다.
-      }
-    }
-    return presenceTabIdRef.current;
-  }, []);
+  // 탭 식별값·응답 정리는 위젯 화면과 공유한다 (src/lib/client/presence-tab.ts)
+  const getPresenceTabId = useCallback(() => presenceTabId(), []);
 
   const applyPresenceSnapshot = useCallback((body: unknown) => {
-    const snapshot = body as Partial<PresenceState> | null;
     setPresence((current) => ({
       ...current,
-      count: Number.isSafeInteger(snapshot?.count) ? snapshot!.count! : 0,
-      members: Array.isArray(snapshot?.members)
-        ? snapshot.members.filter(
-            (member: unknown): member is PresenceMember =>
-              !!member &&
-              typeof member === "object" &&
-              typeof (member as PresenceMember).name === "string" &&
-              typeof (member as PresenceMember).isSelf === "boolean" &&
-              Array.isArray((member as PresenceMember).transfers),
-          )
-        : [],
+      ...normalizePresenceSnapshot(body),
       loading: false,
       error: null,
     }));
@@ -2140,30 +2108,17 @@ export default function FilesView({
     return () => window.cancelAnimationFrame(focusFrame);
   }, [previewFocusRequest]);
 
-  const apiJson = useCallback(async <T,>(pathname: string, init: RequestInit): Promise<T> => {
-    const response = await fetch(pathname, init);
-    if (response.status === 401) {
-      router.replace("/");
-      const error = new Error(t("세션이 만료되었습니다"));
-      Object.assign(error, { status: response.status });
-      throw error;
-    }
-    if (response.status === 403) {
-      router.refresh();
-    }
-    const body = await response.json().catch(() => null);
-    if (!response.ok) {
-      const error = new Error(
-        typeof body?.error === "string"
-          ? t(body.error)
-          : t("요청에 실패했습니다"),
-      );
-      // 본문도 함께 넘긴다 — 호출부가 starRequired 같은 부가 정보를 봐야 한다.
-      Object.assign(error, { status: response.status, body });
-      throw error;
-    }
-    return body as T;
-  }, [router, t]);
+  // 401→로그인, 403→새로 그리기, 오류 문구 번역 규칙은 위젯 화면과 공유한다 (src/lib/client/api-json.ts).
+  // 이어받기 흐름(pendingUploadFlow)의 효과 의존성이므로 router·t가 바뀔 때만 새로 만든다.
+  const apiJson = useMemo(
+    () =>
+      createApiJson({
+        translate: t,
+        onUnauthorized: () => router.replace("/"),
+        onForbidden: () => router.refresh(),
+      }),
+    [router, t],
+  );
 
   useEffect(() => {
     // 렌더 중에는 만들지 않고 브라우저에 마운트된 뒤 저장소를 준비한다.
@@ -3019,12 +2974,10 @@ export default function FilesView({
   }
 
   function nativeDownload(entry: Entry) {
-    const anchor = document.createElement("a");
-    anchor.href = apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
-    anchor.download = downloadFileName(entry);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    nativeDownloadUrl(
+      apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`),
+      downloadFileName(entry),
+    );
   }
 
   async function downloadEntry(entry: Entry) {

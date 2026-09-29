@@ -3,7 +3,10 @@ import { redirect } from "next/navigation";
 import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
+import { isWidgetCookieStore } from "@/lib/widget-mode";
 import LogoutButton from "../LogoutButton";
+import WidgetFrame from "../widget/WidgetFrame";
+import widgetStyles from "../widget/widget.module.css";
 import JoinCodeForm from "./JoinCodeForm";
 
 const ERRORS: Record<string, string> = {
@@ -37,6 +40,33 @@ export default async function JoinPage({
   // code는 초대 QR(#15 A-5)이 실어 온다 — 폼에 미리 채워 주기만 하고,
   // 검증은 종전대로 제출 라우트가 한다.
   const { error, code } = await searchParams;
+
+  if (isWidgetCookieStore(cookieStore)) {
+    return (
+      <WidgetFrame locale={locale}>
+        <div className={widgetStyles.authCard}>
+          <h1>{t("데스크 가입")}</h1>
+          <p>{t("관리자에게 받은 초대 코드를 입력하세요. 처음 한 번만 필요합니다.")}</p>
+          <div>
+            <strong>{me.name}</strong>
+            <small>{me.email}</small>
+          </div>
+          {error && (
+            <p className={widgetStyles.authError} role="alert">
+              {t(ERRORS[error] ?? "초대 코드를 확인하지 못했습니다.")}
+            </p>
+          )}
+          <div className={widgetStyles.authForm}>
+            <JoinCodeForm locale={locale} />
+          </div>
+          <div className={widgetStyles.authFoot}>
+            <small>{t("다른 Google 계정을 쓰려면 먼저 로그아웃하세요.")}</small>
+            <LogoutButton locale={locale} className="" />
+          </div>
+        </div>
+      </WidgetFrame>
+    );
+  }
 
   return (
     <main className="relative flex flex-1 items-center justify-center p-6">
