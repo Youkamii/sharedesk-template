@@ -413,12 +413,17 @@ fn ensure_on_screen(window: &WebviewWindow) {
     }
 }
 
+/// 창이 화면에 떠 있는가 (보이고 최소화되지 않음)
+fn is_shown(window: &WebviewWindow) -> bool {
+    window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+}
+
 /// 보이는 창의 위치(물리)·안쪽 크기(논리)를 설정에 적는다. 최소화 파킹 좌표(-32000)는 버린다.
 fn remember_window_rect(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
-    if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+    if !is_shown(&window) {
         return;
     }
     let (Ok(pos), Ok(size), Ok(scale)) = (
@@ -486,7 +491,7 @@ fn toggle_main_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
-    if window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false) {
+    if is_shown(&window) {
         hide_main_window(app);
     } else {
         show_main_window(app);
@@ -639,7 +644,7 @@ fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallStat
 
 /// 켜면 가까운 벽에 붙이고 그 벽을 돌려준다. 끄면 영역·투과를 풀고 창은 그 자리에 둔다.
 #[tauri::command]
-fn set_wall_mode(app: AppHandle, window: Window, enabled: bool) -> Result<Option<wall::Side>, String> {
+fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result<Option<wall::Side>, String> {
     // 그림자를 끄기 전에 틀 두께를 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
     let measured = match (window.outer_size(), window.inner_size()) {
         (Ok(outer), Ok(inner)) => PhysicalSize::new(
@@ -685,7 +690,7 @@ fn set_wall_zone(app: AppHandle, zone: Option<wall::Zone>) {
 /// 벽 붙임을 모두 푼다 (페이지 로드·붙이기 실패)
 fn reset_wall(app: &AppHandle) {
     let changed = with_wall(app, |wall| {
-        if !wall.enabled && wall.zone.is_none() && !wall.expanded {
+        if !wall.enabled {
             return false;
         }
         *wall = WallState {
@@ -716,7 +721,7 @@ fn apply_wall_window(app: &AppHandle) {
 }
 
 /// 창을 가까운 벽에 붙이고 그 벽을 돌려준다. 그사이 벽 붙임이 꺼졌거나 다시 켜졌으면(epoch) 손대지 않는다.
-fn snap_to_wall(window: &Window, epoch: u64) -> Option<wall::Side> {
+fn snap_to_wall(window: &WebviewWindow, epoch: u64) -> Option<wall::Side> {
     let monitor = window
         .current_monitor()
         .ok()
@@ -754,9 +759,7 @@ fn snap_to_wall(window: &Window, epoch: u64) -> Option<wall::Side> {
         let _ = window.set_position(target);
     }
     if side_changed {
-        if let Some(webview) = window.app_handle().get_webview_window(MAIN_WINDOW) {
-            let _ = webview.eval(wall::side_script(side));
-        }
+        let _ = window.eval(wall::side_script(side));
     }
     Some(side)
 }
@@ -790,7 +793,7 @@ fn spawn_wall_watcher(app: AppHandle) {
     }
 }
 
-/// 폴링 한 번. 벽 붙임이 켜져 있고 창이 보이면 true(다음은 25ms 뒤), 아니면 false(250ms 뒤).
+/// 폴링 한 번. 벽 붙임이 켜져 있고 창이 보이면 true(다음은 WALL_POLL 뒤), 아니면 false(WALL_IDLE_POLL 뒤).
 fn wall_tick(app: &AppHandle, hover: &mut wall::Hover, seen_epoch: &mut u64) -> bool {
     let (enabled, zone, epoch, moved_at) =
         with_wall(app, |wall| (wall.enabled, wall.zone.clone(), wall.epoch, wall.moved_at));
@@ -805,7 +808,7 @@ fn wall_tick(app: &AppHandle, hover: &mut wall::Hover, seen_epoch: &mut u64) -> 
         return false;
     };
     // 트레이에 숨어 있으면 쉰다. 호버 판정은 그대로 두어, 다시 보일 때 커서가 밖이면 곧 접힌다.
-    if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+    if !is_shown(&window) {
         return false;
     }
     let now = Instant::now();
@@ -844,7 +847,7 @@ fn settle_after_move(window: &WebviewWindow, epoch: u64, now: Instant) {
         return;
     };
     if window.outer_position().ok() != target {
-        snap_to_wall(&AsRef::<Webview>::as_ref(window).window(), epoch);
+        snap_to_wall(window, epoch);
     }
 }
 

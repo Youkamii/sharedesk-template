@@ -104,7 +104,7 @@ pub fn cursor_in_window(
     ))
 }
 
-/// 벽 붙임 호버 상태기계 — 폴링 스레드가 25ms마다 `update`를 부른다.
+/// 벽 붙임 호버 상태기계 — 폴링 스레드가 WALL_POLL(lib.rs)마다 `update`를 부른다.
 /// 진입하면 바로 펼치고, 떠나면 LEAVE_GRACE 뒤에 접는다.
 pub struct Hover {
     /// Some = 펼침 중(마지막으로 영역 안에 있던 시각), None = 접힘
