@@ -201,15 +201,6 @@ export function wallZoneRect(
   ];
 }
 
-// 커서가 떠나도 접으면 안 되는 때: 우클릭 메뉴가 열려 있을 때, 올리는 중일 때, 파일을 끌어와 위에 있을 때
-export function wallHold(state: {
-  menuOpen: boolean;
-  uploading: boolean;
-  fileOver: boolean;
-}): boolean {
-  return state.menuOpen || state.uploading || state.fileOver;
-}
-
 // 켜 달라고 한 결과: 붙인 벽, 또는 못 쓰는 까닭. "unsupported"는 껍데기가 없거나 옛 껍데기라
 // 명령이 없는 것(업데이트 안내), "failed"는 새 껍데기가 붙이지 못한 것(표식은 두고 다음 로드에 다시).
 export type WallEnableResult = { side: WallSide } | { reason: "unsupported" | "failed" };

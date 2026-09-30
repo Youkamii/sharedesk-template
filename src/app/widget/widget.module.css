@@ -1,16 +1,9 @@
 /* 데스크톱 위젯 화면 — 손바닥 크기(기본 340×520) 창에 맞춘 Dusk Room OS.
-   토큰·픽셀 프레임은 desktop.module.css와 같고, 자유 배치 캔버스 대신 격자를 쓴다. */
+   토큰·픽셀 프레임은 desktop.module.css와 같고, 자유 배치 캔버스 대신 격자를 쓴다.
+   색 토큰(--night·--peach…)은 globals.css의 html[data-widget]에 있다 — body에 포털로 그리는
+   벽 손잡이(#28)도 같은 토큰을 쓴다. */
 
 .widget {
-  --night: #10172b;
-  --panel: #182446;
-  --title: #2f4670;
-  --peach: #f2a56f;
-  --amber: #ffd27d;
-  --cream: #fff4d2;
-  --teal: #61b3a6;
-  --ink: #111629;
-  --error: #e96872;
   position: fixed;
   inset: 0;
   display: flex;
@@ -88,10 +81,14 @@
   pointer-events: none;
 }
 
-.brandMark i:nth-child(1) { background: #ffd27d; }
-.brandMark i:nth-child(2) { background: #61b3a6; }
-.brandMark i:nth-child(3) { background: #e96872; }
-.brandMark i:nth-child(4) { background: #79a8e8; }
+.brandMark i:nth-child(1),
+.wallBrand i:nth-child(1) { background: var(--amber); }
+.brandMark i:nth-child(2),
+.wallBrand i:nth-child(2) { background: var(--teal); }
+.brandMark i:nth-child(3),
+.wallBrand i:nth-child(3) { background: var(--error); }
+.brandMark i:nth-child(4),
+.wallBrand i:nth-child(4) { background: #79a8e8; }
 
 .bandTitle {
   min-width: 0;
@@ -585,8 +582,7 @@
   transform: translateX(-100%);
 }
 
-/* 벽에 남는 손잡이 — 머리띠의 브랜드 4점과 접속 점을 세로로 쌓은 픽셀 띠.
-   위젯 바깥(형제)에 있으므로 색은 .widget 토큰 대신 같은 값을 직접 쓴다. */
+/* 벽에 남는 손잡이 — 머리띠의 브랜드 4점과 접속 점(.liveDot)을 세로로 쌓은 픽셀 띠. */
 .wallHandle {
   position: fixed;
   top: 50%;
@@ -597,9 +593,9 @@
   gap: 10px;
   width: 14px;
   height: 72px;
-  margin-top: -36px;
   background: #0b1021;
-  border: 2px solid #f2a56f;
+  border: 2px solid var(--peach);
+  transform: translateY(-50%);
   transition: opacity 120ms steps(2, end);
 }
 
@@ -631,23 +627,6 @@
   display: block;
   width: 3px;
   height: 3px;
-}
-
-.wallBrand i:nth-child(1) { background: #ffd27d; }
-.wallBrand i:nth-child(2) { background: #61b3a6; }
-.wallBrand i:nth-child(3) { background: #e96872; }
-.wallBrand i:nth-child(4) { background: #79a8e8; }
-
-.wallDot {
-  width: 6px;
-  height: 6px;
-  background: #61b3a6;
-  animation: liveBlink 2.8s steps(2, end) infinite;
-}
-
-.wallDotError {
-  background: #e96872;
-  animation: none;
 }
 
 /* ── 로그인·가입·차단 화면(위젯 변형) ────────────────────────────────── */
@@ -791,8 +770,7 @@
 @media (prefers-reduced-motion: reduce) {
   .liveDot,
   .notice,
-  .contextMenu,
-  .wallDot {
+  .contextMenu {
     animation: none;
   }
 

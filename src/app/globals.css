@@ -42,6 +42,20 @@ select {
   font: inherit;
 }
 
+/* 데스크톱 위젯 화면의 색 토큰 (src/app/widget/widget.module.css). .widget이 아니라 여기 두는 까닭은
+   body에 포털로 그리는 벽 손잡이(#28)도 같은 토큰을 써야 해서다. 웹 화면에는 data-widget이 없다. */
+html[data-widget] {
+  --night: #10172b;
+  --panel: #182446;
+  --title: #2f4670;
+  --peach: #f2a56f;
+  --amber: #ffd27d;
+  --cream: #fff4d2;
+  --teal: #61b3a6;
+  --ink: #111629;
+  --error: #e96872;
+}
+
 /* 데스크톱 위젯 껍데기 안 — 창이 투명하므로 바탕을 밤색으로 고정한다 */
 html[data-widget] body {
   background: #10172b;

@@ -18,7 +18,6 @@ import {
   sortWidgetEntries,
   tauriInternals,
   WALL_HANDLE_SLACK,
-  wallHold,
   wallZoneRect,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
@@ -241,24 +240,16 @@ test("wall side accepts only left/right from the shell (#28)", () => {
 });
 
 test("wall zone is the handle plus slack while folded and the whole window while open (#28)", () => {
-  const handle = { left: 326, top: 224, width: 14, height: 72 };
-  const viewport = { width: 340, height: 520 };
-  assert.equal(WALL_HANDLE_SLACK, 4);
-  assert.deepEqual(wallZoneRect(false, handle, viewport), [322, 220, 22, 80]);
-  assert.deepEqual(wallZoneRect(true, handle, viewport), [0, 0, 340, 520]);
-  // 왼쪽 벽 손잡이는 창 밖(-4)까지 여유를 둔다 — 벽 끝에서 커서가 살짝 벗어나도 붙잡는다
-  assert.deepEqual(
-    wallZoneRect(false, { left: 0, top: 224, width: 14, height: 72 }, viewport),
-    [-4, 220, 22, 80],
-  );
-});
-
-test("wall hold keeps the widget open for menus, uploads and dragged files (#28)", () => {
-  const idle = { menuOpen: false, uploading: false, fileOver: false };
-  assert.equal(wallHold(idle), false);
-  assert.equal(wallHold({ ...idle, menuOpen: true }), true);
-  assert.equal(wallHold({ ...idle, uploading: true }), true);
-  assert.equal(wallHold({ ...idle, fileOver: true }), true);
+  const slack = WALL_HANDLE_SLACK;
+  const handle = { left: 100, top: 50, width: 10, height: 20 };
+  const viewport = { width: 300, height: 400 };
+  assert.deepEqual(wallZoneRect(false, handle, viewport), [
+    100 - slack,
+    50 - slack,
+    10 + slack * 2,
+    20 + slack * 2,
+  ]);
+  assert.deepEqual(wallZoneRect(true, handle, viewport), [0, 0, 300, 400]);
 });
 
 test("wall commands go through the shell IPC and an old shell falls back to floating (#28)", async () => {
@@ -352,23 +343,17 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
   assert.match(helpers, /invoke\("set_wall_zone", \{ zone \}\)/);
   assert.match(view, /void enableWidgetWall\(window\)/);
   assert.match(view, /void disableWidgetWall\(window\)/);
-  assert.match(view, /void reportWallZone\(window, \{\s+rect: wallZoneRect\(wallExpanded,/);
+  assert.match(view, /void reportWallZone\(window, \{\s*rect: wallZoneRect\(wallExpanded,/);
   // 옛 껍데기면 표식을 끄고 업데이트를 안내하고, 붙이지 못했으면 표식은 두고 알리기만 한다
   assert.match(
     view,
-    /result\.reason === "unsupported"[\s\S]{0,200}writeWidgetWall\(window\.localStorage, false\)[\s\S]{0,160}t\("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"\)/,
+    /result\.reason === "unsupported"[\s\S]{0,200}writeWidgetWall\(storage, false\)[\s\S]{0,120}t\("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"\)/,
   );
   assert.match(view, /showNotice\(t\("벽에 붙이지 못했습니다"\)\)/);
 
-  // 손잡이: 파일을 끌어와 대면 붙잡아 달라고 한다(dragenter) — 펼침은 껍데기가 정한다
-  const handle = view.match(/className=\{styles\.wallHandle\}[\s\S]*?<\/div>/)?.[0];
-  assert.ok(handle, "벽 손잡이가 있어야 합니다");
-  assert.match(
-    handle,
-    /onDragEnter=\{\(event\) => \{\s+if \(event\.dataTransfer\.types\.includes\("Files"\)\) setFileOver\(true\);/,
-  );
-  assert.match(view, /fileOver: fileOver \|\| dragOver/);
-  assert.match(view, /menuOpen: contextMenu !== null/);
+  // 손잡이는 body에 포털로 그리고(위젯과 함께 밀려나지 않게), 우클릭 메뉴·업로드·서랍 위 끌기 동안은 붙잡는다
+  assert.match(view, /createPortal\(\s*<div\s+ref=\{wallHandleRef\}\s+className=\{styles\.wallHandle\}/);
+  assert.match(view, /const hold = contextMenu !== null \|\| uploading \|\| dragOver;/);
 
   // 껍데기 명령과 권한 — 원격 데스크 페이지도 두 명령을 부를 수 있어야 한다
   assert.match(shell, /set_wall_mode,\s+set_wall_zone\s+\]\)/);
@@ -383,15 +368,12 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
 
   // 벽 붙임 중에는 바탕을 비워 손잡이만 남긴다
   assert.match(view, /root\.setAttribute\("data-widget-wall", ""\)/);
-  assert.match(globals, /html\[data-widget\]\[data-widget-wall\] body \{\s+background: transparent;/);
-  assert.match(
-    css,
-    /\.widget\[data-wall="right"\]:not\(\[data-wall-expanded\]\) \{\s+transform: translateX\(100%\);/,
-  );
-  assert.match(
-    css,
-    /\.widget\[data-wall="left"\]:not\(\[data-wall-expanded\]\) \{\s+transform: translateX\(-100%\);/,
-  );
+  assert.match(globals, /html\[data-widget\]\[data-widget-wall\] body\s*\{\s*background:\s*transparent/);
+  assert.match(css, /\.widget\[data-wall="right"\]:not\(\[data-wall-expanded\]\)\s*\{\s*transform:\s*translateX\(100%\)/);
+  assert.match(css, /\.widget\[data-wall="left"\]:not\(\[data-wall-expanded\]\)\s*\{\s*transform:\s*translateX\(-100%\)/);
+  // 손잡이는 .widget 밖(body)에 있으므로 색 토큰이 html[data-widget]에 있어야 한다
+  assert.match(globals, /html\[data-widget\]\s*\{[^}]*--peach:/);
+  assert.doesNotMatch(css, /\.widget\s*\{[^}]*--peach:/);
 });
 
 // ── 업로드 공용 흐름 ──────────────────────────────────────────────────
