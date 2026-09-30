@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use tauri::{LogicalPosition, PhysicalPosition};
+use tauri::{LogicalPosition, PhysicalPosition, PhysicalSize};
 
 /// 손잡이에서 판으로 옮겨 타는 순간(영역이 손잡이→창 전체로 바뀌는 사이)과
 /// 가장자리의 미세한 떨림을 삼키는 이탈 유예.
@@ -77,6 +77,16 @@ pub fn snap_position(outer: PhysicalPosition<i32>, visible: ScreenRect, area: Sc
     let max_y = area.y + (area.height - visible.height).max(0);
     let visible_y = visible.y.clamp(area.y, max_y);
     PhysicalPosition::new(visible_x - inset_left, visible_y - inset_top)
+}
+
+/// 벽 붙임 동안은 창 그림자를 꺼서 안쪽이 틀 두께만큼 넓어진다(실측: 340×520 → 356×529).
+/// 창 크기를 적을 때는 그 두께를 빼서 그림자가 켜진 보통 창의 안쪽 크기로 돌려놓는다 —
+/// 그대로 적으면 다시 실행할 때마다 창이 틀 두께만큼 자란다.
+pub fn framed_inner_size(current: PhysicalSize<u32>, frame: PhysicalSize<u32>) -> PhysicalSize<u32> {
+    PhysicalSize::new(
+        current.width.saturating_sub(frame.width),
+        current.height.saturating_sub(frame.height),
+    )
 }
 
 /// 화면 물리 좌표의 커서를 창 안쪽 논리 좌표로 바꾼다 (페이지가 보고한 영역과 같은 기준).
@@ -210,6 +220,15 @@ mod tests {
             snap_position(outer, inner, left_monitor, Side::Left),
             PhysicalPosition::new(-1928, 676)
         );
+    }
+
+    #[test]
+    fn remembered_size_drops_the_frame_that_the_hidden_shadow_added() {
+        let frame = PhysicalSize::new(16, 9);
+        assert_eq!(framed_inner_size(PhysicalSize::new(356, 529), frame), PhysicalSize::new(340, 520));
+        // 그림자를 끄지 않았으면(틀 0) 그대로
+        assert_eq!(framed_inner_size(PhysicalSize::new(340, 520), PhysicalSize::new(0, 0)), PhysicalSize::new(340, 520));
+        assert_eq!(framed_inner_size(PhysicalSize::new(4, 4), frame), PhysicalSize::new(0, 0));
     }
 
     #[test]

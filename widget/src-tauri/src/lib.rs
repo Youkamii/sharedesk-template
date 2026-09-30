@@ -88,6 +88,8 @@ struct WallState {
     /// 켜기·끄기·페이지 로드마다 올린다. 폴링 스레드는 번호가 바뀌면 호버 판정을 접힌 상태에서
     /// 새로 시작하고, 그사이 계산한 옛 판정은 버린다.
     epoch: u64,
+    /// 그림자를 끄기 전의 틀 두께(바깥 − 안쪽, 물리). 켜진 동안 창 크기를 적을 때 뺀다.
+    frame: PhysicalSize<u32>,
 }
 
 impl WidgetState {
@@ -429,6 +431,9 @@ fn remember_window_rect(app: &AppHandle) {
     if pos.x <= -30_000 || pos.y <= -30_000 || size.width == 0 || size.height == 0 {
         return;
     }
+    // 벽 붙임 중엔 그림자를 꺼서 넓어진 틀 두께를 빼고 적는다 (다시 실행할 때 자라지 않게)
+    let frame = with_wall(app, |wall| if wall.enabled { wall.frame } else { PhysicalSize::new(0, 0) });
+    let size = wall::framed_inner_size(size, frame);
     let logical = size.to_logical::<f64>(scale);
     let rect = settings::WindowRect {
         x: pos.x,
@@ -635,15 +640,26 @@ fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallStat
 /// 켜면 가까운 벽에 붙이고 그 벽을 돌려준다. 끄면 영역·투과를 풀고 창은 그 자리에 둔다.
 #[tauri::command]
 fn set_wall_mode(app: AppHandle, window: Window, enabled: bool) -> Result<Option<wall::Side>, String> {
+    // 그림자를 끄기 전에 틀 두께를 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
+    let measured = match (window.outer_size(), window.inner_size()) {
+        (Ok(outer), Ok(inner)) => PhysicalSize::new(
+            outer.width.saturating_sub(inner.width),
+            outer.height.saturating_sub(inner.height),
+        ),
+        _ => PhysicalSize::new(0, 0),
+    };
     let epoch = with_wall(&app, |wall| {
+        let frame = if wall.enabled { wall.frame } else { measured };
         *wall = WallState {
             enabled,
             epoch: wall.epoch.wrapping_add(1),
+            frame: if enabled { frame } else { PhysicalSize::new(0, 0) },
             ..WallState::default()
         };
         wall.epoch
     });
-    apply_wall_cursor(&app);
+    // 메인 스레드(동기 명령)라 그림자가 바로 꺼진다 — 달라진 틀 여백을 재어 붙이도록 먼저 적용한다
+    apply_wall_window(&app);
     if !enabled {
         return Ok(None);
     }
@@ -679,20 +695,23 @@ fn reset_wall(app: &AppHandle) {
         true
     });
     if changed {
-        apply_wall_cursor(app);
+        apply_wall_window(app);
     }
 }
 
-/// 클릭 투과를 지금 상태에 맞춘다. 늘 메인 스레드에서 그때의 상태를 읽어 적용하므로,
-/// 폴링 스레드의 판정과 명령이 엇갈려 도착해도 마지막에는 최신 상태가 남는다.
-fn apply_wall_cursor(app: &AppHandle) {
+/// 창을 지금 상태에 맞춘다: 클릭 투과(켜짐 && 접힘)와 창 그림자(켜진 동안 끔).
+/// 그림자 틀은 내용이 벽 너머로 빠진 빈 창의 윤곽으로 드러나므로 벽 붙임 동안 끈다(실측).
+/// 늘 메인 스레드에서 그때의 상태를 읽어 적용하므로, 폴링 스레드의 판정과 명령이 엇갈려
+/// 도착해도 마지막에는 최신 상태가 남는다. 같은 값을 다시 적용하면 아무 일도 하지 않는다.
+fn apply_wall_window(app: &AppHandle) {
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
         let Some(window) = handle.get_webview_window(MAIN_WINDOW) else {
             return;
         };
-        let ignore = with_wall(&handle, |wall| wall.enabled && !wall.expanded);
-        let _ = window.set_ignore_cursor_events(ignore);
+        let (enabled, expanded) = with_wall(&handle, |wall| (wall.enabled, wall.expanded));
+        let _ = window.set_shadow(!enabled);
+        let _ = window.set_ignore_cursor_events(enabled && !expanded);
     });
 }
 
@@ -838,7 +857,7 @@ fn set_wall_expanded(window: &WebviewWindow, epoch: u64, expanded: bool) {
         true
     });
     if current {
-        apply_wall_cursor(window.app_handle());
+        apply_wall_window(window.app_handle());
         let _ = window.eval(wall::hover_script(expanded));
     }
 }
