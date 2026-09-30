@@ -78,7 +78,12 @@ test("배선: 사이드바 데스크톱 위젯 칸 — 링크 둘 다 새 탭·n
   assert.equal(section.match(/<a\s/g)?.length, 2, "내려받기·안내 링크 두 개");
   assert.equal(section.match(/target="_blank"/g)?.length, 2);
   assert.equal(section.match(/rel="noopener noreferrer"/g)?.length, 2);
-  assert.equal(section.match(/setSidebarOpen\(false\)/g)?.length, 2);
+  // 누르면 닫히고 포커스는 손잡이로 돌아간다(칸이 사라져 포커스가 body로 떨어지지 않게).
+  assert.equal(section.match(/onClick=\{closeSidebarAfterLink\}/g)?.length, 2);
+  assert.match(
+    view,
+    /function closeSidebarAfterLink\(\) \{\s+setSidebarOpen\(false\);\s+sidebarHandleRef\.current\?\.focus\(\);/,
+  );
   assert.match(section, /WIDGET_DOWNLOAD\.href/);
   assert.match(section, /widgetGuideUrl/);
   assert.match(section, /\{t\("위젯 내려받기"\)\}/);

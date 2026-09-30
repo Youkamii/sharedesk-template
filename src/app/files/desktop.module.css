@@ -2890,6 +2890,12 @@ button.userName {
   background: #2d5c5b;
 }
 
+/* 영어·일본어처럼 라벨이 길면 운영체제 표시가 다음 줄 오른쪽 끝으로 내려가고
+   라벨은 한 줄을 지킨다(232px 칸). */
+.sidebarWidget a {
+  flex-wrap: wrap;
+}
+
 /* 내려받기 링크 오른쪽 끝의 운영체제 표시. */
 .sidebarWidgetHint {
   margin-left: auto;

@@ -6064,6 +6064,13 @@ export default function FilesView({
     }
   }
 
+  // 사이드바의 링크(#27)는 새 탭을 열고 칸을 닫는다. 칸이 사라지면 키보드 포커스가
+  // body로 떨어지므로 남아 있는 손잡이로 돌려놓는다(창을 여는 버튼들은 창이 포커스를 받는다).
+  function closeSidebarAfterLink() {
+    setSidebarOpen(false);
+    sidebarHandleRef.current?.focus();
+  }
+
   function openQuickLinkWindow() {
     setSidebarOpen(false);
     setQuickLinkWindow((current) => ({
@@ -8940,7 +8947,7 @@ export default function FilesView({
                   href={WIDGET_DOWNLOAD.href}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={closeSidebarAfterLink}
                 >
                   <span aria-hidden="true">⇩</span>
                   {t("위젯 내려받기")}
@@ -8952,7 +8959,7 @@ export default function FilesView({
                   href={widgetGuideUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={closeSidebarAfterLink}
                 >
                   <span aria-hidden="true">?</span>
                   {t("위젯 안내")}
