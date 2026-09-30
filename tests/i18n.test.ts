@@ -138,4 +138,5 @@ test("doc links point at the guide written in the same language", () => {
   assert.equal(docUrl("INSTALL", "ja"), `${base}/INSTALL.ja.md`);
   assert.equal(docUrl("LOCAL", "hi"), `${base}/LOCAL.hi.md`);
   assert.equal(docUrl("AI_INSTALL", "zh"), `${base}/AI_INSTALL.zh.md`);
+  assert.equal(docUrl("WIDGET", "ko"), `${base}/WIDGET.ko.md`);
 });

@@ -349,7 +349,7 @@ test("업데이트 문서는 새 설치와 기존 설치의 실제 갱신 흐름
 
 // 문서를 5개 언어로 내면서 링크 하나가 다른 언어를 가리키면 독자가 갑자기
 // 모르는 언어의 문서로 떨어진다. 사람이 매번 눈으로 볼 수 없으니 고정한다.
-const DOC_NAMES = ["UPDATE", "INSTALL", "LOCAL", "AI_INSTALL"] as const;
+const DOC_NAMES = ["UPDATE", "INSTALL", "LOCAL", "AI_INSTALL", "WIDGET"] as const;
 const DOC_LOCALES = ["", ".ko", ".ja", ".hi", ".zh"] as const;
 
 function localeOfFile(name: string): string {

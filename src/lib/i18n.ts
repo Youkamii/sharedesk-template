@@ -49,7 +49,7 @@ export const LOCALE_BCP47: Record<Locale, string> = {
 // 화면 언어와 같은 언어의 문서로 보낸다.
 const DOC_BASE =
   "https://github.com/Youkamii/sharedesk-template/blob/main/docs";
-export type DocName = "UPDATE" | "INSTALL" | "LOCAL" | "AI_INSTALL";
+export type DocName = "UPDATE" | "INSTALL" | "LOCAL" | "AI_INSTALL" | "WIDGET";
 export function docUrl(doc: DocName, locale: Locale): string {
   return `${DOC_BASE}/${doc}${locale === "en" ? "" : `.${locale}`}.md`;
 }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { selectLatestStableVersion } from "../src/lib/update-status";
 import { selectStableRelease } from "../scripts/sharedesk-update.mjs";
@@ -10,6 +11,12 @@ import {
   WIDGET_RELEASE_REPOSITORY,
   WIDGET_RELEASE_TAG,
 } from "../scripts/widget-release.mjs";
+import {
+  detectWidgetPlatform,
+  WIDGET_RELEASE_PAGE_URL,
+  WIDGET_WINDOWS_INSTALLER_URL,
+  widgetDownloadTarget,
+} from "../src/lib/widget-download";
 
 test("the widget rolling release never counts as a stable ShareDesk release", () => {
   // 위젯은 템플릿 저장소의 고정 릴리스(widget, prerelease)에 산다. 웹의 업데이트 확인과
@@ -33,6 +40,56 @@ test("widget release channel is the public template repository's fixed release",
     assetUrl("latest.json"),
     "https://github.com/Youkamii/sharedesk-template/releases/download/widget/latest.json",
   );
+});
+
+test("the desk sidebar downloads the widget from the release channel's fixed alias (#27)", async () => {
+  // 사이드바 링크는 발행 스크립트가 올리는 별칭 이름과 한 글자만 달라도 404가 된다.
+  const windows = platformTarget("win32", "x64");
+  assert.equal(WIDGET_WINDOWS_INSTALLER_URL, assetUrl(windows.latestAlias));
+  assert.equal(
+    WIDGET_RELEASE_PAGE_URL,
+    `https://github.com/${WIDGET_RELEASE_REPOSITORY}/releases/tag/${WIDGET_RELEASE_TAG}`,
+  );
+
+  // Windows만 설치 파일 직행, 나머지는 릴리스 페이지(파일이 올라오면 거기 보인다).
+  assert.equal(
+    detectWidgetPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+    "windows",
+  );
+  assert.equal(
+    detectWidgetPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"),
+    "macos",
+  );
+  assert.equal(detectWidgetPlatform("Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101"), "other");
+  assert.equal(detectWidgetPlatform(undefined), "other");
+  assert.deepEqual(widgetDownloadTarget("windows"), {
+    href: WIDGET_WINDOWS_INSTALLER_URL,
+    hint: "Windows",
+  });
+  assert.deepEqual(widgetDownloadTarget("macos"), {
+    href: WIDGET_RELEASE_PAGE_URL,
+    hint: "GitHub",
+  });
+  assert.deepEqual(widgetDownloadTarget("other"), widgetDownloadTarget("macos"));
+
+  // 데스크 화면 배선: 사이드바 칸, 새 탭 + noopener, 화면 언어와 같은 안내 문서.
+  const view = await readFile(
+    new URL("../src/app/files/FilesView.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(view, /styles\.sidebarWidget/);
+  assert.match(
+    view,
+    /href=\{widgetDownload\.href\}\s+target="_blank"\s+rel="noopener noreferrer"/,
+  );
+  assert.match(view, /docUrl\("WIDGET", locale\)/);
+  assert.match(view, /\{t\("위젯 내려받기"\)\}/);
+  assert.match(view, /\{t\("위젯 안내"\)\}/);
+  const css = await readFile(
+    new URL("../src/app/files/desktop.module.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.sidebarWidget \{/);
 });
 
 test("widget version is consistent across tauri.conf.json, Cargo.toml and package.json", () => {

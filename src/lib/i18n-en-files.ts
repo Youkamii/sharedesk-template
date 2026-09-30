@@ -617,6 +617,12 @@ export const EN_FILES: Record<string, string> = {
   "링크와 받기": "Links & receive",
   "공개 폴더 입장": "Enter public folders",
   "입장할 수 있는 공개 폴더가 없습니다.": "No public folders you can enter.",
+  // 데스크톱 위젯 내려받기 (#27)
+  "데스크톱 위젯": "Desktop widget",
+  "바탕화면 구석에 작은 데스크를 띄웁니다. 설치는 선택입니다.":
+    "Keeps a small desk in a corner of your screen. Installing it is optional.",
+  "위젯 내려받기": "Download the widget",
+  "위젯 안내": "Widget guide",
   "닉네임을 바꾸시겠습니까?": "Change your nickname?",
   "예": "Yes",
   "아니오": "No",
