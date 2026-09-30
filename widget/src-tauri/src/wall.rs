@@ -9,7 +9,7 @@
 
 use std::time::{Duration, Instant};
 
-use tauri::{LogicalPosition, PhysicalPosition, PhysicalSize};
+use tauri::{LogicalPosition, LogicalSize, PhysicalPosition, PhysicalSize};
 
 /// 손잡이에서 판으로 옮겨 타는 순간(영역이 손잡이→창 전체로 바뀌는 사이)과
 /// 가장자리의 미세한 떨림을 삼키는 이탈 유예.
@@ -44,6 +44,33 @@ impl Side {
 pub struct Zone {
     pub rect: [f64; 4],
     pub hold: bool,
+}
+
+/// 영역이 이보다 좁거나 낮으면 커서가 들어갈 수 없는 보고로 본다 (논리 px)
+pub const MIN_ZONE: f64 = 8.0;
+
+/// 페이지가 알린 영역을 창 안쪽(논리 크기)으로 잘라 쓴다. 네 값 중 하나라도 유한하지 않거나,
+/// 자른 뒤 폭·높이가 MIN_ZONE 미만이면 유효하지 않은 보고로 보고 붙잡기(hold)로 바꾼다 —
+/// 커서가 절대 들어갈 수 없는 영역을 그대로 믿으면 위젯이 영원히 클릭 투과로 굳고, 껍데기에는
+/// 사용자가 되돌릴 방법이 없다. 붙잡으면 펼친 채로 남아 사용자가 조작할 수 있다.
+pub fn checked_zone(zone: Zone, viewport: LogicalSize<f64>) -> Zone {
+    if !zone.rect.iter().all(|value| value.is_finite()) {
+        return Zone {
+            rect: [0.0; 4],
+            hold: true,
+        };
+    }
+    let [x, y, width, height] = zone.rect;
+    let left = x.max(0.0);
+    let top = y.max(0.0);
+    let right = (x + width).min(viewport.width);
+    let bottom = (y + height).min(viewport.height);
+    let rect = [left, top, (right - left).max(0.0), (bottom - top).max(0.0)];
+    let reachable = rect[2] >= MIN_ZONE && rect[3] >= MIN_ZONE;
+    Zone {
+        rect,
+        hold: zone.hold || !reachable,
+    }
 }
 
 /// 화면 물리 좌표의 사각형
@@ -265,6 +292,34 @@ mod tests {
         // 그림자를 끄지 않았으면(틀 0) 그대로
         assert_eq!(framed_inner_size(PhysicalSize::new(340, 520), PhysicalSize::new(0, 0)), PhysicalSize::new(340, 520));
         assert_eq!(framed_inner_size(PhysicalSize::new(4, 4), frame), PhysicalSize::new(0, 0));
+    }
+
+    #[test]
+    fn zone_is_clipped_to_the_window_and_unreachable_reports_hold_the_desk_open() {
+        let viewport = LogicalSize::new(340.0, 520.0);
+        let zone = |rect: [f64; 4], hold: bool| Zone { rect, hold };
+        // 정상: 창 안의 영역과 창 전체는 그대로 통과
+        assert_eq!(checked_zone(zone([300.0, 220.0, 22.0, 80.0], false), viewport), zone([300.0, 220.0, 22.0, 80.0], false));
+        assert_eq!(checked_zone(zone([0.0, 0.0, 340.0, 520.0], false), viewport), zone([0.0, 0.0, 340.0, 520.0], false));
+        // 벽 쪽으로 창 밖에 나간 손잡이 여유는 잘라 낸다 (오른쪽·왼쪽 벽)
+        assert_eq!(checked_zone(zone([322.0, 220.0, 22.0, 80.0], false), viewport), zone([322.0, 220.0, 18.0, 80.0], false));
+        assert_eq!(checked_zone(zone([-4.0, 220.0, 22.0, 80.0], false), viewport), zone([0.0, 220.0, 18.0, 80.0], false));
+        // 페이지가 붙잡아 달라고 하면 그대로
+        assert!(checked_zone(zone([322.0, 220.0, 22.0, 80.0], true), viewport).hold);
+        // 커서가 들어갈 수 없는 보고 → 붙잡기
+        for rect in [
+            [0.0, 0.0, 0.0, 0.0],
+            [100.0, 100.0, 7.9, 80.0],
+            [-1000.0, -1000.0, 20.0, 20.0],
+            [5000.0, 100.0, 22.0, 80.0],
+            [100.0, 100.0, -50.0, 80.0],
+            [f64::INFINITY, 0.0, 10.0, 10.0],
+            [0.0, 0.0, f64::INFINITY, 80.0],
+            [f64::NEG_INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::INFINITY],
+            [f64::NAN, 0.0, 22.0, 80.0],
+        ] {
+            assert!(checked_zone(zone(rect, false), viewport).hold, "{rect:?}");
+        }
     }
 
     #[test]

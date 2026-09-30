@@ -27,8 +27,8 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::webview::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{
-    AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, Webview, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, Webview,
+    WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
@@ -676,8 +676,14 @@ fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result
 }
 
 #[tauri::command]
-fn set_wall_zone(app: AppHandle, zone: Option<wall::Zone>) {
-    with_wall(&app, |wall| {
+fn set_wall_zone(window: WebviewWindow, zone: Option<wall::Zone>) {
+    // 페이지가 준 사각형을 그대로 믿지 않는다 — 창 안쪽으로 자르고, 들어갈 수 없는 영역이면 붙잡는다
+    let viewport = match (window.inner_size(), window.scale_factor()) {
+        (Ok(size), Ok(scale)) if scale > 0.0 => size.to_logical::<f64>(scale),
+        _ => LogicalSize::new(f64::INFINITY, f64::INFINITY),
+    };
+    let zone = zone.map(|zone| wall::checked_zone(zone, viewport));
+    with_wall(&window, |wall| {
         // 끈 뒤에 늦게 도착한 보고는 버린다
         if wall.enabled {
             wall.zone = zone;
