@@ -47,3 +47,8 @@ html[data-widget] body {
   background: #10172b;
   color: #fff4d2;
 }
+
+/* 벽 붙임(#28) 중에는 위젯이 벽 너머로 밀려나 창이 비므로 바탕도 비운다 — 손잡이만 보이게 */
+html[data-widget][data-widget-wall] body {
+  background: transparent;
+}

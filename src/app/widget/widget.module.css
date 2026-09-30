@@ -568,6 +568,88 @@
   box-shadow: 0 1px 0 #fff8e7;
 }
 
+/* ── 벽 붙임 (#28) ───────────────────────────────────────────────────── */
+/* 켜면 껍데기가 창을 좌우 벽에 붙이고, 여기서 위젯 전체(머리띠 포함)를 벽 너머로 밀어낸다.
+   창은 움직이지 않으니 떨림이 없고, 비어 보이는 자리의 클릭은 껍데기가 뒤 창으로 넘긴다.
+   펼침·접힘은 껍데기의 커서 판정(sharedesk:wall-hover)을 따른다. */
+
+.widget[data-wall] {
+  transition: transform 160ms cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.widget[data-wall="right"]:not([data-wall-expanded]) {
+  transform: translateX(100%);
+}
+
+.widget[data-wall="left"]:not([data-wall-expanded]) {
+  transform: translateX(-100%);
+}
+
+/* 벽에 남는 손잡이 — 머리띠의 브랜드 4점과 접속 점을 세로로 쌓은 픽셀 띠.
+   위젯 바깥(형제)에 있으므로 색은 .widget 토큰 대신 같은 값을 직접 쓴다. */
+.wallHandle {
+  position: fixed;
+  top: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 14px;
+  height: 72px;
+  margin-top: -36px;
+  background: #0b1021;
+  border: 2px solid #f2a56f;
+  transition: opacity 120ms steps(2, end);
+}
+
+.wallHandle[data-side="right"] {
+  right: 0;
+  border-right: 0;
+  box-shadow: inset 2px 2px 0 #26385d;
+}
+
+.wallHandle[data-side="left"] {
+  left: 0;
+  border-left: 0;
+  box-shadow: inset -2px 2px 0 #26385d;
+}
+
+/* 펼친 동안은 안 보이고 클릭·드래그도 위젯으로 흘려보낸다 */
+.wallHandle[data-expanded] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.wallBrand {
+  display: grid;
+  grid-template-columns: 3px 3px;
+  gap: 1px;
+}
+
+.wallBrand i {
+  display: block;
+  width: 3px;
+  height: 3px;
+}
+
+.wallBrand i:nth-child(1) { background: #ffd27d; }
+.wallBrand i:nth-child(2) { background: #61b3a6; }
+.wallBrand i:nth-child(3) { background: #e96872; }
+.wallBrand i:nth-child(4) { background: #79a8e8; }
+
+.wallDot {
+  width: 6px;
+  height: 6px;
+  background: #61b3a6;
+  animation: liveBlink 2.8s steps(2, end) infinite;
+}
+
+.wallDotError {
+  background: #e96872;
+  animation: none;
+}
+
 /* ── 로그인·가입·차단 화면(위젯 변형) ────────────────────────────────── */
 
 .authBody {
@@ -709,7 +791,13 @@
 @media (prefers-reduced-motion: reduce) {
   .liveDot,
   .notice,
-  .contextMenu {
+  .contextMenu,
+  .wallDot {
     animation: none;
+  }
+
+  .widget[data-wall],
+  .wallHandle {
+    transition: none;
   }
 }

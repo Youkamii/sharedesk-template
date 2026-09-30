@@ -137,3 +137,106 @@ export function installStrayDropGuard(target: DropGuardTarget): () => void {
     target.removeEventListener("drop", onDrop);
   };
 }
+
+// ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────
+// 서랍/창가와 따로 노는 배치 토글. 켜면 껍데기가 창을 가까운 좌우 벽에 붙이고, 화면은 내용 전체를
+// 벽 너머로 밀어내 손잡이만 남긴다. 커서 판정·클릭 투과는 껍데기(widget/src-tauri/src/wall.rs)가
+// 맡고, 화면은 "마우스를 받아야 하는 영역"만 알린다. 켜짐 여부는 이 브라우저 저장소가 원본이다 —
+// 페이지가 로드될 때마다 껍데기에 다시 켜 달라고 한다.
+
+export type WallSide = "left" | "right";
+
+export const WIDGET_WALL_KEY = "sharedesk.widget-wall";
+// 껍데기가 쏘는 이벤트 — wall.rs의 HOVER_EVENT·SIDE_EVENT와 같은 이름
+export const WIDGET_WALL_HOVER_EVENT = "sharedesk:wall-hover";
+export const WIDGET_WALL_SIDE_EVENT = "sharedesk:wall-side";
+// 손잡이 둘레 여유 — 벽 끝에서 커서가 살짝 벗어나도 붙잡는다
+export const WALL_HANDLE_SLACK = 4;
+
+export function parseWidgetWall(value: unknown): boolean {
+  return value === "on";
+}
+
+export function readWidgetWall(storage: KeyValueStorage | null): boolean {
+  try {
+    return parseWidgetWall(storage?.getItem(WIDGET_WALL_KEY));
+  } catch {
+    return false;
+  }
+}
+
+export function writeWidgetWall(storage: KeyValueStorage | null, on: boolean): void {
+  try {
+    storage?.setItem(WIDGET_WALL_KEY, on ? "on" : "off");
+  } catch {
+    // 저장소가 막힌 환경에서는 이번 실행 동안만 기억한다
+  }
+}
+
+export function parseWallSide(value: unknown): WallSide | null {
+  return value === "left" || value === "right" ? value : null;
+}
+
+export type WallRect = [x: number, y: number, width: number, height: number];
+
+interface BoxLike {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+// 껍데기에 알릴 영역(창 안쪽 논리 좌표). 숨김 중엔 손잡이+여유, 펼침 중엔 창 전체.
+export function wallZoneRect(
+  expanded: boolean,
+  handle: BoxLike,
+  viewport: { width: number; height: number },
+): WallRect {
+  if (expanded) return [0, 0, viewport.width, viewport.height];
+  return [
+    handle.left - WALL_HANDLE_SLACK,
+    handle.top - WALL_HANDLE_SLACK,
+    handle.width + WALL_HANDLE_SLACK * 2,
+    handle.height + WALL_HANDLE_SLACK * 2,
+  ];
+}
+
+// 커서가 떠나도 접으면 안 되는 때: 우클릭 메뉴가 열려 있을 때, 올리는 중일 때, 파일을 끌어와 위에 있을 때
+export function wallHold(state: {
+  menuOpen: boolean;
+  uploading: boolean;
+  fileOver: boolean;
+}): boolean {
+  return state.menuOpen || state.uploading || state.fileOver;
+}
+
+// 껍데기에 벽 붙임을 켜 달라고 한다. 붙인 벽을 돌려주고, 껍데기가 없거나 옛 껍데기라
+// 명령이 거부되면 null — 화면은 떠 있는 위젯 그대로 두고 업데이트를 안내한다.
+export async function enableWidgetWall(host: unknown): Promise<WallSide | null> {
+  const internals = tauriInternals(host);
+  if (!internals) return null;
+  try {
+    return parseWallSide(await internals.invoke("set_wall_mode", { enabled: true }));
+  } catch {
+    return null;
+  }
+}
+
+export async function disableWidgetWall(host: unknown): Promise<void> {
+  try {
+    await tauriInternals(host)?.invoke("set_wall_mode", { enabled: false });
+  } catch {
+    // 옛 껍데기는 켠 적도 없다
+  }
+}
+
+export async function reportWallZone(
+  host: unknown,
+  zone: { rect: WallRect; hold: boolean } | null,
+): Promise<void> {
+  try {
+    await tauriInternals(host)?.invoke("set_wall_zone", { zone });
+  } catch {
+    // 다음 보고(크기 변경·상태 변화)가 다시 시도한다
+  }
+}

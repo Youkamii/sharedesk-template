@@ -580,6 +580,9 @@ export const EN_FILES: Record<string, string> = {
   "없음": "None",
   "1시간 링크 복사": "Copy a 1-hour link",
   "위젯 숨기기": "Hide the widget",
+  "벽": "Wall",
+  "벽 붙임 — 화면 가장자리에 숨겨 두고, 손잡이에 마우스를 대면 펼칩니다": "Wall — tucks the widget into the screen edge; point at the handle to open it",
+  "위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다": "Update the widget to use Wall mode",
   "파일 올리기…": "Upload files…",
   "데스크에 로그인": "Sign in to the desk",
   "초대받은 데스크에 내 Google 계정으로 로그인합니다. 처음 한 번만 호스트가 준 초대 코드를 입력합니다.":

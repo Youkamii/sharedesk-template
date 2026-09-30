@@ -9,6 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createApiJson } from "@/lib/client/api-json";
 import { apiPath } from "@/lib/client/api-path";
@@ -27,16 +28,27 @@ import {
 import { uploadEntry } from "@/lib/client/upload-entry";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
+  disableWidgetWall,
+  enableWidgetWall,
   isWidgetHidden,
+  parseWallSide,
   readWidgetMode,
+  readWidgetWall,
   recentWidgetFiles,
+  reportWallZone,
   sortWidgetEntries,
+  wallHold,
+  type WallSide,
+  wallZoneRect,
   WIDGET_LIST_POLL_MS,
   WIDGET_PRESENCE_MS,
   WIDGET_VISIBILITY_EVENT,
+  WIDGET_WALL_HOVER_EVENT,
+  WIDGET_WALL_SIDE_EVENT,
   widgetPollInterval,
   type WidgetMode,
   writeWidgetMode,
+  writeWidgetWall,
 } from "@/lib/client/widget";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
 import type { PresenceMember, PresenceSnapshot } from "@/lib/presence";
@@ -64,6 +76,7 @@ const STORAGE_POLL_MS = 60_000;
 const CONTEXT_MENU_WIDTH = 196;
 const CONTEXT_MENU_HEIGHT = 150;
 const WIDGET_MODE_EVENT = "sharedesk:widget-mode";
+const WIDGET_WALL_EVENT = "sharedesk:widget-wall";
 
 // 모드는 브라우저 저장소가 원본이다 — 같은 창의 다른 탭·다른 위젯 인스턴스 변경도 storage 이벤트로 따라온다
 function subscribeWidgetMode(onChange: () => void) {
@@ -71,6 +84,16 @@ function subscribeWidgetMode(onChange: () => void) {
   window.addEventListener("storage", onChange);
   return () => {
     window.removeEventListener(WIDGET_MODE_EVENT, onChange);
+    window.removeEventListener("storage", onChange);
+  };
+}
+
+// 벽 붙임 켜짐 여부도 같은 방식 (서랍/창가와 따로 저장한다)
+function subscribeWidgetWall(onChange: () => void) {
+  window.addEventListener(WIDGET_WALL_EVENT, onChange);
+  window.addEventListener("storage", onChange);
+  return () => {
+    window.removeEventListener(WIDGET_WALL_EVENT, onChange);
     window.removeEventListener("storage", onChange);
   };
 }
@@ -132,6 +155,16 @@ export default function WidgetView({
     () => readWidgetMode(window.localStorage),
     () => "desk" as WidgetMode,
   );
+  const wallOn = useSyncExternalStore(
+    subscribeWidgetWall,
+    () => readWidgetWall(window.localStorage),
+    () => false,
+  );
+  // 껍데기가 붙였다고 확인한 벽과 펼침 여부. 켜 달라고 했는데 아직 답이 없거나 거부되면 null.
+  const [wall, setWall] = useState<{ side: WallSide; expanded: boolean } | null>(null);
+  // 파일을 끌어와 손잡이·창 위에 있는 동안 — 접히지 않게 붙잡는다
+  const [fileOver, setFileOver] = useState(false);
+  const wallHandleRef = useRef<HTMLDivElement | null>(null);
   const [path, setPath] = useState<Crumb[]>([{ id: ROOT_ID, name: "ShareDesk" }]);
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -178,6 +211,12 @@ export default function WidgetView({
   function switchMode(next: WidgetMode) {
     writeWidgetMode(window.localStorage, next);
     window.dispatchEvent(new Event(WIDGET_MODE_EVENT));
+    setContextMenu(null);
+  }
+
+  function toggleWall() {
+    writeWidgetWall(window.localStorage, !wallOn);
+    window.dispatchEvent(new Event(WIDGET_WALL_EVENT));
     setContextMenu(null);
   }
 
@@ -444,6 +483,7 @@ export default function WidgetView({
   const folderAddress =
     path.length === 1 ? "/" : `/${path.slice(1).map((crumb) => crumb.name).join("/")}`;
   const placeTitle = isRoot ? t("공유 바탕화면") : folderName;
+  const uploading = activeTransfers.some((transfer) => transfer.kind === "upload");
 
   const storageLimit = storage
     ? (storage.deskStorageLimitBytes ?? storage.hostLimitBytes ?? null)
@@ -456,12 +496,108 @@ export default function WidgetView({
         } as CSSProperties)
       : undefined;
 
+  // ── 벽 붙임 (#28) ─────────────────────────────────────────────────────
+  // 껍데기(widget/src-tauri/src/wall.rs)가 창을 벽에 붙이고 커서를 본다. 화면은 위젯 전체를 벽 너머로
+  // 밀어내 손잡이만 남기고, "마우스를 받아야 하는 영역"만 알린다. 펼침·접힘과 벽이 바뀌면
+  // 껍데기가 sharedesk:wall-hover·sharedesk:wall-side 이벤트로 알려 준다.
+
+  const wallState = wallOn ? wall : null;
+  const wallActive = wallState !== null;
+  const wallSide = wallState?.side ?? null;
+  const wallExpanded = wallState?.expanded ?? false;
+  const hold = wallHold({
+    menuOpen: contextMenu !== null,
+    uploading,
+    fileOver: fileOver || dragOver,
+  });
+
+  // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)
+  useEffect(() => {
+    if (!wallOn) return;
+    let alive = true;
+    const onHover = (event: Event) => {
+      const expanded = (event as CustomEvent<unknown>).detail === true;
+      setWall((current) => (current ? { ...current, expanded } : current));
+    };
+    const onSide = (event: Event) => {
+      const side = parseWallSide((event as CustomEvent<unknown>).detail);
+      if (side) setWall((current) => (current ? { ...current, side } : current));
+    };
+    document.addEventListener(WIDGET_WALL_HOVER_EVENT, onHover);
+    document.addEventListener(WIDGET_WALL_SIDE_EVENT, onSide);
+    void enableWidgetWall(window).then((side) => {
+      if (!alive) return;
+      if (side) {
+        setWall({ side, expanded: false });
+        return;
+      }
+      // 옛 껍데기(명령 없음): 떠 있는 위젯 그대로 두고 업데이트를 안내한다
+      writeWidgetWall(window.localStorage, false);
+      window.dispatchEvent(new Event(WIDGET_WALL_EVENT));
+      showNotice(t("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"));
+    });
+    return () => {
+      alive = false;
+      document.removeEventListener(WIDGET_WALL_HOVER_EVENT, onHover);
+      document.removeEventListener(WIDGET_WALL_SIDE_EVENT, onSide);
+      setWall(null);
+      setFileOver(false);
+      void disableWidgetWall(window);
+    };
+  }, [wallOn, showNotice, t]);
+
+  // 벽 붙임 중에는 창 바탕을 비운다 — 위젯 모드의 밤색 body(globals.css)가 빈 자리에 남지 않게
+  useEffect(() => {
+    if (!wallActive) return;
+    const root = document.documentElement;
+    root.setAttribute("data-widget-wall", "");
+    return () => root.removeAttribute("data-widget-wall");
+  }, [wallActive]);
+
+  // 마우스를 받아야 하는 영역: 숨김 중엔 손잡이(+여유), 펼침 중엔 창 전체
+  useEffect(() => {
+    if (!wallActive) return;
+    const report = () => {
+      const handle = wallHandleRef.current;
+      if (!handle) return;
+      void reportWallZone(window, {
+        rect: wallZoneRect(wallExpanded, handle.getBoundingClientRect(), {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+        hold,
+      });
+    };
+    report();
+    window.addEventListener("resize", report);
+    return () => window.removeEventListener("resize", report);
+  }, [wallActive, wallSide, wallExpanded, hold]);
+
+  // 끌어온 파일이 창을 떠나거나(relatedTarget 없음) 놓이거나 끌기가 끝나면 붙잡기를 푼다
+  useEffect(() => {
+    if (!wallActive) return;
+    const release = () => setFileOver(false);
+    const onLeave = (event: Event) => {
+      if ((event as MouseEvent).relatedTarget === null) release();
+    };
+    document.addEventListener("dragleave", onLeave);
+    document.addEventListener("drop", release, true);
+    document.addEventListener("dragend", release);
+    return () => {
+      document.removeEventListener("dragleave", onLeave);
+      document.removeEventListener("drop", release, true);
+      document.removeEventListener("dragend", release);
+    };
+  }, [wallActive]);
+
   // ── 화면 ─────────────────────────────────────────────────────────────
 
   return (
     <div
       className={styles.widget}
       data-mode={mode}
+      data-wall={wallSide ?? undefined}
+      data-wall-expanded={wallExpanded ? "" : undefined}
       onContextMenu={(event) => {
         // 빈 곳 우클릭 — 아이콘·메뉴 밖에서만 바탕 메뉴를 연다
         if (mode === "desk") openContextMenu(event, null);
@@ -495,6 +631,15 @@ export default function WidgetView({
             {t("창가")}
           </button>
         </div>
+        <button
+          type="button"
+          className={styles.bandButton}
+          aria-pressed={wallOn}
+          title={t("벽 붙임 — 화면 가장자리에 숨겨 두고, 손잡이에 마우스를 대면 펼칩니다")}
+          onClick={toggleWall}
+        >
+          {t("벽")}
+        </button>
         <button
           type="button"
           className={styles.bandButton}
@@ -757,6 +902,32 @@ export default function WidgetView({
           </button>
         </div>
       )}
+
+      {wallState &&
+        // 벽에 남는 손잡이 — 위젯(.widget)이 벽 너머로 밀려나도 제자리에 남도록 body에 따로 그린다.
+        // 숨김 중엔 창이 클릭을 뒤로 넘기므로 누를 수는 없고, 커서를 대면 껍데기가 펼친다.
+        // 파일을 끌어와 대면 붙잡아 달라고(hold) 알려 펼친 채로 서랍까지 옮길 수 있게 한다.
+        createPortal(
+          <div
+            ref={wallHandleRef}
+            className={styles.wallHandle}
+            data-side={wallState.side}
+            data-expanded={wallState.expanded ? "" : undefined}
+            aria-hidden="true"
+            onDragEnter={(event) => {
+              if (event.dataTransfer.types.includes("Files")) setFileOver(true);
+            }}
+          >
+            <span className={styles.wallBrand}>
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className={`${styles.wallDot} ${presence.error ? styles.wallDotError : ""}`} />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

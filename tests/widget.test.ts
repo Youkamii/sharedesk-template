@@ -1,20 +1,34 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  disableWidgetWall,
+  enableWidgetWall,
   hideWidgetWindow,
   installStrayDropGuard,
   isWidgetHidden,
+  parseWallSide,
   parseWidgetMode,
+  parseWidgetWall,
   readWidgetMode,
+  readWidgetWall,
   recentWidgetFiles,
+  reportWallZone,
   sortWidgetEntries,
   tauriInternals,
+  WALL_HANDLE_SLACK,
+  wallHold,
+  wallZoneRect,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
   WIDGET_LIST_POLL_MS,
   WIDGET_MODE_KEY,
+  WIDGET_WALL_HOVER_EVENT,
+  WIDGET_WALL_KEY,
+  WIDGET_WALL_SIDE_EVENT,
   widgetPollInterval,
   writeWidgetMode,
+  writeWidgetWall,
 } from "../src/lib/client/widget";
 import { uploadEntry } from "../src/lib/client/upload-entry";
 
@@ -177,6 +191,177 @@ test("stray drops are cancelled unless the page already handled them", () => {
   assert.equal(handled.transfer.dropEffect, "copy");
   uninstall();
   assert.equal(listeners.size, 0);
+});
+
+// ── 벽 붙임 (#28) ──────────────────────────────────────────────────────
+
+function memoryStorage() {
+  const store = new Map<string, string>();
+  return {
+    store,
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+  };
+}
+
+test("wall mode is a separate per-browser toggle that defaults to off (#28)", () => {
+  const storage = memoryStorage();
+  assert.equal(readWidgetWall(storage), false);
+  writeWidgetWall(storage, true);
+  assert.equal(storage.store.get(WIDGET_WALL_KEY), "on");
+  assert.equal(readWidgetWall(storage), true);
+  // 서랍/창가 모드 저장과 섞이지 않는다
+  assert.equal(readWidgetMode(storage), "desk");
+  writeWidgetWall(storage, false);
+  assert.equal(storage.store.get(WIDGET_WALL_KEY), "off");
+  assert.equal(readWidgetWall(storage), false);
+  // 모르는 값·막힌 저장소는 꺼짐
+  assert.equal(parseWidgetWall("true"), false);
+  assert.equal(parseWidgetWall(1), false);
+  assert.equal(readWidgetWall(null), false);
+  const throwing = {
+    getItem: () => {
+      throw new Error("blocked");
+    },
+    setItem: () => {
+      throw new Error("blocked");
+    },
+  };
+  assert.equal(readWidgetWall(throwing), false);
+  assert.doesNotThrow(() => writeWidgetWall(throwing, true));
+});
+
+test("wall side accepts only left/right from the shell (#28)", () => {
+  assert.equal(parseWallSide("left"), "left");
+  assert.equal(parseWallSide("right"), "right");
+  assert.equal(parseWallSide("top"), null);
+  assert.equal(parseWallSide(null), null);
+  assert.equal(parseWallSide(undefined), null);
+});
+
+test("wall zone is the handle plus slack while folded and the whole window while open (#28)", () => {
+  const handle = { left: 326, top: 224, width: 14, height: 72 };
+  const viewport = { width: 340, height: 520 };
+  assert.equal(WALL_HANDLE_SLACK, 4);
+  assert.deepEqual(wallZoneRect(false, handle, viewport), [322, 220, 22, 80]);
+  assert.deepEqual(wallZoneRect(true, handle, viewport), [0, 0, 340, 520]);
+  // 왼쪽 벽 손잡이는 창 밖(-4)까지 여유를 둔다 — 벽 끝에서 커서가 살짝 벗어나도 붙잡는다
+  assert.deepEqual(
+    wallZoneRect(false, { left: 0, top: 224, width: 14, height: 72 }, viewport),
+    [-4, 220, 22, 80],
+  );
+});
+
+test("wall hold keeps the widget open for menus, uploads and dragged files (#28)", () => {
+  const idle = { menuOpen: false, uploading: false, fileOver: false };
+  assert.equal(wallHold(idle), false);
+  assert.equal(wallHold({ ...idle, menuOpen: true }), true);
+  assert.equal(wallHold({ ...idle, uploading: true }), true);
+  assert.equal(wallHold({ ...idle, fileOver: true }), true);
+});
+
+test("wall commands go through the shell IPC and an old shell falls back to floating (#28)", async () => {
+  // 껍데기가 없으면(브라우저) 켤 수 없고, 끄기·영역 보고는 조용히 넘어간다
+  assert.equal(await enableWidgetWall({}), null);
+  await assert.doesNotReject(disableWidgetWall({}));
+  await assert.doesNotReject(reportWallZone({}, null));
+
+  const calls: Array<[string, unknown]> = [];
+  const shell = (answer: unknown) => ({
+    __TAURI_INTERNALS__: {
+      invoke: async (command: string, args?: unknown) => {
+        calls.push([command, args]);
+        return answer;
+      },
+    },
+  });
+  assert.equal(await enableWidgetWall(shell("right")), "right");
+  await disableWidgetWall(shell(null));
+  await reportWallZone(shell(null), { rect: [322, 220, 22, 80], hold: true });
+  assert.deepEqual(calls, [
+    ["set_wall_mode", { enabled: true }],
+    ["set_wall_mode", { enabled: false }],
+    ["set_wall_zone", { zone: { rect: [322, 220, 22, 80], hold: true } }],
+  ]);
+  // 엉뚱한 답도 켜지지 않은 것으로 본다
+  assert.equal(await enableWidgetWall(shell("middle")), null);
+
+  // 옛 껍데기: 명령이 없어 invoke가 거부된다 → null(화면은 떠 있는 위젯 유지 + 안내)
+  const oldShell = {
+    __TAURI_INTERNALS__: {
+      invoke: async (command: string) => {
+        throw new Error(`Command ${command} not allowed by ACL`);
+      },
+    },
+  };
+  assert.equal(await enableWidgetWall(oldShell), null);
+  await assert.doesNotReject(disableWidgetWall(oldShell));
+  await assert.doesNotReject(reportWallZone(oldShell, { rect: [0, 0, 1, 1], hold: false }));
+});
+
+test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴다 (#28)", async () => {
+  const read = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
+  const view = await read("../src/app/widget/WidgetView.tsx");
+  const helpers = await read("../src/lib/client/widget.ts");
+  const wall = await read("../widget/src-tauri/src/wall.rs");
+  const shell = await read("../widget/src-tauri/src/lib.rs");
+  const build = await read("../widget/src-tauri/build.rs");
+  const globals = await read("../src/app/globals.css");
+  const css = await read("../src/app/widget/widget.module.css");
+
+  // 껍데기가 쏘는 이벤트 이름과 화면이 듣는 이름이 같아야 한다
+  assert.equal(WIDGET_WALL_HOVER_EVENT, "sharedesk:wall-hover");
+  assert.equal(WIDGET_WALL_SIDE_EVENT, "sharedesk:wall-side");
+  assert.match(wall, /pub const HOVER_EVENT: &str = "sharedesk:wall-hover";/);
+  assert.match(wall, /pub const SIDE_EVENT: &str = "sharedesk:wall-side";/);
+  assert.match(view, /document\.addEventListener\(WIDGET_WALL_HOVER_EVENT, onHover\)/);
+  assert.match(view, /document\.addEventListener\(WIDGET_WALL_SIDE_EVENT, onSide\)/);
+
+  // 화면은 켜기·끄기·영역 보고를 껍데기 명령으로 한다
+  assert.match(helpers, /invoke\("set_wall_mode", \{ enabled: true \}\)/);
+  assert.match(helpers, /invoke\("set_wall_mode", \{ enabled: false \}\)/);
+  assert.match(helpers, /invoke\("set_wall_zone", \{ zone \}\)/);
+  assert.match(view, /void enableWidgetWall\(window\)/);
+  assert.match(view, /void disableWidgetWall\(window\)/);
+  assert.match(view, /void reportWallZone\(window, \{\s+rect: wallZoneRect\(wallExpanded,/);
+  // 옛 껍데기면 표식을 끄고 업데이트를 안내한다
+  assert.match(
+    view,
+    /writeWidgetWall\(window\.localStorage, false\);[\s\S]{0,120}t\("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"\)/,
+  );
+
+  // 손잡이: 파일을 끌어와 대면 붙잡아 달라고 한다(dragenter) — 펼침은 껍데기가 정한다
+  const handle = view.match(/className=\{styles\.wallHandle\}[\s\S]*?<\/div>/)?.[0];
+  assert.ok(handle, "벽 손잡이가 있어야 합니다");
+  assert.match(
+    handle,
+    /onDragEnter=\{\(event\) => \{\s+if \(event\.dataTransfer\.types\.includes\("Files"\)\) setFileOver\(true\);/,
+  );
+  assert.match(view, /fileOver: fileOver \|\| dragOver/);
+  assert.match(view, /menuOpen: contextMenu !== null/);
+
+  // 껍데기 명령과 권한 — 원격 데스크 페이지도 두 명령을 부를 수 있어야 한다
+  assert.match(shell, /set_wall_mode,\s+set_wall_zone\s+\]\)/);
+  assert.match(build, /"set_wall_mode",\s+"set_wall_zone",/);
+  for (const name of ["default", "remote"]) {
+    const capability = JSON.parse(
+      await read(`../widget/src-tauri/capabilities/${name}.json`),
+    ) as { permissions: string[] };
+    assert.ok(capability.permissions.includes("allow-set-wall-mode"), `${name}: allow-set-wall-mode`);
+    assert.ok(capability.permissions.includes("allow-set-wall-zone"), `${name}: allow-set-wall-zone`);
+  }
+
+  // 벽 붙임 중에는 바탕을 비워 손잡이만 남긴다
+  assert.match(view, /root\.setAttribute\("data-widget-wall", ""\)/);
+  assert.match(globals, /html\[data-widget\]\[data-widget-wall\] body \{\s+background: transparent;/);
+  assert.match(
+    css,
+    /\.widget\[data-wall="right"\]:not\(\[data-wall-expanded\]\) \{\s+transform: translateX\(100%\);/,
+  );
+  assert.match(
+    css,
+    /\.widget\[data-wall="left"\]:not\(\[data-wall-expanded\]\) \{\s+transform: translateX\(-100%\);/,
+  );
 });
 
 // ── 업로드 공용 흐름 ──────────────────────────────────────────────────
