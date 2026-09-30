@@ -2842,18 +2842,22 @@ button.userName {
   background: #2d5c5b;
 }
 
-.sidebarPublic {
+/* 사이드바 칸 — 공개 폴더 입장(#10)과 데스크톱 위젯(#27)은 같은 구분선·줄 높이. */
+.sidebarPublic,
+.sidebarWidget {
   display: grid;
   gap: 6px;
   padding-top: 10px;
   border-top: 2px solid #d8c79c;
 }
 
-.sidebarPublic > strong {
+.sidebarPublic > strong,
+.sidebarWidget > strong {
   padding: 0 8px;
 }
 
-.sidebarPublic > p {
+.sidebarPublic > p,
+.sidebarWidget > p {
   margin: 0;
   padding: 0 8px;
   color: #6b6146;
@@ -2867,39 +2871,7 @@ button.userName {
   list-style: none;
 }
 
-.sidebarPublic a {
-  display: flex;
-  min-height: 30px;
-  align-items: center;
-  padding: 5px 8px;
-  color: #1b1b2f;
-  text-decoration: none;
-}
-
-.sidebarPublic a:hover,
-.sidebarPublic a:focus-visible {
-  color: #fff8e7;
-  background: #2d5c5b;
-}
-
-/* 데스크톱 위젯 내려받기(#27) — 공개 폴더 칸과 같은 구분선·줄 높이. */
-.sidebarWidget {
-  display: grid;
-  gap: 6px;
-  padding-top: 10px;
-  border-top: 2px solid #d8c79c;
-}
-
-.sidebarWidget > strong {
-  padding: 0 8px;
-}
-
-.sidebarWidget > p {
-  margin: 0;
-  padding: 0 8px;
-  color: #6b6146;
-}
-
+.sidebarPublic a,
 .sidebarWidget a {
   display: flex;
   min-height: 30px;
@@ -2910,21 +2882,22 @@ button.userName {
   text-decoration: none;
 }
 
-/* 운영체제 표시는 오른쪽 끝에 흐리게 — 픽셀 글꼴이라 글자 크기는 줄이지 않는다. */
-.sidebarWidget a small {
-  margin-left: auto;
-  color: #6b6146;
-  font-size: inherit;
-}
-
+.sidebarPublic a:hover,
+.sidebarPublic a:focus-visible,
 .sidebarWidget a:hover,
 .sidebarWidget a:focus-visible {
   color: #fff8e7;
   background: #2d5c5b;
 }
 
-.sidebarWidget a:hover small,
-.sidebarWidget a:focus-visible small {
+/* 내려받기 링크 오른쪽 끝의 운영체제 표시. */
+.sidebarWidgetHint {
+  margin-left: auto;
+  color: #6b6146;
+}
+
+.sidebarWidget a:hover .sidebarWidgetHint,
+.sidebarWidget a:focus-visible .sidebarWidgetHint {
   color: inherit;
 }
 

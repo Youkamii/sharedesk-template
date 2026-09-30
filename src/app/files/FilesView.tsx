@@ -133,10 +133,7 @@ import {
   type FolderColorId,
 } from "@/lib/folder-color-ids";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
-import {
-  detectWidgetPlatform,
-  widgetDownloadTarget,
-} from "@/lib/widget-download";
+import { widgetDownloadTarget } from "@/lib/widget-download";
 import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
@@ -418,6 +415,12 @@ const DIALOG_FOCUSABLE_SELECTOR =
 
 // 별을 남기는 원본 저장소. 서버가 알려 주지 않을 때 쓰는 기본 주소다.
 const STAR_PAGE_URL = "https://github.com/Youkamii/sharedesk-template";
+
+// 데스크톱 위젯 내려받기(#27). 사이드바는 손잡이 클릭 뒤에만 그려져 서버 HTML에 없으므로
+// 서버(navigator 없음 또는 Node.js UA)와 브라우저의 값이 달라도 hydration과 무관하다.
+const WIDGET_DOWNLOAD = widgetDownloadTarget(
+  typeof navigator === "undefined" ? undefined : navigator.userAgent,
+);
 
 const ROOT_ID = "root";
 const ROOT_SCOPE = "desktop";
@@ -781,18 +784,7 @@ export default function FilesView({
   );
   const dateLocale = LOCALE_BCP47[locale];
   const updateGuideUrl = docUrl("UPDATE", locale);
-  // 데스크톱 위젯 내려받기(#27). 사이드바는 손잡이를 누른 뒤에만 그려져 서버 렌더에
-  // 들어가지 않으므로 navigator가 없는 쪽(서버)은 릴리스 페이지로 두면 된다.
   const widgetGuideUrl = docUrl("WIDGET", locale);
-  const widgetDownload = useMemo(
-    () =>
-      widgetDownloadTarget(
-        detectWidgetPlatform(
-          typeof navigator === "undefined" ? "" : navigator.userAgent,
-        ),
-      ),
-    [],
-  );
   // 역할 4단계(#80): 권한이 없는 조작 UI는 조용히 숨긴다(비활성보다 숨김).
   // 게스트는 서버가 viewer로 내려 주므로 별도 게스트 분기가 필요 없다.
   const allowUpload = canUpload(role);
@@ -8937,9 +8929,7 @@ export default function FilesView({
                   </ul>
                 )}
               </section>
-              {/* 데스크톱 위젯(#27) — 설치는 선택. Windows는 설치 파일 고정 주소로,
-                  다른 운영체제는 릴리스 페이지로(파일이 올라오면 거기 보인다).
-                  안내 문서는 화면 언어와 같은 언어판으로 간다. */}
+              {/* 데스크톱 위젯(#27) — 링크 대상은 src/lib/widget-download.ts가 정한다. */}
               <section
                 className={styles.sidebarWidget}
                 aria-label={t("데스크톱 위젯")}
@@ -8947,14 +8937,16 @@ export default function FilesView({
                 <strong>{t("데스크톱 위젯")}</strong>
                 <p>{t("바탕화면 구석에 작은 데스크를 띄웁니다. 설치는 선택입니다.")}</p>
                 <a
-                  href={widgetDownload.href}
+                  href={WIDGET_DOWNLOAD.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setSidebarOpen(false)}
                 >
                   <span aria-hidden="true">⇩</span>
                   {t("위젯 내려받기")}
-                  <small>{widgetDownload.hint}</small>
+                  <span className={styles.sidebarWidgetHint}>
+                    {WIDGET_DOWNLOAD.hint}
+                  </span>
                 </a>
                 <a
                   href={widgetGuideUrl}

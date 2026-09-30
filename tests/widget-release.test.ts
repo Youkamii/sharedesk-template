@@ -12,7 +12,6 @@ import {
   WIDGET_RELEASE_TAG,
 } from "../scripts/widget-release.mjs";
 import {
-  detectWidgetPlatform,
   WIDGET_RELEASE_PAGE_URL,
   WIDGET_WINDOWS_INSTALLER_URL,
   widgetDownloadTarget,
@@ -42,7 +41,7 @@ test("widget release channel is the public template repository's fixed release",
   );
 });
 
-test("the desk sidebar downloads the widget from the release channel's fixed alias (#27)", async () => {
+test("the desk sidebar downloads the widget from the release channel's fixed alias (#27)", () => {
   // 사이드바 링크는 발행 스크립트가 올리는 별칭 이름과 한 글자만 달라도 404가 된다.
   const windows = platformTarget("win32", "x64");
   assert.equal(WIDGET_WINDOWS_INSTALLER_URL, assetUrl(windows.latestAlias));
@@ -51,45 +50,47 @@ test("the desk sidebar downloads the widget from the release channel's fixed ali
     `https://github.com/${WIDGET_RELEASE_REPOSITORY}/releases/tag/${WIDGET_RELEASE_TAG}`,
   );
 
-  // Windows만 설치 파일 직행, 나머지는 릴리스 페이지(파일이 올라오면 거기 보인다).
-  assert.equal(
-    detectWidgetPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
-    "windows",
+  // 브라우저가 Windows라고 말할 때만 설치 파일 직행, 나머지(서버 포함)는 릴리스 페이지.
+  assert.deepEqual(
+    widgetDownloadTarget("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+    { href: WIDGET_WINDOWS_INSTALLER_URL, hint: "Windows" },
   );
-  assert.equal(
-    detectWidgetPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"),
-    "macos",
+  const releasePage = { href: WIDGET_RELEASE_PAGE_URL, hint: "GitHub" };
+  assert.deepEqual(
+    widgetDownloadTarget("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"),
+    releasePage,
   );
-  assert.equal(detectWidgetPlatform("Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101"), "other");
-  assert.equal(detectWidgetPlatform(undefined), "other");
-  assert.deepEqual(widgetDownloadTarget("windows"), {
-    href: WIDGET_WINDOWS_INSTALLER_URL,
-    hint: "Windows",
-  });
-  assert.deepEqual(widgetDownloadTarget("macos"), {
-    href: WIDGET_RELEASE_PAGE_URL,
-    hint: "GitHub",
-  });
-  assert.deepEqual(widgetDownloadTarget("other"), widgetDownloadTarget("macos"));
+  assert.deepEqual(
+    widgetDownloadTarget("Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101"),
+    releasePage,
+  );
+  assert.deepEqual(widgetDownloadTarget("Node.js/22"), releasePage);
+  assert.deepEqual(widgetDownloadTarget(undefined), releasePage);
+});
 
-  // 데스크 화면 배선: 사이드바 칸, 새 탭 + noopener, 화면 언어와 같은 안내 문서.
+test("배선: 사이드바 데스크톱 위젯 칸 — 링크 둘 다 새 탭·noopener, 누르면 닫힘, 화면 언어의 안내 (#27)", async () => {
   const view = await readFile(
     new URL("../src/app/files/FilesView.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(view, /styles\.sidebarWidget/);
-  assert.match(
-    view,
-    /href=\{widgetDownload\.href\}\s+target="_blank"\s+rel="noopener noreferrer"/,
-  );
+  const section = view.match(/styles\.sidebarWidget\b[\s\S]*?<\/section>/)?.[0];
+  assert.ok(section, "사이드바에 데스크톱 위젯 칸이 있어야 합니다");
+  assert.equal(section.match(/<a\s/g)?.length, 2, "내려받기·안내 링크 두 개");
+  assert.equal(section.match(/target="_blank"/g)?.length, 2);
+  assert.equal(section.match(/rel="noopener noreferrer"/g)?.length, 2);
+  assert.equal(section.match(/setSidebarOpen\(false\)/g)?.length, 2);
+  assert.match(section, /WIDGET_DOWNLOAD\.href/);
+  assert.match(section, /widgetGuideUrl/);
+  assert.match(section, /\{t\("위젯 내려받기"\)\}/);
+  assert.match(section, /\{t\("위젯 안내"\)\}/);
   assert.match(view, /docUrl\("WIDGET", locale\)/);
-  assert.match(view, /\{t\("위젯 내려받기"\)\}/);
-  assert.match(view, /\{t\("위젯 안내"\)\}/);
+
   const css = await readFile(
     new URL("../src/app/files/desktop.module.css", import.meta.url),
     "utf8",
   );
   assert.match(css, /\.sidebarWidget \{/);
+  assert.match(css, /\.sidebarWidgetHint \{/);
 });
 
 test("widget version is consistent across tauri.conf.json, Cargo.toml and package.json", () => {

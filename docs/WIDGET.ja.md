@@ -15,7 +15,7 @@ ShareDesk ウィジェットは、デスクをデスクトップの隅に小さ�
 
 ## インストール
 
-1. [ウィジェットのダウンロード](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) から自分の OS のインストーラーを取得します。Windows は [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe) です（常に最新版を指す固定アドレス）。macOS のファイルは Mac でビルドしてアップロードされた後に現れます。デスク画面の右端にある `«` の取っ手を開くと、**デスクトップウィジェット** の欄に同じリンクがあります。
+1. [ウィジェットのダウンロード](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) から自分の OS のインストーラーを取得します。Windows は [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe) です（常に最新版を指す固定アドレス）。macOS のファイルは Mac でビルドしてアップロードされた後に現れます。参加者はデスク画面の右端にある `«` の取っ手を開き、**デスクトップウィジェット** の欄からも入手できます。
 2. インストーラーを実行します。管理者権限は不要です。
 3. 初回起動時に **デスクのアドレス** を尋ねられます。ホストから受け取った ShareDesk のアドレス（例: `https://desk.example.com`）を貼り付けて `デスクを開く` を押します。
 4. ブラウザと同じようにログインします。Google ログインと招待コードの入力はウィジェットの窓の中で進みます。

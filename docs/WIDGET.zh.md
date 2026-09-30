@@ -15,7 +15,7 @@ ShareDesk 小组件是一个可选功能：把桌面以一个小窗口放在电�
 
 ## 安装
 
-1. 在 [小组件下载页](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) 获取你的操作系统对应的安装文件。Windows 版是 [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe)（始终指向最新版本的固定地址）。macOS 文件会在 Mac 上构建并上传后出现。桌面画面里也有同样的链接：打开右侧边缘的 `«` 把手，查看 **桌面小组件** 一栏。
+1. 在 [小组件下载页](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) 获取你的操作系统对应的安装文件。Windows 版是 [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe)（始终指向最新版本的固定地址）。macOS 文件会在 Mac 上构建并上传后出现。成员也可以在桌面画面里获取：打开右侧边缘的 `«` 把手，查看 **桌面小组件** 一栏。
 2. 运行安装文件。不需要管理员权限。
 3. 首次启动时会询问 **桌面地址**。粘贴主机给你的 ShareDesk 地址（例如 `https://desk.example.com`），然后按 `打开桌面`。
 4. 像在浏览器里一样登录。Google 登录和邀请码输入都在小组件窗口内完成。
