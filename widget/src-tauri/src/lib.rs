@@ -8,9 +8,13 @@
 //! 3. 트레이·항상 위·부팅 시 실행·창 위치 기억 같은 바탕화면 살림을 맡는다.
 //! 4. 새 창 요청(target=_blank)은 기본 브라우저로 넘기고, 껍데기 자체는
 //!    공개 템플릿 저장소의 고정 릴리스를 보고 갱신한다.
+//!
+//! 배치 토글 "벽 붙임"(#28)은 페이지가 켜고 끄며, 껍데기는 벽에 붙이기·커서 판정·클릭 투과만 맡는다
+//! (wall.rs와 아래 "벽 붙임" 절).
 
 mod locale;
 mod settings;
+mod wall;
 
 use std::error::Error;
 use std::fs::{self, File};
@@ -21,10 +25,10 @@ use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
-use tauri::webview::NewWindowResponse;
+use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{
     AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, Webview, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder, WindowEvent,
+    WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
 };
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_opener::OpenerExt as _;
@@ -43,6 +47,11 @@ const COOKIE_MAX_AGE_DAYS: i64 = 400;
 const STARTUP_UPDATE_CHECK_DELAY: Duration = Duration::from_secs(90);
 // 데스크 페이지가 window.open을 남발해도 기본 브라우저 창이 쏟아지지 않게
 const EXTERNAL_OPEN_MIN_GAP: Duration = Duration::from_secs(1);
+// 벽 붙임: 켜져 있고 창이 보이면 25ms마다 커서를 보고, 아니면 250ms마다 표식만 본다
+const WALL_POLL: Duration = Duration::from_millis(25);
+const WALL_IDLE_POLL: Duration = Duration::from_millis(250);
+// 머리띠로 옮긴 창은 마지막 이동 뒤 이만큼 멎으면 가까운 벽에 다시 붙인다
+const WALL_SETTLE: Duration = Duration::from_millis(300);
 
 pub struct Profile {
     pub name: String,
@@ -59,6 +68,26 @@ pub struct WidgetState {
     update_url: Option<String>,
     last_external_open: Mutex<Option<Instant>>,
     lang: locale::Lang,
+    wall: Mutex<WallState>,
+}
+
+/// 벽 붙임의 껍데기 쪽 상태. 원본은 페이지의 localStorage이고, 페이지가 로드될 때마다
+/// set_wall_mode(true)를 다시 부르므로 여기서는 저장하지 않는다.
+#[derive(Default)]
+struct WallState {
+    enabled: bool,
+    /// 페이지가 알린 "마우스를 받아야 하는 영역"
+    zone: Option<wall::Zone>,
+    side: Option<wall::Side>,
+    /// 폴링 스레드가 판정한 펼침 여부 — 클릭 투과는 enabled && !expanded일 때만
+    expanded: bool,
+    /// 껍데기가 마지막으로 붙인 바깥 좌표. 이 좌표로 오는 Moved는 자기 되먹임이다.
+    target: Option<PhysicalPosition<i32>>,
+    /// 사용자가 창을 옮긴 마지막 시각 — WALL_SETTLE이 지나면 폴링 스레드가 다시 붙인다
+    moved_at: Option<Instant>,
+    /// 켜기·끄기·페이지 로드마다 올린다. 폴링 스레드는 번호가 바뀌면 호버 판정을 접힌 상태에서
+    /// 새로 시작하고, 그사이 계산한 옛 판정은 버린다.
+    epoch: u64,
 }
 
 impl WidgetState {
@@ -101,7 +130,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             save_desk_url,
             widget_info,
-            hide_widget
+            hide_widget,
+            set_wall_mode,
+            set_wall_zone
         ])
         .setup(move |app| {
             let profile = open_profile(app.handle(), &profile_name)?;
@@ -120,12 +151,14 @@ pub fn run() {
                 update_url,
                 last_external_open: Mutex::new(None),
                 lang: locale::Lang::detect(),
+                wall: Mutex::new(WallState::default()),
             };
             app.manage(state);
 
             let window = build_main_window(app.handle())?;
             enter_desk(&window)?;
             build_tray(app.handle())?;
+            spawn_wall_watcher(app.handle().clone());
 
             // dev 빌드는 서명된 릴리스가 아니므로 시작 시 자동 확인을 건너뛴다 (주소를 명시하면 점검 의도로 본다)
             let explicit_update_url = app.state::<WidgetState>().update_url.is_some();
@@ -156,6 +189,8 @@ pub fn run() {
             // 포커스가 들어오는 순간(머리띠를 누른 직후)에 메뉴를 갈아 끼우면 창 끌기가 끊긴다(실측).
             // 숨기기·보이기는 hide_main_window/show_main_window가 트레이를 맞춘다.
             WindowEvent::Focused(false) => remember_window_rect(window.app_handle()),
+            // 벽 붙임 중 머리띠로 옮기면 멎은 뒤 가까운 벽에 다시 붙인다 (폴링 스레드가 처리)
+            WindowEvent::Moved(_) => note_wall_move(window),
             _ => {}
         })
         .build(tauri::generate_context!())
@@ -270,6 +305,13 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .on_new_window(move |url, _features| {
             open_external(&opener_handle, url.as_str());
             NewWindowResponse::Deny
+        })
+        // 새 문서가 로드되기 시작하면 벽 붙임을 푼다. 벽 붙임을 아는 화면(데스크)은 로드되며
+        // 다시 켜고, 모르는 화면(로그인·첫 실행 주소 입력)이 투과된 채 클릭을 못 받는 일이 없게.
+        .on_page_load(|window, payload| {
+            if payload.event() == PageLoadEvent::Started {
+                reset_wall(window.app_handle());
+            }
         });
     #[cfg(any(windows, target_os = "linux"))]
     {
@@ -499,6 +541,7 @@ mod tests {
             update_url: None,
             last_external_open: Mutex::new(None),
             lang: locale::Lang::En,
+            wall: Mutex::new(WallState::default()),
         }
     }
 
@@ -572,6 +615,232 @@ fn save_desk_url(
 #[tauri::command]
 fn hide_widget(app: AppHandle) {
     hide_main_window(&app);
+}
+
+// ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────
+//
+// 페이지가 set_wall_mode로 켜고 끄며 set_wall_zone으로 커서를 받아야 하는 영역을 알린다.
+// 폴링 스레드가 커서를 영역과 비교해 펼침·접힘을 정하고(wall::Hover), 바뀔 때마다 클릭 투과를
+// 맞추고 페이지에 sharedesk:wall-hover를 쏜다. 창을 옮기면 멎은 뒤 다시 붙이고 sharedesk:wall-side를 쏜다.
+// 동기 명령은 메인 스레드에서 돌고, 폴링 스레드의 창 조회는 메인 스레드의 답을 기다린다 —
+// 그래서 폴링 스레드는 wall 잠금을 쥔 채 창을 조회하지 않는다(교착 방지).
+
+/// wall 잠금 안에서 f를 부른다. 창 조회·이동은 이 안에서 하지 않는다(교착 방지).
+fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallState) -> T) -> T {
+    let state = manager.state::<WidgetState>();
+    let mut wall = state.wall.lock().expect("wall lock");
+    f(&mut wall)
+}
+
+/// 켜면 가까운 벽에 붙이고 그 벽을 돌려준다. 끄면 영역·투과를 풀고 창은 그 자리에 둔다.
+#[tauri::command]
+fn set_wall_mode(app: AppHandle, window: Window, enabled: bool) -> Result<Option<wall::Side>, String> {
+    let epoch = with_wall(&app, |wall| {
+        *wall = WallState {
+            enabled,
+            epoch: wall.epoch.wrapping_add(1),
+            ..WallState::default()
+        };
+        wall.epoch
+    });
+    apply_wall_cursor(&app);
+    if !enabled {
+        return Ok(None);
+    }
+    match snap_to_wall(&window, epoch) {
+        Some(side) => Ok(Some(side)),
+        None => {
+            reset_wall(&app);
+            Err("창을 벽에 붙이지 못했습니다".to_string())
+        }
+    }
+}
+
+#[tauri::command]
+fn set_wall_zone(app: AppHandle, zone: Option<wall::Zone>) {
+    with_wall(&app, |wall| {
+        // 끈 뒤에 늦게 도착한 보고는 버린다
+        if wall.enabled {
+            wall.zone = zone;
+        }
+    });
+}
+
+/// 벽 붙임을 모두 푼다 (페이지 로드·붙이기 실패)
+fn reset_wall(app: &AppHandle) {
+    let changed = with_wall(app, |wall| {
+        if !wall.enabled && wall.zone.is_none() && !wall.expanded {
+            return false;
+        }
+        *wall = WallState {
+            epoch: wall.epoch.wrapping_add(1),
+            ..WallState::default()
+        };
+        true
+    });
+    if changed {
+        apply_wall_cursor(app);
+    }
+}
+
+/// 클릭 투과를 지금 상태에 맞춘다. 늘 메인 스레드에서 그때의 상태를 읽어 적용하므로,
+/// 폴링 스레드의 판정과 명령이 엇갈려 도착해도 마지막에는 최신 상태가 남는다.
+fn apply_wall_cursor(app: &AppHandle) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let Some(window) = handle.get_webview_window(MAIN_WINDOW) else {
+            return;
+        };
+        let ignore = with_wall(&handle, |wall| wall.enabled && !wall.expanded);
+        let _ = window.set_ignore_cursor_events(ignore);
+    });
+}
+
+/// 창을 가까운 벽에 붙이고 그 벽을 돌려준다. 그사이 벽 붙임이 꺼졌거나 다시 켜졌으면(epoch) 손대지 않는다.
+fn snap_to_wall(window: &Window, epoch: u64) -> Option<wall::Side> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())?;
+    let area = monitor.work_area();
+    let area = wall::ScreenRect {
+        x: area.position.x,
+        y: area.position.y,
+        width: area.size.width as i32,
+        height: area.size.height as i32,
+    };
+    let outer = window.outer_position().ok()?;
+    let inner = window.inner_position().ok()?;
+    let size = window.inner_size().ok()?;
+    let visible = wall::ScreenRect {
+        x: inner.x,
+        y: inner.y,
+        width: size.width as i32,
+        height: size.height as i32,
+    };
+    let side = wall::pick_side(visible, area);
+    let target = wall::snap_position(outer, visible, area, side);
+    let side_changed = with_wall(window, |wall| {
+        if !wall.enabled || wall.epoch != epoch {
+            return None;
+        }
+        // 옮기기 전에 목표를 적어 둔다 — 이 이동으로 오는 Moved를 되먹임으로 알아보게
+        wall.target = Some(target);
+        let changed = wall.side.is_some_and(|previous| previous != side);
+        wall.side = Some(side);
+        Some(changed)
+    })?;
+    if outer != target {
+        let _ = window.set_position(target);
+    }
+    if side_changed {
+        if let Some(webview) = window.app_handle().get_webview_window(MAIN_WINDOW) {
+            let _ = webview.eval(wall::side_script(side));
+        }
+    }
+    Some(side)
+}
+
+/// 창이 움직였다 — 껍데기가 붙인 자리(되먹임)가 아니면 사용자가 옮긴 것으로 적는다.
+fn note_wall_move(window: &Window) {
+    let Ok(position) = window.outer_position() else {
+        return;
+    };
+    with_wall(window, |wall| {
+        if wall.enabled && wall.target != Some(position) {
+            wall.moved_at = Some(Instant::now());
+        }
+    });
+}
+
+fn spawn_wall_watcher(app: AppHandle) {
+    let spawned = std::thread::Builder::new()
+        .name("wall-watcher".into())
+        .spawn(move || {
+            let mut hover = wall::Hover::new();
+            let mut seen_epoch = 0;
+            let mut active = false;
+            loop {
+                std::thread::sleep(if active { WALL_POLL } else { WALL_IDLE_POLL });
+                active = wall_tick(&app, &mut hover, &mut seen_epoch);
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("벽 붙임 감시를 시작하지 못했습니다: {error}");
+    }
+}
+
+/// 폴링 한 번. 벽 붙임이 켜져 있고 창이 보이면 true(다음은 25ms 뒤), 아니면 false(250ms 뒤).
+fn wall_tick(app: &AppHandle, hover: &mut wall::Hover, seen_epoch: &mut u64) -> bool {
+    let (enabled, zone, epoch, moved_at) =
+        with_wall(app, |wall| (wall.enabled, wall.zone.clone(), wall.epoch, wall.moved_at));
+    if epoch != *seen_epoch {
+        hover.reset();
+        *seen_epoch = epoch;
+    }
+    if !enabled {
+        return false;
+    }
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return false;
+    };
+    // 트레이에 숨어 있으면 쉰다. 호버 판정은 그대로 두어, 다시 보일 때 커서가 밖이면 곧 접힌다.
+    if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+        return false;
+    }
+    let now = Instant::now();
+    if moved_at.is_some_and(|at| now.duration_since(at) >= WALL_SETTLE) {
+        settle_after_move(&window, epoch, now);
+    }
+    let (Ok(cursor), Ok(inner), Ok(scale)) = (
+        window.cursor_position(),
+        window.inner_position(),
+        window.scale_factor(),
+    ) else {
+        return true;
+    };
+    let Some(cursor) = wall::cursor_in_window(cursor, inner, scale) else {
+        return true;
+    };
+    if let Some(expanded) = hover.update(zone.as_ref(), cursor, now) {
+        set_wall_expanded(&window, epoch, expanded);
+    }
+    true
+}
+
+/// 옮긴 창이 멎었다 — 붙어 있던 자리와 다르면 다시 가까운 벽을 골라 붙인다.
+fn settle_after_move(window: &WebviewWindow, epoch: u64, now: Instant) {
+    let settled = with_wall(window, |wall| {
+        let due = wall.enabled
+            && wall.epoch == epoch
+            && wall.moved_at.is_some_and(|at| now.duration_since(at) >= WALL_SETTLE);
+        if !due {
+            return None;
+        }
+        wall.moved_at = None;
+        Some(wall.target)
+    });
+    let Some(target) = settled else {
+        return;
+    };
+    if window.outer_position().ok() != target {
+        snap_to_wall(&AsRef::<Webview>::as_ref(window).window(), epoch);
+    }
+}
+
+fn set_wall_expanded(window: &WebviewWindow, epoch: u64, expanded: bool) {
+    let current = with_wall(window, |wall| {
+        if !wall.enabled || wall.epoch != epoch {
+            return false;
+        }
+        wall.expanded = expanded;
+        true
+    });
+    if current {
+        apply_wall_cursor(window.app_handle());
+        let _ = window.eval(wall::hover_script(expanded));
+    }
 }
 
 // ── 트레이 ──────────────────────────────────────────────────────────────────

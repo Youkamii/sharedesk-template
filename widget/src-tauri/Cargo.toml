@@ -1,6 +1,6 @@
 [package]
 name = "sharedesk-widget"
-version = "0.1.0"
+version = "0.2.0"
 description = "ShareDesk desktop widget — a thin shell that opens a desk in widget mode"
 authors = ["Youkamii"]
 license = "MIT"
