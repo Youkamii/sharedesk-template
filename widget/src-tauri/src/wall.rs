@@ -113,10 +113,16 @@ pub fn snap_position(outer: PhysicalPosition<i32>, visible: ScreenRect, area: Sc
 /// 벽 붙임 동안은 창 그림자를 꺼서 안쪽이 틀 두께만큼 넓어진다(실측: 340×520 → 356×529).
 /// 창 크기를 적을 때는 그 두께를 빼서 그림자가 켜진 보통 창의 안쪽 크기로 돌려놓는다 —
 /// 그대로 적으면 다시 실행할 때마다 창이 틀 두께만큼 자란다.
-pub fn framed_inner_size(current: PhysicalSize<u32>, frame: PhysicalSize<u32>) -> PhysicalSize<u32> {
+/// 두께는 잰 때의 배율로 나눈 논리값으로 들고, 뺄 때 지금 배율을 곱한다 — 배율이 다른 모니터로
+/// 옮긴 뒤에 물리값을 그대로 빼면 어긋난다(150%에서 (534−16)/1.5 = 345.3, 적대 리뷰).
+pub fn framed_inner_size(current: PhysicalSize<u32>, frame: LogicalSize<f64>, scale_factor: f64) -> PhysicalSize<u32> {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return current;
+    }
+    let physical = |logical: f64| (logical * scale_factor).round().max(0.0) as u32;
     PhysicalSize::new(
-        current.width.saturating_sub(frame.width),
-        current.height.saturating_sub(frame.height),
+        current.width.saturating_sub(physical(frame.width)),
+        current.height.saturating_sub(physical(frame.height)),
     )
 }
 
@@ -287,11 +293,18 @@ mod tests {
 
     #[test]
     fn remembered_size_drops_the_frame_that_the_hidden_shadow_added() {
-        let frame = PhysicalSize::new(16, 9);
-        assert_eq!(framed_inner_size(PhysicalSize::new(356, 529), frame), PhysicalSize::new(340, 520));
-        // 그림자를 끄지 않았으면(틀 0) 그대로
-        assert_eq!(framed_inner_size(PhysicalSize::new(340, 520), PhysicalSize::new(0, 0)), PhysicalSize::new(340, 520));
-        assert_eq!(framed_inner_size(PhysicalSize::new(4, 4), frame), PhysicalSize::new(0, 0));
+        // 100%에서 잰 틀 16×9(논리)
+        let frame = LogicalSize::new(16.0, 9.0);
+        assert_eq!(framed_inner_size(PhysicalSize::new(356, 529), frame, 1.0), PhysicalSize::new(340, 520));
+        // 150% 모니터로 옮긴 뒤: 틀도 24×13.5(→14)로 커진다 → 510×780 = 논리 340×520
+        let at_150 = framed_inner_size(PhysicalSize::new(534, 794), frame, 1.5);
+        assert_eq!(at_150, PhysicalSize::new(510, 780));
+        assert_eq!(at_150.to_logical::<f64>(1.5), LogicalSize::new(340.0, 520.0));
+        // 그림자를 끄지 않았으면(틀 0) 그대로, 틀보다 작으면 0에서 멈춘다, 배율이 이상하면 손대지 않는다
+        let none = LogicalSize::new(0.0, 0.0);
+        assert_eq!(framed_inner_size(PhysicalSize::new(340, 520), none, 1.0), PhysicalSize::new(340, 520));
+        assert_eq!(framed_inner_size(PhysicalSize::new(4, 4), frame, 1.0), PhysicalSize::new(0, 0));
+        assert_eq!(framed_inner_size(PhysicalSize::new(356, 529), frame, 0.0), PhysicalSize::new(356, 529));
     }
 
     #[test]

@@ -86,8 +86,9 @@ struct WallState {
     /// 켜기·끄기·페이지 로드마다 올린다. 폴링 스레드는 번호가 바뀌면 호버 판정을 접힌 상태에서
     /// 새로 시작하고, 그사이 계산한 옛 판정은 버린다.
     epoch: u64,
-    /// 그림자를 끄기 전의 틀 두께(바깥 − 안쪽, 물리). 켜진 동안 창 크기를 적을 때 뺀다.
-    frame: PhysicalSize<u32>,
+    /// 그림자를 끄기 전의 틀 두께(바깥 − 안쪽, 잰 때의 배율로 나눈 논리값). 켜진 동안 창 크기를
+    /// 적을 때 지금 배율을 곱해 뺀다.
+    frame: LogicalSize<f64>,
 }
 
 impl WidgetState {
@@ -435,8 +436,8 @@ fn remember_window_rect(app: &AppHandle) {
         return;
     }
     // 벽 붙임 중엔 그림자를 꺼서 넓어진 틀 두께를 빼고 적는다 (다시 실행할 때 자라지 않게)
-    let frame = with_wall(app, |wall| if wall.enabled { wall.frame } else { PhysicalSize::new(0, 0) });
-    let size = wall::framed_inner_size(size, frame);
+    let frame = with_wall(app, |wall| if wall.enabled { wall.frame } else { LogicalSize::new(0.0, 0.0) });
+    let size = wall::framed_inner_size(size, frame, scale);
     let logical = size.to_logical::<f64>(scale);
     let rect = settings::WindowRect {
         x: pos.x,
@@ -686,20 +687,21 @@ fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallStat
 #[tauri::command]
 fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result<Option<wall::Side>, String> {
     require_desk_page(&window)?;
-    // 그림자를 끄기 전에 틀 두께를 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
-    let measured = match (window.outer_size(), window.inner_size()) {
-        (Ok(outer), Ok(inner)) => PhysicalSize::new(
+    // 그림자를 끄기 전에 틀 두께를 논리값으로 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
+    let measured = match (window.outer_size(), window.inner_size(), window.scale_factor()) {
+        (Ok(outer), Ok(inner), Ok(scale)) if scale > 0.0 => PhysicalSize::new(
             outer.width.saturating_sub(inner.width),
             outer.height.saturating_sub(inner.height),
-        ),
-        _ => PhysicalSize::new(0, 0),
+        )
+        .to_logical::<f64>(scale),
+        _ => LogicalSize::new(0.0, 0.0),
     };
     let epoch = with_wall(&app, |wall| {
         let frame = if wall.enabled { wall.frame } else { measured };
         *wall = WallState {
             enabled,
             epoch: wall.epoch.wrapping_add(1),
-            frame: if enabled { frame } else { PhysicalSize::new(0, 0) },
+            frame: if enabled { frame } else { LogicalSize::new(0.0, 0.0) },
             ..WallState::default()
         };
         wall.epoch
