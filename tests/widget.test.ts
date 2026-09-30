@@ -6,6 +6,7 @@ import {
   enableWidgetWall,
   hideWidgetWindow,
   installStrayDropGuard,
+  isUnsupportedCommandError,
   isWidgetHidden,
   parseWallSide,
   parseWidgetMode,
@@ -262,7 +263,7 @@ test("wall hold keeps the widget open for menus, uploads and dragged files (#28)
 
 test("wall commands go through the shell IPC and an old shell falls back to floating (#28)", async () => {
   // 껍데기가 없으면(브라우저) 켤 수 없고, 끄기·영역 보고는 조용히 넘어간다
-  assert.equal(await enableWidgetWall({}), null);
+  assert.deepEqual(await enableWidgetWall({}), { reason: "unsupported" });
   await assert.doesNotReject(disableWidgetWall({}));
   await assert.doesNotReject(reportWallZone({}, null));
 
@@ -275,7 +276,7 @@ test("wall commands go through the shell IPC and an old shell falls back to floa
       },
     },
   });
-  assert.equal(await enableWidgetWall(shell("right")), "right");
+  assert.deepEqual(await enableWidgetWall(shell("right")), { side: "right" });
   await disableWidgetWall(shell(null));
   await reportWallZone(shell(null), { rect: [322, 220, 22, 80], hold: true });
   assert.deepEqual(calls, [
@@ -283,20 +284,48 @@ test("wall commands go through the shell IPC and an old shell falls back to floa
     ["set_wall_mode", { enabled: false }],
     ["set_wall_zone", { zone: { rect: [322, 220, 22, 80], hold: true } }],
   ]);
-  // 엉뚱한 답도 켜지지 않은 것으로 본다
-  assert.equal(await enableWidgetWall(shell("middle")), null);
+  // 엉뚱한 답은 붙이지 못한 것으로 본다
+  assert.deepEqual(await enableWidgetWall(shell("middle")), { reason: "failed" });
 
-  // 옛 껍데기: 명령이 없어 invoke가 거부된다 → null(화면은 떠 있는 위젯 유지 + 안내)
-  const oldShell = {
+  // Tauri는 거절 사유를 문자열로 준다 — 없는·막힌 명령이면 옛 껍데기(업데이트 안내)
+  const rejecting = (reason: unknown) => ({
     __TAURI_INTERNALS__: {
-      invoke: async (command: string) => {
-        throw new Error(`Command ${command} not allowed by ACL`);
+      invoke: async () => {
+        throw reason;
       },
     },
-  };
-  assert.equal(await enableWidgetWall(oldShell), null);
+  });
+  assert.deepEqual(await enableWidgetWall(rejecting("Command set_wall_mode not allowed by ACL")), {
+    reason: "unsupported",
+  });
+  assert.deepEqual(await enableWidgetWall(rejecting("Command set_wall_mode not found")), {
+    reason: "unsupported",
+  });
+  // 새 껍데기가 붙이지 못했거나 데스크 페이지가 아니면 실패(표식 유지)
+  assert.deepEqual(await enableWidgetWall(rejecting("창을 벽에 붙이지 못했습니다")), { reason: "failed" });
+  assert.deepEqual(
+    await enableWidgetWall(rejecting("데스크 페이지에서만 벽 붙임을 쓸 수 있습니다")),
+    { reason: "failed" },
+  );
+  const oldShell = rejecting("Command set_wall_mode not allowed by ACL");
   await assert.doesNotReject(disableWidgetWall(oldShell));
   await assert.doesNotReject(reportWallZone(oldShell, { rect: [0, 0, 1, 1], hold: false }));
+});
+
+test("old-shell detection matches Tauri 2's missing/denied command rejections only (#28)", () => {
+  // tauri 2.12 src/webview/mod.rs · src/ipc/authority.rs 의 실제 문구
+  for (const message of [
+    "Command set_wall_mode not found",
+    "Command set_wall_mode not allowed by ACL",
+    "set_wall_mode not allowed. Command not found",
+    "set_wall_mode not allowed on origin [http://localhost:3100/files]. Please create a capability",
+  ]) {
+    assert.equal(isUnsupportedCommandError(message), true, message);
+    assert.equal(isUnsupportedCommandError(new Error(message)), true, message);
+  }
+  for (const message of ["창을 벽에 붙이지 못했습니다", "데스크 페이지에서만 벽 붙임을 쓸 수 있습니다", "", null]) {
+    assert.equal(isUnsupportedCommandError(message), false, String(message));
+  }
 });
 
 test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴다 (#28)", async () => {
@@ -324,11 +353,12 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
   assert.match(view, /void enableWidgetWall\(window\)/);
   assert.match(view, /void disableWidgetWall\(window\)/);
   assert.match(view, /void reportWallZone\(window, \{\s+rect: wallZoneRect\(wallExpanded,/);
-  // 옛 껍데기면 표식을 끄고 업데이트를 안내한다
+  // 옛 껍데기면 표식을 끄고 업데이트를 안내하고, 붙이지 못했으면 표식은 두고 알리기만 한다
   assert.match(
     view,
-    /writeWidgetWall\(window\.localStorage, false\);[\s\S]{0,120}t\("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"\)/,
+    /result\.reason === "unsupported"[\s\S]{0,200}writeWidgetWall\(window\.localStorage, false\)[\s\S]{0,160}t\("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"\)/,
   );
+  assert.match(view, /showNotice\(t\("벽에 붙이지 못했습니다"\)\)/);
 
   // 손잡이: 파일을 끌어와 대면 붙잡아 달라고 한다(dragenter) — 펼침은 껍데기가 정한다
   const handle = view.match(/className=\{styles\.wallHandle\}[\s\S]*?<\/div>/)?.[0];

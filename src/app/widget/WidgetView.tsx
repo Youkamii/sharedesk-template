@@ -525,16 +525,21 @@ export default function WidgetView({
     };
     document.addEventListener(WIDGET_WALL_HOVER_EVENT, onHover);
     document.addEventListener(WIDGET_WALL_SIDE_EVENT, onSide);
-    void enableWidgetWall(window).then((side) => {
+    void enableWidgetWall(window).then((result) => {
       if (!alive) return;
-      if (side) {
-        setWall({ side, expanded: false });
+      if ("side" in result) {
+        setWall({ side: result.side, expanded: false });
         return;
       }
-      // 옛 껍데기(명령 없음): 떠 있는 위젯 그대로 두고 업데이트를 안내한다
-      writeWidgetWall(window.localStorage, false);
-      window.dispatchEvent(new Event(WIDGET_WALL_EVENT));
-      showNotice(t("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"));
+      if (result.reason === "unsupported") {
+        // 옛 껍데기(명령 없음): 표식을 끄고 떠 있는 위젯 그대로 두며 업데이트를 안내한다
+        writeWidgetWall(window.localStorage, false);
+        window.dispatchEvent(new Event(WIDGET_WALL_EVENT));
+        showNotice(t("위젯을 업데이트하면 벽 붙임을 쓸 수 있습니다"));
+        return;
+      }
+      // 껍데기가 붙이지 못했다: 표식은 두고(다음 로드에 다시 시도) 알리기만 한다
+      showNotice(t("벽에 붙이지 못했습니다"));
     });
     return () => {
       alive = false;

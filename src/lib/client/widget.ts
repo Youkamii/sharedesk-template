@@ -210,15 +210,30 @@ export function wallHold(state: {
   return state.menuOpen || state.uploading || state.fileOver;
 }
 
-// 껍데기에 벽 붙임을 켜 달라고 한다. 붙인 벽을 돌려주고, 껍데기가 없거나 옛 껍데기라
-// 명령이 거부되면 null — 화면은 떠 있는 위젯 그대로 두고 업데이트를 안내한다.
-export async function enableWidgetWall(host: unknown): Promise<WallSide | null> {
+// 켜 달라고 한 결과: 붙인 벽, 또는 못 쓰는 까닭. "unsupported"는 껍데기가 없거나 옛 껍데기라
+// 명령이 없는 것(업데이트 안내), "failed"는 새 껍데기가 붙이지 못한 것(표식은 두고 다음 로드에 다시).
+export type WallEnableResult = { side: WallSide } | { reason: "unsupported" | "failed" };
+
+// Tauri 2가 없는 명령·막힌 명령을 거절할 때의 문구 (tauri 2.12 src/webview/mod.rs·src/ipc/authority.rs):
+// "Command set_wall_mode not found", 릴리스 "Command set_wall_mode not allowed by ACL",
+// 디버그 "set_wall_mode not allowed. Command not found" · "set_wall_mode not allowed on origin [...]".
+// 껍데기 자신의 실패(한국어 Err 문구)는 여기에 걸리지 않는다.
+const UNSUPPORTED_COMMAND = /\bnot (?:found|allowed)\b/i;
+
+export function isUnsupportedCommandError(error: unknown): boolean {
+  const text =
+    typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
+  return UNSUPPORTED_COMMAND.test(text);
+}
+
+export async function enableWidgetWall(host: unknown): Promise<WallEnableResult> {
   const internals = tauriInternals(host);
-  if (!internals) return null;
+  if (!internals) return { reason: "unsupported" };
   try {
-    return parseWallSide(await internals.invoke("set_wall_mode", { enabled: true }));
-  } catch {
-    return null;
+    const side = parseWallSide(await internals.invoke("set_wall_mode", { enabled: true }));
+    return side ? { side } : { reason: "failed" };
+  } catch (error) {
+    return { reason: isUnsupportedCommandError(error) ? "unsupported" : "failed" };
   }
 }
 
