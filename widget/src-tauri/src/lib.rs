@@ -496,12 +496,17 @@ fn toggle_main_window(app: &AppHandle) {
     }
 }
 
+/// 주소가 저장된 데스크와 같은 원점(스킴+호스트+포트)인가. 데스크 주소가 없으면 늘 거짓.
+fn is_desk_origin(state: &WidgetState, url: &Url) -> bool {
+    state.desk_origin().as_deref() == Some(url.origin().ascii_serialization().as_str())
+}
+
 /// 기본 브라우저로 여는 조건: http(s), 저장된 데스크와 같은 원점, 직전 열기에서 1초 이상 지남.
 fn may_open_external(state: &WidgetState, url: &Url, now: Instant) -> bool {
     if !matches!(url.scheme(), "http" | "https") {
         return false;
     }
-    if state.desk_origin().as_deref() != Some(url.origin().ascii_serialization().as_str()) {
+    if !is_desk_origin(state, url) {
         return false;
     }
     let mut last = state.last_external_open.lock().expect("open lock");
@@ -578,6 +583,31 @@ mod tests {
         none.settings.lock().unwrap().desk_url = None;
         assert!(!may_open_external(&none, &ok, now + Duration::from_secs(20)));
     }
+
+    #[test]
+    fn wall_commands_answer_only_the_desk_page() {
+        let state = state_with_desk("https://desk.example.com/sub");
+        for good in [
+            "https://desk.example.com/files",
+            "https://desk.example.com/team/files?x=1",
+            "https://desk.example.com:443/",
+        ] {
+            assert!(is_desk_origin(&state, &Url::parse(good).unwrap()), "{good}");
+        }
+        for bad in [
+            "http://desk.example.com/files",
+            "https://desk.example.com:8443/files",
+            "https://attacker.example/files",
+            "https://desk.example.com.attacker.example/",
+            "http://tauri.localhost/index.html",
+            "tauri://localhost/index.html",
+        ] {
+            assert!(!is_desk_origin(&state, &Url::parse(bad).unwrap()), "{bad}");
+        }
+        let none = state_with_desk("");
+        none.settings.lock().unwrap().desk_url = None;
+        assert!(!is_desk_origin(&none, &Url::parse("https://desk.example.com/").unwrap()));
+    }
 }
 
 // ── 첫 실행 화면(로컬 페이지)이 부르는 명령 ────────────────────────────────
@@ -633,6 +663,18 @@ fn hide_widget(app: AppHandle) {
 // 동기 명령은 메인 스레드에서 돌고, 폴링 스레드의 창 조회는 메인 스레드의 답을 기다린다 —
 // 그래서 폴링 스레드는 wall 잠금을 쥔 채 창을 조회하지 않는다(교착 방지).
 
+/// 벽 붙임 명령은 저장된 데스크 원점의 페이지만 부를 수 있다. 원격 capability가 데스크 주소를 미리
+/// 알 수 없어 모든 http(s) 원점에 열려 있으므로, 명령 안에서 호출 웹뷰의 지금 주소로 다시 거른다
+/// (may_open_external과 같은 기준).
+fn require_desk_page(window: &WebviewWindow) -> Result<(), String> {
+    let page = window.url().map_err(|error| error.to_string())?;
+    if is_desk_origin(&window.state::<WidgetState>(), &page) {
+        Ok(())
+    } else {
+        Err("데스크 페이지에서만 벽 붙임을 쓸 수 있습니다".to_string())
+    }
+}
+
 /// wall 잠금 안에서 f를 부른다. 창 조회·이동은 이 안에서 하지 않는다(교착 방지).
 fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallState) -> T) -> T {
     let state = manager.state::<WidgetState>();
@@ -643,6 +685,7 @@ fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallStat
 /// 켜면 가까운 벽에 붙이고 그 벽을 돌려준다. 끄면 영역·투과를 풀고 창은 그 자리에 둔다.
 #[tauri::command]
 fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result<Option<wall::Side>, String> {
+    require_desk_page(&window)?;
     // 그림자를 끄기 전에 틀 두께를 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
     let measured = match (window.outer_size(), window.inner_size()) {
         (Ok(outer), Ok(inner)) => PhysicalSize::new(
@@ -676,7 +719,8 @@ fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result
 }
 
 #[tauri::command]
-fn set_wall_zone(window: WebviewWindow, zone: Option<wall::Zone>) {
+fn set_wall_zone(window: WebviewWindow, zone: Option<wall::Zone>) -> Result<(), String> {
+    require_desk_page(&window)?;
     // 페이지가 준 사각형을 그대로 믿지 않는다 — 창 안쪽으로 자르고, 들어갈 수 없는 영역이면 붙잡는다
     let viewport = match (window.inner_size(), window.scale_factor()) {
         (Ok(size), Ok(scale)) if scale > 0.0 => size.to_logical::<f64>(scale),
@@ -689,6 +733,7 @@ fn set_wall_zone(window: WebviewWindow, zone: Option<wall::Zone>) {
             wall.zone = zone;
         }
     });
+    Ok(())
 }
 
 /// 벽 붙임을 모두 푼다 (페이지 로드·붙이기 실패)
