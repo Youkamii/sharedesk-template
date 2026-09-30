@@ -4,7 +4,8 @@
 //! 전체를 벽 너머로 밀어내 손잡이만 남긴다. 창 자체는 움직이지 않으니 떨림이 없고, 비어 보이는
 //! 나머지 자리는 커서 무시(set_ignore_cursor_events)로 뒤 창에 클릭을 넘긴다. 투과 중인 웹뷰는
 //! mouseenter를 받지 못하므로 진입·이탈 판정은 껍데기의 폴링 스레드가 맡는다(lib.rs).
-//! 스위처 Type4(#151)의 EdgeHover·pickEdgeSide·edgeSnapPosition을 옮겨 왔다.
+//! 스위처 Type4(#151)의 EdgeHover·pickEdgeSide·edgeSnapPosition·primary_button_down을 옮겨 왔다.
+//! OS에 묻는 것은 마우스 주 버튼 상태(primary_button_down) 하나뿐이고 나머지는 상태 없는 계산이다.
 
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,9 @@ use tauri::{LogicalPosition, PhysicalPosition, PhysicalSize};
 /// 손잡이에서 판으로 옮겨 타는 순간(영역이 손잡이→창 전체로 바뀌는 사이)과
 /// 가장자리의 미세한 떨림을 삼키는 이탈 유예.
 pub const LEAVE_GRACE: Duration = Duration::from_millis(450);
+
+/// 머리띠로 옮긴 창은 마지막 이동 뒤 이만큼 멎고 버튼을 놓았으면 가까운 벽에 다시 붙인다.
+pub const SETTLE: Duration = Duration::from_millis(300);
 
 /// 페이지(src/lib/client/widget.ts)의 WIDGET_WALL_HOVER_EVENT·WIDGET_WALL_SIDE_EVENT와 같은 이름.
 pub const HOVER_EVENT: &str = "sharedesk:wall-hover";
@@ -87,6 +91,38 @@ pub fn framed_inner_size(current: PhysicalSize<u32>, frame: PhysicalSize<u32>) -
         current.width.saturating_sub(frame.width),
         current.height.saturating_sub(frame.height),
     )
+}
+
+/// 옮긴 창을 지금 다시 붙일 때인가: 마지막 이동 뒤 SETTLE이 지났고 주 버튼을 놓았을 때.
+/// 머리띠를 잡은 채 멈추면 OS의 창 이동 루프 안에서도 폴링이 돌기 때문에, 버튼을 보지 않으면
+/// 놓지도 않은 창이 벽으로 튄다(적대 리뷰).
+pub fn settle_due(moved_at: Instant, now: Instant, button_down: bool) -> bool {
+    !button_down && now.duration_since(moved_at) >= SETTLE
+}
+
+/// 마우스 주 버튼이 지금 눌려 있는가 — 창 이동 루프 안에서는 웹뷰가 이벤트를 받지 못하므로
+/// 시스템에 직접 묻는다. Windows·macOS 외에는 "안 눌림"으로 본다(스위처 primary_button_down).
+#[allow(unreachable_code)]
+pub fn primary_button_down() -> bool {
+    #[cfg(windows)]
+    {
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetAsyncKeyState(v_key: i32) -> i16;
+        }
+        const VK_LBUTTON: i32 = 0x01;
+        return (unsafe { GetAsyncKeyState(VK_LBUTTON) } as u16 & 0x8000) != 0;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            // 상태 조회라 입력 모니터링 권한이 필요 없다 (state_id 0 = combined session, button 0 = 왼쪽)
+            fn CGEventSourceButtonState(state_id: i32, button: u32) -> bool;
+        }
+        return unsafe { CGEventSourceButtonState(0, 0) };
+    }
+    false
 }
 
 /// 화면 물리 좌표의 커서를 창 안쪽 논리 좌표로 바꾼다 (페이지가 보고한 영역과 같은 기준).
@@ -229,6 +265,17 @@ mod tests {
         // 그림자를 끄지 않았으면(틀 0) 그대로
         assert_eq!(framed_inner_size(PhysicalSize::new(340, 520), PhysicalSize::new(0, 0)), PhysicalSize::new(340, 520));
         assert_eq!(framed_inner_size(PhysicalSize::new(4, 4), frame), PhysicalSize::new(0, 0));
+    }
+
+    #[test]
+    fn resnap_waits_for_the_pointer_to_let_go() {
+        let t0 = Instant::now();
+        // 멈춘 지 오래여도 버튼을 쥐고 있으면(머리띠를 잡은 채 정지) 붙이지 않는다
+        assert!(!settle_due(t0, t0 + Duration::from_secs(5), true));
+        // 놓았고 SETTLE이 지났으면 붙인다
+        assert!(settle_due(t0, t0 + SETTLE, false));
+        // 놓았어도 방금 움직였으면 아직
+        assert!(!settle_due(t0, t0 + SETTLE - Duration::from_millis(1), false));
     }
 
     #[test]

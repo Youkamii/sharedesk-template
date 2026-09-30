@@ -50,8 +50,6 @@ const EXTERNAL_OPEN_MIN_GAP: Duration = Duration::from_secs(1);
 // 벽 붙임: 켜져 있고 창이 보이면 25ms마다 커서를 보고, 아니면 250ms마다 표식만 본다
 const WALL_POLL: Duration = Duration::from_millis(25);
 const WALL_IDLE_POLL: Duration = Duration::from_millis(250);
-// 머리띠로 옮긴 창은 마지막 이동 뒤 이만큼 멎으면 가까운 벽에 다시 붙인다
-const WALL_SETTLE: Duration = Duration::from_millis(300);
 
 pub struct Profile {
     pub name: String,
@@ -83,7 +81,7 @@ struct WallState {
     expanded: bool,
     /// 껍데기가 마지막으로 붙인 바깥 좌표. 이 좌표로 오는 Moved는 자기 되먹임이다.
     target: Option<PhysicalPosition<i32>>,
-    /// 사용자가 창을 옮긴 마지막 시각 — WALL_SETTLE이 지나면 폴링 스레드가 다시 붙인다
+    /// 사용자가 창을 옮긴 마지막 시각 — wall::SETTLE이 지나고 버튼을 놓으면 폴링 스레드가 다시 붙인다
     moved_at: Option<Instant>,
     /// 켜기·끄기·페이지 로드마다 올린다. 폴링 스레드는 번호가 바뀌면 호버 판정을 접힌 상태에서
     /// 새로 시작하고, 그사이 계산한 옛 판정은 버린다.
@@ -812,8 +810,9 @@ fn wall_tick(app: &AppHandle, hover: &mut wall::Hover, seen_epoch: &mut u64) -> 
         return false;
     }
     let now = Instant::now();
-    if moved_at.is_some_and(|at| now.duration_since(at) >= WALL_SETTLE) {
-        settle_after_move(&window, epoch, now);
+    // 머리띠를 쥔 채 멈춘 동안은 미룬다 — 버튼을 놓은 뒤에만 붙인다
+    if let Some(at) = moved_at.filter(|&at| wall::settle_due(at, now, wall::primary_button_down())) {
+        settle_after_move(&window, epoch, at);
     }
     let (Ok(cursor), Ok(inner), Ok(scale)) = (
         window.cursor_position(),
@@ -832,12 +831,10 @@ fn wall_tick(app: &AppHandle, hover: &mut wall::Hover, seen_epoch: &mut u64) -> 
 }
 
 /// 옮긴 창이 멎었다 — 붙어 있던 자리와 다르면 다시 가까운 벽을 골라 붙인다.
-fn settle_after_move(window: &WebviewWindow, epoch: u64, now: Instant) {
+/// `seen_move`는 판정에 쓴 이동 시각이다. 그사이 또 옮겼으면 다음 차례에 다시 본다.
+fn settle_after_move(window: &WebviewWindow, epoch: u64, seen_move: Instant) {
     let settled = with_wall(window, |wall| {
-        let due = wall.enabled
-            && wall.epoch == epoch
-            && wall.moved_at.is_some_and(|at| now.duration_since(at) >= WALL_SETTLE);
-        if !due {
+        if !wall.enabled || wall.epoch != epoch || wall.moved_at != Some(seen_move) {
             return None;
         }
         wall.moved_at = None;
