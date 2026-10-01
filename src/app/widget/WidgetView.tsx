@@ -359,11 +359,12 @@ export default function WidgetView({
   // ── 끌어내기 (#29) ───────────────────────────────────────────────────
   // 파일 아이콘을 탐색기 폴더에 놓으면 그 폴더에 받아진다(Windows). 놓는 순간 탐색기가 내려받기
   // 주소를 세션 쿠키와 함께 받아 간다. 드래그 이미지는 기본(아이콘 버튼 모양) 그대로 둔다.
+  // DownloadURL만 싣는다 — text/plain까지 실으면 맥(WKWebView)은 DownloadURL은 버리고 글만 남겨
+  // 파인더에 .textClipping 파일이 생길 수 있다. 탐색기 받기에는 DownloadURL이면 된다.
   function onIconDragStart(event: DragEvent<HTMLElement>, entry: Entry) {
     const data = widgetDragOutData(entry, window.location.origin, apiPath);
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, data.downloadUrl);
-    event.dataTransfer.setData("text/plain", data.text);
     setDragOutId(entry.id);
   }
 

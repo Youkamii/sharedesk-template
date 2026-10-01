@@ -155,8 +155,6 @@ const SAFE_MIME = /^[\w.+-]+\/[\w.+-]+$/;
 export interface WidgetDragOutData {
   // dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, …)에 싣는 값
   downloadUrl: string;
-  // dataTransfer.setData("text/plain", …) — 글 입력란에 놓으면 파일 이름이 들어간다
-  text: string;
 }
 
 // downloadPath는 화면에서는 apiPath — 스페이스 안이면 /<slug>/api/... 로 프리픽스를 붙인다.
@@ -169,7 +167,7 @@ export function widgetDragOutData(
   const mime =
     entry.mimeType && SAFE_MIME.test(entry.mimeType) ? entry.mimeType : DRAG_OUT_FALLBACK_MIME;
   const url = origin + downloadPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
-  return { downloadUrl: `${mime}:${name.replace(/:/g, "_")}:${url}`, text: name };
+  return { downloadUrl: `${mime}:${name.replace(/:/g, "_")}:${url}` };
 }
 
 // ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────

@@ -403,12 +403,11 @@ test("drag-out data is mime:name:absolute download url for Chromium's DownloadUR
   );
   assert.deepEqual(memo, {
     downloadUrl: "text/plain:memo.txt:http://localhost:3100/api/drive/download?id=a%20b%2Fc%3Fd",
-    text: "memo.txt",
   });
   // 주소는 그대로 되읽혀 같은 id를 가리킨다
   assert.equal(parseDownloadUrl(memo.downloadUrl).url.searchParams.get("id"), "a b/c?d");
 
-  // 이름 안의 콜론은 구분자와 섞이지 않게 "_"로 — 글로 놓을 때(text/plain)는 원래 이름
+  // 이름 안의 콜론은 구분자와 섞이지 않게 "_"로
   const colon = widgetDragOutData(
     { id: "x", name: "회의:10:30.txt", mimeType: "text/plain" },
     origin,
@@ -419,7 +418,6 @@ test("drag-out data is mime:name:absolute download url for Chromium's DownloadUR
     name: "회의_10_30.txt",
     url: new URL("http://localhost:3100/api/drive/download?id=x"),
   });
-  assert.equal(colon.text, "회의:10:30.txt");
 
   // mime이 없거나 비면 application/octet-stream
   for (const mimeType of [null, ""]) {
@@ -485,10 +483,12 @@ test("배선: 끌어내기 — 서랍의 파일 아이콘만 끌리고, 끄는 �
   );
   assert.match(view, /onDragEnd=\{entry\.isFolder \? undefined : \(\) => setDragOutId\(null\)\}/);
 
-  // dragstart: 복사로, DownloadURL(절대 주소 — 스페이스 프리픽스는 apiPath)과 파일 이름을 싣는다
+  // dragstart: 복사로, DownloadURL(절대 주소 — 스페이스 프리픽스는 apiPath)만 싣는다.
+  // text/plain을 실으면 맥에서 .textClipping 파일이 생길 수 있다
+  assert.doesNotMatch(view, /setData\("text\/plain"/);
   assert.match(
     view,
-    /function onIconDragStart\(event: DragEvent<HTMLElement>, entry: Entry\) \{\s*const data = widgetDragOutData\(entry, window\.location\.origin, apiPath\);\s*event\.dataTransfer\.effectAllowed = "copy";\s*event\.dataTransfer\.setData\(WIDGET_DRAG_OUT_TYPE, data\.downloadUrl\);\s*event\.dataTransfer\.setData\("text\/plain", data\.text\);\s*setDragOutId\(entry\.id\);/,
+    /function onIconDragStart\(event: DragEvent<HTMLElement>, entry: Entry\) \{\s*const data = widgetDragOutData\(entry, window\.location\.origin, apiPath\);\s*event\.dataTransfer\.effectAllowed = "copy";\s*event\.dataTransfer\.setData\(WIDGET_DRAG_OUT_TYPE, data\.downloadUrl\);\s*setDragOutId\(entry\.id\);/,
   );
 
   // 끄는 중인지는 끌던 id가 지금 서랍 목록에 있는지로 판정한다 — 끄는 도중 아이콘이 사라져
