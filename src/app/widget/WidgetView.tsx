@@ -39,11 +39,13 @@ import {
   sortWidgetEntries,
   type WallSide,
   wallZoneRect,
+  WIDGET_DRAG_OUT_TYPE,
   WIDGET_LIST_POLL_MS,
   WIDGET_PRESENCE_MS,
   WIDGET_VISIBILITY_EVENT,
   WIDGET_WALL_HOVER_EVENT,
   WIDGET_WALL_SIDE_EVENT,
+  widgetDragOutData,
   widgetPollInterval,
   type WidgetMode,
   writeWidgetMode,
@@ -174,6 +176,8 @@ export default function WidgetView({
     () => new Map(),
   );
   const [dragOver, setDragOver] = useState(false);
+  // 서랍의 파일 아이콘을 창 밖(탐색기)으로 끌고 있는 중 (#29)
+  const [draggingOut, setDraggingOut] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [notice, showNotice] = useAutoDismissNotice();
@@ -352,6 +356,17 @@ export default function WidgetView({
     if (files.length) void uploadFiles(files);
   }
 
+  // ── 끌어내기 (#29) ───────────────────────────────────────────────────
+  // 파일 아이콘을 탐색기 폴더에 놓으면 그 폴더에 받아진다(Windows). 놓는 순간 탐색기가 내려받기
+  // 주소를 세션 쿠키와 함께 받아 간다. 드래그 이미지는 기본(아이콘 버튼 모양) 그대로 둔다.
+  function onIconDragStart(event: DragEvent<HTMLElement>, entry: Entry) {
+    const data = widgetDragOutData(entry, window.location.origin, apiPath);
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, data.downloadUrl);
+    event.dataTransfer.setData("text/plain", data.text);
+    setDraggingOut(true);
+  }
+
   // ── 열기·내려받기·링크 ─────────────────────────────────────────────
 
   function moveTo(next: Crumb[]) {
@@ -499,8 +514,9 @@ export default function WidgetView({
   const wallActive = wallState !== null;
   const wallSide = wallState?.side ?? null;
   const wallExpanded = wallState?.expanded ?? false;
-  // 커서가 떠나도 접지 않는 때: 우클릭 메뉴가 열려 있거나, 올리는 중이거나, 파일을 서랍 위로 끌고 있을 때
-  const hold = contextMenu !== null || uploading || dragOver;
+  // 커서가 떠나도 접지 않는 때: 우클릭 메뉴가 열려 있거나, 올리는 중이거나, 파일을 서랍 위로 끌고 있거나,
+  // 서랍의 파일을 창 밖으로 끌어내는 중일 때(#29 — 끌고 나가는 동안 판이 접히지 않게)
+  const hold = contextMenu !== null || uploading || dragOver || draggingOut;
 
   // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)
   useEffect(() => {
@@ -677,6 +693,9 @@ export default function WidgetView({
                 aria-selected={selectedId === entry.id}
                 className={`${styles.icon} ${selectedId === entry.id ? styles.iconSelected : ""}`}
                 title={entry.name}
+                draggable={!entry.isFolder}
+                onDragStart={entry.isFolder ? undefined : (event) => onIconDragStart(event, entry)}
+                onDragEnd={entry.isFolder ? undefined : () => setDraggingOut(false)}
                 onClick={() => setSelectedId(entry.id)}
                 onDoubleClick={() => activate(entry)}
                 onContextMenu={(event) => openContextMenu(event, entry)}

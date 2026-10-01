@@ -1,6 +1,7 @@
 // 위젯 화면의 순수 함수 — 정렬·최근 파일·모드 저장·주기 확인 간격.
 // 화면 컴포넌트(src/app/widget/WidgetView.tsx)에서 상태 없이 쓰이고 tests/widget.test.ts가 고정한다.
 
+import { downloadFileName } from "@/lib/client/file-activation";
 import type { Entry } from "@/lib/storage/types";
 
 export type WidgetMode = "desk" | "window";
@@ -136,6 +137,35 @@ export function installStrayDropGuard(target: DropGuardTarget): () => void {
     target.removeEventListener("dragover", onDrag);
     target.removeEventListener("drop", onDrop);
   };
+}
+
+// ── 끌어내기 (#29) ──────────────────────────────────────────────────────────
+// 서랍의 파일 아이콘을 탐색기 폴더로 끌어 놓으면 그 폴더에 받아진다. Chromium(WebView2)의
+// DownloadURL 끌기 값은 "<mime>:<파일 이름>:<절대 주소>"이고 앞의 두 콜론이 구분자라, 이름 안의
+// 콜론은 "_"로 바꾼다. 놓는 순간 탐색기가 이 주소를 세션 쿠키와 함께 받아 간다(2026-10-01 실측).
+// 이름은 우클릭 메뉴의 내려받기와 같은 규칙(downloadFileName — 구글 문서는 PDF로 받아지므로 .pdf).
+// 맥(WKWebView)은 DownloadURL을 모른다 — 끌어도 조용히 아무 일 없다.
+
+export const WIDGET_DRAG_OUT_TYPE = "DownloadURL";
+const DRAG_OUT_FALLBACK_MIME = "application/octet-stream";
+
+export interface WidgetDragOutData {
+  // dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, …)에 싣는 값
+  downloadUrl: string;
+  // dataTransfer.setData("text/plain", …) — 글 입력란에 놓으면 파일 이름이 들어간다
+  text: string;
+}
+
+// downloadPath는 화면에서는 apiPath — 스페이스 안이면 /<slug>/api/... 로 프리픽스를 붙인다.
+export function widgetDragOutData(
+  entry: Pick<Entry, "id" | "name" | "mimeType">,
+  origin: string,
+  downloadPath: (path: string) => string,
+): WidgetDragOutData {
+  const name = downloadFileName(entry);
+  const mime = entry.mimeType || DRAG_OUT_FALLBACK_MIME;
+  const url = origin + downloadPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
+  return { downloadUrl: `${mime}:${name.replace(/:/g, "_")}:${url}`, text: name };
 }
 
 // ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────
