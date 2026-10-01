@@ -176,8 +176,8 @@ export default function WidgetView({
     () => new Map(),
   );
   const [dragOver, setDragOver] = useState(false);
-  // 서랍의 파일 아이콘을 창 밖(탐색기)으로 끌고 있는 중 (#29)
-  const [draggingOut, setDraggingOut] = useState(false);
+  // 서랍에서 창 밖(탐색기)으로 끌고 있는 파일의 id (#29). 끄는 중인지는 아래 draggingOut이 목록에서 파생한다.
+  const [dragOutId, setDragOutId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [notice, showNotice] = useAutoDismissNotice();
@@ -364,7 +364,7 @@ export default function WidgetView({
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, data.downloadUrl);
     event.dataTransfer.setData("text/plain", data.text);
-    setDraggingOut(true);
+    setDragOutId(entry.id);
   }
 
   // ── 열기·내려받기·링크 ─────────────────────────────────────────────
@@ -516,6 +516,11 @@ export default function WidgetView({
   const wallExpanded = wallState?.expanded ?? false;
   // 커서가 떠나도 접지 않는 때: 우클릭 메뉴가 열려 있거나, 올리는 중이거나, 파일을 서랍 위로 끌고 있거나,
   // 서랍의 파일을 창 밖으로 끌어내는 중일 때(#29 — 끌고 나가는 동안 판이 접히지 않게)
+  // 끄는 도중 그 아이콘이 사라지면(주기 갱신에서 남이 지움·옮김, 다른 창에서 모드 전환) 브라우저는
+  // dragend를 떨어져 나간 노드에만 쏘고 onDragEnd가 오지 않는다 — 그래서 끄는 중인지는 목록에 그
+  // 아이콘이 아직 있는지로 판정한다. 그렇지 않으면 hold가 영영 풀리지 않아 벽 붙임이 다시 접히지 않는다.
+  const draggingOut =
+    dragOutId !== null && mode === "desk" && sorted.some((entry) => entry.id === dragOutId);
   const hold = contextMenu !== null || uploading || dragOver || draggingOut;
 
   // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)
@@ -695,7 +700,7 @@ export default function WidgetView({
                 title={entry.name}
                 draggable={!entry.isFolder}
                 onDragStart={entry.isFolder ? undefined : (event) => onIconDragStart(event, entry)}
-                onDragEnd={entry.isFolder ? undefined : () => setDraggingOut(false)}
+                onDragEnd={entry.isFolder ? undefined : () => setDragOutId(null)}
                 onClick={() => setSelectedId(entry.id)}
                 onDoubleClick={() => activate(entry)}
                 onContextMenu={(event) => openContextMenu(event, entry)}

@@ -471,14 +471,20 @@ test("배선: 끌어내기 — 서랍의 파일 아이콘만 끌리고, 끄는 �
     view,
     /onDragStart=\{entry\.isFolder \? undefined : \(event\) => onIconDragStart\(event, entry\)\}/,
   );
-  assert.match(view, /onDragEnd=\{entry\.isFolder \? undefined : \(\) => setDraggingOut\(false\)\}/);
+  assert.match(view, /onDragEnd=\{entry\.isFolder \? undefined : \(\) => setDragOutId\(null\)\}/);
 
   // dragstart: 복사로, DownloadURL(절대 주소 — 스페이스 프리픽스는 apiPath)과 파일 이름을 싣는다
   assert.match(
     view,
-    /function onIconDragStart\(event: DragEvent<HTMLElement>, entry: Entry\) \{\s*const data = widgetDragOutData\(entry, window\.location\.origin, apiPath\);\s*event\.dataTransfer\.effectAllowed = "copy";\s*event\.dataTransfer\.setData\(WIDGET_DRAG_OUT_TYPE, data\.downloadUrl\);\s*event\.dataTransfer\.setData\("text\/plain", data\.text\);\s*setDraggingOut\(true\);/,
+    /function onIconDragStart\(event: DragEvent<HTMLElement>, entry: Entry\) \{\s*const data = widgetDragOutData\(entry, window\.location\.origin, apiPath\);\s*event\.dataTransfer\.effectAllowed = "copy";\s*event\.dataTransfer\.setData\(WIDGET_DRAG_OUT_TYPE, data\.downloadUrl\);\s*event\.dataTransfer\.setData\("text\/plain", data\.text\);\s*setDragOutId\(entry\.id\);/,
   );
 
+  // 끄는 중인지는 끌던 id가 지금 서랍 목록에 있는지로 판정한다 — 끄는 도중 아이콘이 사라져
+  // onDragEnd가 오지 않아도 hold가 영영 남지 않게
+  assert.match(
+    view,
+    /const draggingOut =\s*dragOutId !== null && mode === "desk" && sorted\.some\(\(entry\) => entry\.id === dragOutId\);/,
+  );
   // 끌어내는 동안은 커서가 창을 떠나도 접지 않는다
   assert.match(view, /const hold = contextMenu !== null \|\| uploading \|\| dragOver \|\| draggingOut;/);
 
