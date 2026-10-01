@@ -140,34 +140,23 @@ export function installStrayDropGuard(target: DropGuardTarget): () => void {
 }
 
 // ── 끌어내기 (#29) ──────────────────────────────────────────────────────────
-// 서랍의 파일 아이콘을 탐색기 폴더로 끌어 놓으면 그 폴더에 받아진다. Chromium(WebView2)의
-// DownloadURL 끌기 값은 "<mime>:<파일 이름>:<절대 주소>"이고 앞의 두 콜론이 구분자라, 이름 안의
-// 콜론은 "_"로 바꾼다. 놓는 순간 탐색기가 이 주소를 세션 쿠키와 함께 받아 간다(2026-10-01 실측).
-// 이름은 우클릭 메뉴의 내려받기와 같은 규칙(downloadFileName — 구글 문서는 PDF로 받아지므로 .pdf).
-// 맥(WKWebView)은 DownloadURL을 모른다 — 끌어도 조용히 아무 일 없다.
-
-export const WIDGET_DRAG_OUT_TYPE = "DownloadURL";
-const DRAG_OUT_FALLBACK_MIME = "application/octet-stream";
-// mime 칸에 콜론이 섞이면 이름·주소 칸이 밀려 다른 서버 주소로 받을 수 있다 — 업로드는 mimeType을
-// 검증 없이 저장하고 서랍 목록이 그대로 준다. "형식/종류"꼴이 아니면 폴백한다.
+// 서랍의 파일 아이콘을 탐색기 폴더로 끌어 놓으면 그 폴더에 받아진다. 화면이 dragstart에서
+// setData("DownloadURL", …)에 싣는 값을 만든다 — Chromium(WebView2)의 형식은
+// "<mime>:<파일 이름>:<절대 주소>"이고 앞의 두 콜론이 구분자다. 놓는 순간 탐색기가 이 주소를
+// 세션 쿠키와 함께 받아 간다(2026-10-01 실측). 맥(WKWebView)은 DownloadURL을 모른다 — 아무 일 없다.
+// - 이름은 우클릭 메뉴의 내려받기와 같은 규칙(downloadFileName — 구글 문서는 PDF로 받아지므로
+//   .pdf)이고, 이름 안의 콜론은 "_"로 바꾼다.
+// - mime 칸에 콜론이 섞이면 이름·주소 칸이 밀려 다른 서버 주소로 받을 수 있다 — 업로드는 mimeType을
+//   검증 없이 저장하고 서랍 목록이 그대로 준다. "형식/종류"꼴이 아니면 application/octet-stream.
 const SAFE_MIME = /^[\w.+-]+\/[\w.+-]+$/;
 
-export interface WidgetDragOutData {
-  // dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, …)에 싣는 값
-  downloadUrl: string;
-}
-
-// downloadPath는 화면에서는 apiPath — 스페이스 안이면 /<slug>/api/... 로 프리픽스를 붙인다.
-export function widgetDragOutData(
-  entry: Pick<Entry, "id" | "name" | "mimeType">,
-  origin: string,
-  downloadPath: (path: string) => string,
-): WidgetDragOutData {
-  const name = downloadFileName(entry);
+export function widgetDownloadUrlData(
+  entry: Pick<Entry, "name" | "mimeType">,
+  url: string,
+): string {
   const mime =
-    entry.mimeType && SAFE_MIME.test(entry.mimeType) ? entry.mimeType : DRAG_OUT_FALLBACK_MIME;
-  const url = origin + downloadPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
-  return { downloadUrl: `${mime}:${name.replace(/:/g, "_")}:${url}` };
+    entry.mimeType && SAFE_MIME.test(entry.mimeType) ? entry.mimeType : "application/octet-stream";
+  return `${mime}:${downloadFileName(entry).replace(/:/g, "_")}:${url}`;
 }
 
 // ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────

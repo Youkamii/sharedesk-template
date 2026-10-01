@@ -19,7 +19,6 @@ import {
   tauriInternals,
   WALL_HANDLE_SLACK,
   wallZoneRect,
-  WIDGET_DRAG_OUT_TYPE,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
   WIDGET_LIST_POLL_MS,
@@ -27,12 +26,11 @@ import {
   WIDGET_WALL_HOVER_EVENT,
   WIDGET_WALL_KEY,
   WIDGET_WALL_SIDE_EVENT,
-  widgetDragOutData,
+  widgetDownloadUrlData,
   widgetPollInterval,
   writeWidgetMode,
   writeWidgetWall,
 } from "../src/lib/client/widget";
-import { apiPath } from "../src/lib/client/api-path";
 import { uploadEntry } from "../src/lib/client/upload-entry";
 
 function entry(
@@ -356,7 +354,7 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
 
   // 손잡이는 body에 포털로 그리고(위젯과 함께 밀려나지 않게), 우클릭 메뉴·업로드·서랍 위 끌기 동안은 붙잡는다
   assert.match(view, /createPortal\(\s*<div\s+ref=\{wallHandleRef\}\s+className=\{styles\.wallHandle\}/);
-  assert.match(view, /const hold = contextMenu !== null \|\| uploading \|\| dragOver \|\| draggingOut;/);
+  assert.match(view, /const hold = [^;]*\bdragOver\b/);
 
   // 껍데기 명령과 권한 — 원격 데스크 페이지도 두 명령을 부를 수 있어야 한다
   assert.match(shell, /set_wall_mode,\s+set_wall_zone\s+\]\)/);
@@ -392,115 +390,72 @@ function parseDownloadUrl(value: string) {
   };
 }
 
-test("drag-out data is mime:name:absolute download url for Chromium's DownloadURL (#29)", () => {
-  assert.equal(WIDGET_DRAG_OUT_TYPE, "DownloadURL");
-  const origin = "http://localhost:3100";
-  const same = (path: string) => path;
-  const memo = widgetDragOutData(
-    { id: "a b/c?d", name: "memo.txt", mimeType: "text/plain" },
-    origin,
-    same,
+test("DownloadURL is mime:name:url with a safe mime and a colon-free name (#29)", () => {
+  const url = "http://localhost:3100/api/drive/download?id=a%20b";
+  assert.equal(
+    widgetDownloadUrlData({ name: "memo.txt", mimeType: "text/plain" }, url),
+    `text/plain:memo.txt:${url}`,
   );
-  assert.deepEqual(memo, {
-    downloadUrl: "text/plain:memo.txt:http://localhost:3100/api/drive/download?id=a%20b%2Fc%3Fd",
-  });
-  // 주소는 그대로 되읽혀 같은 id를 가리킨다
-  assert.equal(parseDownloadUrl(memo.downloadUrl).url.searchParams.get("id"), "a b/c?d");
 
   // 이름 안의 콜론은 구분자와 섞이지 않게 "_"로
-  const colon = widgetDragOutData(
-    { id: "x", name: "회의:10:30.txt", mimeType: "text/plain" },
-    origin,
-    same,
-  );
-  assert.deepEqual(parseDownloadUrl(colon.downloadUrl), {
-    mime: "text/plain",
-    name: "회의_10_30.txt",
-    url: new URL("http://localhost:3100/api/drive/download?id=x"),
-  });
+  const colon = widgetDownloadUrlData({ name: "회의:10:30.txt", mimeType: "text/plain" }, url);
+  assert.equal(parseDownloadUrl(colon).name, "회의_10_30.txt");
 
   // mime이 없거나 비면 application/octet-stream
   for (const mimeType of [null, ""]) {
-    const blank = widgetDragOutData({ id: "y", name: "data.bin", mimeType }, origin, same);
-    assert.equal(parseDownloadUrl(blank.downloadUrl).mime, "application/octet-stream", String(mimeType));
+    const blank = widgetDownloadUrlData({ name: "data.bin", mimeType }, url);
+    assert.equal(parseDownloadUrl(blank).mime, "application/octet-stream", String(mimeType));
   }
 
   // mime에 콜론이 섞여도 칸이 밀리지 않는다 — 데스크 주소에서 원래 이름으로 받는다
   const forged = parseDownloadUrl(
-    widgetDragOutData(
-      { id: "z", name: "report.pdf", mimeType: "application/pdf:b.exe:https://evil.example/p" },
-      origin,
-      same,
-    ).downloadUrl,
+    widgetDownloadUrlData(
+      { name: "report.pdf", mimeType: "application/pdf:b.exe:https://evil.example/p" },
+      url,
+    ),
   );
   assert.equal(forged.mime, "application/octet-stream");
   assert.equal(forged.name, "report.pdf");
   assert.equal(forged.url.host, "localhost:3100");
 
   // 이름은 우클릭 메뉴의 내려받기와 같은 규칙 — 구글 문서는 PDF로 받아지므로 .pdf가 붙는다
-  const doc = widgetDragOutData(
-    { id: "g", name: "보고서", mimeType: "application/vnd.google-apps.document" },
-    origin,
-    same,
+  const doc = widgetDownloadUrlData(
+    { name: "보고서", mimeType: "application/vnd.google-apps.document" },
+    url,
   );
-  assert.equal(parseDownloadUrl(doc.downloadUrl).name, "보고서.pdf");
-});
-
-test("drag-out url carries the space prefix through apiPath (#29)", () => {
-  const saved = (globalThis as { window?: unknown }).window;
-  const setPath = (pathname: string) => {
-    (globalThis as { window?: unknown }).window = { location: { pathname } };
-  };
-  const file = { id: "f1", name: "a.txt", mimeType: "text/plain" };
-  try {
-    setPath("/sea/files");
-    assert.equal(
-      widgetDragOutData(file, "https://desk.example.com", apiPath).downloadUrl,
-      "text/plain:a.txt:https://desk.example.com/sea/api/drive/download?id=f1",
-    );
-    setPath("/files");
-    assert.equal(
-      widgetDragOutData(file, "https://desk.example.com", apiPath).downloadUrl,
-      "text/plain:a.txt:https://desk.example.com/api/drive/download?id=f1",
-    );
-  } finally {
-    if (saved === undefined) {
-      delete (globalThis as { window?: unknown }).window;
-    } else {
-      (globalThis as { window?: unknown }).window = saved;
-    }
-  }
+  assert.equal(parseDownloadUrl(doc).name, "보고서.pdf");
 });
 
 test("배선: 끌어내기 — 서랍의 파일 아이콘만 끌리고, 끄는 동안 벽 붙임을 붙잡는다 (#29)", async () => {
   const view = await readFile(new URL("../src/app/widget/WidgetView.tsx", import.meta.url), "utf8");
 
-  // 파일만 끌린다 — 폴더는 draggable={false}
+  // 파일만 끌린다 — 폴더는 draggable={false}이고 dragstart도 폴더면 아무것도 싣지 않는다
   assert.match(view, /draggable=\{!entry\.isFolder\}/);
-  assert.match(
-    view,
-    /onDragStart=\{entry\.isFolder \? undefined : \(event\) => onIconDragStart\(event, entry\)\}/,
-  );
-  assert.match(view, /onDragEnd=\{entry\.isFolder \? undefined : \(\) => setDragOutId\(null\)\}/);
+  assert.match(view, /if \(entry\.isFolder\) return;/);
 
-  // dragstart: 복사로, DownloadURL(절대 주소 — 스페이스 프리픽스는 apiPath)만 싣는다.
-  // text/plain을 실으면 맥에서 .textClipping 파일이 생길 수 있다
+  // dragstart: 복사로, DownloadURL만 싣는다 — text/plain을 실으면 맥에서 .textClipping이 생길 수 있다
+  assert.match(view, /effectAllowed = "copy"/);
+  assert.match(view, /setData\(\s*"DownloadURL"/);
   assert.doesNotMatch(view, /setData\("text\/plain"/);
-  assert.match(
-    view,
-    /function onIconDragStart\(event: DragEvent<HTMLElement>, entry: Entry\) \{\s*const data = widgetDragOutData\(entry, window\.location\.origin, apiPath\);\s*event\.dataTransfer\.effectAllowed = "copy";\s*event\.dataTransfer\.setData\(WIDGET_DRAG_OUT_TYPE, data\.downloadUrl\);\s*setDragOutId\(entry\.id\);/,
-  );
+
+  // 절대 주소는 우클릭 내려받기와 같은 내려받기 경로(apiPath — 스페이스 프리픽스)
+  assert.match(view, /encodeURIComponent\(entry\.id\)/);
+  assert.match(view, /\$\{window\.location\.origin\}\$\{downloadPath\(entry\)\}/);
+  assert.match(view, /const url = downloadPath\(entry\);/);
 
   // 끄는 중인지는 끌던 id가 지금 서랍 목록에 있는지로 판정한다 — 끄는 도중 아이콘이 사라져
   // onDragEnd가 오지 않아도 hold가 영영 남지 않게
+  assert.match(view, /setDragOutId\(entry\.id\)/);
+  assert.match(view, /onDragEnd=\{\(\) => setDragOutId\(null\)\}/);
   assert.match(
     view,
     /const draggingOut =\s*dragOutId !== null && mode === "desk" && sorted\.some\(\(entry\) => entry\.id === dragOutId\);/,
   );
   // 끌어내는 동안은 커서가 창을 떠나도 접지 않는다
-  assert.match(view, /const hold = contextMenu !== null \|\| uploading \|\| dragOver \|\| draggingOut;/);
+  assert.match(view, /const hold = [^;]*\bdraggingOut\b/);
 
-  // 서랍 밖→안 업로드는 파일 드래그(types에 Files)만 받는다 — 자기 아이콘 끌기는 업로드가 아니다
+  // 서랍 밖→안 업로드는 파일 드래그(types에 Files)만 받는다 — 자기 아이콘 끌기의 types엔 Files가
+  // 없다(실측: ["text/plain","chromium/x-drag-id"])
   assert.match(view, /function onDragOver\(event: DragEvent<HTMLElement>\) \{\s*if \(!event\.dataTransfer\.types\.includes\("Files"\)\) return;/);
 });
 

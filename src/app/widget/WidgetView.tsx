@@ -39,13 +39,12 @@ import {
   sortWidgetEntries,
   type WallSide,
   wallZoneRect,
-  WIDGET_DRAG_OUT_TYPE,
   WIDGET_LIST_POLL_MS,
   WIDGET_PRESENCE_MS,
   WIDGET_VISIBILITY_EVENT,
   WIDGET_WALL_HOVER_EVENT,
   WIDGET_WALL_SIDE_EVENT,
-  widgetDragOutData,
+  widgetDownloadUrlData,
   widgetPollInterval,
   type WidgetMode,
   writeWidgetMode,
@@ -76,6 +75,10 @@ const STORAGE_POLL_MS = 60_000;
 // widget.module.css의 .contextMenu 너비와 짝 — 화면 밖으로 나가지 않게 자리를 잡는 데만 쓴다
 const CONTEXT_MENU_WIDTH = 196;
 const CONTEXT_MENU_HEIGHT = 150;
+// 파일 내려받기 경로 — 우클릭 메뉴 내려받기와 끌어내기(#29)가 함께 쓴다. 스페이스 안이면 apiPath가
+// /<slug>/api/... 로 프리픽스를 붙인다.
+const downloadPath = (entry: Entry) =>
+  apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
 // 모드(서랍/창가)와 벽 붙임 켜짐은 브라우저 저장소가 원본이다 — 같은 창의 다른 탭·다른 위젯
 // 인스턴스 변경도 storage 이벤트로 따라온다. 저장한 쪽은 자기 이벤트를 쏴 같은 창의 구독자에게 알린다.
 function storedSetting(eventName: string) {
@@ -362,9 +365,13 @@ export default function WidgetView({
   // DownloadURL만 싣는다 — text/plain까지 실으면 맥(WKWebView)은 DownloadURL은 버리고 글만 남겨
   // 파인더에 .textClipping 파일이 생길 수 있다. 탐색기 받기에는 DownloadURL이면 된다.
   function onIconDragStart(event: DragEvent<HTMLElement>, entry: Entry) {
-    const data = widgetDragOutData(entry, window.location.origin, apiPath);
+    if (entry.isFolder) return;
     event.dataTransfer.effectAllowed = "copy";
-    event.dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, data.downloadUrl);
+    // Chromium(WebView2)의 끌어내기 형식 — 탐색기가 이 절대 주소를 받아 파일로 만든다
+    event.dataTransfer.setData(
+      "DownloadURL",
+      widgetDownloadUrlData(entry, `${window.location.origin}${downloadPath(entry)}`),
+    );
     setDragOutId(entry.id);
   }
 
@@ -389,7 +396,7 @@ export default function WidgetView({
   async function downloadEntry(entry: Entry) {
     setContextMenu(null);
     const id = crypto.randomUUID();
-    const url = apiPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
+    const url = downloadPath(entry);
     try {
       const result = await streamDownloadToDisk(
         url,
@@ -700,8 +707,8 @@ export default function WidgetView({
                 className={`${styles.icon} ${selectedId === entry.id ? styles.iconSelected : ""}`}
                 title={entry.name}
                 draggable={!entry.isFolder}
-                onDragStart={entry.isFolder ? undefined : (event) => onIconDragStart(event, entry)}
-                onDragEnd={entry.isFolder ? undefined : () => setDragOutId(null)}
+                onDragStart={(event) => onIconDragStart(event, entry)}
+                onDragEnd={() => setDragOutId(null)}
                 onClick={() => setSelectedId(entry.id)}
                 onDoubleClick={() => activate(entry)}
                 onContextMenu={(event) => openContextMenu(event, entry)}
