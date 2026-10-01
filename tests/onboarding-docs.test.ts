@@ -4,7 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 나눈다", async () => {
+test("README는 제품 소개이고 설치 세부는 안내 문서로 나눈다", async () => {
   const [readme, koReadme] = await Promise.all([
     readFile(new URL("README.md", root), "utf8"),
     readFile(new URL("README.ko.md", root), "utf8"),
@@ -36,9 +36,10 @@ test("README는 제품 소개만 짧게 남기고 상세 사용법을 문서로 
     ["README.md", readme],
     ["README.ko.md", koReadme],
   ] as const) {
+    // 캡처·표·접기로 꾸민 소개 페이지라 길이는 넉넉히 두되, 끝없이 불어나지는 않게 막는다.
     assert.ok(
-      text.length < 4_500,
-      `${name}는 상세 사용 설명서가 아니라 사람이 빠르게 읽는 제품 소개여야 합니다.`,
+      text.length < 14_000,
+      `${name}는 상세 사용 설명서가 아니라 사람이 훑어보는 제품 소개여야 합니다.`,
     );
 
     for (const movedDetail of [
@@ -83,7 +84,26 @@ test("README는 영어 메인과 언어판이 같은 구조를 공유한다", as
   }
 });
 
-test("README 다섯 언어판은 최신 기능 묶음을 같은 구조로 설명한다", async () => {
+// 언어판은 영어판을 그대로 옮긴 같은 모양이어야 한다 — 한 언어판만 절이나 그림이
+// 빠지는 사고를 막는다. 옛 구조(절·불릿 개수)를 숫자로 박지 않고 영어판과 맞춰 본다.
+function readmeShape(text: string) {
+  const count = (pattern: RegExp) => text.match(pattern)?.length ?? 0;
+  const images = new Set(
+    [...text.matchAll(/(?:\]\(|src=")\.\/(docs\/[^)"\s]+\.(?:png|gif))/g)].map(
+      ([, path]) => path,
+    ),
+  );
+  return {
+    sections: count(/^## /gm),
+    subsections: count(/^### /gm),
+    bullets: count(/^- /gm),
+    details: count(/<details>/g),
+    tableRows: count(/^\|/gm),
+    images: [...images].sort(),
+  };
+}
+
+test("README 다섯 언어판은 영어판과 같은 구조를 갖는다", async () => {
   const locales = [
     "README.md",
     "README.ko.md",
@@ -91,28 +111,21 @@ test("README 다섯 언어판은 최신 기능 묶음을 같은 구조로 설명
     "README.hi.md",
     "README.zh.md",
   ];
+  const texts = await Promise.all(
+    locales.map((name) => readFile(new URL(name, root), "utf8")),
+  );
+  const english = readmeShape(texts[0]);
 
-  for (const name of locales) {
-    const text = await readFile(new URL(name, root), "utf8");
-    const sections = [...text.matchAll(/^## /gm)];
+  assert.ok(english.sections >= 6, "영어판 README의 절이 너무 적습니다.");
+  assert.ok(english.bullets >= 24, "영어판 README의 기능 설명이 너무 적습니다.");
+  assert.ok(english.images.length >= 8, "영어판 README의 그림이 너무 적습니다.");
+  assert.ok(english.details >= 1, "영어판 README에 접기(details)가 있어야 합니다.");
 
-    assert.equal(sections.length, 4, `${name}: 최상위 설명 묶음이 달라졌습니다.`);
-    const featureBlock = text.slice(
-      sections[1].index,
-      sections[2].index,
-    );
-    assert.equal(
-      featureBlock.match(/^### /gm)?.length ?? 0,
-      4,
-      `${name}: 기능 분류 4개가 모두 있어야 합니다.`,
-    );
-    assert.equal(
-      featureBlock.match(/^- /gm)?.length ?? 0,
-      17,
-      `${name}: 최신 기능 설명이 빠졌습니다.`,
-    );
-    assert.match(featureBlock, /`ADMIN_EMAILS`/);
-    assert.match(text, /WebSocket/);
+  for (const [index, text] of texts.entries()) {
+    const name = locales[index];
+    assert.deepEqual(readmeShape(text), english, `${name}: 영어판과 구조가 다릅니다.`);
+    assert.match(text, /`ADMIN_EMAILS`/, `${name}: 역할 설명에 ADMIN_EMAILS가 있어야 합니다.`);
+    assert.match(text, /WebSocket/, `${name}: 서버리스 설명에 WebSocket이 있어야 합니다.`);
   }
 });
 
