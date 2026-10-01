@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   disableWidgetWall,
   enableWidgetWall,
+  finishedGauge,
   installStrayDropGuard,
   isUnsupportedCommandError,
   isWidgetHidden,
@@ -20,9 +21,8 @@ import {
   sortWidgetEntries,
   tauriInternals,
   transferGauge,
-  WALL_GAUGE_STEP_PX,
+  WALL_GAUGE_HOLD_MS,
   WALL_HANDLE_SLACK,
-  wallGaugeFillPx,
   wallZoneRect,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
@@ -552,76 +552,94 @@ test("배선: 머리띠 단추 — ↗·– 없이 서랍·창가 | 벽·압정,
 // ── 전송 게이지 (#31) ──────────────────────────────────────────────────
 
 test("transfer gauge sums active transfers and skips unknown sizes (#31)", () => {
-  // 빈 목록: 전송 없음
-  assert.deepEqual(transferGauge([]), { ratio: null, active: false });
+  // 빈 목록·크기를 아는 전송이 없음: null (전송이 있는지는 호출부가 목록 길이로 안다)
+  assert.equal(transferGauge([]), null);
+  assert.equal(transferGauge([{ transferred: 5, total: null }]), null);
+  assert.equal(transferGauge([{ transferred: 0, total: 0 }]), null);
   // 합산: (30 + 10) / (100 + 100)
-  assert.deepEqual(
+  assert.equal(
     transferGauge([
       { transferred: 30, total: 100 },
       { transferred: 10, total: 100 },
     ]),
-    { ratio: 0.2, active: true },
+    0.2,
   );
   // 크기를 모르는 전송은 분모·분자에서 뺀다
-  assert.deepEqual(
+  assert.equal(
     transferGauge([
       { transferred: 50, total: 200 },
       { transferred: 999, total: null },
     ]),
-    { ratio: 0.25, active: true },
+    0.25,
   );
-  // 크기를 아는 전송이 하나도 없으면 ratio는 null(전체 깜빡임), 전송은 있다
-  assert.deepEqual(transferGauge([{ transferred: 5, total: null }]), { ratio: null, active: true });
-  assert.deepEqual(transferGauge([{ transferred: 0, total: 0 }]), { ratio: null, active: true });
+  // 묶음(D1): 이미 끝나 목록에서 빠진 전송은 다 한 것으로, 아직 시작 안 한 파일(0)도 분모에 든다 —
+  // 파일마다 0부터 다시 차지 않는다
+  assert.equal(
+    transferGauge(
+      [
+        { transferred: 0, total: 9 },
+        { transferred: 0, total: 9 },
+      ],
+      [{ total: 9 }],
+    ),
+    1 / 3,
+  );
+  assert.equal(
+    transferGauge(
+      [{ transferred: 3, total: 9 }],
+      [{ total: 9 }, { total: 9 }, { total: null }],
+    ),
+    21 / 27,
+  );
+  // 끝난 것만 남고 진행 중인 것이 크기를 모르면 끝난 것으로만 센다
+  assert.equal(transferGauge([{ transferred: 1, total: null }], [{ total: 4 }]), 1);
   // 보고가 크기를 넘거나 음수여도 0..1 안
-  assert.deepEqual(transferGauge([{ transferred: 150, total: 100 }]), { ratio: 1, active: true });
-  assert.deepEqual(transferGauge([{ transferred: -5, total: 100 }]), { ratio: 0, active: true });
-  // Map.values() 그대로 받는다
-  const map = new Map([["a", { transferred: 1, total: 4 }]]);
-  assert.deepEqual(transferGauge(map.values()), { ratio: 0.25, active: true });
+  assert.equal(transferGauge([{ transferred: 150, total: 100 }]), 1);
+  assert.equal(transferGauge([{ transferred: -5, total: 100 }]), 0);
 });
 
-test("wall gauge fills in 2px steps from the bottom, full only at 100% (#31)", () => {
-  assert.equal(WALL_GAUGE_STEP_PX, 2);
-  assert.equal(wallGaugeFillPx(0, 72), 0);
-  assert.equal(wallGaugeFillPx(Number.NaN, 72), 0);
-  // 조금이라도 나아갔으면 한 칸
-  assert.equal(wallGaugeFillPx(0.001, 72), 2);
-  assert.equal(wallGaugeFillPx(0.3, 72), 20);
-  assert.equal(wallGaugeFillPx(0.5, 72), 36);
-  assert.equal(wallGaugeFillPx(0.7, 72), 50);
-  // 다 찬 칸은 1일 때만
-  assert.equal(wallGaugeFillPx(0.999, 72), 70);
-  assert.equal(wallGaugeFillPx(1, 72), 72);
-  assert.equal(wallGaugeFillPx(2, 72), 72);
-  for (const ratio of [0.1, 0.37, 0.81]) assert.equal(wallGaugeFillPx(ratio, 72) % 2, 0, String(ratio));
+test("a finished batch shows red if any transfer failed or was cancelled (#31)", () => {
+  const ok = { result: "ok" } as const;
+  const failed = { result: "failed" } as const;
+  assert.equal(finishedGauge([]), null);
+  assert.equal(finishedGauge([ok]), "done");
+  assert.equal(finishedGauge([ok, ok, ok]), "done");
+  // 성공·실패가 섞이면 빨강
+  assert.equal(finishedGauge([ok, failed, ok]), "failed");
+  assert.equal(finishedGauge([failed]), "failed");
+  assert.deepEqual(WALL_GAUGE_HOLD_MS, { done: 1_000, failed: 3_000 });
 });
 
 test("배선: 업로드 중에도 접히고, 접힌 손잡이 테두리가 전송 게이지가 된다 (#31)", async () => {
-  const read = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
-  const view = await read("../src/app/widget/WidgetView.tsx");
-  const css = await read("../src/app/widget/widget.module.css");
-  const globals = await read("../src/app/globals.css");
+  const view = await readSource("../src/app/widget/WidgetView.tsx");
+  const css = await readSource("../src/app/widget/widget.module.css");
+  const globals = await readSource("../src/app/globals.css");
+  const notice = await readSource("../src/lib/client/use-auto-dismiss-notice.ts");
 
   // 올리는 중은 더 이상 붙잡지 않는다 — 커서가 떠나면 접힌다
   assert.doesNotMatch(view, /const hold = [^;]*\buploading\b/);
-  assert.doesNotMatch(view, /const uploading =/);
-  assert.match(view, /const hold = contextMenu !== null \|\| dragOver \|\| draggingOut;/);
 
-  // 게이지: 합산 진행률 → 2px 칸 높이, 크기 모름은 unknown, 끝나면 1초 done
-  assert.match(view, /const gauge = transferGauge\(activeTransfers\);/);
-  assert.match(view, /if \(gauge\.active !== gaugeWasActive\) \{\s*setGaugeWasActive\(gauge\.active\);\s*setGaugeDone\(!gauge\.active\);/);
-  assert.match(view, /const WALL_GAUGE_DONE_MS = 1_000;/);
-  assert.match(view, /window\.setTimeout\(\(\) => setGaugeDone\(false\), WALL_GAUGE_DONE_MS\)/);
-  assert.match(view, /"--gauge-fill": `\$\{wallGaugeFillPx\(gauge\.ratio, WALL_HANDLE_HEIGHT\)\}px`/);
-  assert.match(view, /data-gauge=\{gaugeState\}\s+style=\{gaugeStyle\}\s+aria-hidden="true"/);
-  // 손잡이 높이는 CSS와 짝 — 2px 칸이 테두리 높이에 딱 맞게
-  const height = Number(view.match(/const WALL_HANDLE_HEIGHT = (\d+);/)?.[1]);
-  assert.match(css, new RegExp(`\\.wallHandle \\{[^}]*height: ${height}px;`));
+  // 게이지: 합산 진행률은 --gauge-ratio로 넘기고, 묶음 결과로 끝 표시를 고른다
+  assert.match(view, /transferGauge\(activeTransfers, settled\)/);
+  assert.match(view, /finishedGauge\(settled\)/);
+  assert.match(view, /WALL_GAUGE_HOLD_MS\[finished\]/);
+  assert.match(view, /"--gauge-ratio": String\(gaugeRatio\)/);
+  assert.match(view, /data-gauge=\{gaugeState\}/);
+  assert.match(view, /recordTransferResult\("failed", file\.size\)/);
+  assert.match(view, /recordTransferResult\("ok", file\.size\)/);
+  // 묶음 진행률(D1): 놓는 순간 모든 파일을 전송 목록에 0부터 올린다
+  assert.match(view, /kind: "upload",\s*name: file\.name,\s*transferred: 0,\s*total: file\.size,/);
 
-  // CSS: 손잡이 테두리 자리에 초록 테두리를 겹쳐 위쪽을 잘라 낸다, 크기 모름은 1.2초 깜빡임
-  assert.match(css, /\.wallHandle\[data-gauge\]::after \{[^}]*border: 2px solid var\(--leaf\);[^}]*clip-path: inset\(calc\(100% - var\(--gauge-fill, 0px\)\) 0 0 0\);/);
-  assert.match(css, /\.wallHandle\[data-gauge="unknown"\]::after,\s*\.wallHandle\[data-gauge="done"\]::after \{\s*clip-path: none;/);
+  // 접힌 동안은 알림이 저절로 사라지지 않는다 — 펼치면 그때부터 센다
+  assert.match(view, /useAutoDismissNotice\(NOTICE_DURATION_MS\.default, wallFolded\)/);
+  assert.match(notice, /paused = false/);
+  assert.match(notice, /\[notice, paused\]/);
+
+  // CSS: 손잡이 테두리 자리에 초록 테두리를 겹쳐 위쪽을 2px 칸으로 잘라 낸다(round 없는 엔진은 칸 없이)
+  assert.match(css, /\.wallHandle\[data-gauge\]::after \{[^}]*border: 2px solid var\(--leaf\);/);
+  assert.match(css, /round\(down, var\(--gauge-ratio, 0\) \* 100%, 2px\)/);
+  assert.match(css, /@supports not \(width: round\(down, 1px, 1px\)\)/);
+  assert.match(css, /\.wallHandle\[data-gauge="failed"\]::after \{\s*border-color: var\(--error\);/);
   assert.match(css, /\.wallHandle\[data-gauge="unknown"\]::after \{\s*animation: gaugeBlink 1\.2s/);
   // 손잡이는 body에 있으므로 초록 토큰도 html[data-widget]에
   assert.match(globals, /html\[data-widget\]\s*\{[^}]*--leaf:/);

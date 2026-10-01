@@ -247,39 +247,54 @@ export async function disableWidgetWall(host: unknown): Promise<void> {
 }
 
 // 전송 게이지(#31): 벽 붙임으로 접힌 동안 손잡이 테두리가 전송 진행률만큼 아래에서 위로 초록으로 찬다.
-// 진행률은 활성 전송(올리기·받기 모두)의 합산 Σtransferred / Σtotal이다. 크기를 모르는 전송(total 없음·0 이하)은
-// 분모·분자에서 뺀다 — 크기를 아는 전송이 하나도 없으면 ratio는 null(테두리 전체가 깜빡인다).
-// 다 끝난 뒤 1초 동안 다 찬 채로 두는 것은 화면의 타이머가 맡는다.
-export interface TransferGauge {
-  ratio: number | null;
-  active: boolean;
+// 진행률은 한 묶음(전송이 하나라도 있는 동안)의 합산 Σtransferred / Σtotal이다 — 지금 진행 중인 전송과,
+// 이 묶음에서 이미 끝나 목록에서 빠진 전송(끝났으니 크기만큼 다 한 것으로)을 함께 센다. 그래야 파일 여러 개를
+// 놓았을 때 파일마다 0부터 다시 차지 않는다. 크기를 모르는 전송(total 없음·0 이하)은 분모·분자에서 뺀다 —
+// 크기를 아는 전송이 하나도 없으면 null(테두리 전체가 깜빡인다). 전송이 있는지는 호출부가 목록 길이로 안다.
+// 칠할 높이를 2px 칸으로 끊는 것은 CSS가 맡는다(widget.module.css).
+
+// 한 묶음에서 끝난 전송 하나: 결과(취소도 failed)와 크기
+export type TransferResult = "ok" | "failed";
+export interface SettledTransfer {
+  result: TransferResult;
+  total: number | null;
+}
+
+function knownSize(total: number | null | undefined): number | null {
+  return typeof total === "number" && Number.isFinite(total) && total > 0 ? total : null;
 }
 
 export function transferGauge(
-  transfers: Iterable<Pick<TransferProgress, "transferred" | "total">>,
-): TransferGauge {
-  let active = false;
+  active: Iterable<Pick<TransferProgress, "transferred" | "total">>,
+  settled: Iterable<Pick<SettledTransfer, "total">> = [],
+): number | null {
   let done = 0;
   let total = 0;
-  for (const transfer of transfers) {
-    active = true;
-    const size = transfer.total;
-    if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) continue;
+  for (const transfer of settled) {
+    const size = knownSize(transfer.total);
+    if (size === null) continue;
+    total += size;
+    done += size;
+  }
+  for (const transfer of active) {
+    const size = knownSize(transfer.total);
+    if (size === null) continue;
     total += size;
     done += Math.min(Math.max(transfer.transferred, 0), size);
   }
-  return { ratio: total > 0 ? done / total : null, active };
+  return total > 0 ? done / total : null;
 }
 
-// 손잡이 테두리에 칠할 높이(px). 2px 칸으로 끊어 픽셀 느낌을 낸다. 조금이라도 나아갔으면 한 칸은 보이고,
-// 다 찬 칸은 진행률이 1일 때만이다.
-export const WALL_GAUGE_STEP_PX = 2;
-
-export function wallGaugeFillPx(ratio: number, heightPx: number, stepPx = WALL_GAUGE_STEP_PX): number {
-  if (!(ratio > 0) || !(heightPx > 0) || !(stepPx > 0)) return 0;
-  const steps = Math.floor(heightPx / stepPx);
-  return Math.min(steps, Math.max(1, Math.floor(ratio * steps))) * stepPx;
+// 묶음이 다 끝났을 때 손잡이에 잠깐 남길 표시: 하나라도 실패·취소면 failed(빨강), 아니면 done(초록).
+// 결과가 하나도 없으면 표시하지 않는다. 얼마나 남길지는 WALL_GAUGE_HOLD_MS.
+export function finishedGauge(
+  settled: readonly Pick<SettledTransfer, "result">[],
+): "done" | "failed" | null {
+  if (settled.length === 0) return null;
+  return settled.some((transfer) => transfer.result === "failed") ? "failed" : "done";
 }
+
+export const WALL_GAUGE_HOLD_MS = { done: 1_000, failed: 3_000 } as const;
 
 export async function reportWallZone(
   host: unknown,

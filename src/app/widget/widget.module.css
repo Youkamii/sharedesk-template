@@ -617,16 +617,24 @@
   pointer-events: none;
 }
 
-/* 전송 게이지(#31): 접힌 손잡이 테두리가 활성 전송의 합산 진행률만큼 아래에서 위로 초록(--leaf)으로 찬다.
-   손잡이 테두리와 같은 자리에 같은 두께의 초록 테두리를 겹쳐 그리고 위쪽을 잘라 낸다 — 높이(--gauge-fill)는
-   화면이 2px 칸으로 끊어 준다. 크기를 모르는 전송뿐이면 전체가 느리게 깜빡이고, 다 끝나면 1초 동안 다 찬 채로 있다. */
+/* 전송 게이지(#31): 접힌 손잡이 테두리가 활성 전송의 합산 진행률(--gauge-ratio, 0~1)만큼 아래에서 위로
+   초록(--leaf)으로 찬다. 손잡이 테두리와 같은 자리에 같은 두께의 초록 테두리를 겹쳐 그리고 위쪽을 잘라 낸다 —
+   보이는 높이는 2px 칸으로 끊고(픽셀 느낌) 한 칸은 늘 보인다. 크기를 모르는 전송뿐이면 전체가 느리게
+   깜빡이고, 다 끝나면 초록 1초(done) 또는 하나라도 실패·취소면 빨강 3초(failed)를 다 찬 채로 보인다. */
 .wallHandle[data-gauge]::after {
   content: "";
   position: absolute;
   inset: -2px;
   border: 2px solid var(--leaf);
-  clip-path: inset(calc(100% - var(--gauge-fill, 0px)) 0 0 0);
+  clip-path: inset(calc(100% - clamp(2px, round(down, var(--gauge-ratio, 0) * 100%, 2px), 100%)) 0 0 0);
   pointer-events: none;
+}
+
+/* round()를 모르는 엔진: 칸 없이 진행률 그대로 */
+@supports not (width: round(down, 1px, 1px)) {
+  .wallHandle[data-gauge]::after {
+    clip-path: inset(calc(100% - var(--gauge-ratio, 0) * 100%) 0 0 0);
+  }
 }
 
 .wallHandle[data-side="right"][data-gauge]::after {
@@ -640,8 +648,13 @@
 }
 
 .wallHandle[data-gauge="unknown"]::after,
-.wallHandle[data-gauge="done"]::after {
+.wallHandle[data-gauge="done"]::after,
+.wallHandle[data-gauge="failed"]::after {
   clip-path: none;
+}
+
+.wallHandle[data-gauge="failed"]::after {
+  border-color: var(--error);
 }
 
 .wallHandle[data-gauge="unknown"]::after {

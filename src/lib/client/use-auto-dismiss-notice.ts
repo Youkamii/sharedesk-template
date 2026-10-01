@@ -61,8 +61,11 @@ export function createAutoDismissNoticeController(
   };
 }
 
+// paused가 참인 동안은 알림을 지우지 않고, 거짓이 되는 순간부터 처음부터 다시 센다
+// (위젯 벽 붙임으로 판이 접혀 알림이 화면 밖에 있는 동안 — #31).
 export function useAutoDismissNotice(
   defaultDurationMs = NOTICE_DURATION_MS.default,
+  paused = false,
 ): readonly [string | null, SetAutoDismissNotice] {
   const nextId = useRef(0);
   const [notice, setNoticeState] = useState<NoticeOccurrence | null>(null);
@@ -81,12 +84,13 @@ export function useAutoDismissNotice(
   );
 
   useEffect(() => {
+    if (paused) return;
     const controller = createAutoDismissNoticeController((id) => {
       setNoticeState((current) => (current?.id === id ? null : current));
     });
     controller.update(notice);
     return controller.clear;
-  }, [notice]);
+  }, [notice, paused]);
 
   return [notice?.message ?? null, setNotice] as const;
 }

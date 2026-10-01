@@ -26,10 +26,11 @@ import {
   type TransferProgress,
 } from "@/lib/client/transfer";
 import { uploadEntry } from "@/lib/client/upload-entry";
-import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
+import { NOTICE_DURATION_MS, useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   disableWidgetWall,
   enableWidgetWall,
+  finishedGauge,
   isWidgetHidden,
   parseWallSide,
   type PinState,
@@ -41,9 +42,11 @@ import {
   reportWallZone,
   setWidgetPinned,
   sortWidgetEntries,
+  type SettledTransfer,
   transferGauge,
+  type TransferResult,
+  WALL_GAUGE_HOLD_MS,
   type WallSide,
-  wallGaugeFillPx,
   wallZoneRect,
   WIDGET_LIST_POLL_MS,
   WIDGET_PINNED_EVENT,
@@ -83,10 +86,6 @@ const STORAGE_POLL_MS = 60_000;
 // widget.module.css의 .contextMenu 너비와 짝 — 화면 밖으로 나가지 않게 자리를 잡는 데만 쓴다
 const CONTEXT_MENU_WIDTH = 196;
 const CONTEXT_MENU_HEIGHT = 150;
-// widget.module.css의 .wallHandle 높이와 짝 — 전송 게이지(#31)를 2px 칸으로 끊는 데 쓴다
-const WALL_HANDLE_HEIGHT = 72;
-// 전송이 모두 끝나면 손잡이 게이지를 이만큼 다 찬 채로 둔 뒤 원래 색으로 돌린다
-const WALL_GAUGE_DONE_MS = 1_000;
 // 파일 내려받기 경로 — 우클릭 메뉴 내려받기와 끌어내기(#29)가 함께 쓴다. 스페이스 안이면 apiPath가
 // /<slug>/api/... 로 프리픽스를 붙인다.
 const downloadPath = (entry: Entry) =>
@@ -192,12 +191,16 @@ export default function WidgetView({
   const [transfers, setTransfers] = useState<Map<string, TransferProgress>>(
     () => new Map(),
   );
+  // 지금 묶음(전송이 하나라도 있는 동안)에서 끝난 전송들 — 손잡이 게이지의 묶음 진행률과 완료 색(#31)
+  const [settled, setSettled] = useState<SettledTransfer[]>([]);
   const [dragOver, setDragOver] = useState(false);
   // 서랍에서 창 밖(탐색기)으로 끌고 있는 파일의 id (#29). 끄는 중인지는 아래 draggingOut이 목록에서 파생한다.
   const [dragOutId, setDragOutId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [notice, showNotice] = useAutoDismissNotice();
+  // 벽 붙임으로 접혀 있는 동안은 알림을 지우지 않는다 — 화면 밖에서 사라지지 않고, 펼치면 그때부터 센다(#31)
+  const wallFolded = wallOn && wall !== null && !wall.expanded;
+  const [notice, showNotice] = useAutoDismissNotice(NOTICE_DURATION_MS.default, wallFolded);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const transfersRef = useRef(transfers);
@@ -328,6 +331,11 @@ export default function WidgetView({
     },
     [],
   );
+  const recordTransferResult = useCallback(
+    (result: TransferResult, total: number | null) =>
+      setSettled((current) => [...current, { result, total }]),
+    [],
+  );
 
   async function uploadFiles(files: FileList | File[]) {
     if (!allowUpload) return;
@@ -335,14 +343,28 @@ export default function WidgetView({
     if (!list.length) return;
     const targetFolder = folderId;
     const failed: string[] = [];
-    for (const file of list) {
-      const transferId = crypto.randomUUID();
+    // 놓는 순간 모든 파일을 전송 목록에 올린다(#31) — 게이지와 전송 바가 묶음 전체의 진행을 보여 주게.
+    // 올리기는 지금처럼 하나씩 차례로 한다.
+    const jobs = list.map((file) => ({ file, transferId: crypto.randomUUID() }));
+    setTransfers((current) => {
+      const next = new Map(current);
+      for (const { file, transferId } of jobs) {
+        next.set(transferId, {
+          id: transferId,
+          kind: "upload",
+          name: file.name,
+          transferred: 0,
+          total: file.size,
+        });
+      }
+      return next;
+    });
+    for (const { file, transferId } of jobs) {
       const update = (transferred: number, total: number) =>
         reportTransfer(
           { id: transferId, kind: "upload", name: file.name, transferred, total },
           transferId,
         );
-      update(0, file.size);
       try {
         await uploadEntry(file, targetFolder, {
           apiJson,
@@ -354,8 +376,10 @@ export default function WidgetView({
             uploadFailed: t("업로드에 실패했습니다"),
           },
         });
+        recordTransferResult("ok", file.size);
       } catch (error) {
         failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
+        recordTransferResult("failed", file.size);
       } finally {
         reportTransfer(null, transferId);
       }
@@ -432,19 +456,28 @@ export default function WidgetView({
     setContextMenu(null);
     const id = crypto.randomUUID();
     const url = downloadPath(entry);
+    // 전송 목록에 오른 뒤(저장 위치를 고르고 받기 시작한 뒤)의 결과만 게이지에 남긴다
+    let started = false;
+    let size: number | null = null;
     try {
       const result = await streamDownloadToDisk(
         url,
         downloadFileName(entry),
-        (transferred, total) =>
+        (transferred, total) => {
+          started = true;
+          size = total;
           reportTransfer(
             { id, kind: "download", name: entry.name, transferred, total },
             id,
-          ),
+          );
+        },
       );
+      if (started) recordTransferResult("ok", size);
       if (result === "native") nativeDownload(url, downloadFileName(entry));
       else showNotice(t("{name}을(를) 저장했습니다", { name: entry.name }));
     } catch (error) {
+      // 받는 도중의 취소(중단)도 실패로 친다
+      if (started) recordTransferResult("failed", size);
       if (!isAbortError(error)) {
         showNotice(errorMessage(error, t("다운로드에 실패했습니다")));
       }
@@ -570,30 +603,31 @@ export default function WidgetView({
   const hold = contextMenu !== null || dragOver || draggingOut;
 
   // 전송 게이지(#31): 접힌 손잡이 테두리가 활성 전송의 합산 진행률만큼 아래에서 위로 초록으로 찬다.
-  // 크기를 아는 전송이 없으면 전체가 깜빡이고(unknown), 모두 끝나면 1초 동안 다 찬 채(done)로 있다.
-  // 끝난 순간은 렌더 중에 이전 값과 비교해 알아채고, 1초 뒤 푸는 것만 타이머가 맡는다.
-  const gauge = transferGauge(activeTransfers);
-  const [gaugeWasActive, setGaugeWasActive] = useState(false);
-  const [gaugeDone, setGaugeDone] = useState(false);
-  if (gauge.active !== gaugeWasActive) {
-    setGaugeWasActive(gauge.active);
-    setGaugeDone(!gauge.active);
+  // 크기를 아는 전송이 없으면 전체가 깜빡이고(unknown). 묶음이 다 끝나면 하나라도 실패·취소였으면 빨강
+  // 3초(failed), 아니면 다 찬 초록 1초(done)를 보인 뒤 원래 색으로. 끝난 순간은 렌더 중에 이전 값과 비교해
+  // 알아채고, 표시를 푸는 것만 타이머가 맡는다.
+  const transferring = activeTransfers.length > 0;
+  const gaugeRatio = transferGauge(activeTransfers, settled);
+  const [wasTransferring, setWasTransferring] = useState(false);
+  const [finished, setFinished] = useState<"done" | "failed" | null>(null);
+  if (transferring !== wasTransferring) {
+    setWasTransferring(transferring);
+    setFinished(transferring ? null : finishedGauge(settled));
+    if (transferring) setSettled([]);
   }
   useEffect(() => {
-    if (!gaugeDone) return;
-    const timer = window.setTimeout(() => setGaugeDone(false), WALL_GAUGE_DONE_MS);
+    if (!finished) return;
+    const timer = window.setTimeout(() => setFinished(null), WALL_GAUGE_HOLD_MS[finished]);
     return () => window.clearTimeout(timer);
-  }, [gaugeDone]);
-  const gaugeState = gauge.active
-    ? gauge.ratio === null
+  }, [finished]);
+  const gaugeState = transferring
+    ? gaugeRatio === null
       ? "unknown"
       : "progress"
-    : gaugeDone
-      ? "done"
-      : undefined;
+    : (finished ?? undefined);
   const gaugeStyle =
-    gauge.active && gauge.ratio !== null
-      ? ({ "--gauge-fill": `${wallGaugeFillPx(gauge.ratio, WALL_HANDLE_HEIGHT)}px` } as CSSProperties)
+    transferring && gaugeRatio !== null
+      ? ({ "--gauge-ratio": String(gaugeRatio) } as CSSProperties)
       : undefined;
 
   // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)
