@@ -148,6 +148,9 @@ export function installStrayDropGuard(target: DropGuardTarget): () => void {
 
 export const WIDGET_DRAG_OUT_TYPE = "DownloadURL";
 const DRAG_OUT_FALLBACK_MIME = "application/octet-stream";
+// mime 칸에 콜론이 섞이면 이름·주소 칸이 밀려 다른 서버 주소로 받을 수 있다 — 업로드는 mimeType을
+// 검증 없이 저장하고 서랍 목록이 그대로 준다. "형식/종류"꼴이 아니면 폴백한다.
+const SAFE_MIME = /^[\w.+-]+\/[\w.+-]+$/;
 
 export interface WidgetDragOutData {
   // dataTransfer.setData(WIDGET_DRAG_OUT_TYPE, …)에 싣는 값
@@ -163,7 +166,8 @@ export function widgetDragOutData(
   downloadPath: (path: string) => string,
 ): WidgetDragOutData {
   const name = downloadFileName(entry);
-  const mime = entry.mimeType || DRAG_OUT_FALLBACK_MIME;
+  const mime =
+    entry.mimeType && SAFE_MIME.test(entry.mimeType) ? entry.mimeType : DRAG_OUT_FALLBACK_MIME;
   const url = origin + downloadPath(`/api/drive/download?id=${encodeURIComponent(entry.id)}`);
   return { downloadUrl: `${mime}:${name.replace(/:/g, "_")}:${url}`, text: name };
 }

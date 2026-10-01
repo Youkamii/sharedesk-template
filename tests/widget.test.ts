@@ -427,6 +427,18 @@ test("drag-out data is mime:name:absolute download url for Chromium's DownloadUR
     assert.equal(parseDownloadUrl(blank.downloadUrl).mime, "application/octet-stream", String(mimeType));
   }
 
+  // mime에 콜론이 섞여도 칸이 밀리지 않는다 — 데스크 주소에서 원래 이름으로 받는다
+  const forged = parseDownloadUrl(
+    widgetDragOutData(
+      { id: "z", name: "report.pdf", mimeType: "application/pdf:b.exe:https://evil.example/p" },
+      origin,
+      same,
+    ).downloadUrl,
+  );
+  assert.equal(forged.mime, "application/octet-stream");
+  assert.equal(forged.name, "report.pdf");
+  assert.equal(forged.url.host, "localhost:3100");
+
   // 이름은 우클릭 메뉴의 내려받기와 같은 규칙 — 구글 문서는 PDF로 받아지므로 .pdf가 붙는다
   const doc = widgetDragOutData(
     { id: "g", name: "보고서", mimeType: "application/vnd.google-apps.document" },
