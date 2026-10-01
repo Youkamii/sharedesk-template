@@ -25,7 +25,7 @@ export default async function PendingPage() {
 
   if (isWidgetCookieStore(cookieStore)) {
     return (
-      <WidgetFrame locale={locale}>
+      <WidgetFrame>
         <div className={widgetStyles.authCard}>
           <h1>{t("접근이 막혀 있습니다")}</h1>
           <p>{t("관리자가 이 계정의 접근을 막았습니다.")}</p>

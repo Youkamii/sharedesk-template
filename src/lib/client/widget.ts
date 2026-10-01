@@ -101,18 +101,6 @@ export function tauriInternals(host: unknown): TauriInternals | null {
     : null;
 }
 
-// 껍데기의 hide_widget 명령은 창 위치를 적고 트레이 메뉴 라벨까지 맞춘다 — 창 플러그인의 hide보다 이쪽.
-export async function hideWidgetWindow(host: unknown): Promise<boolean> {
-  const internals = tauriInternals(host);
-  if (!internals) return false;
-  try {
-    await internals.invoke("hide_widget");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // 껍데기는 파일 드롭을 웹뷰에 그대로 맡긴다(HTML5 업로드를 위해). 그래서 화면이 처리하지 않은 드롭은
 // Chromium 기본 동작대로 그 파일로 이동해 버린다 — 머리띠·창가 모드·로그인 화면에 놓아도 데스크가
 // 사라지지 않게, 아무도 처리하지 않은 드래그·드롭은 여기서 막는다.
@@ -265,5 +253,64 @@ export async function reportWallZone(
     await tauriInternals(host)?.invoke("set_wall_zone", { zone });
   } catch {
     // 다음 보고(크기 변경·상태 변화)가 다시 시도한다
+  }
+}
+
+// ── 압정 (#30) ──────────────────────────────────────────────────────────────
+// 배치 모드는 셋 중 하나다: 떠 있기(기본, 항상 위) · 벽 붙임 · 압정(다른 창 뒤, 바탕화면 위에 고정).
+// 압정의 원본은 껍데기 설정이다 — 화면은 로드 때 widget_placement로 읽어 단추를 맞추고 set_pinned로
+// 켜고 끈다. 벽 붙임과는 하나만 켜지고, 바꾸는 순서(켜려는 쪽의 반대편을 먼저 끈다)는 화면이 맡는다.
+// 설계와 OS별 구현은 widget/README.md.
+
+export type WidgetPlacement = "floating" | "wall" | "pinned";
+export type PlacementStep = { wall: boolean } | { pinned: boolean };
+
+// 껍데기가 스스로 압정을 풀었을 때(트레이 "항상 위", 압정인 채 벽 붙임 요청) 쏘는 이벤트 —
+// widget/src-tauri/src/lib.rs의 PINNED_EVENT와 같은 이름. detail은 압정 여부(boolean).
+export const WIDGET_PINNED_EVENT = "sharedesk:widget-pinned";
+
+// 머리띠 단추가 보여 줄 배치. 벽 붙임을 켜면 껍데기가 압정을 풀므로 둘 다 켜져 있으면 벽이다.
+export function widgetPlacement(wallOn: boolean, pinned: boolean | null): WidgetPlacement {
+  if (wallOn) return "wall";
+  return pinned === true ? "pinned" : "floating";
+}
+
+// 단추 하나(벽·압정)를 눌렀을 때 차례로 할 일. 켜진 쪽을 누르면 끄기만, 다른 쪽이 켜져 있으면
+// 그쪽을 먼저 끄고 누른 쪽을 켠다 — 두 배치가 함께 켜지는 순간이 없게.
+export function placementSteps(
+  current: WidgetPlacement,
+  pressed: "wall" | "pinned",
+): PlacementStep[] {
+  const set = (mode: "wall" | "pinned", on: boolean): PlacementStep =>
+    mode === "wall" ? { wall: on } : { pinned: on };
+  if (current === pressed) return [set(pressed, false)];
+  const steps: PlacementStep[] = [];
+  if (current !== "floating") steps.push(set(current, false));
+  steps.push(set(pressed, true));
+  return steps;
+}
+
+// 지금 압정인지. 껍데기가 없거나 옛 껍데기(명령 없음 — 벽 붙임과 같은 판정)면 null:
+// 단추를 누르면 업데이트를 안내한다. 새 껍데기가 답하지 못한 것은 꺼짐으로 본다.
+export async function readWidgetPinned(host: unknown): Promise<boolean | null> {
+  const internals = tauriInternals(host);
+  if (!internals) return null;
+  try {
+    const placement = (await internals.invoke("widget_placement")) as { pinned?: unknown } | null;
+    return placement?.pinned === true;
+  } catch (error) {
+    return isUnsupportedCommandError(error) ? null : false;
+  }
+}
+
+// 압정을 켜고 끈다. 껍데기가 적용한 값, 바꾸지 못했으면 null.
+export async function setWidgetPinned(host: unknown, enabled: boolean): Promise<boolean | null> {
+  const internals = tauriInternals(host);
+  if (!internals) return null;
+  try {
+    const applied = await internals.invoke("set_pinned", { enabled });
+    return typeof applied === "boolean" ? applied : null;
+  } catch {
+    return null;
   }
 }

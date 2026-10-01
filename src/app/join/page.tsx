@@ -43,7 +43,7 @@ export default async function JoinPage({
 
   if (isWidgetCookieStore(cookieStore)) {
     return (
-      <WidgetFrame locale={locale}>
+      <WidgetFrame>
         <div className={widgetStyles.authCard}>
           <h1>{t("데스크 가입")}</h1>
           <p>{t("관리자에게 받은 초대 코드를 입력하세요. 처음 한 번만 필요합니다.")}</p>

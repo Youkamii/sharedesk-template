@@ -1,4 +1,4 @@
-//! 프로필별 설정 — 데스크 주소·항상 위·창 위치를 `settings.json`에 둔다.
+//! 프로필별 설정 — 데스크 주소·항상 위·압정·창 위치를 `settings.json`에 둔다.
 //! 프로필 폴더 하나가 인스턴스 하나다: 쿠키 저장소(webview/)와 이 파일이 함께 산다.
 
 use std::fs;
@@ -29,6 +29,9 @@ pub struct Settings {
     /// 정규화된 데스크 주소 (끝 슬래시 없음). 없으면 첫 실행 화면을 띄운다.
     pub desk_url: Option<String>,
     pub always_on_top: bool,
+    /// 압정(#30): 바탕화면에 고정 — 다른 창 뒤, 바탕화면 위. 켜진 동안은 always_on_top보다 앞선다
+    /// (항상 위 설정은 그대로 두고, 압정을 풀면 그 값으로 돌아간다). 옛 설정 파일에는 없으므로 기본 false.
+    pub pinned: bool,
     // 창 항목이 옛 형식이거나 깨져 있어도 나머지 설정(데스크 주소·로그인)은 지켜야 한다
     #[serde(deserialize_with = "lenient_window")]
     pub window: Option<WindowRect>,
@@ -46,6 +49,7 @@ impl Default for Settings {
         Self {
             desk_url: None,
             always_on_top: true,
+            pinned: false,
             window: None,
         }
     }
@@ -251,6 +255,8 @@ mod tests {
         let parsed: Settings = serde_json::from_str(r#"{"deskUrl":"https://d.example"}"#).unwrap();
         assert_eq!(parsed.desk_url.as_deref(), Some("https://d.example"));
         assert!(parsed.always_on_top);
+        // 압정(#30)이 생기기 전의 설정 파일에는 pinned가 없다 — 꺼진 채로 읽는다
+        assert!(!parsed.pinned);
         assert_eq!(parsed.window, None);
         let broken: Settings = serde_json::from_str("{}").unwrap();
         assert_eq!(broken, Settings::default());
@@ -264,6 +270,17 @@ mod tests {
     }
 
     #[test]
+    fn pinned_is_read_and_written_under_its_own_key() {
+        let pinned: Settings =
+            serde_json::from_str(r#"{"deskUrl":"https://d.example","alwaysOnTop":true,"pinned":true}"#).unwrap();
+        assert!(pinned.pinned);
+        // 압정을 켜도 항상 위 설정은 따로 남는다 — 압정을 풀면 그 값으로 돌아간다
+        assert!(pinned.always_on_top);
+        let text = serde_json::to_string(&Settings { pinned: true, ..Settings::default() }).unwrap();
+        assert!(text.contains(r#""pinned":true"#), "{text}");
+    }
+
+    #[test]
     fn save_and_load_round_trip() {
         let dir = std::env::temp_dir().join(format!(
             "sharedesk-widget-settings-{}",
@@ -272,6 +289,7 @@ mod tests {
         let settings = Settings {
             desk_url: Some("https://d.example".into()),
             always_on_top: false,
+            pinned: true,
             window: Some(WindowRect { x: 10, y: 20, logical_width: 300.0, logical_height: 400.5 }),
         };
         save(&dir, &settings).unwrap();

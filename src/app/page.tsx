@@ -152,7 +152,7 @@ export default async function Home({
   // 데스크톱 위젯 안의 로그인 — 같은 로그인 수단을 작은 창에 맞는 카드로 보여 준다.
   if (isWidgetCookieStore(cookieStore)) {
     return (
-      <WidgetFrame locale={locale}>
+      <WidgetFrame>
         <div className={widgetStyles.authCard}>
           <h1>{t("데스크에 로그인")}</h1>
           <p>

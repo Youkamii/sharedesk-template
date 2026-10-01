@@ -4,17 +4,19 @@ import test from "node:test";
 import {
   disableWidgetWall,
   enableWidgetWall,
-  hideWidgetWindow,
   installStrayDropGuard,
   isUnsupportedCommandError,
   isWidgetHidden,
   parseWallSide,
   parseWidgetMode,
   parseWidgetWall,
+  placementSteps,
   readWidgetMode,
+  readWidgetPinned,
   readWidgetWall,
   recentWidgetFiles,
   reportWallZone,
+  setWidgetPinned,
   sortWidgetEntries,
   tauriInternals,
   WALL_HANDLE_SLACK,
@@ -23,10 +25,12 @@ import {
   WIDGET_HIDDEN_POLL_MS,
   WIDGET_LIST_POLL_MS,
   WIDGET_MODE_KEY,
+  WIDGET_PINNED_EVENT,
   WIDGET_WALL_HOVER_EVENT,
   WIDGET_WALL_KEY,
   WIDGET_WALL_SIDE_EVENT,
   widgetDownloadUrlData,
+  widgetPlacement,
   widgetPollInterval,
   writeWidgetMode,
   writeWidgetWall,
@@ -131,28 +135,12 @@ test("polling slows down while the widget window is hidden", () => {
   assert.equal(isWidgetHidden({ hidden: false }, null), false);
 });
 
-test("shell IPC is optional: no internals means hide is a no-op", async () => {
+test("shell IPC is optional: only a host with an invoke function counts", () => {
   assert.equal(tauriInternals({}), null);
   assert.equal(tauriInternals(null), null);
-  assert.equal(await hideWidgetWindow({}), false);
-  const calls: Array<[string, unknown]> = [];
-  const host = {
-    __TAURI_INTERNALS__: {
-      invoke: async (command: string, args?: unknown) => {
-        calls.push([command, args]);
-      },
-    },
-  };
-  assert.equal(await hideWidgetWindow(host), true);
-  assert.deepEqual(calls, [["hide_widget", undefined]]);
-  const failing = {
-    __TAURI_INTERNALS__: {
-      invoke: async () => {
-        throw new Error("denied");
-      },
-    },
-  };
-  assert.equal(await hideWidgetWindow(failing), false);
+  assert.equal(tauriInternals({ __TAURI_INTERNALS__: { invoke: "nope" } }), null);
+  const invoke = async () => undefined;
+  assert.equal(tauriInternals({ __TAURI_INTERNALS__: { invoke } })?.invoke, invoke);
 });
 
 test("stray drops are cancelled unless the page already handled them", () => {
@@ -357,7 +345,7 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
   assert.match(view, /const hold = [^;]*\bdragOver\b/);
 
   // 껍데기 명령과 권한 — 원격 데스크 페이지도 두 명령을 부를 수 있어야 한다
-  assert.match(shell, /set_wall_mode,\s+set_wall_zone\s+\]\)/);
+  assert.match(shell, /set_wall_mode,\s+set_wall_zone,/);
   assert.match(build, /"set_wall_mode",\s+"set_wall_zone",/);
   for (const name of ["default", "remote"]) {
     const capability = JSON.parse(
@@ -375,6 +363,138 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
   // 손잡이는 .widget 밖(body)에 있으므로 색 토큰이 html[data-widget]에 있어야 한다
   assert.match(globals, /html\[data-widget\]\s*\{[^}]*--peach:/);
   assert.doesNotMatch(css, /\.widget\s*\{[^}]*--peach:/);
+});
+
+// ── 압정 (#30) ──────────────────────────────────────────────────────────
+
+test("placement is one of floating / wall / pinned, and wall wins a conflict (#30)", () => {
+  assert.equal(widgetPlacement(false, false), "floating");
+  assert.equal(widgetPlacement(false, null), "floating");
+  assert.equal(widgetPlacement(false, true), "pinned");
+  assert.equal(widgetPlacement(true, false), "wall");
+  // 벽 붙임을 켜면 껍데기가 압정을 푼다 — 둘 다 켜진 것으로 보이면 벽이다
+  assert.equal(widgetPlacement(true, true), "wall");
+});
+
+test("switching placement turns the other mode off first (#30)", () => {
+  // 떠 있기에서는 누른 쪽만 켠다
+  assert.deepEqual(placementSteps("floating", "pinned"), [{ pinned: true }]);
+  assert.deepEqual(placementSteps("floating", "wall"), [{ wall: true }]);
+  // 켜진 쪽을 다시 누르면 끄기만
+  assert.deepEqual(placementSteps("pinned", "pinned"), [{ pinned: false }]);
+  assert.deepEqual(placementSteps("wall", "wall"), [{ wall: false }]);
+  // 반대편이 켜져 있으면 먼저 끄고 켠다 — 두 배치가 함께 켜지는 순간이 없다
+  assert.deepEqual(placementSteps("wall", "pinned"), [{ wall: false }, { pinned: true }]);
+  assert.deepEqual(placementSteps("pinned", "wall"), [{ pinned: false }, { wall: true }]);
+});
+
+test("pin commands go through the shell IPC; an old shell reads as unsupported (#30)", async () => {
+  // 껍데기가 없으면(브라우저) 모른다(null)
+  assert.equal(await readWidgetPinned({}), null);
+  assert.equal(await setWidgetPinned({}, true), null);
+
+  const calls: Array<[string, unknown]> = [];
+  const shell = (answer: unknown) => ({
+    __TAURI_INTERNALS__: {
+      invoke: async (command: string, args?: unknown) => {
+        calls.push([command, args]);
+        return answer;
+      },
+    },
+  });
+  assert.equal(await readWidgetPinned(shell({ pinned: true })), true);
+  assert.equal(await readWidgetPinned(shell({ pinned: false })), false);
+  assert.equal(await readWidgetPinned(shell(null)), false);
+  assert.equal(await setWidgetPinned(shell(true), true), true);
+  assert.equal(await setWidgetPinned(shell(false), false), false);
+  assert.deepEqual(calls.slice(0, 1), [["widget_placement", undefined]]);
+  assert.deepEqual(calls.slice(-2), [
+    ["set_pinned", { enabled: true }],
+    ["set_pinned", { enabled: false }],
+  ]);
+  // 엉뚱한 답은 바꾸지 못한 것으로 본다
+  assert.equal(await setWidgetPinned(shell("yes"), true), null);
+
+  const rejecting = (reason: unknown) => ({
+    __TAURI_INTERNALS__: {
+      invoke: async () => {
+        throw reason;
+      },
+    },
+  });
+  // 옛 껍데기(없는·막힌 명령)는 null — 단추를 누르면 업데이트 안내
+  assert.equal(await readWidgetPinned(rejecting("Command widget_placement not found")), null);
+  assert.equal(await readWidgetPinned(rejecting("Command widget_placement not allowed by ACL")), null);
+  // 새 껍데기가 답하지 못한 것은 꺼짐으로 본다
+  assert.equal(await readWidgetPinned(rejecting("데스크 페이지에서만 쓸 수 있는 명령입니다")), false);
+  assert.equal(await setWidgetPinned(rejecting("데스크 페이지에서만 쓸 수 있는 명령입니다"), true), null);
+});
+
+test("배선: 머리띠 단추 — ↗·– 없이 서랍·창가 | 벽·압정, 압정은 껍데기 설정이 원본 (#30)", async () => {
+  const read = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
+  const view = await read("../src/app/widget/WidgetView.tsx");
+  const band = await read("../src/app/widget/WidgetBand.tsx");
+  const frame = await read("../src/app/widget/WidgetFrame.tsx");
+  const helpers = await read("../src/lib/client/widget.ts");
+  const shell = await read("../widget/src-tauri/src/lib.rs");
+  const build = await read("../widget/src-tauri/build.rs");
+
+  // 머리띠 자체(로그인·가입 화면의 WidgetFrame 포함)에는 숨기기 단추가 없다 — 숨기기는 트레이
+  assert.doesNotMatch(band, /<button/);
+  assert.doesNotMatch(band, /hideWidgetWindow|hide_widget/);
+  assert.doesNotMatch(helpers, /hideWidgetWindow/);
+  assert.match(frame, /<WidgetBand title="ShareDesk" \/>/);
+
+  // 데스크 머리띠: 단추 넷이 서랍·창가 | 벽·압정 순서, ↗(브라우저 열기)는 없다
+  const bandSection = view.match(/<WidgetBand title=\{placeTitle\}>[\s\S]*?<\/WidgetBand>/)?.[0];
+  assert.ok(bandSection, "WidgetView에 머리띠가 있어야 합니다");
+  assert.equal(bandSection.match(/<button/g)?.length, 4);
+  const labels = [...bandSection.matchAll(/\{t\("(서랍|창가|벽|압정)"\)\}/g)].map(([, label]) => label);
+  assert.deepEqual(labels, ["서랍", "창가", "벽", "압정"]);
+  assert.doesNotMatch(bandSection, /↗|openInBrowser|–/);
+  assert.match(bandSection, /aria-pressed=\{placement === "wall"\}/);
+  assert.match(bandSection, /aria-pressed=\{placement === "pinned"\}/);
+  assert.match(bandSection, /title=\{t\("바탕화면에 압정처럼 고정 — 다른 창 뒤, 바탕화면 위에 머무릅니다"\)\}/);
+  assert.match(bandSection, /onClick=\{\(\) => void togglePlacement\("wall"\)\}/);
+  assert.match(bandSection, /onClick=\{\(\) => void togglePlacement\("pinned"\)\}/);
+  // 브라우저에서 열기는 서랍 우클릭 메뉴에 남는다
+  assert.match(view, /onClick=\{openInBrowser\}>\s*\{t\("브라우저에서 데스크 열기"\)\}/);
+
+  // 상호 배타: placementSteps 차례대로, 벽을 끌 때는 껍데기 해제를 기다린 뒤 압정을 켠다
+  assert.match(view, /const placement = widgetPlacement\(wallOn, pinned\);/);
+  assert.match(view, /for \(const step of placementSteps\(placement, pressed\)\)/);
+  assert.match(view, /if \(!step\.wall\) await disableWidgetWall\(window\);/);
+  assert.match(view, /await setWidgetPinned\(window, step\.pinned\)/);
+  // 옛 껍데기면 아무것도 바꾸지 않고 업데이트 안내
+  assert.match(
+    view,
+    /pressed === "pinned" && pinned === null\)[\s\S]{0,160}t\("위젯을 업데이트하면 압정을 쓸 수 있습니다"\)[\s\S]{0,20}return;/,
+  );
+  // 로드 때 껍데기에서 읽고, 껍데기가 스스로 풀면 이벤트로 따라간다
+  assert.match(view, /void readWidgetPinned\(window\)/);
+  assert.match(view, /document\.addEventListener\(WIDGET_PINNED_EVENT, onPinned\)/);
+  assert.equal(WIDGET_PINNED_EVENT, "sharedesk:widget-pinned");
+  assert.match(shell, /const PINNED_EVENT: &str = "sharedesk:widget-pinned";/);
+  assert.match(helpers, /invoke\("widget_placement"\)/);
+  assert.match(helpers, /invoke\("set_pinned", \{ enabled \}\)/);
+
+  // 껍데기: 명령·권한, 적용 순서(두 플래그가 함께 켜지는 순간이 없게), 벽·트레이의 방어적 해제
+  assert.match(shell, /set_wall_zone,\s+widget_placement,\s+set_pinned\s+\]\)/);
+  assert.match(build, /"widget_placement",\s+"set_pinned",/);
+  for (const name of ["default", "remote"]) {
+    const capability = JSON.parse(
+      await read(`../widget/src-tauri/capabilities/${name}.json`),
+    ) as { permissions: string[] };
+    assert.ok(capability.permissions.includes("allow-widget-placement"), `${name}: allow-widget-placement`);
+    assert.ok(capability.permissions.includes("allow-set-pinned"), `${name}: allow-set-pinned`);
+  }
+  assert.match(
+    shell,
+    /if pinned \{\s+let _ = window\.set_always_on_top\(false\);\s+let _ = window\.set_always_on_bottom\(true\);\s+\} else \{\s+let _ = window\.set_always_on_bottom\(false\);/,
+  );
+  assert.match(shell, /\.always_on_top\(settings\.always_on_top && !settings\.pinned\)/);
+  assert.match(shell, /if enabled && app\.state::<WidgetState>\(\)\.settings\(\)\.pinned \{\s+set_pinned_state\(&app, &window, false\);/);
+  assert.match(shell, /settings\.always_on_top && !settings\.pinned,/);
 });
 
 // ── 끌어내기 (#29) ──────────────────────────────────────────────────────

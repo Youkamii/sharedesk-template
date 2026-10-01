@@ -10,7 +10,8 @@
 //!    공개 템플릿 저장소의 고정 릴리스를 보고 갱신한다.
 //!
 //! 배치 토글 "벽 붙임"(#28)은 페이지가 켜고 끄며, 껍데기는 벽에 붙이기·커서 판정·클릭 투과만 맡는다
-//! (wall.rs와 아래 "벽 붙임" 절).
+//! (wall.rs와 아래 "벽 붙임" 절). "압정"(#30)은 껍데기 설정이 원본이고 페이지가 set_pinned로 켜고 끈다
+//! (아래 "압정" 절). 배치 모드 셋의 설계와 OS별 구현은 widget/README.md에 있다.
 
 mod locale;
 mod settings;
@@ -133,7 +134,9 @@ pub fn run() {
             widget_info,
             hide_widget,
             set_wall_mode,
-            set_wall_zone
+            set_wall_zone,
+            widget_placement,
+            set_pinned
         ])
         .setup(move |app| {
             let profile = open_profile(app.handle(), &profile_name)?;
@@ -286,7 +289,8 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .transparent(true)
         .skip_taskbar(true)
         .resizable(true)
-        .always_on_top(settings.always_on_top)
+        // 압정이면 항상 위로 만들지 않는다 — 만든 뒤 apply_pinned가 맨 아래에 고정한다
+        .always_on_top(settings.always_on_top && !settings.pinned)
         .visible(false)
         .inner_size(width, height)
         .min_inner_size(MIN_SIZE.0, MIN_SIZE.1)
@@ -330,6 +334,9 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             ensure_on_screen(&window);
         }
         None => position_bottom_right(&window),
+    }
+    if settings.pinned {
+        apply_pinned(&window, true);
     }
     let _ = window.show();
     Ok(window)
@@ -664,7 +671,7 @@ fn hide_widget(app: AppHandle) {
 // 동기 명령은 메인 스레드에서 돌고, 폴링 스레드의 창 조회는 메인 스레드의 답을 기다린다 —
 // 그래서 폴링 스레드는 wall 잠금을 쥔 채 창을 조회하지 않는다(교착 방지).
 
-/// 벽 붙임 명령은 저장된 데스크 원점의 페이지만 부를 수 있다. 원격 capability가 데스크 주소를 미리
+/// 벽 붙임·압정 명령은 저장된 데스크 원점의 페이지만 부를 수 있다. 원격 capability가 데스크 주소를 미리
 /// 알 수 없어 모든 http(s) 원점에 열려 있으므로, 명령 안에서 호출 웹뷰의 지금 주소로 다시 거른다
 /// (may_open_external과 같은 기준).
 fn require_desk_page(window: &WebviewWindow) -> Result<(), String> {
@@ -672,7 +679,7 @@ fn require_desk_page(window: &WebviewWindow) -> Result<(), String> {
     if is_desk_origin(&window.state::<WidgetState>(), &page) {
         Ok(())
     } else {
-        Err("데스크 페이지에서만 벽 붙임을 쓸 수 있습니다".to_string())
+        Err("데스크 페이지에서만 쓸 수 있는 명령입니다".to_string())
     }
 }
 
@@ -687,6 +694,12 @@ fn with_wall<T>(manager: &impl Manager<tauri::Wry>, f: impl FnOnce(&mut WallStat
 #[tauri::command]
 fn set_wall_mode(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result<Option<wall::Side>, String> {
     require_desk_page(&window)?;
+    // 벽 붙임은 항상 위를 전제한다(손잡이가 보여야 한다). 페이지가 먼저 압정을 풀지만, 압정인 채로
+    // 켜 달라는 요청이 오면 여기서도 풀고 페이지에 알린다 (#30 상호 배타)
+    if enabled && app.state::<WidgetState>().settings().pinned {
+        set_pinned_state(&app, &window, false);
+        tell_page_pinned(&window, false);
+    }
     // 그림자를 끄기 전에 틀 두께를 논리값으로 잰다 (이미 켜져 있었으면 그때 잰 값을 이어 쓴다)
     let measured = match (window.outer_size(), window.inner_size(), window.scale_factor()) {
         (Ok(outer), Ok(inner), Ok(scale)) if scale > 0.0 => PhysicalSize::new(
@@ -915,6 +928,67 @@ fn set_wall_expanded(window: &WebviewWindow, epoch: u64, expanded: bool) {
     }
 }
 
+// ── 압정 (#30) ──────────────────────────────────────────────────────────────
+//
+// 배치 모드 셋(떠 있기·벽 붙임·압정) 중 하나. 켜면 창이 다른 창 뒤, 바탕화면 위에 머문다.
+// 원본은 껍데기 설정(settings.pinned)이고, 페이지는 로드 때 widget_placement로 읽어 단추를 맞추고
+// set_pinned로 켜고 끈다. 벽 붙임과의 순서(압정을 켜기 전에 벽을 끄고, 벽을 켜기 전에 압정을 푼다)는
+// 페이지가 맡고, 껍데기는 set_wall_mode(true)와 트레이 "항상 위"에서 방어적으로 압정을 푼다.
+// Windows: tao가 ALWAYS_ON_BOTTOM 플래그를 WM_WINDOWPOSCHANGING에서 HWND_BOTTOM으로 강제하므로
+// 창을 눌러 활성화해도 맨 아래에 남는다. macOS: 창 레벨 BelowNormalWindowLevel (widget/README.md).
+
+/// 페이지(src/lib/client/widget.ts)의 WIDGET_PINNED_EVENT와 같은 이름 — 껍데기가 압정을 스스로 풀었을 때 쏜다
+const PINNED_EVENT: &str = "sharedesk:widget-pinned";
+
+#[derive(serde::Serialize)]
+struct Placement {
+    pinned: bool,
+}
+
+/// 창에 압정을 적용한다. 두 플래그가 함께 켜지는 순간이 없도록 순서를 지킨다:
+/// 켜기는 항상 위를 내린 뒤 맨 아래로, 끄기는 맨 아래를 푼 뒤 설정의 항상 위로.
+fn apply_pinned(window: &WebviewWindow, pinned: bool) {
+    if pinned {
+        let _ = window.set_always_on_top(false);
+        let _ = window.set_always_on_bottom(true);
+    } else {
+        let _ = window.set_always_on_bottom(false);
+        let always_on_top = window.state::<WidgetState>().settings().always_on_top;
+        let _ = window.set_always_on_top(always_on_top);
+    }
+}
+
+/// 설정에 적고 창에 적용하고 트레이("항상 위" 체크)를 맞춘다
+fn set_pinned_state(app: &AppHandle, window: &WebviewWindow, pinned: bool) {
+    app.state::<WidgetState>()
+        .update_settings(|settings| settings.pinned = pinned);
+    apply_pinned(window, pinned);
+    refresh_tray(app);
+}
+
+fn tell_page_pinned(window: &WebviewWindow, pinned: bool) {
+    let _ = window.eval(format!(
+        "document.dispatchEvent(new CustomEvent('{PINNED_EVENT}',{{detail:{pinned}}}));"
+    ));
+}
+
+/// 지금 배치 — 페이지가 로드될 때 압정 단추를 맞추려고 읽는다
+#[tauri::command]
+fn widget_placement(window: WebviewWindow) -> Result<Placement, String> {
+    require_desk_page(&window)?;
+    Ok(Placement {
+        pinned: window.state::<WidgetState>().settings().pinned,
+    })
+}
+
+/// 압정을 켜고 끄고, 적용된 값을 돌려준다
+#[tauri::command]
+fn set_pinned(app: AppHandle, window: WebviewWindow, enabled: bool) -> Result<bool, String> {
+    require_desk_page(&window)?;
+    set_pinned_state(&app, &window, enabled);
+    Ok(enabled)
+}
+
 // ── 트레이 ──────────────────────────────────────────────────────────────────
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
@@ -931,11 +1005,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id.as_ref() {
             "toggle" => toggle_main_window(app),
             "always-on-top" => {
+                // 압정 중엔 "항상 위"가 꺼진 것으로 보인다 — 누르면 압정을 먼저 풀고 항상 위로 (#30 상호 배타)
                 let state = app.state::<WidgetState>();
-                let next = !state.settings().always_on_top;
+                let current = state.settings();
+                let next = !(current.always_on_top && !current.pinned);
                 state.update_settings(|settings| settings.always_on_top = next);
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-                    let _ = window.set_always_on_top(next);
+                    if current.pinned {
+                        set_pinned_state(app, &window, false);
+                        tell_page_pinned(&window, false);
+                    } else {
+                        let _ = window.set_always_on_top(next);
+                    }
                 }
                 refresh_tray(app);
             }
@@ -1025,7 +1106,7 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         "always-on-top",
         labels.always_on_top,
         true,
-        settings.always_on_top,
+        settings.always_on_top && !settings.pinned,
         None::<&str>,
     )?)?;
     menu.append(&CheckMenuItem::with_id(

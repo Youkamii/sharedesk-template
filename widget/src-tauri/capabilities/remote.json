@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "remote-desk",
-  "description": "데스크 페이지(원격 주소)에 허용하는 권한 — 머리띠로 창을 끌기, 위젯 숨기기(hide_widget: 위치 기억·트레이 갱신 포함), 벽 붙임(set_wall_mode·set_wall_zone: 벽에 붙이기·클릭 투과 영역)뿐. 데스크 주소는 실행 시 정해지므로 호스트를 특정할 수 없고, 포트가 있는 주소(localhost:3000)도 맞아야 하므로 :*를 붙인다.",
+  "description": "데스크 페이지(원격 주소)에 허용하는 권한 — 머리띠로 창을 끌기, 위젯 숨기기(hide_widget: 위치 기억·트레이 갱신 포함), 벽 붙임(set_wall_mode·set_wall_zone: 벽에 붙이기·클릭 투과 영역), 압정(widget_placement·set_pinned: 바탕화면 고정 읽기·켜고 끄기)뿐. 데스크 주소는 실행 시 정해지므로 호스트를 특정할 수 없고, 포트가 있는 주소(localhost:3000)도 맞아야 하므로 :*를 붙인다.",
   "remote": {
     "urls": ["https://*:*/*", "http://*:*/*"]
   },
@@ -10,6 +10,8 @@
     "core:window:allow-start-dragging",
     "allow-hide-widget",
     "allow-set-wall-mode",
-    "allow-set-wall-zone"
+    "allow-set-wall-zone",
+    "allow-widget-placement",
+    "allow-set-pinned"
   ]
 }

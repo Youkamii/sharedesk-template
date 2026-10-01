@@ -10,6 +10,8 @@
     "allow-save-desk-url",
     "allow-widget-info",
     "allow-set-wall-mode",
-    "allow-set-wall-zone"
+    "allow-set-wall-zone",
+    "allow-widget-placement",
+    "allow-set-pinned"
   ]
 }

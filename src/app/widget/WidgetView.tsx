@@ -32,19 +32,24 @@ import {
   enableWidgetWall,
   isWidgetHidden,
   parseWallSide,
+  placementSteps,
   readWidgetMode,
+  readWidgetPinned,
   readWidgetWall,
   recentWidgetFiles,
   reportWallZone,
+  setWidgetPinned,
   sortWidgetEntries,
   type WallSide,
   wallZoneRect,
   WIDGET_LIST_POLL_MS,
+  WIDGET_PINNED_EVENT,
   WIDGET_PRESENCE_MS,
   WIDGET_VISIBILITY_EVENT,
   WIDGET_WALL_HOVER_EVENT,
   WIDGET_WALL_SIDE_EVENT,
   widgetDownloadUrlData,
+  widgetPlacement,
   widgetPollInterval,
   type WidgetMode,
   writeWidgetMode,
@@ -165,6 +170,8 @@ export default function WidgetView({
   );
   // 껍데기가 붙였다고 확인한 벽과 펼침 여부. 켜 달라고 했는데 아직 답이 없거나 거부되면 null.
   const [wall, setWall] = useState<{ side: WallSide; expanded: boolean } | null>(null);
+  // 압정(#30) — 원본은 껍데기 설정. 로드 때 읽어 온다. null이면 껍데기가 없거나 옛 껍데기다.
+  const [pinned, setPinned] = useState<boolean | null>(null);
   const wallHandleRef = useRef<HTMLDivElement | null>(null);
   const [path, setPath] = useState<Crumb[]>([{ id: ROOT_ID, name: "ShareDesk" }]);
   const [entries, setEntries] = useState<Entry[] | null>(null);
@@ -216,9 +223,30 @@ export default function WidgetView({
     setContextMenu(null);
   }
 
-  function toggleWall() {
-    wallSetting.save((storage) => writeWidgetWall(storage, !wallOn));
+  // 배치(#30): 떠 있기·벽 붙임·압정 중 하나. 벽·압정 단추는 placementSteps의 차례대로 —
+  // 켜려는 쪽의 반대편을 먼저 끄고 켠다. 벽을 끌 때는 껍데기 해제(disableWidgetWall)까지 기다린다.
+  const placement = widgetPlacement(wallOn, pinned);
+
+  async function togglePlacement(pressed: "wall" | "pinned") {
     setContextMenu(null);
+    if (pressed === "pinned" && pinned === null) {
+      // 옛 껍데기(명령 없음): 아무것도 바꾸지 않고 업데이트를 안내한다
+      showNotice(t("위젯을 업데이트하면 압정을 쓸 수 있습니다"));
+      return;
+    }
+    for (const step of placementSteps(placement, pressed)) {
+      if ("wall" in step) {
+        wallSetting.save((storage) => writeWidgetWall(storage, step.wall));
+        if (!step.wall) await disableWidgetWall(window);
+        continue;
+      }
+      const applied = await setWidgetPinned(window, step.pinned);
+      if (applied === null) {
+        showNotice(t("압정을 바꾸지 못했습니다"));
+        return;
+      }
+      setPinned(applied);
+    }
   }
 
   // ── 목록 ────────────────────────────────────────────────────────────
@@ -599,6 +627,22 @@ export default function WidgetView({
     return () => window.removeEventListener("resize", report);
   }, [wallActive, wallSide, wallExpanded, hold]);
 
+  // ── 압정 (#30) ───────────────────────────────────────────────────────
+  // 로드 때 껍데기에서 압정 여부를 읽고, 껍데기가 스스로 풀면(트레이 "항상 위", 벽 붙임 요청) 따라간다.
+
+  useEffect(() => {
+    let alive = true;
+    const onPinned = (event: Event) => setPinned((event as CustomEvent<unknown>).detail === true);
+    document.addEventListener(WIDGET_PINNED_EVENT, onPinned);
+    void readWidgetPinned(window).then((value) => {
+      if (alive) setPinned(value);
+    });
+    return () => {
+      alive = false;
+      document.removeEventListener(WIDGET_PINNED_EVENT, onPinned);
+    };
+  }, []);
+
   // ── 화면 ─────────────────────────────────────────────────────────────
 
   return (
@@ -614,7 +658,7 @@ export default function WidgetView({
       }}
     >
       <div className={styles.wallpaper} aria-hidden="true" />
-      <WidgetBand locale={locale} title={placeTitle}>
+      <WidgetBand title={placeTitle}>
         <span
           className={`${styles.liveDot} ${presence.error ? styles.liveDotError : ""}`}
           title={presence.error ? t("접속 확인 실패") : t("접속자 · {count}명", { count: presence.count })}
@@ -640,24 +684,26 @@ export default function WidgetView({
             {t("창가")}
           </button>
         </div>
-        <button
-          type="button"
-          className={styles.bandButton}
-          aria-pressed={wallOn}
-          title={t("벽 붙임 — 화면 가장자리에 숨겨 두고, 손잡이에 마우스를 대면 펼칩니다")}
-          onClick={toggleWall}
-        >
-          {t("벽")}
-        </button>
-        <button
-          type="button"
-          className={styles.bandButton}
-          title={t("브라우저에서 데스크 열기")}
-          aria-label={t("브라우저에서 데스크 열기")}
-          onClick={openInBrowser}
-        >
-          ↗
-        </button>
+        <div className={styles.modeSwitch} role="group" aria-label={t("위젯 배치")}>
+          <button
+            type="button"
+            className={styles.bandButton}
+            aria-pressed={placement === "wall"}
+            title={t("벽 붙임 — 화면 가장자리에 숨겨 두고, 손잡이에 마우스를 대면 펼칩니다")}
+            onClick={() => void togglePlacement("wall")}
+          >
+            {t("벽")}
+          </button>
+          <button
+            type="button"
+            className={styles.bandButton}
+            aria-pressed={placement === "pinned"}
+            title={t("바탕화면에 압정처럼 고정 — 다른 창 뒤, 바탕화면 위에 머무릅니다")}
+            onClick={() => void togglePlacement("pinned")}
+          >
+            {t("압정")}
+          </button>
+        </div>
       </WidgetBand>
 
       {mode === "desk" ? (
