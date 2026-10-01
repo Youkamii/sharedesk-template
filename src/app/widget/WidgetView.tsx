@@ -40,7 +40,9 @@ import {
   reportWallZone,
   setWidgetPinned,
   sortWidgetEntries,
+  transferGauge,
   type WallSide,
+  wallGaugeFillPx,
   wallZoneRect,
   WIDGET_LIST_POLL_MS,
   WIDGET_PINNED_EVENT,
@@ -80,6 +82,10 @@ const STORAGE_POLL_MS = 60_000;
 // widget.module.css의 .contextMenu 너비와 짝 — 화면 밖으로 나가지 않게 자리를 잡는 데만 쓴다
 const CONTEXT_MENU_WIDTH = 196;
 const CONTEXT_MENU_HEIGHT = 150;
+// widget.module.css의 .wallHandle 높이와 짝 — 전송 게이지(#31)를 2px 칸으로 끊는 데 쓴다
+const WALL_HANDLE_HEIGHT = 72;
+// 전송이 모두 끝나면 손잡이 게이지를 이만큼 다 찬 채로 둔 뒤 원래 색으로 돌린다
+const WALL_GAUGE_DONE_MS = 1_000;
 // 파일 내려받기 경로 — 우클릭 메뉴 내려받기와 끌어내기(#29)가 함께 쓴다. 스페이스 안이면 apiPath가
 // /<slug>/api/... 로 프리픽스를 붙인다.
 const downloadPath = (entry: Entry) =>
@@ -528,7 +534,6 @@ export default function WidgetView({
   const folderAddress =
     path.length === 1 ? "/" : `/${path.slice(1).map((crumb) => crumb.name).join("/")}`;
   const placeTitle = isRoot ? t("공유 바탕화면") : folderName;
-  const uploading = activeTransfers.some((transfer) => transfer.kind === "upload");
 
   const storageLimit = storage
     ? (storage.deskStorageLimitBytes ?? storage.hostLimitBytes ?? null)
@@ -550,8 +555,9 @@ export default function WidgetView({
   const wallActive = wallState !== null;
   const wallSide = wallState?.side ?? null;
   const wallExpanded = wallState?.expanded ?? false;
-  // 커서가 떠나도 접지 않는 때: 우클릭 메뉴가 열려 있거나, 올리는 중이거나, 파일을 서랍 위로 끌고 있거나,
-  // 서랍의 파일을 창 밖으로 끌어내는 중일 때(#29 — 끌고 나가는 동안 판이 접히지 않게)
+  // 커서가 떠나도 접지 않는 때: 우클릭 메뉴가 열려 있거나, 파일을 서랍 위로 끌고 있거나,
+  // 서랍의 파일을 창 밖으로 끌어내는 중일 때(#29 — 끌고 나가는 동안 판이 접히지 않게).
+  // 올리는 중에는 붙잡지 않는다(#31) — 접혀도 전송은 계속되고, 손잡이 테두리의 게이지가 진행을 보여 준다.
   // 끄는 도중 그 아이콘이 사라지면(주기 갱신에서 남이 지움·옮김, 다른 창에서 모드 전환) 브라우저는
   // dragend를 떨어져 나간 노드에만 쏘고 onDragEnd가 오지 않는다 — 그래서 끄는 중인지는 목록에 그
   // 아이콘이 아직 있는지로 판정한다. 그렇지 않으면 hold가 영영 풀리지 않아 벽 붙임이 다시 접히지 않는다.
@@ -560,7 +566,34 @@ export default function WidgetView({
   // 끄는 중이 아니게 되면(아이콘이 사라짐) 끌던 id를 바로 비운다 — 같은 id가 다음 목록에 되살아나도
   // hold가 다시 켜지지 않게. 파생값으로 렌더 중에 비우므로 effect가 필요 없다.
   if (dragOutId !== null && !draggingOut) setDragOutId(null);
-  const hold = contextMenu !== null || uploading || dragOver || draggingOut;
+  const hold = contextMenu !== null || dragOver || draggingOut;
+
+  // 전송 게이지(#31): 접힌 손잡이 테두리가 활성 전송의 합산 진행률만큼 아래에서 위로 초록으로 찬다.
+  // 크기를 아는 전송이 없으면 전체가 깜빡이고(unknown), 모두 끝나면 1초 동안 다 찬 채(done)로 있다.
+  // 끝난 순간은 렌더 중에 이전 값과 비교해 알아채고, 1초 뒤 푸는 것만 타이머가 맡는다.
+  const gauge = transferGauge(activeTransfers);
+  const [gaugeWasActive, setGaugeWasActive] = useState(false);
+  const [gaugeDone, setGaugeDone] = useState(false);
+  if (gauge.active !== gaugeWasActive) {
+    setGaugeWasActive(gauge.active);
+    setGaugeDone(!gauge.active);
+  }
+  useEffect(() => {
+    if (!gaugeDone) return;
+    const timer = window.setTimeout(() => setGaugeDone(false), WALL_GAUGE_DONE_MS);
+    return () => window.clearTimeout(timer);
+  }, [gaugeDone]);
+  const gaugeState = gauge.active
+    ? gauge.ratio === null
+      ? "unknown"
+      : "progress"
+    : gaugeDone
+      ? "done"
+      : undefined;
+  const gaugeStyle =
+    gauge.active && gauge.ratio !== null
+      ? ({ "--gauge-fill": `${wallGaugeFillPx(gauge.ratio, WALL_HANDLE_HEIGHT)}px` } as CSSProperties)
+      : undefined;
 
   // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)
   useEffect(() => {
@@ -971,6 +1004,8 @@ export default function WidgetView({
             className={styles.wallHandle}
             data-side={wallState.side}
             data-expanded={wallState.expanded ? "" : undefined}
+            data-gauge={gaugeState}
+            style={gaugeStyle}
             aria-hidden="true"
           >
             <span className={styles.wallBrand}>

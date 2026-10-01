@@ -19,7 +19,10 @@ import {
   setWidgetPinned,
   sortWidgetEntries,
   tauriInternals,
+  transferGauge,
+  WALL_GAUGE_STEP_PX,
   WALL_HANDLE_SLACK,
+  wallGaugeFillPx,
   wallZoneRect,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
@@ -495,6 +498,85 @@ test("배선: 머리띠 단추 — ↗·– 없이 서랍·창가 | 벽·압정,
   assert.match(shell, /\.always_on_top\(settings\.always_on_top && !settings\.pinned\)/);
   assert.match(shell, /if enabled && app\.state::<WidgetState>\(\)\.settings\(\)\.pinned \{\s+set_pinned_state\(&app, &window, false\);/);
   assert.match(shell, /settings\.always_on_top && !settings\.pinned,/);
+});
+
+// ── 전송 게이지 (#31) ──────────────────────────────────────────────────
+
+test("transfer gauge sums active transfers and skips unknown sizes (#31)", () => {
+  // 빈 목록: 전송 없음
+  assert.deepEqual(transferGauge([]), { ratio: null, active: false });
+  // 합산: (30 + 10) / (100 + 100)
+  assert.deepEqual(
+    transferGauge([
+      { transferred: 30, total: 100 },
+      { transferred: 10, total: 100 },
+    ]),
+    { ratio: 0.2, active: true },
+  );
+  // 크기를 모르는 전송은 분모·분자에서 뺀다
+  assert.deepEqual(
+    transferGauge([
+      { transferred: 50, total: 200 },
+      { transferred: 999, total: null },
+    ]),
+    { ratio: 0.25, active: true },
+  );
+  // 크기를 아는 전송이 하나도 없으면 ratio는 null(전체 깜빡임), 전송은 있다
+  assert.deepEqual(transferGauge([{ transferred: 5, total: null }]), { ratio: null, active: true });
+  assert.deepEqual(transferGauge([{ transferred: 0, total: 0 }]), { ratio: null, active: true });
+  // 보고가 크기를 넘거나 음수여도 0..1 안
+  assert.deepEqual(transferGauge([{ transferred: 150, total: 100 }]), { ratio: 1, active: true });
+  assert.deepEqual(transferGauge([{ transferred: -5, total: 100 }]), { ratio: 0, active: true });
+  // Map.values() 그대로 받는다
+  const map = new Map([["a", { transferred: 1, total: 4 }]]);
+  assert.deepEqual(transferGauge(map.values()), { ratio: 0.25, active: true });
+});
+
+test("wall gauge fills in 2px steps from the bottom, full only at 100% (#31)", () => {
+  assert.equal(WALL_GAUGE_STEP_PX, 2);
+  assert.equal(wallGaugeFillPx(0, 72), 0);
+  assert.equal(wallGaugeFillPx(Number.NaN, 72), 0);
+  // 조금이라도 나아갔으면 한 칸
+  assert.equal(wallGaugeFillPx(0.001, 72), 2);
+  assert.equal(wallGaugeFillPx(0.3, 72), 20);
+  assert.equal(wallGaugeFillPx(0.5, 72), 36);
+  assert.equal(wallGaugeFillPx(0.7, 72), 50);
+  // 다 찬 칸은 1일 때만
+  assert.equal(wallGaugeFillPx(0.999, 72), 70);
+  assert.equal(wallGaugeFillPx(1, 72), 72);
+  assert.equal(wallGaugeFillPx(2, 72), 72);
+  for (const ratio of [0.1, 0.37, 0.81]) assert.equal(wallGaugeFillPx(ratio, 72) % 2, 0, String(ratio));
+});
+
+test("배선: 업로드 중에도 접히고, 접힌 손잡이 테두리가 전송 게이지가 된다 (#31)", async () => {
+  const read = (path: string) => readFile(new URL(path, import.meta.url), "utf8");
+  const view = await read("../src/app/widget/WidgetView.tsx");
+  const css = await read("../src/app/widget/widget.module.css");
+  const globals = await read("../src/app/globals.css");
+
+  // 올리는 중은 더 이상 붙잡지 않는다 — 커서가 떠나면 접힌다
+  assert.doesNotMatch(view, /const hold = [^;]*\buploading\b/);
+  assert.doesNotMatch(view, /const uploading =/);
+  assert.match(view, /const hold = contextMenu !== null \|\| dragOver \|\| draggingOut;/);
+
+  // 게이지: 합산 진행률 → 2px 칸 높이, 크기 모름은 unknown, 끝나면 1초 done
+  assert.match(view, /const gauge = transferGauge\(activeTransfers\);/);
+  assert.match(view, /if \(gauge\.active !== gaugeWasActive\) \{\s*setGaugeWasActive\(gauge\.active\);\s*setGaugeDone\(!gauge\.active\);/);
+  assert.match(view, /const WALL_GAUGE_DONE_MS = 1_000;/);
+  assert.match(view, /window\.setTimeout\(\(\) => setGaugeDone\(false\), WALL_GAUGE_DONE_MS\)/);
+  assert.match(view, /"--gauge-fill": `\$\{wallGaugeFillPx\(gauge\.ratio, WALL_HANDLE_HEIGHT\)\}px`/);
+  assert.match(view, /data-gauge=\{gaugeState\}\s+style=\{gaugeStyle\}\s+aria-hidden="true"/);
+  // 손잡이 높이는 CSS와 짝 — 2px 칸이 테두리 높이에 딱 맞게
+  const height = Number(view.match(/const WALL_HANDLE_HEIGHT = (\d+);/)?.[1]);
+  assert.match(css, new RegExp(`\\.wallHandle \\{[^}]*height: ${height}px;`));
+
+  // CSS: 손잡이 테두리 자리에 초록 테두리를 겹쳐 위쪽을 잘라 낸다, 크기 모름은 1.2초 깜빡임
+  assert.match(css, /\.wallHandle\[data-gauge\]::after \{[^}]*border: 2px solid var\(--leaf\);[^}]*clip-path: inset\(calc\(100% - var\(--gauge-fill, 0px\)\) 0 0 0\);/);
+  assert.match(css, /\.wallHandle\[data-gauge="unknown"\]::after,\s*\.wallHandle\[data-gauge="done"\]::after \{\s*clip-path: none;/);
+  assert.match(css, /\.wallHandle\[data-gauge="unknown"\]::after \{\s*animation: gaugeBlink 1\.2s/);
+  // 손잡이는 body에 있으므로 초록 토큰도 html[data-widget]에
+  assert.match(globals, /html\[data-widget\]\s*\{[^}]*--leaf:/);
+  assert.doesNotMatch(css, /--leaf:/);
 });
 
 // ── 끌어내기 (#29) ──────────────────────────────────────────────────────

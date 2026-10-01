@@ -2,6 +2,7 @@
 // 화면 컴포넌트(src/app/widget/WidgetView.tsx)에서 상태 없이 쓰이고 tests/widget.test.ts가 고정한다.
 
 import { downloadFileName } from "@/lib/client/file-activation";
+import type { TransferProgress } from "@/lib/client/transfer";
 import type { Entry } from "@/lib/storage/types";
 
 export type WidgetMode = "desk" | "window";
@@ -243,6 +244,41 @@ export async function disableWidgetWall(host: unknown): Promise<void> {
   } catch {
     // 옛 껍데기는 켠 적도 없다
   }
+}
+
+// 전송 게이지(#31): 벽 붙임으로 접힌 동안 손잡이 테두리가 전송 진행률만큼 아래에서 위로 초록으로 찬다.
+// 진행률은 활성 전송(올리기·받기 모두)의 합산 Σtransferred / Σtotal이다. 크기를 모르는 전송(total 없음·0 이하)은
+// 분모·분자에서 뺀다 — 크기를 아는 전송이 하나도 없으면 ratio는 null(테두리 전체가 깜빡인다).
+// 다 끝난 뒤 1초 동안 다 찬 채로 두는 것은 화면의 타이머가 맡는다.
+export interface TransferGauge {
+  ratio: number | null;
+  active: boolean;
+}
+
+export function transferGauge(
+  transfers: Iterable<Pick<TransferProgress, "transferred" | "total">>,
+): TransferGauge {
+  let active = false;
+  let done = 0;
+  let total = 0;
+  for (const transfer of transfers) {
+    active = true;
+    const size = transfer.total;
+    if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) continue;
+    total += size;
+    done += Math.min(Math.max(transfer.transferred, 0), size);
+  }
+  return { ratio: total > 0 ? done / total : null, active };
+}
+
+// 손잡이 테두리에 칠할 높이(px). 2px 칸으로 끊어 픽셀 느낌을 낸다. 조금이라도 나아갔으면 한 칸은 보이고,
+// 다 찬 칸은 진행률이 1일 때만이다.
+export const WALL_GAUGE_STEP_PX = 2;
+
+export function wallGaugeFillPx(ratio: number, heightPx: number, stepPx = WALL_GAUGE_STEP_PX): number {
+  if (!(ratio > 0) || !(heightPx > 0) || !(stepPx > 0)) return 0;
+  const steps = Math.floor(heightPx / stepPx);
+  return Math.min(steps, Math.max(1, Math.floor(ratio * steps))) * stepPx;
 }
 
 export async function reportWallZone(
