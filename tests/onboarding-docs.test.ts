@@ -100,6 +100,12 @@ function readmeShape(text: string) {
     details: count(/<details>/g),
     tableRows: count(/^\|/gm),
     images: [...images].sort(),
+    notes: count(/^> \[!NOTE\]/gm),
+    clears: count(/<br clear="all" \/>/g),
+    imgTags: count(/<img /g),
+    widgetDownload: text.includes(
+      "releases/download/widget/sharedesk-widget-windows-x64-setup.exe",
+    ),
   };
 }
 
@@ -120,6 +126,7 @@ test("README 다섯 언어판은 영어판과 같은 구조를 갖는다", async
   assert.ok(english.bullets >= 24, "영어판 README의 기능 설명이 너무 적습니다.");
   assert.ok(english.images.length >= 8, "영어판 README의 그림이 너무 적습니다.");
   assert.ok(english.details >= 1, "영어판 README에 접기(details)가 있어야 합니다.");
+  assert.ok(english.widgetDownload, "영어판 README에 위젯 내려받기 고정 주소가 있어야 합니다.");
 
   for (const [index, text] of texts.entries()) {
     const name = locales[index];
@@ -416,6 +423,20 @@ test("README와 안내 문서의 본문 링크는 같은 언어판으로만 이�
   }
 });
 
+// 언어 전환 줄 — 같은 문서의 다른 4개 언어판으로 가는 링크가 모두 든 줄. 안내 문서는 첫 줄이지만
+// README는 히어로·배지 뒤에 오므로 위치가 아니라 내용으로 고른다.
+function withoutLanguageLine(page: string, text: string): string {
+  const locale = localeOfFile(page);
+  const stem = page.replace(/^docs\//, "").replace(/(?:\.[a-z]{2})?\.md$/, "");
+  const links = DOC_LOCALES.filter((other) => other !== locale).map(
+    (other) => `(./${stem}${other}.md)`,
+  );
+  const lines = text.split("\n");
+  const kept = lines.filter((line) => !links.every((link) => line.includes(link)));
+  assert.equal(lines.length - kept.length, 1, `${page}: 언어 전환 줄이 한 줄 있어야 합니다.`);
+  return kept.join("\n");
+}
+
 test("각 언어판 문서가 실제로 그 언어로 쓰여 있다", async () => {
   // 파일명만 언어판이고 내용은 번역이 안 된 채 남는 사고를 막는다.
   const scripts: Record<string, RegExp> = {
@@ -434,8 +455,8 @@ test("각 언어판 문서가 실제로 그 언어로 쓰여 있다", async () =
   for (const page of pages) {
     const locale = localeOfFile(page);
     const text = await readFile(new URL(page, root), "utf8");
-    // 첫 줄(언어 전환 줄)에는 다른 언어 이름이 들어가므로 본문만 본다.
-    const body = text.split("\n").slice(1).join("\n");
+    // 언어 전환 줄에는 다른 언어 이름이 들어가므로 그 줄을 빼고 본문만 본다.
+    const body = withoutLanguageLine(page, text);
     if (locale === "") {
       const hangul = body.match(/[가-힣]/g)?.length ?? 0;
       assert.ok(hangul < 20, `${page}: 영어판에 한국어가 ${hangul}자 남아 있습니다.`);

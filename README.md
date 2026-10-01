@@ -68,10 +68,10 @@ Only the host's account is connected to Google Drive. Participants sign in with 
 - **Icons and windows** — arrange files and folders like icons on a desktop, give folders one of seven colors, and open several folders as windows you can minimize and maximize. The trash sits in the bottom-right corner and keeps deleted items for 30 days.
 - **Preview and edit together** — photos, videos, audio, PDFs and text open in place, and `.txt` files can be edited together. Every folder can carry a shared note.
 - **Find things** — search the whole desk or one folder with its subfolders, and open **Properties** to see who uploaded a file and how many times it was downloaded.
-- **Upload your way** — drag in files and folders, or paste a copied screenshot with Ctrl+V. If a refresh cuts an upload off, drop the same file again to resume it.
+- **Upload your way** — drag in files or whole folders. If a refresh cuts an upload off, open the **uploads to resume** chip on the taskbar and drop the same file on that panel (or use **Select file again**) to continue; dropping it on the desk starts a new upload.
 - **People** — see who is online, chat from the bottom-right button (it flashes and counts unread messages while minimized), and choose the nickname others see.
 - **Roles** — admins are set with `ADMIN_EMAILS`; everyone else is Can edit, Can upload or View only, changed per person on the admin screen.
-- **Admin screen** — invitation codes (single-use, or unlimited until they expire), users and their signed-in devices, an activity log, public folders, desk language, storage limits with a retro disk-style donut, theme, wallpaper and updates.
+- **Admin screen** — invitation codes (single-use, or unlimited until they expire), users and their signed-in devices, an activity log, public folders, desk language, storage limits with a retro disk-style donut, wallpaper and updates.
 - **On a phone** — a narrow screen turns the desk into a simple list where you can upload, take a photo or make a folder.
 
 <br />
@@ -82,8 +82,8 @@ Only the host's account is connected to Google Drive. Participants sign in with 
 
 Open the `«` handle on the right edge of the desk. The sidebar holds links, receiving, public folders and the widget download.
 
-- **1-hour links** — editors and admins right-click a file or folder to copy a link that works without signing in for one hour.
-- **Quick link** — drop files and each gets a 1-hour link as soon as its upload finishes. Checked files are deleted when the hour is up; clear the check to keep one on the desk.
+- **Share links** — editors and admins right-click a file or folder to copy a 1-hour link right away, or open **Manage share links…** to choose 1 hour, 24 hours, 7 days or 30 days (7 days by default). Links open without signing in.
+- **Quick link** — drop files and each gets a 1-hour link as soon as its upload finishes. With the window in front, Ctrl+V uploads a copied screenshot the same way. Checked files are deleted when the hour is up; clear the check to keep one on the desk.
 - **Created links** — active links in one list, to copy again or stop sharing. Members see their own links; admins see all of them.
 - **QR codes** — share links, quick links, invitation codes and public folder addresses can be shown as a QR code drawn in the browser, so a phone can pick them up from the screen.
 - **Receive from another desk** — paste a share link made on another ShareDesk to copy that file or folder into this desk.
@@ -123,7 +123,7 @@ The widget is optional: a small window that opens your desk's own address, so th
 - **Pin** — fixes the widget to the desktop like a pushpin, behind your other windows and above the desktop. Wall and Pin are never on at the same time.
 - **Drag out** — on Windows, drag a file icon from the Drawer onto a folder in Explorer to download it there.
 - **Transfer gauge** — if the widget folds while files are moving, the handle's border fills green with the progress, and turns red for a moment if a transfer failed.
-- **Updates and profiles** — the widget checks for new versions, verifies their signature and installs from the tray menu without restarting on its own. Run one widget per profile to keep several desks or accounts side by side.
+- **Updates and profiles** — the widget checks for new versions and verifies their signature. Choose **Install update** in the tray menu and it installs and relaunches; it never restarts before you choose. Run one widget per profile to keep several desks or accounts side by side.
 
 > [!NOTE]
 > Wall, Pin, drag-out and the transfer gauge arrive with newer widget versions. On an older widget, pressing Wall or Pin shows an update notice, and the widget's update check offers the newer version in the tray menu once it is published.
