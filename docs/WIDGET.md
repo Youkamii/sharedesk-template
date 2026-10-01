@@ -25,7 +25,7 @@ If Windows shows an "unknown publisher" warning, continue with `More info → Ru
 ## Use
 
 - Drag the top band to move the window and drag its edges to resize it.
-- **Drawer**: the desk's files and folders in a grid. Drop files to upload them into the folder you are looking at. Double-click a folder to enter it and use `← Back` to leave. Double-clicking a file downloads it. The right-click menu offers download, a 1-hour link and file upload.
+- **Drawer**: the desk's files and folders in a grid. Drop files to upload them into the folder you are looking at. Double-click a folder to enter it and use `← Back` to leave. Double-clicking a file downloads it. Drag a file icon onto a folder in Explorer to download it into that folder (Windows only; on macOS the drag does nothing). The right-click menu offers download, a 1-hour link and file upload.
 - **Window**: who is online now, the five most recent uploads, and the desk storage for admins. Click a file to download it.
 - `↗` opens the desk in your default browser. `–` hides the widget in the tray; click the tray icon to bring it back.
 - **Wall**: press `Wall` on the top band and the widget tucks into the nearer screen edge, leaving only a small handle (press it again to turn it off). Point at the handle to bring the widget out; it slides back a moment after the pointer leaves. Drag a file onto the handle to open the widget, then drop it into the Drawer to upload it. Drag the band to the other side to stick the widget to that edge.
