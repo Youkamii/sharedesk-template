@@ -11,7 +11,7 @@ Four things set the widget apart from a browser tab:
 - A **Window** mode shows who is online and the most recent uploads at a glance.
 - You can run several widgets, each signed in to a different desk with a different account.
 
-Chat is not part of the widget. Bigger jobs such as previews, renaming and the trash open in the browser through the widget's `↗` button.
+Chat is not part of the widget. For bigger jobs such as previews, renaming and the trash, choose `Open desk in browser` in the tray menu or open the desk in the browser from the Drawer's right-click menu.
 
 ## Install
 
@@ -27,8 +27,9 @@ If Windows shows an "unknown publisher" warning, continue with `More info → Ru
 - Drag the top band to move the window and drag its edges to resize it.
 - **Drawer**: the desk's files and folders in a grid. Drop files to upload them into the folder you are looking at. Double-click a folder to enter it and use `← Back` to leave. Double-clicking a file downloads it. Drag a file icon onto a folder in Explorer to download it into that folder (Windows only; on macOS the drag does nothing). The right-click menu offers download, a 1-hour link and file upload.
 - **Window**: who is online now, the five most recent uploads, and the desk storage for admins. Click a file to download it.
-- `↗` opens the desk in your default browser. `–` hides the widget in the tray; click the tray icon to bring it back.
+- To hide the widget, click the tray icon or choose `Hide widget` in the tray menu; click the tray icon again to bring it back. To open the desk in your default browser, use the tray menu or the Drawer's right-click menu.
 - **Wall**: press `Wall` on the top band and the widget tucks into the nearer screen edge, leaving only a small handle (press it again to turn it off). Point at the handle to bring the widget out; it slides back a moment after the pointer leaves. Drag a file onto the handle to open the widget, then drop it into the Drawer to upload it. Drag the band to the other side to stick the widget to that edge.
+- **Pin**: press `Pin` on the top band to fix the widget to the desktop like a pushpin, so it stays behind other windows and on top of the desktop (only one of Wall and Pin can be on); press it again to float above other windows again.
 - Tray icon right-click menu: show/hide widget, always on top, start at login, change desk address, open desk in browser, check for updates, quit.
 
 The widget checks the desk at the same pace as a browser tab. While hidden in the tray it checks far less often to spare the host's server.
