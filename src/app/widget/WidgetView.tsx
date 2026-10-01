@@ -529,6 +529,9 @@ export default function WidgetView({
   // 아이콘이 아직 있는지로 판정한다. 그렇지 않으면 hold가 영영 풀리지 않아 벽 붙임이 다시 접히지 않는다.
   const draggingOut =
     dragOutId !== null && mode === "desk" && sorted.some((entry) => entry.id === dragOutId);
+  // 끄는 중이 아니게 되면(아이콘이 사라짐) 끌던 id를 바로 비운다 — 같은 id가 다음 목록에 되살아나도
+  // hold가 다시 켜지지 않게. 파생값으로 렌더 중에 비우므로 effect가 필요 없다.
+  if (dragOutId !== null && !draggingOut) setDragOutId(null);
   const hold = contextMenu !== null || uploading || dragOver || draggingOut;
 
   // 켜져 있으면 로드될 때마다 껍데기에 다시 붙여 달라고 한다 (껍데기는 기억하지 않는다)

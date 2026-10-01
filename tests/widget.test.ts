@@ -451,6 +451,8 @@ test("배선: 끌어내기 — 서랍의 파일 아이콘만 끌리고, 끄는 �
     view,
     /const draggingOut =\s*dragOutId !== null && mode === "desk" && sorted\.some\(\(entry\) => entry\.id === dragOutId\);/,
   );
+  // 아이콘이 사라지면 끌던 id를 렌더 중에 바로 비운다 — 같은 id가 되살아나도 hold가 다시 켜지지 않게
+  assert.match(view, /if \(dragOutId !== null && !draggingOut\) setDragOutId\(null\);/);
   // 끌어내는 동안은 커서가 창을 떠나도 접지 않는다
   assert.match(view, /const hold = [^;]*\bdraggingOut\b/);
 
