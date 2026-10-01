@@ -1,17 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "로컬 페이지(첫 실행 주소 입력·부팅 화면)에서 쓰는 권한",
+  "description": "로컬 페이지(첫 실행 주소 입력·부팅 화면)에서 쓰는 권한 — 그 페이지들이 부르는 것만 연다(창 끌기, 숨기기, 주소 저장, 정보 읽기)",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
     "allow-hide-widget",
     "allow-save-desk-url",
-    "allow-widget-info",
-    "allow-set-wall-mode",
-    "allow-set-wall-zone",
-    "allow-widget-placement",
-    "allow-set-pinned"
+    "allow-widget-info"
   ]
 }

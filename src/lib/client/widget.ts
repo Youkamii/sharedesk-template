@@ -300,13 +300,16 @@ export async function reportWallZone(
 
 export type WidgetPlacement = "floating" | "wall" | "pinned";
 export type PlacementStep = { wall: boolean } | { pinned: boolean };
+// 화면이 아는 압정 상태: 껍데기가 아직 답하기 전(unknown — 단추를 잠근다), 껍데기가 없거나 옛 껍데기
+// (unsupported — 누르면 업데이트 안내), 또는 껍데기가 알려 준 값.
+export type PinState = "unknown" | "unsupported" | boolean;
 
-// 껍데기가 스스로 압정을 풀었을 때(트레이 "항상 위", 압정인 채 벽 붙임 요청) 쏘는 이벤트 —
-// widget/src-tauri/src/lib.rs의 PINNED_EVENT와 같은 이름. detail은 압정 여부(boolean).
+// 껍데기가 압정 상태를 바꿨을 때 쏘는 이벤트 — widget/src-tauri/src/lib.rs의 PINNED_EVENT와 같은 이름.
+// detail은 압정 여부(boolean).
 export const WIDGET_PINNED_EVENT = "sharedesk:widget-pinned";
 
 // 머리띠 단추가 보여 줄 배치. 벽 붙임을 켜면 껍데기가 압정을 풀므로 둘 다 켜져 있으면 벽이다.
-export function widgetPlacement(wallOn: boolean, pinned: boolean | null): WidgetPlacement {
+export function widgetPlacement(wallOn: boolean, pinned: PinState): WidgetPlacement {
   if (wallOn) return "wall";
   return pinned === true ? "pinned" : "floating";
 }
@@ -326,26 +329,29 @@ export function placementSteps(
   return steps;
 }
 
-// 지금 압정인지. 껍데기가 없거나 옛 껍데기(명령 없음 — 벽 붙임과 같은 판정)면 null:
-// 단추를 누르면 업데이트를 안내한다. 새 껍데기가 답하지 못한 것은 꺼짐으로 본다.
-export async function readWidgetPinned(host: unknown): Promise<boolean | null> {
+// 압정 명령의 답(widget_placement·set_pinned 모두 지금 상태 bool)을 읽는다. 엉뚱한 답이면 null.
+function parsePinned(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+// 지금 압정인지. 껍데기가 없거나 옛 껍데기(명령 없음 — 벽 붙임과 같은 판정)면 "unsupported".
+// 새 껍데기가 답하지 못했거나 엉뚱한 답이면 꺼짐으로 본다.
+export async function readWidgetPinned(host: unknown): Promise<Exclude<PinState, "unknown">> {
   const internals = tauriInternals(host);
-  if (!internals) return null;
+  if (!internals) return "unsupported";
   try {
-    const placement = (await internals.invoke("widget_placement")) as { pinned?: unknown } | null;
-    return placement?.pinned === true;
+    return parsePinned(await internals.invoke("widget_placement")) ?? false;
   } catch (error) {
-    return isUnsupportedCommandError(error) ? null : false;
+    return isUnsupportedCommandError(error) ? "unsupported" : false;
   }
 }
 
-// 압정을 켜고 끈다. 껍데기가 적용한 값, 바꾸지 못했으면 null.
+// 압정을 켜고 끈다. 껍데기가 적용한 실제 상태, 바꾸지 못했으면 null.
 export async function setWidgetPinned(host: unknown, enabled: boolean): Promise<boolean | null> {
   const internals = tauriInternals(host);
   if (!internals) return null;
   try {
-    const applied = await internals.invoke("set_pinned", { enabled });
-    return typeof applied === "boolean" ? applied : null;
+    return parsePinned(await internals.invoke("set_pinned", { enabled }));
   } catch {
     return null;
   }

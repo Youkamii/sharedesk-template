@@ -32,6 +32,7 @@ import {
   enableWidgetWall,
   isWidgetHidden,
   parseWallSide,
+  type PinState,
   placementSteps,
   readWidgetMode,
   readWidgetPinned,
@@ -176,8 +177,8 @@ export default function WidgetView({
   );
   // 껍데기가 붙였다고 확인한 벽과 펼침 여부. 켜 달라고 했는데 아직 답이 없거나 거부되면 null.
   const [wall, setWall] = useState<{ side: WallSide; expanded: boolean } | null>(null);
-  // 압정(#30) — 원본은 껍데기 설정. 로드 때 읽어 온다. null이면 껍데기가 없거나 옛 껍데기다.
-  const [pinned, setPinned] = useState<boolean | null>(null);
+  // 압정(#30) — 원본은 껍데기 설정. 로드 때 읽어 온다(그 전엔 unknown — 단추를 잠근다).
+  const [pinned, setPinned] = useState<PinState>("unknown");
   const wallHandleRef = useRef<HTMLDivElement | null>(null);
   const [path, setPath] = useState<Crumb[]>([{ id: ROOT_ID, name: "ShareDesk" }]);
   const [entries, setEntries] = useState<Entry[] | null>(null);
@@ -235,7 +236,7 @@ export default function WidgetView({
 
   async function togglePlacement(pressed: "wall" | "pinned") {
     setContextMenu(null);
-    if (pressed === "pinned" && pinned === null) {
+    if (pressed === "pinned" && pinned === "unsupported") {
       // 옛 껍데기(명령 없음): 아무것도 바꾸지 않고 업데이트를 안내한다
       showNotice(t("위젯을 업데이트하면 압정을 쓸 수 있습니다"));
       return;
@@ -731,6 +732,7 @@ export default function WidgetView({
             type="button"
             className={styles.bandButton}
             aria-pressed={placement === "pinned"}
+            disabled={pinned === "unknown"}
             title={t("바탕화면에 압정처럼 고정 — 다른 창 뒤, 바탕화면 위에 머무릅니다")}
             onClick={() => void togglePlacement("pinned")}
           >

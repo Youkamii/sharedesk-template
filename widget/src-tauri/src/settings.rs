@@ -28,9 +28,13 @@ pub struct WindowRect {
 pub struct Settings {
     /// 정규화된 데스크 주소 (끝 슬래시 없음). 없으면 첫 실행 화면을 띄운다.
     pub desk_url: Option<String>,
+    // 참/거짓 항목은 값의 타입이 틀리면(손으로 고친 파일 등) 그 항목만 기본값으로 둔다 — 파일 전체가
+    // 기본값으로 가서 데스크 주소·로그인을 잃지 않게 (창 항목과 같은 이유)
+    #[serde(deserialize_with = "lenient_bool::<_, true>")]
     pub always_on_top: bool,
     /// 압정(#30): 바탕화면에 고정 — 다른 창 뒤, 바탕화면 위. 켜진 동안은 always_on_top보다 앞선다
     /// (항상 위 설정은 그대로 두고, 압정을 풀면 그 값으로 돌아간다). 옛 설정 파일에는 없으므로 기본 false.
+    #[serde(deserialize_with = "lenient_bool::<_, false>")]
     pub pinned: bool,
     // 창 항목이 옛 형식이거나 깨져 있어도 나머지 설정(데스크 주소·로그인)은 지켜야 한다
     #[serde(deserialize_with = "lenient_window")]
@@ -42,6 +46,25 @@ fn lenient_window<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<WindowRect>, D::Error> {
     let value = serde_json::Value::deserialize(deserializer)?;
     Ok(serde_json::from_value::<WindowRect>(value).ok())
+}
+
+fn lenient_bool<'de, D: serde::Deserializer<'de>, const DEFAULT: bool>(
+    deserializer: D,
+) -> Result<bool, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(DEFAULT))
+}
+
+/// 창의 z 플래그 (항상 위, 맨 아래). 벽 붙임은 손잡이가 보여야 하므로 항상 위를 보장하고, 압정은 맨 아래,
+/// 둘 다 아니면 트레이 "항상 위" 설정값. 두 플래그가 함께 켜지는 경우는 없다.
+pub fn z_flags(wall: bool, pinned: bool, always_on_top: bool) -> (bool, bool) {
+    if wall {
+        (true, false)
+    } else if pinned {
+        (false, true)
+    } else {
+        (always_on_top, false)
+    }
 }
 
 impl Default for Settings {
@@ -267,6 +290,39 @@ mod tests {
         .unwrap_or_default();
         assert_eq!(legacy.desk_url.as_deref(), Some("https://d.example"));
         assert_eq!(legacy.window, None);
+    }
+
+    #[test]
+    fn wrong_typed_flags_fall_back_without_losing_the_desk() {
+        let parsed: Settings =
+            serde_json::from_str(r#"{"deskUrl":"https://d.example","pinned":"yes"}"#).unwrap();
+        assert_eq!(parsed.desk_url.as_deref(), Some("https://d.example"));
+        assert!(!parsed.pinned);
+        let parsed: Settings =
+            serde_json::from_str(r#"{"deskUrl":"https://d.example","alwaysOnTop":1,"pinned":null}"#).unwrap();
+        assert_eq!(parsed.desk_url.as_deref(), Some("https://d.example"));
+        assert!(parsed.always_on_top);
+        assert!(!parsed.pinned);
+        // 옳은 값은 그대로
+        let parsed: Settings = serde_json::from_str(r#"{"alwaysOnTop":false,"pinned":true}"#).unwrap();
+        assert!(!parsed.always_on_top);
+        assert!(parsed.pinned);
+    }
+
+    #[test]
+    fn wall_guarantees_on_top_and_pin_stays_at_the_bottom() {
+        // 벽 붙임은 압정·설정과 상관없이 항상 위
+        for pinned in [false, true] {
+            for always_on_top in [false, true] {
+                assert_eq!(z_flags(true, pinned, always_on_top), (true, false));
+            }
+        }
+        // 압정은 맨 아래 (항상 위 설정과 상관없이)
+        assert_eq!(z_flags(false, true, true), (false, true));
+        assert_eq!(z_flags(false, true, false), (false, true));
+        // 둘 다 아니면 설정값
+        assert_eq!(z_flags(false, false, true), (true, false));
+        assert_eq!(z_flags(false, false, false), (false, false));
     }
 
     #[test]
