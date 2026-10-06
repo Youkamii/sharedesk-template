@@ -20,12 +20,12 @@ Chat is not part of the widget. For bigger jobs such as previews, renaming and t
 3. On first launch the widget asks for the **desk address**. Paste the ShareDesk address your host gave you (for example `https://desk.example.com`) and press `Open desk`.
 4. Sign in exactly as you would in a browser. Google sign-in and the invite code happen inside the widget window.
 
-If Windows shows an "unknown publisher" warning, continue with `More info → Run anyway`. The installer is not code-signed, but the widget's automatic updates are verified with a separate signing key.
+If Windows shows an "unknown publisher" warning, continue with `More info → Run anyway`. The installer is not code-signed, but the widget's automatic updates are verified with a separate signing key. On macOS, open the downloaded `.dmg`, drag the app into Applications, and if the first launch is blocked because the developer cannot be verified, go to System Settings → Privacy & Security and choose **Open Anyway**. The Mac app is not code-signed or notarized either.
 
 ## Use
 
 - Drag the top band to move the window and drag its edges to resize it.
-- **Drawer**: the desk's files and folders in a grid. Drop files to upload them into the folder you are looking at. Double-click a folder to enter it and use `← Back` to leave. Double-clicking a file downloads it. Drag a file icon onto a folder in Explorer to download it into that folder (Windows only; on macOS the drag does nothing). The right-click menu offers download, a 1-hour link and file upload.
+- **Drawer**: the desk's files and folders in a grid. Drop files to upload them into the folder you are looking at. Double-click a folder to enter it and use `← Back` to leave. Double-clicking a file downloads it (on macOS it goes straight into your Downloads folder). Drag a file icon onto a folder in Explorer to download it into that folder (Windows only; on macOS the drag does nothing). The right-click menu offers download, a 1-hour link and file upload.
 - **Window**: who is online now, the five most recent uploads, and the desk storage for admins. Click a file to download it.
 - To hide the widget, click the tray icon or choose `Hide widget` in the tray menu; click the tray icon again to bring it back. To open the desk in your default browser, use the tray menu or the Drawer's right-click menu.
 - **Wall**: press `Wall` on the top band and the widget tucks into the nearer screen edge, leaving only a small handle (press it again to turn it off). Point at the handle to bring the widget out; it slides back a moment after the pointer leaves. Drag a file onto the handle to open the widget, then drop it into the Drawer to upload it. Drag the band to the other side to stick the widget to that edge. If the widget folds during a transfer (upload or download), the handle's border fills up green from the bottom as the transfer progresses.
@@ -70,4 +70,4 @@ node scripts/widget-release.mjs --dry-run   # build, sign and inspect latest.jso
 node scripts/widget-release.mjs             # upload to the release
 ```
 
-When bumping the version, change it in `widget/src-tauri/tauri.conf.json`, `widget/src-tauri/Cargo.toml` and `widget/package.json` together. Running the same command on a Mac adds the macOS file to the same release.
+When bumping the version, change it in `widget/src-tauri/tauri.conf.json`, `widget/src-tauri/Cargo.toml` and `widget/package.json` together. Running the same command on a Mac adds the macOS files to the same release (the `.app.tar.gz` for the updater and the `.dmg` people download).

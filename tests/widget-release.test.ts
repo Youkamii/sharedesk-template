@@ -8,6 +8,7 @@ import {
   mergeLatest,
   platformTarget,
   readWidgetVersion,
+  releaseAssetNames,
   WIDGET_RELEASE_REPOSITORY,
   WIDGET_RELEASE_TAG,
 } from "../scripts/widget-release.mjs";
@@ -131,4 +132,31 @@ test("latest.json merge keeps same-version platforms and drops stale ones", () =
   const next = mergeLatest(both, "0.3.0", "windows-x86_64", { ...win, url: assetUrl("x-0.3.0.exe") }, now);
   assert.deepEqual(Object.keys(next.platforms), ["windows-x86_64"]);
   assert.equal(next.version, "0.3.0");
+});
+
+test("macOS uploads the updater archive and a dmg for people, Windows only the setup.exe (#32)", () => {
+  const mac = platformTarget("darwin", "arm64");
+  // 업데이터 자산은 .app.tar.gz(+ .sig), 사람이 받는 설치 파일은 dmg — 둘 다 불변 버전 이름과 별칭으로
+  assert.equal(mac.installer?.assetName("0.3.0"), "sharedesk-widget-0.3.0-macos-arm64.dmg");
+  assert.equal(mac.installer?.latestAlias, "sharedesk-widget-macos-arm64.dmg");
+  assert.ok(mac.installer?.pattern.test("ShareDesk Widget_0.3.0_aarch64.dmg"));
+  assert.equal(mac.installer?.bundleDir, "dmg");
+  assert.deepEqual(releaseAssetNames(mac, "0.3.0"), [
+    "sharedesk-widget-0.3.0-macos-arm64.app.tar.gz",
+    "sharedesk-widget-macos-arm64.app.tar.gz",
+    "sharedesk-widget-0.3.0-macos-arm64.dmg",
+    "sharedesk-widget-macos-arm64.dmg",
+    "latest.json",
+  ]);
+  const intel = platformTarget("darwin", "x64");
+  assert.equal(intel.key, "darwin-x86_64");
+  assert.equal(intel.installer?.latestAlias, "sharedesk-widget-macos-x64.dmg");
+  // Windows는 setup.exe가 업데이터 자산이자 설치 파일이다
+  const windows = platformTarget("win32", "x64");
+  assert.equal(windows.installer, undefined);
+  assert.deepEqual(releaseAssetNames(windows, "0.3.0"), [
+    "sharedesk-widget-0.3.0-windows-x64-setup.exe",
+    "sharedesk-widget-windows-x64-setup.exe",
+    "latest.json",
+  ]);
 });
