@@ -219,6 +219,26 @@
   filter: drop-shadow(2px 2px 0 rgb(5 9 20 / 48%));
 }
 
+/* 아이콘 그림 자리와 안 본 새 파일 점(#16 C-2) — 데스크 화면(desktop.module.css)과 같은 모양 */
+.iconGlyph {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.newDot {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: 1px 1px 0 rgb(5 9 20 / 48%);
+  pointer-events: none;
+}
+
 .iconName {
   display: -webkit-box;
   width: 100%;

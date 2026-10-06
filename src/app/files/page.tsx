@@ -59,6 +59,7 @@ export default async function FilesPage() {
     return (
       <WidgetView
         userName={session.name}
+        userEmail={session.email}
         isAdmin={session.isAdmin}
         role={session.role}
         locale={locale}

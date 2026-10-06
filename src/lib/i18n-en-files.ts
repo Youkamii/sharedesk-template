@@ -674,4 +674,7 @@ export const EN_FILES: Record<string, string> = {
   "휴지통에 넣을까요?": "Move it to the trash?",
   "상위 폴더로 옮겼습니다": "Moved to the parent folder",
   "아직 메시지가 없습니다": "No messages yet",
+  // 안 본 새 파일 배지 (#16 C-2)
+  "새 파일": "New file",
+  "새 파일 {count}개": "{count} new files",
 };

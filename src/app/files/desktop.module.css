@@ -546,6 +546,46 @@
   filter: drop-shadow(2px 2px 0 rgb(38 32 46 / 22%));
 }
 
+/* 아이콘 그림 자리 — NEW 점·배지(#16 C-2)를 그림 모서리에 붙이는 기준 */
+.iconGlyph {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+/* 안 본 새 파일(#16 C-2) — 아이콘 오른쪽 위의 amber 사각 점(2px 밤색 테두리) */
+.newDot {
+  position: absolute;
+  top: 0;
+  right: 2px;
+  width: 10px;
+  height: 10px;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: 1px 1px 0 rgb(5 9 20 / 48%);
+  pointer-events: none;
+}
+
+/* 폴더 안 안 본 새 파일 수(#16 C-2) — 10개부터는 9+ */
+.newCount {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 3px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: 1px 1px 0 rgb(5 9 20 / 48%);
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .iconName {
   display: block;
   width: 82px;

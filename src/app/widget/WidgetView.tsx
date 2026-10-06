@@ -12,8 +12,19 @@ import {
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { createApiJson } from "@/lib/client/api-json";
-import { apiPath } from "@/lib/client/api-path";
+import { apiPath, spaceSlugFromPathname } from "@/lib/client/api-path";
 import { errorMessage, isAbortError } from "@/lib/client/errors";
+import {
+  folderSeenAt,
+  isNewEntry,
+  markFolderSeen,
+  newBadgeStorageKey,
+  readNewBadgeState,
+  rememberOwnUpload,
+  ROOT_SEEN_DELAY_MS,
+  writeNewBadgeState,
+  type NewBadgeState,
+} from "@/lib/client/new-badges";
 import { downloadFileName } from "@/lib/client/file-activation";
 import {
   normalizePresenceSnapshot,
@@ -148,11 +159,14 @@ function useHiddenAwarePoll(run: () => Promise<void>, baseMs: number, enabled = 
 
 export default function WidgetView({
   userName,
+  userEmail = "",
   isAdmin,
   role,
   locale,
 }: {
   userName: string;
+  // 안 본 새 파일 기록(#16 C-2)을 사용자별로 나누는 열쇠. 손님은 빈 값.
+  userEmail?: string;
   isAdmin: boolean;
   role: SessionRole;
   locale: Locale;
@@ -217,6 +231,70 @@ export default function WidgetView({
   useEffect(() => {
     folderIdRef.current = folderId;
   }, [folderId]);
+
+  // ── 안 본 새 파일 NEW 점(#16 C-2) ─────────────────────────────────────
+  // 데스크 화면과 같은 규칙(src/lib/client/new-badges.ts): 폴더를 열어 목록이 뜬 순간이 확인
+  // 시각이고, 바탕화면(루트)은 10초 머물러야 본 것으로 친다. 서랍은 파일 점만 그린다(폴더 배지 없음).
+  // 위젯 창의 저장소는 브라우저와 따로라 기록도 따로다.
+  const newBadgeKeyRef = useRef<string | null>(null);
+  const newBadgesRef = useRef<NewBadgeState | null>(null);
+  const [ownUploadIds, setOwnUploadIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [newBaseline, setNewBaseline] = useState<{ folderId: string; at: number } | null>(null);
+  const updateNewBadges = useCallback((change: (state: NewBadgeState) => NewBadgeState) => {
+    const key = newBadgeKeyRef.current;
+    const current = newBadgesRef.current;
+    if (!key || !current) return;
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    const next = change(storage ? readNewBadgeState(storage, key, current.since) : current);
+    newBadgesRef.current = next;
+    setOwnUploadIds(new Set(next.own));
+    writeNewBadgeState(storage, key, next);
+  }, []);
+  useEffect(() => {
+    const key = newBadgeStorageKey(
+      window.location.origin,
+      spaceSlugFromPathname(window.location.pathname),
+      userEmail,
+    );
+    newBadgeKeyRef.current = key;
+    let storage: Storage | null = null;
+    try {
+      storage = window.localStorage;
+    } catch {
+      storage = null;
+    }
+    const state = readNewBadgeState(storage, key, Date.now());
+    writeNewBadgeState(storage, key, state);
+    newBadgesRef.current = state;
+  }, [userEmail]);
+  // 목록이 이 폴더 것으로 처음 뜬 순간 — 점의 기준(이전 확인 시각)을 잡고, 폴더면 바로 확인 시각을 남긴다.
+  // 점은 목록이 뜬 뒤에만 그리므로 내 업로드 목록도 여기서 저장소 값으로 맞춘다.
+  useEffect(() => {
+    const state = newBadgesRef.current;
+    if (!state || entries === null || newBaseline?.folderId === folderId) return;
+    setOwnUploadIds(new Set(state.own));
+    setNewBaseline({ folderId, at: folderSeenAt(state, folderId) });
+    if (folderId !== ROOT_ID) {
+      const listedAt = Date.now();
+      updateNewBadges((current) => markFolderSeen(current, folderId, listedAt));
+    }
+  }, [entries, folderId, newBaseline, updateNewBadges]);
+  // 루트는 목록이 뜬 뒤 10초 머물렀을 때 그 순간을 확인 시각으로 남긴다. 그 전에 떠나면 남기지 않는다.
+  const rootListedForBadges = newBaseline?.folderId === ROOT_ID && isRoot;
+  useEffect(() => {
+    if (!rootListedForBadges) return;
+    const listedAt = Date.now();
+    const timer = window.setTimeout(
+      () => updateNewBadges((current) => markFolderSeen(current, ROOT_ID, listedAt)),
+      ROOT_SEEN_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [rootListedForBadges, updateNewBadges]);
 
   // ── 공용 요청 ────────────────────────────────────────────────────────
 
@@ -368,7 +446,7 @@ export default function WidgetView({
           transferId,
         );
       try {
-        await uploadEntry(file, targetFolder, {
+        const uploadedId = await uploadEntry(file, targetFolder, {
           apiJson,
           onProgress: update,
           onSessionExpired: () => router.replace("/"),
@@ -378,6 +456,8 @@ export default function WidgetView({
             uploadFailed: t("업로드에 실패했습니다"),
           },
         });
+        // 내가 올린 파일은 NEW가 아니다(#16 C-2)
+        if (uploadedId) updateNewBadges((state) => rememberOwnUpload(state, uploadedId));
         recordTransferResult("ok", file.size);
       } catch (error) {
         failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
@@ -833,28 +913,39 @@ export default function WidgetView({
                 {allowUpload && <span>{t("파일을 여기에 놓으면 데스크에 올라갑니다")}</span>}
               </div>
             )}
-            {sorted.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                role="option"
-                aria-selected={selectedId === entry.id}
-                className={`${styles.icon} ${selectedId === entry.id ? styles.iconSelected : ""}`}
-                title={entry.name}
-                draggable={!entry.isFolder}
-                onDragStart={(event) => onIconDragStart(event, entry)}
-                onDragEnd={() => setDragOutId(null)}
-                onClick={() => setSelectedId(entry.id)}
-                onDoubleClick={() => activate(entry)}
-                onContextMenu={(event) => openContextMenu(event, entry)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") activate(entry);
-                }}
-              >
-                <PixelFileIcon entry={entry} size={40} />
-                <span className={styles.iconName}>{entry.name}</span>
-              </button>
-            ))}
+            {sorted.map((entry) => {
+              const isNew = isNewEntry(
+                entry,
+                newBaseline?.folderId === folderId ? newBaseline.at : null,
+                ownUploadIds,
+              );
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selectedId === entry.id}
+                  aria-label={isNew ? `${entry.name}, ${t("새 파일")}` : undefined}
+                  className={`${styles.icon} ${selectedId === entry.id ? styles.iconSelected : ""}`}
+                  title={entry.name}
+                  draggable={!entry.isFolder}
+                  onDragStart={(event) => onIconDragStart(event, entry)}
+                  onDragEnd={() => setDragOutId(null)}
+                  onClick={() => setSelectedId(entry.id)}
+                  onDoubleClick={() => activate(entry)}
+                  onContextMenu={(event) => openContextMenu(event, entry)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") activate(entry);
+                  }}
+                >
+                  <span className={styles.iconGlyph}>
+                    <PixelFileIcon entry={entry} size={40} />
+                    {isNew && <span className={styles.newDot} aria-hidden="true" />}
+                  </span>
+                  <span className={styles.iconName}>{entry.name}</span>
+                </button>
+              );
+            })}
           </div>
           {dragOver && (
             <div className={styles.dropOverlay}>

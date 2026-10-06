@@ -1,6 +1,6 @@
 "use client";
 
-import { apiPath } from "@/lib/client/api-path";
+import { apiPath, spaceSlugFromPathname } from "@/lib/client/api-path";
 import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
@@ -97,6 +97,21 @@ import {
   type RootDesktopCorrection,
 } from "@/lib/client/root-desktop-layout";
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
+import {
+  badgeFolders,
+  countNewEntries,
+  folderSeenAt,
+  foldersDueForCount,
+  isNewEntry,
+  markFolderSeen,
+  newBadgeStorageKey,
+  newBadgeText,
+  readNewBadgeState,
+  rememberOwnUpload,
+  ROOT_SEEN_DELAY_MS,
+  writeNewBadgeState,
+  type NewBadgeState,
+} from "@/lib/client/new-badges";
 import { createApiJson } from "@/lib/client/api-json";
 import { errorMessage, isAbortError } from "@/lib/client/errors";
 import {
@@ -548,6 +563,15 @@ function useViewport() {
   return { width, height };
 }
 
+// 저장소 접근 자체가 막힌 브라우저(사생활 보호 모드 등)에서는 null — 그 탭에서만 기억한다.
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 function clamp(value: number, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
 }
@@ -928,6 +952,49 @@ export default function FilesView({
   >([]);
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandleRef = useRef<HTMLButtonElement | null>(null);
+
+  // 안 본 새 파일 NEW 배지(#16 C-2) — 확인 시각은 이 브라우저 localStorage에만 둔다
+  // (src/lib/client/new-badges.ts). 점의 기준은 바탕화면은 데스크를 띄운 순간,
+  // 폴더 창은 그 폴더를 연 순간의 "이전" 확인 시각이라 새로 온 것이 보인다.
+  const newBadgeKeyRef = useRef<string | null>(null);
+  const newBadgesRef = useRef<NewBadgeState | null>(null);
+  const [newBadges, setNewBadges] = useState<NewBadgeState | null>(null);
+  const [rootNewBaseline, setRootNewBaseline] = useState<number | null>(null);
+  const [windowNewBaselines, setWindowNewBaselines] = useState<
+    Record<string, { folderId: string; at: number }>
+  >({});
+  const windowNewBaselinesRef = useRef(windowNewBaselines);
+  windowNewBaselinesRef.current = windowNewBaselines;
+  // 폴더 아이콘 배지용 하위 목록 — 폴더 id → 바로 아래 항목과 받은 시각.
+  const [badgeChildren, setBadgeChildren] = useState<
+    Record<string, { entries: Entry[]; fetchedAt: number }>
+  >({});
+  const badgeChildrenRef = useRef(badgeChildren);
+  badgeChildrenRef.current = badgeChildren;
+  const rootListedAtRef = useRef<number | null>(null);
+  const newBadgesReady = newBadges !== null;
+  const ownUploadIds = useMemo(
+    () => new Set(newBadges?.own ?? []),
+    [newBadges],
+  );
+
+  // 다른 탭이 그사이 쓴 값과 섞이도록 저장소에서 다시 읽은 위에 바꾼다.
+  const updateNewBadges = useCallback(
+    (change: (state: NewBadgeState) => NewBadgeState) => {
+      const key = newBadgeKeyRef.current;
+      const current = newBadgesRef.current;
+      if (!key || !current) return;
+      const storage = browserStorage();
+      const base = storage
+        ? readNewBadgeState(storage, key, current.since)
+        : current;
+      const next = change(base);
+      newBadgesRef.current = next;
+      setNewBadges(next);
+      writeNewBadgeState(storage, key, next);
+    },
+    [],
+  );
 
   // 폴더 색·공유 배지(#14).
   const [folderColors, setFolderColors] =
@@ -1658,6 +1725,130 @@ export default function FilesView({
       // 저장소 접근이 막힌 브라우저에서는 기본값을 쓴다.
     }
   }, []);
+
+  // NEW 배지(#16 C-2): 이 데스크(원점·스페이스·사용자)의 확인 기록을 읽는다. 처음 온
+  // 브라우저면 지금이 since가 되어 기존 파일은 NEW가 아니다.
+  useEffect(() => {
+    const key = newBadgeStorageKey(
+      window.location.origin,
+      spaceSlugFromPathname(window.location.pathname),
+      userEmail,
+    );
+    newBadgeKeyRef.current = key;
+    const storage = browserStorage();
+    const state = readNewBadgeState(storage, key, Date.now());
+    writeNewBadgeState(storage, key, state);
+    newBadgesRef.current = state;
+    setNewBadges(state);
+    setRootNewBaseline(folderSeenAt(state, ROOT_ID));
+  }, [userEmail]);
+
+  // 바탕화면은 데스크를 띄우기만 해도 열리므로, 첫 목록이 뜬 뒤 10초 머물러야 "본 것"이다.
+  // 저장하는 시각은 그 목록이 뜬 순간 — 그 뒤에 온 파일은 다음 방문에도 NEW로 남는다.
+  const rootListedForBadges =
+    newBadgesReady && !rootData.loading && !rootData.error;
+  useEffect(() => {
+    if (!rootListedForBadges || rootListedAtRef.current !== null) return;
+    const listedAt = Date.now();
+    rootListedAtRef.current = listedAt;
+    let fired = false;
+    const timer = window.setTimeout(() => {
+      fired = true;
+      updateNewBadges((state) => markFolderSeen(state, ROOT_ID, listedAt));
+    }, ROOT_SEEN_DELAY_MS);
+    return () => {
+      window.clearTimeout(timer);
+      if (!fired) rootListedAtRef.current = null;
+    };
+  }, [rootListedForBadges, updateNewBadges]);
+
+  // 폴더 창은 목록이 처음 뜬 순간이 확인 시각이다. 창 안의 점은 그 직전 기준으로 계속 그리고,
+  // 바깥 폴더 아이콘의 배지는 새 확인 시각으로 다시 세어 사라진다.
+  useEffect(() => {
+    const state = newBadgesRef.current;
+    if (!newBadgesReady || !state) return;
+    const opened: Record<string, { folderId: string; at: number }> = {};
+    for (const item of deskWindows) {
+      const folderId = item.path.at(-1)?.id;
+      if (!folderId || item.data.loading || item.data.error) continue;
+      if (windowNewBaselinesRef.current[item.id]?.folderId === folderId) continue;
+      opened[item.id] = { folderId, at: folderSeenAt(state, folderId) };
+    }
+    const openedWindows = Object.entries(opened);
+    if (openedWindows.length === 0) return;
+    const now = Date.now();
+    setWindowNewBaselines((current) => ({ ...current, ...opened }));
+    updateNewBadges((current) =>
+      openedWindows.reduce(
+        (next, [, { folderId }]) => markFolderSeen(next, folderId, now),
+        current,
+      ),
+    );
+  }, [deskWindows, newBadgesReady, updateNewBadges]);
+
+  // 폴더 아이콘 배지는 그 폴더의 바로 아래 목록으로 센다. 보이는 폴더(바탕화면 → 열린 창
+  // 순서) 중 앞의 몇 개만, 배치 저장이 없는 가벼운 목록(layout=0)으로 2분마다 다시 받는다.
+  const badgeFolderKey = badgeFolders([
+    ...rootData.entries.filter((entry) => entry.isFolder).map((entry) => entry.id),
+    ...deskWindows
+      .filter((item) => !item.minimized)
+      .flatMap((item) =>
+        item.data.entries
+          .filter((entry) => entry.isFolder)
+          .map((entry) => entry.id),
+      ),
+  ]).join("\n");
+  useEffect(() => {
+    if (!newBadgesReady || !badgeFolderKey) return;
+    const folderIds = badgeFolderKey.split("\n");
+    const controller = new AbortController();
+    let running = false;
+    const round = async () => {
+      if (running || document.visibilityState !== "visible") return;
+      running = true;
+      try {
+        const fetchedAt = Object.fromEntries(
+          Object.entries(badgeChildrenRef.current).map(([folderId, value]) => [
+            folderId,
+            value.fetchedAt,
+          ]),
+        );
+        for (const folderId of foldersDueForCount(folderIds, fetchedAt, Date.now())) {
+          if (controller.signal.aborted) return;
+          let entries: Entry[] = [];
+          try {
+            const response = await fetch(
+              apiPath(
+                `/api/drive/list?folderId=${encodeURIComponent(folderId)}&layout=0`,
+              ),
+              { cache: "no-store", signal: controller.signal },
+            );
+            const body = response.ok
+              ? ((await response.json().catch(() => null)) as {
+                  entries?: unknown;
+                } | null)
+              : null;
+            if (Array.isArray(body?.entries)) entries = body.entries as Entry[];
+          } catch (error) {
+            if (isAbortError(error)) return;
+          }
+          // 실패해도 받은 시각은 남긴다 — 안 되는 폴더를 매 회차 두드리지 않게.
+          setBadgeChildren((current) => ({
+            ...current,
+            [folderId]: { entries, fetchedAt: Date.now() },
+          }));
+        }
+      } finally {
+        running = false;
+      }
+    };
+    void round();
+    const timer = window.setInterval(() => void round(), 15_000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [badgeFolderKey, newBadgesReady]);
 
   useEffect(() => {
     return () => {
@@ -3531,6 +3722,8 @@ export default function FilesView({
           content: textSnapshot,
         }),
       });
+      // 내가 고친 파일도 내 손을 탄 것이라 NEW가 아니다(#16 C-2).
+      markOwnUpload(result.entry.id);
       if (previewInstanceRef.current !== preview.instanceId) return;
       const layoutTargets = entryLayoutTargets(preview.entry);
       const preferredScopeId =
@@ -6601,7 +6794,7 @@ export default function FilesView({
         }));
         return;
       }
-      await flow.resume(record, file, updateTransfer);
+      markOwnUpload(await flow.resume(record, file, updateTransfer));
       // 전송하는 동안 창이 닫혔을 수도 있으므로 현재 창 목록을 확인한다.
       const folderWindow = windowsRef.current.find((item) => item.path.at(-1)?.id === record.parentId);
       if (folderWindow) {
@@ -6615,6 +6808,11 @@ export default function FilesView({
     } finally {
       reportTransferProgress(null, record.id);
     }
+  }
+
+  // 내가 이 브라우저에서 올린 파일은 NEW 배지에서 뺀다(#16 C-2) — 목록에 올린 사람이 없어서다.
+  function markOwnUpload(id: string | null) {
+    if (id) updateNewBadges((state) => rememberOwnUpload(state, id));
   }
 
   async function uploadOne(file: File, folderId: string) {
@@ -6651,7 +6849,9 @@ export default function FilesView({
           parentId: folderId,
           file,
         });
-        return await flow.uploadDirect(record, file, updateTransfer, { persist: true });
+        const uploadedId = await flow.uploadDirect(record, file, updateTransfer, { persist: true });
+        markOwnUpload(uploadedId);
+        return uploadedId;
       }
       const reservationQuery = session.reservationId
         ? `&reservationId=${encodeURIComponent(session.reservationId)}`
@@ -6674,7 +6874,9 @@ export default function FilesView({
       if (response.status < 200 || response.status >= 300) {
         throw new Error(body?.error ?? t("업로드에 실패했습니다"));
       }
-      return body?.entry?.id ?? null;
+      const uploadedId = body?.entry?.id ?? null;
+      markOwnUpload(uploadedId);
+      return uploadedId;
     } finally {
       reportTransferProgress(null, transferId);
     }
@@ -7153,6 +7355,18 @@ export default function FilesView({
     router.refresh();
   }
 
+  // 폴더 아이콘 배지(#16 C-2)의 재료 — 그 폴더가 창으로 열려 있으면 창의 최신 목록,
+  // 아니면 배지용으로 따로 받아 둔 목록.
+  function badgeChildEntries(folderId: string): Entry[] {
+    const open = deskWindows.find(
+      (item) =>
+        item.path.at(-1)?.id === folderId &&
+        !item.data.loading &&
+        !item.data.error,
+    );
+    return open ? open.data.entries : (badgeChildren[folderId]?.entries ?? []);
+  }
+
   function renderCanvas(scopeId: string) {
     const data = scopeData(scopeId) ?? blankFolder(false);
     const isRoot = scopeId === ROOT_SCOPE;
@@ -7162,6 +7376,13 @@ export default function FilesView({
       else windowCanvasRefs.current.delete(scopeId);
     };
     const dimensions = isRoot ? null : planeDimensions(scopeId, data.entries);
+    // NEW 점의 기준(#16 C-2) — 이 창이 지금 폴더를 연 순간의 이전 확인 시각.
+    const windowBaseline = windowNewBaselines[scopeId];
+    const newBaseline = isRoot
+      ? rootNewBaseline
+      : windowBaseline && windowBaseline.folderId === scopeFolderId(scopeId)
+        ? windowBaseline.at
+        : null;
 
     return (
       <div
@@ -7241,6 +7462,16 @@ export default function FilesView({
             left: position.x,
             top: position.y,
           } as CSSProperties;
+          const isNew = isNewEntry(entry, newBaseline, ownUploadIds);
+          const newCount =
+            entry.isFolder && newBadges
+              ? countNewEntries(
+                  badgeChildEntries(entry.id),
+                  folderSeenAt(newBadges, entry.id),
+                  ownUploadIds,
+                )
+              : 0;
+          const newCountText = newBadgeText(newCount);
           return (
             <div
               key={entry.layoutKey}
@@ -7265,7 +7496,13 @@ export default function FilesView({
                 type="button"
                 className={styles.iconMain}
                 title={entry.name}
-                aria-label={`${entry.isFolder ? t("폴더") : t("파일")} ${entry.name}`}
+                aria-label={`${entry.isFolder ? t("폴더") : t("파일")} ${entry.name}${
+                  newCountText
+                    ? `, ${t("새 파일 {count}개", { count: newCount })}`
+                    : isNew
+                      ? `, ${t("새 파일")}`
+                      : ""
+                }`}
                 aria-pressed={active}
                 aria-busy={savingPositions.has(key) || moving}
                 data-entry-id={entry.id}
@@ -7343,18 +7580,29 @@ export default function FilesView({
                   }
                 }}
               >
-                <PixelFileIcon
-                  entry={entry}
-                  size={54}
-                  folderColor={
-                    entry.isFolder
-                      ? (folderColors[entry.layoutKey] ?? null)
-                      : null
-                  }
-                  shared={
-                    scopeId === ROOT_SCOPE && publicFolderIdSet.has(entry.id)
-                  }
-                />
+                <span className={styles.iconGlyph}>
+                  <PixelFileIcon
+                    entry={entry}
+                    size={54}
+                    folderColor={
+                      entry.isFolder
+                        ? (folderColors[entry.layoutKey] ?? null)
+                        : null
+                    }
+                    shared={
+                      scopeId === ROOT_SCOPE && publicFolderIdSet.has(entry.id)
+                    }
+                  />
+                  {/* 안 본 새 파일(#16 C-2): 파일은 모서리 amber 점, 폴더는 개수 배지 */}
+                  {isNew && (
+                    <span className={styles.newDot} aria-hidden="true" />
+                  )}
+                  {newCountText && (
+                    <span className={styles.newCount} aria-hidden="true">
+                      {newCountText}
+                    </span>
+                  )}
+                </span>
                 <span className={styles.iconName}>{entry.name}</span>
               </button>
               <button
