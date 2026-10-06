@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Next.js-16-2f4670?style=flat-square&labelColor=10172b&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Vercel-serverless-2f4670?style=flat-square&labelColor=10172b&logo=vercel&logoColor=white" alt="Vercel サーバーレス" />
   <img src="https://img.shields.io/badge/Google%20Drive-storage-2f4670?style=flat-square&labelColor=10172b&logo=googledrive&logoColor=white" alt="Google Drive ストレージ" />
-  <a href="#デスクトップウィジェット"><img src="https://img.shields.io/badge/Widget-Windows-2f4670?style=flat-square&labelColor=10172b" alt="Windows 用デスクトップウィジェット" /></a>
+  <a href="#デスクトップウィジェット"><img src="https://img.shields.io/badge/Widget-Windows%20%C2%B7%20macOS-2f4670?style=flat-square&labelColor=10172b" alt="Windows・macOS 用デスクトップウィジェット" /></a>
 </p>
 
 <p align="center">
@@ -113,11 +113,12 @@ Google Drive に接続するのはホストのアカウントだけです。参�
 
 <p align="center">
   <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows%20x64-ウィジェットをダウンロード-f2a56f?style=for-the-badge&labelColor=10172b" alt="Windows x64 用ウィジェットをダウンロード" /></a>
+  <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS%20Apple%20Silicon-ウィジェットをダウンロード-f2a56f?style=for-the-badge&labelColor=10172b" alt="macOS（Apple Silicon）用ウィジェットをダウンロード" /></a>
 </p>
 
 ウィジェットは任意です。デスクのアドレスをそのまま開く小さなウィンドウなので、画面はデスクのサーバーが描き、ウィジェットがなくてもすべての機能はブラウザでそのまま使えます。詳しくは[デスクトップウィジェット](./docs/WIDGET.ja.md)をご覧ください。
 
-- **どこから入手しても同じファイル** — 上のボタンは常に最新の Windows インストーラーを指し、参加者はデスクのサイドバーの**デスクトップウィジェット**からも同じファイルを入手できます。macOS 版は Mac でビルドしてアップロードしたあとに提供されます。
+- **どこから入手しても同じファイル** — 上のボタンは常に最新の Windows インストーラーと macOS ディスクイメージを指し、参加者はデスクのサイドバーの**デスクトップウィジェット**からも同じファイルを入手できます。Mac 版は Apple Silicon 向けで、Intel 向けはまだありません。
 - **引き出しと窓辺** — 引き出しはファイルのグリッドで、ファイルをドロップすると今見ているフォルダにアップロードされます。窓辺は接続中の人と最近アップロードされた5件のファイルを、管理者にはデスクの容量も表示します。
 - **壁づけ** — ウィジェットを近いほうの画面の端に、小さなつまみだけを残して隠します。つまみにマウスを当てるか、ファイルをドラッグして当てると開き、折りたたまれている間はつまみの横をクリックすると後ろのウィンドウに届きます。
 - **ピン** — 画鋲のようにウィジェットをデスクトップに留め、ほかのウィンドウの後ろ、デスクトップの上に置きます。壁づけとピンが同時にオンになることはありません。
@@ -152,7 +153,7 @@ Google Drive に接続するのはホストのアカウントだけです。参�
 - **デスク同士は混ざらない。** 同じ Google アカウントで複数の ShareDesk アドレスに参加できますが、それぞれのメンバー・役割・ファイル・チャットが混ざることはありません。
 
 > [!NOTE]
-> Windows 版ウィジェットのインストーラーにはまだコード署名がないため、「不明な発行元」の警告が出ることがあります。ウィジェットのアップデートは別の署名鍵で検証され、ウィジェットが通信するのは自分のデスク、ログイン時の Google、アップデートを取得する公開 GitHub リリースだけです。
+> ウィジェットのインストーラーにはまだコード署名がないため、Windows では「不明な発行元」の警告が出ることがあり、macOS ではプライバシーとセキュリティで **このまま開く** を選ぶまで初回起動がブロックされることがあります。ウィジェットのアップデートは別の署名鍵で検証され、ウィジェットが通信するのは自分のデスク、ログイン時の Google、アップデートを取得する公開 GitHub リリースだけです。
 
 <br />
 

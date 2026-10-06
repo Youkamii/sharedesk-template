@@ -15,7 +15,7 @@ Chat is not part of the widget. For bigger jobs such as previews, renaming and t
 
 ## Install
 
-1. Download the installer for your operating system from the [widget downloads](https://github.com/Youkamii/sharedesk-template/releases/tag/widget). On Windows it is [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe), a fixed address that always points at the latest version. The macOS file appears once it has been built and uploaded from a Mac. Members can also get it from inside the desk: open the `«` handle on the right edge and look under **Desktop widget**.
+1. Download the installer for your operating system from the [widget downloads](https://github.com/Youkamii/sharedesk-template/releases/tag/widget). On Windows it is [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe), a fixed address that always points at the latest version. On a Mac with Apple Silicon it is [`sharedesk-widget-macos-arm64.dmg`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg); there is no Intel build yet. Members can also get it from inside the desk: open the `«` handle on the right edge and look under **Desktop widget**.
 2. Run the installer. No administrator rights are needed.
 3. On first launch the widget asks for the **desk address**. Paste the ShareDesk address your host gave you (for example `https://desk.example.com`) and press `Open desk`.
 4. Sign in exactly as you would in a browser. Google sign-in and the invite code happen inside the widget window.

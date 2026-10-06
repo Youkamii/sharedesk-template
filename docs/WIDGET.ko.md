@@ -15,7 +15,7 @@ ShareDesk 위젯은 데스크를 바탕화면 구석에 작은 창으로 띄워 
 
 ## 설치
 
-1. [위젯 내려받기](https://github.com/Youkamii/sharedesk-template/releases/tag/widget)에서 내 운영체제의 설치 파일을 받습니다. Windows는 [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe)입니다(항상 최신 버전을 가리키는 고정 주소). macOS 파일은 맥에서 빌드해 올린 뒤에 나타납니다. 참여자는 데스크 화면 오른쪽 가장자리의 `«` 손잡이를 열면 **데스크톱 위젯** 칸에서 바로 받을 수 있습니다.
+1. [위젯 내려받기](https://github.com/Youkamii/sharedesk-template/releases/tag/widget)에서 내 운영체제의 설치 파일을 받습니다. Windows는 [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe)입니다(항상 최신 버전을 가리키는 고정 주소). Apple Silicon Mac은 [`sharedesk-widget-macos-arm64.dmg`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg)이고, Intel용은 아직 없습니다. 참여자는 데스크 화면 오른쪽 가장자리의 `«` 손잡이를 열면 **데스크톱 위젯** 칸에서 바로 받을 수 있습니다.
 2. 설치 파일을 실행합니다. 관리자 권한은 필요 없습니다.
 3. 처음 실행하면 **데스크 주소**를 묻습니다. 호스트가 준 ShareDesk 주소(예: `https://desk.example.com`)를 붙여 넣고 `데스크 열기`를 누릅니다.
 4. 브라우저에서와 똑같이 로그인합니다. Google 로그인과 초대 코드 입력이 위젯 창 안에서 그대로 진행됩니다.

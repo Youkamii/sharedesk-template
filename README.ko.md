@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Next.js-16-2f4670?style=flat-square&labelColor=10172b&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Vercel-serverless-2f4670?style=flat-square&labelColor=10172b&logo=vercel&logoColor=white" alt="Vercel 서버리스" />
   <img src="https://img.shields.io/badge/Google%20Drive-storage-2f4670?style=flat-square&labelColor=10172b&logo=googledrive&logoColor=white" alt="Google Drive 저장 공간" />
-  <a href="#데스크톱-위젯"><img src="https://img.shields.io/badge/Widget-Windows-2f4670?style=flat-square&labelColor=10172b" alt="Windows용 데스크톱 위젯" /></a>
+  <a href="#데스크톱-위젯"><img src="https://img.shields.io/badge/Widget-Windows%20%C2%B7%20macOS-2f4670?style=flat-square&labelColor=10172b" alt="Windows·macOS용 데스크톱 위젯" /></a>
 </p>
 
 <p align="center">
@@ -113,11 +113,12 @@ Google Drive에 연결하는 계정은 호스트 한 명입니다. 참여자는 
 
 <p align="center">
   <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows%20x64-위젯%20내려받기-f2a56f?style=for-the-badge&labelColor=10172b" alt="Windows x64용 위젯 내려받기" /></a>
+  <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS%20Apple%20Silicon-위젯%20내려받기-f2a56f?style=for-the-badge&labelColor=10172b" alt="macOS(Apple Silicon)용 위젯 내려받기" /></a>
 </p>
 
 위젯은 선택입니다. 데스크 주소를 그대로 여는 작은 창이라 화면은 데스크 서버가 그리고, 위젯이 없어도 모든 기능은 브라우저에서 그대로 됩니다. 자세한 내용은 [데스크톱 위젯](./docs/WIDGET.ko.md)에 있습니다.
 
-- **어디서 받아도 같은 파일** — 위 단추는 언제나 최신 Windows 설치 파일을 가리키고, 참여자는 데스크 사이드바의 **데스크톱 위젯**에서도 같은 파일을 받습니다. macOS 파일은 Mac에서 빌드해 올린 뒤 제공됩니다.
+- **어디서 받아도 같은 파일** — 위 단추는 언제나 최신 Windows 설치 파일과 macOS 디스크 이미지를 가리키고, 참여자는 데스크 사이드바의 **데스크톱 위젯**에서도 같은 파일을 받습니다. Mac 빌드는 Apple Silicon용이고 Intel용은 아직 없습니다.
 - **서랍과 창가** — 서랍은 파일 격자입니다. 파일을 놓으면 지금 보고 있는 폴더로 올라갑니다. 창가는 접속자와 최근 올라온 파일 다섯 개를, 관리자에게는 데스크 용량도 보여 줍니다.
 - **벽 붙임** — 위젯을 가까운 화면 가장자리에 손잡이만 남기고 숨깁니다. 손잡이에 마우스를 대거나 파일을 끌어다 대면 펼쳐지고, 접혀 있는 동안 손잡이 옆 빈 자리를 누르면 뒤 창이 눌립니다.
 - **압정** — 위젯을 압정처럼 바탕화면에 꽂아 다른 창 뒤, 바탕화면 위에 둡니다. 벽 붙임과 압정은 함께 켜지지 않습니다.
@@ -152,7 +153,7 @@ Google Drive에 연결하는 계정은 호스트 한 명입니다. 참여자는 
 - **데스크끼리 섞이지 않음.** 같은 Google 계정으로 여러 ShareDesk 주소에 참여할 수 있고, 각 데스크의 구성원·역할·파일·채팅은 서로 섞이지 않습니다.
 
 > [!NOTE]
-> Windows 위젯 설치 파일은 아직 코드 서명이 없어 "알 수 없는 게시자" 경고가 뜰 수 있습니다. 위젯 업데이트는 별도 서명 키로 검증하고, 위젯은 내 데스크, 로그인할 때의 Google, 업데이트를 받는 공개 GitHub 릴리스하고만 통신합니다.
+> 위젯 설치 파일은 아직 코드 서명이 없어 Windows에서는 "알 수 없는 게시자" 경고가 뜰 수 있고, macOS에서는 개인정보 보호 및 보안에서 **그래도 열기**를 누르기 전까지 첫 실행이 막힐 수 있습니다. 위젯 업데이트는 별도 서명 키로 검증하고, 위젯은 내 데스크, 로그인할 때의 Google, 업데이트를 받는 공개 GitHub 릴리스하고만 통신합니다.
 
 <br />
 

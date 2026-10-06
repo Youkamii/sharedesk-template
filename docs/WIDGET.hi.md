@@ -15,7 +15,7 @@ ShareDesk विजेट एक वैकल्पिक सुविधा ह
 
 ## इंस्टॉल
 
-1. [विजेट डाउनलोड](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) से अपने ऑपरेटिंग सिस्टम की इंस्टॉल फ़ाइल लें। Windows पर यह [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe) है (एक स्थिर पता जो हमेशा नवीनतम संस्करण की ओर जाता है)। macOS फ़ाइल Mac पर बिल्ड करके अपलोड होने के बाद दिखेगी। सदस्य इसे डेस्क के अंदर से भी ले सकते हैं: दाहिने किनारे का `«` हैंडल खोलें और **डेस्कटॉप विजेट** खंड देखें।
+1. [विजेट डाउनलोड](https://github.com/Youkamii/sharedesk-template/releases/tag/widget) से अपने ऑपरेटिंग सिस्टम की इंस्टॉल फ़ाइल लें। Windows पर यह [`sharedesk-widget-windows-x64-setup.exe`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe) है (एक स्थिर पता जो हमेशा नवीनतम संस्करण की ओर जाता है)। Apple Silicon वाले Mac पर यह [`sharedesk-widget-macos-arm64.dmg`](https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg) है; Intel संस्करण अभी नहीं है। सदस्य इसे डेस्क के अंदर से भी ले सकते हैं: दाहिने किनारे का `«` हैंडल खोलें और **डेस्कटॉप विजेट** खंड देखें।
 2. इंस्टॉलर चलाएँ। व्यवस्थापक अधिकार की ज़रूरत नहीं है।
 3. पहली बार चलाने पर विजेट **डेस्क पता** पूछता है। होस्ट से मिला ShareDesk पता (जैसे `https://desk.example.com`) चिपकाएँ और `डेस्क खोलें` दबाएँ।
 4. ब्राउज़र की तरह ही साइन-इन करें। Google साइन-इन और आमंत्रण कोड विजेट की खिड़की के अंदर ही होते हैं।

@@ -134,7 +134,7 @@ test("latest.json merge keeps same-version platforms and drops stale ones", () =
   assert.equal(next.version, "0.3.0");
 });
 
-test("macOS uploads the updater archive and a dmg for people, Windows only the setup.exe (#32)", () => {
+test("macOS uploads the updater archive and a dmg for people, Windows only the setup.exe (#32)", async () => {
   const mac = platformTarget("darwin", "arm64");
   // 업데이터 자산은 .app.tar.gz(+ .sig), 사람이 받는 설치 파일은 dmg — 둘 다 불변 버전 이름과 별칭으로
   assert.equal(mac.installer?.assetName("0.3.0"), "sharedesk-widget-0.3.0-macos-arm64.dmg");
@@ -159,4 +159,14 @@ test("macOS uploads the updater archive and a dmg for people, Windows only the s
     "sharedesk-widget-windows-x64-setup.exe",
     "latest.json",
   ]);
+
+  // README와 위젯 안내의 내려받기 단추는 발행 스크립트의 별칭 이름과 한 글자만 달라도 404가 된다
+  // (사이드바와 같은 이유, #27). 맥은 Apple Silicon dmg 하나뿐이다.
+  const macAlias = mac.installer?.latestAlias;
+  assert.ok(macAlias);
+  for (const page of ["../README.md", "../docs/WIDGET.md"]) {
+    const text = await readFile(new URL(page, import.meta.url), "utf8");
+    assert.ok(text.includes(assetUrl(macAlias)), `${page}: macOS dmg 고정 주소`);
+    assert.ok(text.includes(assetUrl(windows.latestAlias)), `${page}: Windows 설치 파일 고정 주소`);
+  }
 });

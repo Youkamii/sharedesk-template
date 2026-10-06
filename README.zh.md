@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Next.js-16-2f4670?style=flat-square&labelColor=10172b&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Vercel-serverless-2f4670?style=flat-square&labelColor=10172b&logo=vercel&logoColor=white" alt="Vercel 无服务器" />
   <img src="https://img.shields.io/badge/Google%20Drive-storage-2f4670?style=flat-square&labelColor=10172b&logo=googledrive&logoColor=white" alt="Google Drive 存储" />
-  <a href="#桌面小组件"><img src="https://img.shields.io/badge/Widget-Windows-2f4670?style=flat-square&labelColor=10172b" alt="Windows 桌面小组件" /></a>
+  <a href="#桌面小组件"><img src="https://img.shields.io/badge/Widget-Windows%20%C2%B7%20macOS-2f4670?style=flat-square&labelColor=10172b" alt="Windows 与 macOS 桌面小组件" /></a>
 </p>
 
 <p align="center">
@@ -113,11 +113,12 @@ ShareDesk 是**一个共享文件空间：多个人用各自的 Google 账号，
 
 <p align="center">
   <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows%20x64-下载小组件-f2a56f?style=for-the-badge&labelColor=10172b" alt="下载 Windows x64 小组件" /></a>
+  <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS%20Apple%20Silicon-下载小组件-f2a56f?style=for-the-badge&labelColor=10172b" alt="下载 macOS（Apple Silicon）小组件" /></a>
 </p>
 
 小组件是可选的。它是一个直接打开桌面地址的小窗口，画面由桌面服务器绘制；没有小组件，所有功能在浏览器里照样可用。详情见[桌面小组件](./docs/WIDGET.zh.md)。
 
-- **从哪里下载都是同一个文件** —— 上面的按钮始终指向最新的 Windows 安装程序，成员也可以在桌面侧边栏的**桌面小组件**中下载同一个文件。macOS 版会在 Mac 上构建并上传后提供。
+- **从哪里下载都是同一个文件** —— 上面的按钮始终指向最新的 Windows 安装程序和 macOS 磁盘映像，成员也可以在桌面侧边栏的**桌面小组件**中下载同样的文件。Mac 版面向 Apple Silicon，暂无 Intel 版。
 - **抽屉与窗边** —— 抽屉是文件网格，拖入文件就会上传到当前查看的文件夹。窗边显示在线成员和最近上传的五个文件，管理员还能看到桌面容量。
 - **贴边** —— 把小组件藏到较近的屏幕边缘，只留下一个小把手。把鼠标移到把手上，或把文件拖到把手上，小组件就会展开；折叠期间点击把手旁边的空白处，点击会落到后面的窗口上。
 - **图钉** —— 像图钉一样把小组件钉在桌面上，让它待在其他窗口后面、桌面之上。贴边和图钉不会同时开启。
@@ -152,7 +153,7 @@ ShareDesk 是**一个共享文件空间：多个人用各自的 Google 账号，
 - **桌面之间互不混合。** 同一个 Google 账号可以加入多个 ShareDesk 地址，各个桌面的成员、角色、文件和聊天不会混在一起。
 
 > [!NOTE]
-> Windows 小组件安装程序目前还没有代码签名，Windows 可能会提示“未知发布者”。小组件的更新会用单独的签名密钥验证；小组件只会与你的桌面、登录时的 Google，以及提供更新的公开 GitHub 发布页通信。
+> 小组件安装程序目前还没有代码签名，Windows 可能会提示“未知发布者”，macOS 则可能拦截首次启动，需在“隐私与安全性”中选择**仍要打开**。小组件的更新会用单独的签名密钥验证；小组件只会与你的桌面、登录时的 Google，以及提供更新的公开 GitHub 发布页通信。
 
 <br />
 

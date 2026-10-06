@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Next.js-16-2f4670?style=flat-square&labelColor=10172b&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Vercel-serverless-2f4670?style=flat-square&labelColor=10172b&logo=vercel&logoColor=white" alt="Vercel serverless" />
   <img src="https://img.shields.io/badge/Google%20Drive-storage-2f4670?style=flat-square&labelColor=10172b&logo=googledrive&logoColor=white" alt="Google Drive storage" />
-  <a href="#desktop-widget"><img src="https://img.shields.io/badge/Widget-Windows-2f4670?style=flat-square&labelColor=10172b" alt="Desktop widget for Windows" /></a>
+  <a href="#desktop-widget"><img src="https://img.shields.io/badge/Widget-Windows%20%C2%B7%20macOS-2f4670?style=flat-square&labelColor=10172b" alt="Desktop widget for Windows and macOS" /></a>
 </p>
 
 <p align="center">
@@ -113,11 +113,12 @@ Everyone picks a wallpaper for their own screen; the choice is saved in that bro
 
 <p align="center">
   <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows%20x64-Download%20the%20widget-f2a56f?style=for-the-badge&labelColor=10172b" alt="Download the widget for Windows x64" /></a>
+  <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS%20Apple%20Silicon-Download%20the%20widget-f2a56f?style=for-the-badge&labelColor=10172b" alt="Download the widget for macOS (Apple Silicon)" /></a>
 </p>
 
 The widget is optional: a small window that opens your desk's own address, so the desk server draws it and everything keeps working in the browser without it. Details are in [Desktop widget](./docs/WIDGET.md).
 
-- **Same download everywhere** — the button above always points at the latest Windows installer, and members find the same download in the desk sidebar under **Desktop widget**. macOS will follow once it has been built and uploaded from a Mac.
+- **Same download everywhere** — the buttons above always point at the latest Windows installer and macOS disk image, and members find the same downloads in the desk sidebar under **Desktop widget**. The Mac build is for Apple Silicon; there is no Intel build yet.
 - **Drawer and Window** — the Drawer is a file grid: drop files to upload them into the folder you are looking at. Window shows who is online and the five latest uploads, plus desk storage for admins.
 - **Wall** — tucks the widget into the nearer screen edge as a small handle. Point at the handle, or drag a file onto it, and the widget slides out; while it is folded, clicks beside the handle go to the window behind.
 - **Pin** — fixes the widget to the desktop like a pushpin, behind your other windows and above the desktop. Wall and Pin are never on at the same time.
@@ -152,7 +153,7 @@ Hosts start here:
 - **Desks stay apart.** The same Google account can join several ShareDesk addresses, and their members, roles, files and chat never mix.
 
 > [!NOTE]
-> The Windows widget installer is not code-signed yet, so Windows may warn about an unknown publisher. Widget updates are checked against a separate signing key, and the widget only talks to your desk, to Google when you sign in, and to the public GitHub release for updates.
+> The widget installers are not code-signed yet, so Windows may warn about an unknown publisher, and macOS may block the first launch until you choose **Open Anyway** under Privacy & Security. Widget updates are checked against a separate signing key, and the widget only talks to your desk, to Google when you sign in, and to the public GitHub release for updates.
 
 <br />
 

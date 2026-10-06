@@ -103,9 +103,10 @@ function readmeShape(text: string) {
     notes: count(/^> \[!NOTE\]/gm),
     clears: count(/<br clear="all" \/>/g),
     imgTags: count(/<img /g),
-    widgetDownload: text.includes(
-      "releases/download/widget/sharedesk-widget-windows-x64-setup.exe",
-    ),
+    widgetDownload: [
+      "sharedesk-widget-windows-x64-setup.exe",
+      "sharedesk-widget-macos-arm64.dmg",
+    ].every((asset) => text.includes(`releases/download/widget/${asset}`)),
   };
 }
 
@@ -126,7 +127,7 @@ test("README 다섯 언어판은 영어판과 같은 구조를 갖는다", async
   assert.ok(english.bullets >= 24, "영어판 README의 기능 설명이 너무 적습니다.");
   assert.ok(english.images.length >= 8, "영어판 README의 그림이 너무 적습니다.");
   assert.ok(english.details >= 1, "영어판 README에 접기(details)가 있어야 합니다.");
-  assert.ok(english.widgetDownload, "영어판 README에 위젯 내려받기 고정 주소가 있어야 합니다.");
+  assert.ok(english.widgetDownload, "영어판 README에 Windows·macOS 위젯 내려받기 고정 주소가 둘 다 있어야 합니다.");
 
   for (const [index, text] of texts.entries()) {
     const name = locales[index];

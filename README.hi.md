@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Next.js-16-2f4670?style=flat-square&labelColor=10172b&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
   <img src="https://img.shields.io/badge/Vercel-serverless-2f4670?style=flat-square&labelColor=10172b&logo=vercel&logoColor=white" alt="Vercel सर्वरलेस" />
   <img src="https://img.shields.io/badge/Google%20Drive-storage-2f4670?style=flat-square&labelColor=10172b&logo=googledrive&logoColor=white" alt="Google Drive स्टोरेज" />
-  <a href="#डेस्कटॉप-विजेट"><img src="https://img.shields.io/badge/Widget-Windows-2f4670?style=flat-square&labelColor=10172b" alt="Windows के लिए डेस्कटॉप विजेट" /></a>
+  <a href="#डेस्कटॉप-विजेट"><img src="https://img.shields.io/badge/Widget-Windows%20%C2%B7%20macOS-2f4670?style=flat-square&labelColor=10172b" alt="Windows और macOS के लिए डेस्कटॉप विजेट" /></a>
 </p>
 
 <p align="center">
@@ -113,11 +113,12 @@ Google Drive से सिर्फ़ होस्ट का खाता ज�
 
 <p align="center">
   <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows%20x64-विजेट%20डाउनलोड%20करें-f2a56f?style=for-the-badge&labelColor=10172b" alt="Windows x64 के लिए विजेट डाउनलोड करें" /></a>
+  <a href="https://github.com/Youkamii/sharedesk-template/releases/download/widget/sharedesk-widget-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS%20Apple%20Silicon-विजेट%20डाउनलोड%20करें-f2a56f?style=for-the-badge&labelColor=10172b" alt="macOS (Apple Silicon) के लिए विजेट डाउनलोड करें" /></a>
 </p>
 
 विजेट वैकल्पिक है। यह एक छोटी विंडो है जो आपके डेस्क का पता ही खोलती है, इसलिए स्क्रीन डेस्क सर्वर बनाता है, और विजेट के बिना भी हर सुविधा ब्राउज़र में वैसे ही चलती है। विस्तार से जानने के लिए [डेस्कटॉप विजेट](./docs/WIDGET.hi.md) देखें।
 
-- **हर जगह वही डाउनलोड** — ऊपर का बटन हमेशा नवीनतम Windows इंस्टॉलर की ओर ले जाता है, और सदस्य डेस्क साइडबार के **डेस्कटॉप विजेट** से भी वही फ़ाइल पा सकते हैं। macOS संस्करण Mac पर बनाकर अपलोड किए जाने के बाद मिलेगा।
+- **हर जगह वही डाउनलोड** — ऊपर के बटन हमेशा नवीनतम Windows इंस्टॉलर और macOS डिस्क इमेज की ओर ले जाते हैं, और सदस्य डेस्क साइडबार के **डेस्कटॉप विजेट** से भी वही फ़ाइलें पा सकते हैं। Mac संस्करण Apple Silicon के लिए है; Intel संस्करण अभी नहीं है।
 - **दराज़ और खिड़की** — दराज़ फ़ाइलों का ग्रिड है: फ़ाइलें छोड़ें और वे उसी फ़ोल्डर में अपलोड हो जाती हैं जिसे आप देख रहे हैं। खिड़की दिखाती है कि कौन ऑनलाइन है और हाल में अपलोड हुई पाँच फ़ाइलें कौन-सी हैं; व्यवस्थापकों को डेस्क स्टोरेज भी दिखता है।
 - **दीवार** — विजेट को पास वाले स्क्रीन किनारे में छिपा देता है और सिर्फ़ एक छोटा हैंडल छोड़ता है। हैंडल पर माउस ले जाएँ या कोई फ़ाइल उस पर खींचें, तो विजेट बाहर खिसक आता है; सिमटे रहने के दौरान हैंडल के बगल में किया गया क्लिक पीछे वाली विंडो तक पहुँचता है।
 - **पिन** — विजेट को पुशपिन की तरह डेस्कटॉप पर टिका देता है, ताकि वह दूसरी विंडो के पीछे और डेस्कटॉप के ऊपर रहे। दीवार और पिन कभी एक साथ चालू नहीं होते।
@@ -152,7 +153,7 @@ Google Drive से सिर्फ़ होस्ट का खाता ज�
 - **डेस्क आपस में नहीं मिलते।** वही Google खाता कई ShareDesk पतों से जुड़ सकता है, लेकिन उनके सदस्य, भूमिकाएँ, फ़ाइलें और चैट कभी आपस में नहीं मिलते।
 
 > [!NOTE]
-> Windows विजेट इंस्टॉलर पर अभी कोड हस्ताक्षर नहीं है, इसलिए Windows "अज्ञात प्रकाशक" की चेतावनी दिखा सकता है। विजेट के अपडेट एक अलग हस्ताक्षर कुंजी से जाँचे जाते हैं, और विजेट सिर्फ़ आपके डेस्क से, साइन इन के समय Google से, और अपडेट देने वाली सार्वजनिक GitHub रिलीज़ से ही बात करता है।
+> विजेट इंस्टॉलर पर अभी कोड हस्ताक्षर नहीं है, इसलिए Windows "अज्ञात प्रकाशक" की चेतावनी दिखा सकता है और macOS पहली बार खोलने से तब तक रोक सकता है जब तक आप System Settings → Privacy & Security में **Open Anyway** न चुनें। विजेट के अपडेट एक अलग हस्ताक्षर कुंजी से जाँचे जाते हैं, और विजेट सिर्फ़ आपके डेस्क से, साइन इन के समय Google से, और अपडेट देने वाली सार्वजनिक GitHub रिलीज़ से ही बात करता है।
 
 <br />
 
