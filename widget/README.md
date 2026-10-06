@@ -76,15 +76,42 @@
 
 참고: 같은 순서를 다섯 번 돌렸는데, 첫 회차에 "압정 끄기" 클릭이 한 번 반영되지 않았다(설정 `pinned`가 그대로). 원인은 확인하지 못했고 이후 네 번은 모두 정상이었다.
 
-### macOS (미실측 — 맥에서 할 일)
+### macOS (실측 2026-10-06 — macOS 27.0.1 arm64, 디버그 껍데기 0.3.0, tauri 2.12·tao 0.37.1·wry 0.57)
 
-지금 코드는 압정에 tao의 `set_always_on_bottom`만 쓴다. 맥에서 같은 효과를 내려면 아래를 실측하고 필요한 것을 더한다.
+판정은 `CGWindowListCopyWindowInfo`의 창 레벨(`kCGWindowLayer`: 보통 창 0, tao의 항상 위 5, 맨 아래 −1)과 위치, 접근성 API(`background only`), 캡처로 했다. 데스크는 로컬 모드 `next dev`로 띄웠다 — `next start`는 세션 쿠키에 `Secure`가 붙어 http://localhost 로그인이 위젯 안에서 되지 않는다.
+
+| 확인 | 결과 |
+| --- | --- |
+| 시작 직후 떠 있기 | **고친 뒤** 레벨 5. 고치기 전에는 0이었다 — 빌더의 `always_on_top`이 생성된 창에 남지 않는다(`build` 직후 `is_always_on_top` false, Accessory 정책과 무관). 창을 띄운 직후 `apply_z`로 한 번 다시 건다(`build_main_window`) |
+| 압정 켜기 (머리띠) | 레벨 −1, 앞에 있던 터미널 창 뒤로 들어간다. 가려진 부분은 아예 눌리지 않는다(뒤 창이 받는다) — 풀려면 보이는 부분을 누르거나 트레이 `항상 위` |
+| 압정인 채 종료 후 재시작 | 처음부터 레벨 −1 |
+| 압정 중 트레이 `항상 위` | 압정 해제, 레벨 5, 설정 `pinned=false`·`alwaysOnTop=true` |
+| 벽 붙임 켜기 | 오른쪽 벽에 붙는다(x 1572→1580 = 작업영역 폭 1920 − 340, 바깥·안쪽 여백 0). 내용이 벽 너머로 밀리고 손잡이만 남으며 빈 자리는 뒤 창이 비친다 |
+| 손잡이에 커서 | 펼쳐지고 머리띠 `벽`이 눌린 표시. 커서가 떠나면 유예 뒤 접힌다 |
+| 벽 붙임 끄기 | 펼친 채 그 자리에 남는다 |
+| 서랍에서 파일 더블클릭 | `~/Downloads/<이름>`에 저장되고 "Saved <이름>" 알림(아래 `on_download`) |
+| 트레이 | 메뉴 막대 상태 항목, 우클릭 메뉴가 OS 언어(한국어)로 뜬다. Accessory 정책으로 Dock 아이콘 없음(`background only` true) |
+| 처음 실행 → 부팅 → 데스크 | `tauri://localhost/boot.html`에서 쿠키를 심고 `/files`로 가면 서버가 위젯 변형(로그인 카드·서랍)을 그린다 |
+
+맥에서 눈에 띄는 점:
+
+- 위젯이 활성 앱이 아닐 때 첫 클릭은 앱을 활성화하는 데 쓰이고 단추에는 닿지 않는다(WKWebView가 first mouse를 받지 않는다). 두 번째 클릭부터 듣는다.
+- 맥 내려받기는 전송 목록에 오르지 않아 손잡이 게이지·전송 바에 보이지 않는다.
+- 미실측: Spaces 전환·Mission Control·바탕화면 보기(핫코너/F11)에서의 압정, 배율이 다른 보조 모니터, 드롭 업로드, 끌어내기(DownloadURL을 WKWebView가 모르므로 아무 일 없음 — 코드로 안다).
+
+구현 메모 — 코드가 tao의 어떤 호출로 떨어지는가:
 
 | 모드 | 맞춰야 하는 것 |
 | --- | --- |
 | 떠 있기 | tao `set_always_on_top(true)` → `NSWindow.level`을 올린다(tao 0.37.1 `platform_impl/macos/window.rs`, 값은 `ffi.rs`의 `NSFloatingWindowLevel`). 다른 앱의 보통 창 위에 뜨는지 확인. |
 | 벽 붙임 | `set_ignore_cursor_events` → `setIgnoresMouseEvents:`(tao). 투명 창이 마우스를 무시하는 동안에도 폴링 스레드의 `cursor_position`이 계속 커서를 주는지, `set_shadow(false)`가 맥에서 그림자 윤곽을 없애는지, `work_area`가 메뉴 막대·Dock을 빼고 주는지, Retina 배율에서 손잡이 영역 좌표가 맞는지 실측이 필요하다. 주 버튼 상태는 `CGEventSourceButtonState`로 이미 본다(`wall.rs` `primary_button_down`). |
 | 압정 | tao `set_always_on_bottom(true)` → 창 레벨 `BelowNormalWindowLevel`(tao `ffi.rs:69`, 값 −1, `set_level_async`로 적용). 보통 창(레벨 0) 아래이고 바탕화면 아이콘 레벨(`kCGDesktopIconWindowLevel`, 큰 음수)보다는 위라 "다른 창 뒤, 바탕화면 아이콘 위"가 될 것으로 추정한다. 끄기는 `set_always_on_bottom(false)`(보통 레벨) 뒤 `set_always_on_top(alwaysOnTop)`. |
+
+맥에서만 더한 것(2026-10-06, `#[cfg(target_os = "macos")]`라 Windows 빌드에는 들어가지 않는다):
+
+- **내려받기** — WKWebView에는 저장 대화상자(`showSaveFilePicker`)가 없어 페이지가 `<a download>`로 떨어지는데, wry 0.57은 내려받기 핸들러가 없으면 그 요청을 취소한다(`wkwebview/navigation.rs`). 껍데기가 `on_download`로 받아 wry가 정한 `~/Downloads/<이름>`(겹치면 ` (n)`)에 저장하고, 끝나면 `sharedesk:widget-download`(detail `{success, name}`)로 페이지에 알린다 — 맥의 Finished 이벤트에는 경로가 비어 있어 요청 때의 경로를 주소별로 적어 둔다. Windows(WebView2)는 페이지가 저장 대화상자로 직접 받으므로 핸들러를 달지 않는다(달면 WebView2의 기본 내려받기 표시가 사라진다). 맥 내려받기는 전송 목록에 오르지 않아 손잡이 게이지·전송 바에는 보이지 않는다.
+- **트레이 앱** — `skip_taskbar`는 Windows·Linux 전용이라 맥에서는 Dock·Cmd+Tab에 보통 앱처럼 나왔다(접근성 API `background only: false`로 실측). `set_activation_policy(Accessory)`로 Dock 아이콘 없이 트레이에만 둔다.
+- **시작 때 z 플래그 다시 걸기** — 빌더의 `always_on_top`·`always_on_bottom`이 생성된 창의 레벨에 남지 않아(위 표) 창을 띄운 직후 `apply_z(settings.pinned)`를 한 번 부른다. Windows는 빌더 플래그가 그대로 서므로 건드리지 않는다.
 
 맥에서 압정에 기대하는 추가 동작 — 지금 코드에는 없다:
 
@@ -103,5 +130,5 @@
 
 ## 미실측 항목
 
-- macOS 전부(위 표).
+- macOS: 위 macOS 절의 "미실측" 줄(Spaces·Mission Control·바탕화면 보기, 보조 모니터, 드롭 업로드).
 - Windows: 벽 붙임 중 Win+D, 배율이 다른 모니터·보조 모니터에서의 압정, 가상 데스크톱 전환(Win+Ctrl+←/→) 때 압정, 압정으로 대부분 가려진 동안 WebView2가 `document.hidden`을 바꿔 주기 확인 간격이 달라지는지, 압정 중 보이는 부분에 파일을 끌어 놓는 업로드.

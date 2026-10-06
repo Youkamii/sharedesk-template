@@ -17,6 +17,8 @@ mod locale;
 mod settings;
 mod wall;
 
+#[cfg(target_os = "macos")]
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -26,6 +28,8 @@ use std::time::{Duration, Instant};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::webview::cookie::{time::Duration as CookieDuration, Cookie, SameSite};
+#[cfg(target_os = "macos")]
+use tauri::webview::DownloadEvent;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{
     AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize, RunEvent, Url, Webview,
@@ -68,6 +72,10 @@ pub struct WidgetState {
     last_external_open: Mutex<Option<Instant>>,
     lang: locale::Lang,
     wall: Mutex<WallState>,
+    /// macOS 내려받기(아래 "내려받기" 절): 요청 때 정해진 저장 경로를 주소별로 적어 두었다가 끝나면
+    /// 페이지에 이름을 알린다 — 맥의 Finished 이벤트에는 path가 늘 비어 있다(tauri DownloadEvent 문서).
+    #[cfg(target_os = "macos")]
+    downloads: Mutex<HashMap<String, PathBuf>>,
 }
 
 /// 벽 붙임의 껍데기 쪽 상태. 원본은 페이지의 localStorage이고, 페이지가 로드될 때마다
@@ -139,6 +147,10 @@ pub fn run() {
             set_pinned
         ])
         .setup(move |app| {
+            // 맥은 트레이 앱으로 — Dock·Cmd+Tab에 나오지 않는다. skip_taskbar는 Windows·Linux 전용이라
+            // 이 호출이 없으면 보통 앱처럼 Dock에 아이콘이 생긴다(2026-10-06 실측).
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let profile = open_profile(app.handle(), &profile_name)?;
             let mut loaded = settings::load(&profile.dir);
             if let Some(preset) = preset_desk.as_deref() {
@@ -156,6 +168,8 @@ pub fn run() {
                 last_external_open: Mutex::new(None),
                 lang: locale::Lang::detect(),
                 wall: Mutex::new(WallState::default()),
+                #[cfg(target_os = "macos")]
+                downloads: Mutex::new(HashMap::new()),
             };
             app.manage(state);
 
@@ -325,7 +339,10 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     }
     #[cfg(target_os = "macos")]
     {
-        builder = builder.data_store_identifier(data_store_id(&state.profile.name));
+        builder = builder
+            .data_store_identifier(data_store_id(&state.profile.name))
+            // 맥에서만 내려받기를 껍데기가 받는다 (아래 "내려받기" 절)
+            .on_download(handle_download);
     }
     let window = builder.build()?;
 
@@ -337,6 +354,11 @@ fn build_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         None => position_bottom_right(&window),
     }
     let _ = window.show();
+    // 맥(tauri 2.12·tao 0.37)에서는 빌더의 always_on_top·always_on_bottom이 생성된 창의 레벨에 남지 않는다
+    // (실측 2026-10-06: build 직후 is_always_on_top이 false, 창 레벨 0). 런타임 setter는 듣는다 — 같은 규칙
+    // (settings::z_flags)으로 한 번 다시 건다. Windows는 빌더 플래그가 그대로 서므로 건드리지 않는다.
+    #[cfg(target_os = "macos")]
+    let _ = apply_z(&window, settings.pinned);
     Ok(window)
 }
 
@@ -561,6 +583,8 @@ mod tests {
             last_external_open: Mutex::new(None),
             lang: locale::Lang::En,
             wall: Mutex::new(WallState::default()),
+            #[cfg(target_os = "macos")]
+            downloads: Mutex::new(HashMap::new()),
         }
     }
 
@@ -651,6 +675,77 @@ mod tests {
         assert_eq!(pin_request_allowed(true, false), Ok(()));
         assert_eq!(pin_request_allowed(false, true), Ok(()));
         assert_eq!(pin_request_allowed(false, false), Ok(()));
+    }
+
+    #[test]
+    fn download_script_uses_the_shared_event_name_and_escapes_the_name() {
+        // 페이지(widget.ts WIDGET_DOWNLOAD_EVENT)와 같은 이름, detail은 {success, name} — 이름의 따옴표는 JSON으로 피한다
+        assert_eq!(
+            download_script(true, Some("a \"b\".png")),
+            r#"document.dispatchEvent(new CustomEvent('sharedesk:widget-download',{detail:{"success":true,"name":"a \"b\".png"}}));"#
+        );
+        assert_eq!(
+            download_script(false, None),
+            r#"document.dispatchEvent(new CustomEvent('sharedesk:widget-download',{detail:{"success":false,"name":null}}));"#
+        );
+    }
+}
+
+// ── 내려받기 (macOS) ────────────────────────────────────────────────────────
+//
+// WKWebView에는 저장 대화상자(showSaveFilePicker)가 없어 페이지(src/lib/client/transfer.ts)는 <a download>로
+// 떨어지는데, wry는 내려받기 핸들러가 없으면 그 요청을 취소한다(wry 0.57 wkwebview/navigation.rs). 그래서
+// 맥에서만 껍데기가 핸들러를 단다. 저장 위치는 wry가 ~/Downloads/<이름>(겹치면 " (n)")으로 정해 넘기므로
+// 그대로 받아들이고, 요청 주소별로 경로를 적어 두었다가 끝나면 페이지에 이름과 성패를 알린다 — 맥의
+// Finished 이벤트에는 path가 늘 비어 있다. Windows(WebView2)는 페이지가 저장 대화상자로 직접 받으므로
+// 핸들러를 달지 않는다: 달면 WebView2의 기본 내려받기 표시가 사라진다.
+
+/// 페이지(src/lib/client/widget.ts)의 WIDGET_DOWNLOAD_EVENT와 같은 이름. detail은 {success, name}.
+#[cfg(any(target_os = "macos", test))]
+const DOWNLOAD_EVENT: &str = "sharedesk:widget-download";
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(serde::Serialize)]
+struct DownloadDetail<'a> {
+    success: bool,
+    name: Option<&'a str>,
+}
+
+/// 페이지에 내려받기 결과를 알리는 스크립트 (껍데기 → 페이지는 eval로 이벤트를 쏘는 것이 관례)
+#[cfg(any(target_os = "macos", test))]
+fn download_script(success: bool, name: Option<&str>) -> String {
+    let detail = serde_json::to_string(&DownloadDetail { success, name }).expect("download detail");
+    format!("document.dispatchEvent(new CustomEvent('{DOWNLOAD_EVENT}',{{detail:{detail}}}));")
+}
+
+#[cfg(target_os = "macos")]
+fn handle_download(webview: Webview, event: DownloadEvent<'_>) -> bool {
+    let state = webview.state::<WidgetState>();
+    match event {
+        DownloadEvent::Requested { url, destination } => {
+            eprintln!("[download] {url} → {}", destination.display());
+            state
+                .downloads
+                .lock()
+                .expect("downloads lock")
+                .insert(url.to_string(), destination.clone());
+            true
+        }
+        DownloadEvent::Finished { url, success, .. } => {
+            let path = state
+                .downloads
+                .lock()
+                .expect("downloads lock")
+                .remove(url.as_str());
+            let name = path
+                .as_deref()
+                .and_then(Path::file_name)
+                .map(|name| name.to_string_lossy().into_owned());
+            eprintln!("[download] {} {url}", if success { "완료" } else { "실패" });
+            let _ = webview.eval(download_script(success, name.as_deref()));
+            true
+        }
+        _ => true,
     }
 }
 

@@ -9,6 +9,7 @@ import {
   isUnsupportedCommandError,
   isWidgetHidden,
   parseWallSide,
+  parseWidgetDownload,
   parseWidgetMode,
   parseWidgetWall,
   placementSteps,
@@ -24,6 +25,7 @@ import {
   WALL_GAUGE_HOLD_MS,
   WALL_HANDLE_SLACK,
   wallZoneRect,
+  WIDGET_DOWNLOAD_EVENT,
   WIDGET_HIDDEN_FLAG,
   WIDGET_HIDDEN_POLL_MS,
   WIDGET_LIST_POLL_MS,
@@ -852,4 +854,44 @@ test("direct upload failure stops the heartbeat and surfaces the drive error", a
     /drive failed/,
   );
   assert.equal(heartbeatStopped, 1);
+});
+
+// ── 내려받기 알림 (macOS 껍데기) ──────────────────────────────────────────
+
+test("shell download result accepts only {success: boolean} and keeps a non-empty name", () => {
+  assert.deepEqual(parseWidgetDownload({ success: true, name: "a.png" }), { success: true, name: "a.png" });
+  assert.deepEqual(parseWidgetDownload({ success: false, name: null }), { success: false, name: null });
+  assert.deepEqual(parseWidgetDownload({ success: true, name: "" }), { success: true, name: null });
+  assert.deepEqual(parseWidgetDownload({ success: true }), { success: true, name: null });
+  for (const bad of [null, undefined, "ok", 1, {}, { success: "yes" }, { name: "a.png" }]) {
+    assert.equal(parseWidgetDownload(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("배선: 맥 내려받기 — 껍데기가 ~/Downloads에 받고 화면이 같은 이름의 이벤트로 알린다", async () => {
+  const view = await readSource("../src/app/widget/WidgetView.tsx");
+  const shell = await readSource("../widget/src-tauri/src/lib.rs");
+
+  // 껍데기가 쏘는 이벤트 이름과 화면이 듣는 이름이 같아야 한다
+  assert.equal(WIDGET_DOWNLOAD_EVENT, "sharedesk:widget-download");
+  assert.match(shell, /const DOWNLOAD_EVENT: &str = "sharedesk:widget-download";/);
+  assert.match(view, /document\.addEventListener\(WIDGET_DOWNLOAD_EVENT, onDownload\)/);
+  assert.match(view, /showNotice\(t\("\{name\}을\(를\) 저장했습니다", \{ name: result\.name \}\)\)/);
+  assert.match(view, /showNotice\(t\("다운로드에 실패했습니다"\)\)/);
+
+  // 핸들러와 트레이 앱 정책은 맥 빌드에만 들어간다 — Windows는 저장 대화상자로 직접 받고, Dock은 skip_taskbar가 맡는다
+  assert.match(
+    shell,
+    /#\[cfg\(target_os = "macos"\)\]\s*\{\s*builder = builder\s*\.data_store_identifier\([^)]*\)[\s\S]{0,160}\.on_download\(handle_download\)/,
+  );
+  assert.match(shell, /#\[cfg\(target_os = "macos"\)\]\s*fn handle_download\(/);
+  assert.match(
+    shell,
+    /#\[cfg\(target_os = "macos"\)\]\s*app\.set_activation_policy\(tauri::ActivationPolicy::Accessory\)/,
+  );
+  // 맥은 빌더의 항상 위·맨 아래 플래그가 생성 뒤 남지 않아 창을 띄운 직후 z 플래그를 한 번 다시 건다
+  assert.match(
+    shell,
+    /let _ = window\.show\(\);[\s\S]{0,400}#\[cfg\(target_os = "macos"\)\]\s*let _ = apply_z\(&window, settings\.pinned\);/,
+  );
 });

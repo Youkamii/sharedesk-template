@@ -33,6 +33,7 @@ import {
   finishedGauge,
   isWidgetHidden,
   parseWallSide,
+  parseWidgetDownload,
   type PinState,
   placementSteps,
   readWidgetMode,
@@ -48,6 +49,7 @@ import {
   WALL_GAUGE_HOLD_MS,
   type WallSide,
   wallZoneRect,
+  WIDGET_DOWNLOAD_EVENT,
   WIDGET_LIST_POLL_MS,
   WIDGET_PINNED_EVENT,
   WIDGET_PRESENCE_MS,
@@ -473,6 +475,7 @@ export default function WidgetView({
         },
       );
       if (started) recordTransferResult("ok", size);
+      // 저장 대화상자가 없는 맥에서는 앵커 내려받기 — 껍데기가 받고 결과를 WIDGET_DOWNLOAD_EVENT로 알린다
       if (result === "native") nativeDownload(url, downloadFileName(entry));
       else showNotice(t("{name}을(를) 저장했습니다", { name: entry.name }));
     } catch (error) {
@@ -710,6 +713,20 @@ export default function WidgetView({
       document.removeEventListener(WIDGET_PINNED_EVENT, onPinned);
     };
   }, []);
+
+  // ── 내려받기 알림 (macOS) ─────────────────────────────────────────────
+  // 맥에서는 저장 대화상자가 없어 껍데기가 ~/Downloads에 받고 결과만 알린다 (widget.ts WIDGET_DOWNLOAD_EVENT).
+
+  useEffect(() => {
+    const onDownload = (event: Event) => {
+      const result = parseWidgetDownload((event as CustomEvent<unknown>).detail);
+      if (!result) return;
+      if (!result.success) showNotice(t("다운로드에 실패했습니다"));
+      else if (result.name) showNotice(t("{name}을(를) 저장했습니다", { name: result.name }));
+    };
+    document.addEventListener(WIDGET_DOWNLOAD_EVENT, onDownload);
+    return () => document.removeEventListener(WIDGET_DOWNLOAD_EVENT, onDownload);
+  }, [showNotice, t]);
 
   // ── 화면 ─────────────────────────────────────────────────────────────
 

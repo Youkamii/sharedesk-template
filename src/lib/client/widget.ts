@@ -148,6 +148,24 @@ export function widgetDownloadUrlData(
   return `${mime}:${downloadFileName(entry).replace(/:/g, "_")}:${url}`;
 }
 
+// ── 내려받기 알림 (macOS 껍데기) ───────────────────────────────────────────
+// 맥 WKWebView에는 저장 대화상자(showSaveFilePicker)가 없어 화면의 내려받기는 앵커(<a download>)로 떨어지고,
+// 껍데기(widget/src-tauri/src/lib.rs handle_download)가 ~/Downloads에 저장한 뒤 이 이벤트로 결과를 알린다.
+// Windows는 화면이 저장 대화상자로 직접 받으므로 이 이벤트가 오지 않는다. detail은 {success, name}.
+export const WIDGET_DOWNLOAD_EVENT = "sharedesk:widget-download";
+
+export interface WidgetDownloadResult {
+  success: boolean;
+  name: string | null;
+}
+
+export function parseWidgetDownload(detail: unknown): WidgetDownloadResult | null {
+  if (!detail || typeof detail !== "object") return null;
+  const { success, name } = detail as { success?: unknown; name?: unknown };
+  if (typeof success !== "boolean") return null;
+  return { success, name: typeof name === "string" && name !== "" ? name : null };
+}
+
 // ── 벽 붙임 (#28) ───────────────────────────────────────────────────────────
 // 서랍/창가와 따로 노는 배치 토글. 켜면 껍데기가 창을 가까운 좌우 벽에 붙이고, 화면은 내용 전체를
 // 벽 너머로 밀어내 손잡이만 남긴다. 커서 판정·클릭 투과는 껍데기(widget/src-tauri/src/wall.rs)가
