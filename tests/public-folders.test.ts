@@ -586,7 +586,8 @@ test("배선: 폴더 색·공유 배지·확장자 아이콘 (#14 12·13·14)", 
   const read = (relative: string) =>
     readFile(new URL(`../${relative}`, import.meta.url), "utf8");
 
-  // 무지개 7색이 전부 있고, 라우트는 폴더에만·유효 색만 허용한다.
+  // 무지개 7색이 전부 있고, 라우트는 유효 색만 허용한다. 파일 라벨 색(#16 C-7)이
+  // 생겨 폴더 제한은 풀렸다 — 파일 layoutKey도 같은 맵에 들어간다.
   const { FOLDER_COLOR_IDS } = await import("../src/lib/folder-color-ids");
   assert.deepEqual(
     [...FOLDER_COLOR_IDS],
@@ -594,7 +595,7 @@ test("배선: 폴더 색·공유 배지·확장자 아이콘 (#14 12·13·14)", 
   );
   const colorRoute = await read("src/app/api/desktop/folder-color/route.ts");
   assert.match(colorRoute, /runWithUploadRights/);
-  assert.match(colorRoute, /entry\.isFolder/);
+  assert.doesNotMatch(colorRoute, /entry\.isFolder/);
   assert.match(colorRoute, /setFolderColor\(entry\.layoutKey, color\)/);
 
   const icon = await read("src/app/files/PixelFileIcon.tsx");

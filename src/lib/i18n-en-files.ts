@@ -677,4 +677,9 @@ export const EN_FILES: Record<string, string> = {
   // 안 본 새 파일 배지 (#16 C-2)
   "새 파일": "New file",
   "새 파일 {count}개": "{count} new files",
+  // 파일 라벨 색과 폴더 창 필터 (#16 C-7)
+  "라벨 색": "Label color",
+  "라벨로 거르기": "Filter by label",
+  "모두": "All",
+  "라벨 색을 저장하지 못했습니다": "Couldn't save the label color",
 };

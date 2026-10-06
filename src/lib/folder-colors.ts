@@ -11,6 +11,7 @@ import { StorageError } from "@/lib/storage/types";
 // 폴더 색(#14): 폴더마다 도트 팔레트의 무지개 색을 입힌다. 색은 위치가
 // 아니라 폴더 자체의 꾸밈이라 desktop-layout(폴더별 파일)이 아닌 전역
 // 상태 파일 하나에 layoutKey → 색으로 담는다 — 폴더를 옮겨도 색이 따라간다.
+// 파일 라벨 색(#16 C-7)도 같은 맵에 파일의 layoutKey로 들어간다(상한도 공유).
 // 관례: readStateVersioned → normalize → compareAndSwapState.
 
 const FILE = "folder-colors.json";

@@ -147,6 +147,11 @@ import {
   FOLDER_COLOR_IDS,
   type FolderColorId,
 } from "@/lib/folder-color-ids";
+import {
+  filterEntriesByLabel,
+  labelColorsInUse,
+  nextLabelFilter,
+} from "@/lib/client/label-filter";
 import { canEdit, canUpload, type SessionRole } from "@/lib/roles";
 import { widgetDownloadTarget } from "@/lib/widget-download";
 import LanguageMenu from "../LanguageToggle";
@@ -1004,6 +1009,31 @@ export default function FilesView({
     [publicFolderIds],
   );
 
+  // 폴더 창 라벨 필터(#16 C-7) — 창마다 따로, 저장하지 않는 화면 상태. 창이 다른 폴더로
+  // 넘어가면 그 폴더에는 적용하지 않는다(folderId로 묶어 둔다).
+  const [windowLabelFilters, setWindowLabelFilters] = useState<
+    Record<string, { folderId: string; color: FolderColorId }>
+  >({});
+
+  function windowLabelFilter(scopeId: string): FolderColorId | null {
+    const filter = windowLabelFilters[scopeId];
+    return filter && filter.folderId === scopeFolderId(scopeId)
+      ? filter.color
+      : null;
+  }
+
+  function pressLabelFilter(scopeId: string, pressed: FolderColorId | null) {
+    const color = nextLabelFilter(windowLabelFilter(scopeId), pressed);
+    setSelected((current) => (current?.scopeId === scopeId ? null : current));
+    setWindowLabelFilters((current) => {
+      const next = { ...current };
+      if (color === null) delete next[scopeId];
+      else next[scopeId] = { folderId: scopeFolderId(scopeId), color };
+      return next;
+    });
+  }
+
+  // 폴더 색(#14)과 파일 라벨 색(#16 C-7)은 같은 저장소·같은 권한(upload)을 쓴다.
   async function applyFolderColor(entry: Entry, color: FolderColorId | null) {
     setContextMenu(null);
     try {
@@ -1017,7 +1047,14 @@ export default function FilesView({
       );
       setFolderColors(body.colors);
     } catch (error) {
-      setNotice(errorMessage(error, t("폴더 색을 저장하지 못했습니다")));
+      setNotice(
+        errorMessage(
+          error,
+          entry.isFolder
+            ? t("폴더 색을 저장하지 못했습니다")
+            : t("라벨 색을 저장하지 못했습니다"),
+        ),
+      );
     }
   }
 
@@ -7376,6 +7413,17 @@ export default function FilesView({
       else windowCanvasRefs.current.delete(scopeId);
     };
     const dimensions = isRoot ? null : planeDimensions(scopeId, data.entries);
+    // 라벨 필터(#16 C-7) — 폴더 창에서만. 숨긴 항목은 자리(저장된 위치)를 비워 둘 뿐
+    // 옮기지 않고, 끌어 고르기·키보드 이동·범위 선택에도 걸리지 않는다.
+    const labelFilter = isRoot ? null : windowLabelFilter(scopeId);
+    const visibleEntries = filterEntriesByLabel(
+      data.entries,
+      folderColors,
+      labelFilter,
+    ) as Entry[];
+    const visibleKeys = labelFilter
+      ? new Set(visibleEntries.map((entry) => entry.layoutKey))
+      : null;
     // NEW 점의 기준(#16 C-2) — 이 창이 지금 폴더를 연 순간의 이전 확인 시각.
     const windowBaseline = windowNewBaselines[scopeId];
     const newBaseline = isRoot
@@ -7443,7 +7491,7 @@ export default function FilesView({
               : { width: "100%", height: "100%" }
           }
           onPointerDown={(event) =>
-            startSelectionRectangle(event, scopeId, data.entries)
+            startSelectionRectangle(event, scopeId, visibleEntries)
           }
           onKeyDown={(event) => {
             if (isRoot) {
@@ -7452,6 +7500,7 @@ export default function FilesView({
           }}
         >
           {data.entries.map((entry, index) => {
+          if (visibleKeys && !visibleKeys.has(entry.layoutKey)) return null;
           const position = placementFor(scopeId, entry, index);
           const key = `${scopeId}:${entry.layoutKey}`;
           const moving = movingEntryIdsRef.current.has(entry.id);
@@ -7472,6 +7521,10 @@ export default function FilesView({
                 )
               : 0;
           const newCountText = newBadgeText(newCount);
+          // 파일 라벨 색(#16 C-7) — 폴더는 아이콘 자체가 그 색이라 띠를 따로 두지 않는다.
+          const fileLabel = entry.isFolder
+            ? null
+            : (folderColors[entry.layoutKey] ?? null);
           return (
             <div
               key={entry.layoutKey}
@@ -7497,6 +7550,10 @@ export default function FilesView({
                 className={styles.iconMain}
                 title={entry.name}
                 aria-label={`${entry.isFolder ? t("폴더") : t("파일")} ${entry.name}${
+                  fileLabel
+                    ? `, ${t("라벨 색")} ${t(FOLDER_COLOR_LABELS[fileLabel])}`
+                    : ""
+                }${
                   newCountText
                     ? `, ${t("새 파일 {count}개", { count: newCount })}`
                     : isNew
@@ -7518,7 +7575,7 @@ export default function FilesView({
                   } else {
                     selectIconFromClick(
                       scopeId,
-                      data.entries,
+                      visibleEntries,
                       entry.layoutKey,
                       event.ctrlKey || event.metaKey,
                     );
@@ -7542,7 +7599,7 @@ export default function FilesView({
                     moveIconSelectionWithKeyboard(
                       event,
                       scopeId,
-                      data.entries,
+                      visibleEntries,
                       entry,
                     )
                   ) {
@@ -7601,6 +7658,13 @@ export default function FilesView({
                     <span className={styles.newCount} aria-hidden="true">
                       {newCountText}
                     </span>
+                  )}
+                  {fileLabel && (
+                    <span
+                      className={styles.colorLabel}
+                      data-label={fileLabel}
+                      aria-hidden="true"
+                    />
                   )}
                 </span>
                 <span className={styles.iconName}>{entry.name}</span>
@@ -7974,6 +8038,18 @@ export default function FilesView({
           error: null,
         };
         const sidePreviewEntries = folderImagePreviewEntries(item.data.entries);
+        // 라벨 필터 칩(#16 C-7) — 이 폴더에서 쓰이는 색만, 고른 색은 비어도 남긴다.
+        const labelFilter = windowLabelFilter(item.id);
+        const labelColors = labelColorsInUse(
+          item.data.entries,
+          folderColors,
+          labelFilter,
+        );
+        const shownCount = filterEntriesByLabel(
+          item.data.entries,
+          folderColors,
+          labelFilter,
+        ).length;
         const sidePreviewEntry = item.sidePreviewLayoutKey
           ? sidePreviewEntries.find(
               (entry) => entry.layoutKey === item.sidePreviewLayoutKey,
@@ -7989,7 +8065,9 @@ export default function FilesView({
             key={item.id}
             className={`${styles.folderWindow} ${
               active ? styles.activeWindow : ""
-            } ${item.maximized ? styles.maximizedWindow : ""}`}
+            } ${item.maximized ? styles.maximizedWindow : ""} ${
+              labelColors.length > 0 ? styles.folderWindowWithLabels : ""
+            }`}
             style={{
               left: item.x,
               top: item.y,
@@ -8148,6 +8226,43 @@ export default function FilesView({
               </button>
             </div>
 
+            {labelColors.length > 0 && (
+              <div
+                className={styles.labelFilterRow}
+                role="group"
+                aria-label={t("라벨로 거르기")}
+                data-testid={`label-filter-${item.id}`}
+              >
+                <span className={styles.labelFilterTitle} aria-hidden="true">
+                  {t("라벨로 거르기")}
+                </span>
+                <button
+                  type="button"
+                  className={styles.labelChip}
+                  aria-pressed={labelFilter === null}
+                  onClick={() => pressLabelFilter(item.id, null)}
+                >
+                  {t("모두")}
+                </button>
+                {labelColors.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={styles.labelChip}
+                    aria-pressed={labelFilter === color}
+                    onClick={() => pressLabelFilter(item.id, color)}
+                  >
+                    <span
+                      className={styles.labelChipSwatch}
+                      data-label={color}
+                      aria-hidden="true"
+                    />
+                    {t(FOLDER_COLOR_LABELS[color])}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div
               className={`${styles.windowBody} ${
                 sidePreviewEntry ? styles.windowBodyWithPreview : ""
@@ -8239,7 +8354,7 @@ export default function FilesView({
 
             <footer className={styles.windowStatus}>
               <span>
-                {t("{count}개 항목", { count: item.data.entries.length })}
+                {t("{count}개 항목", { count: shownCount })}
               </span>
               {selectedEntries.length > 0 ? (
                 <span className={styles.selectedMeta}>
@@ -9704,12 +9819,14 @@ export default function FilesView({
                   {t("이름 바꾸기")} <kbd>F2</kbd>
                 </MenuButton>
               )}
-              {/* 폴더 색(#14) — 무지개 팔레트. 배치와 같은 upload 권한. */}
-              {allowUpload && contextMenu.entry?.isFolder && (
+              {/* 폴더 색(#14)·파일 라벨 색(#16 C-7) — 무지개 팔레트. 배치와 같은 upload 권한. */}
+              {allowUpload && contextMenu.entry && (
                 <div
                   className={styles.colorSwatchRow}
                   role="group"
-                  aria-label={t("폴더 색")}
+                  aria-label={
+                    contextMenu.entry.isFolder ? t("폴더 색") : t("라벨 색")
+                  }
                 >
                   <button
                     type="button"

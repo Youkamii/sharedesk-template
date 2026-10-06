@@ -494,6 +494,51 @@ test("관리자 초대 코드 API 권한과 상태 변경", async (t) => {
     "viewer",
   );
 
+  // 파일 라벨 색(#16 C-7) — 폴더 색과 같은 라우트·같은 저장소(folder-colors.json)에
+  // 파일의 layoutKey로 들어간다. 권한은 폴더 색과 같다(올릴 수 있는 역할).
+  const labelFileId = Buffer.from("report.txt", "utf8").toString("base64url");
+  const setLabel = (cookie: string | null, color: unknown, id = labelFileId) =>
+    fetch(`${origin}/api/desktop/folder-color`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(cookie ? { Cookie: cookie } : {}),
+      },
+      body: JSON.stringify({ id, color }),
+    });
+  assert.equal((await setLabel(null, "red")).status, 401);
+  assert.equal(
+    (await setLabel(`sharedesk_session=${session("member-sub")}`, "red")).status,
+    403,
+    "보기 전용(viewer)은 라벨 색을 바꾸지 못한다",
+  );
+  assert.equal((await setLabel(adminCookie, "pink")).status, 400);
+  const labeled = await setLabel(adminCookie, "red");
+  assert.equal(labeled.status, 200, "파일에도 색을 지정할 수 있다");
+  const labeledColors = (
+    (await labeled.json()) as { colors: Record<string, string> }
+  ).colors;
+  const labelKeys = Object.keys(labeledColors);
+  assert.equal(labelKeys.length, 1);
+  assert.match(labelKeys[0], /^local:/, "색은 경로 id가 아니라 layoutKey에 붙는다");
+  assert.equal(labeledColors[labelKeys[0]], "red");
+  const storedColors = JSON.parse(
+    await readFile(path.join(stateDir, "folder-colors.json"), "utf8"),
+  ) as { colors: Record<string, string> };
+  assert.deepEqual(storedColors.colors, labeledColors);
+  const missingLabel = await setLabel(
+    adminCookie,
+    "red",
+    Buffer.from("ghost.txt", "utf8").toString("base64url"),
+  );
+  assert.equal(missingLabel.status, 404, "없는 항목에는 색을 남기지 않는다");
+  const clearedLabel = await setLabel(adminCookie, null);
+  assert.equal(clearedLabel.status, 200);
+  assert.deepEqual(
+    ((await clearedLabel.json()) as { colors: Record<string, string> }).colors,
+    {},
+  );
+
   const manualApproval = await fetch(`${origin}/api/admin/users`, {
     method: "POST",
     headers: {

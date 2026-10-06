@@ -2806,6 +2806,79 @@ button.userName {
 .colorSwatch[data-color="indigo"] { background: #6f6fb0; }
 .colorSwatch[data-color="violet"] { background: #a97fc9; }
 
+/* 파일 라벨 색(#16 C-7) — 아이콘 그림 아래 2칸(4px) 색 띠. 폴더는 아이콘 자체가 그 색이다. */
+.colorLabel {
+  position: absolute;
+  bottom: 0;
+  left: 7px;
+  width: 36px;
+  height: 4px;
+  box-shadow: 0 0 0 2px #10172b;
+  pointer-events: none;
+}
+
+/* 폴더 창 라벨 필터(#16 C-7) — 쓰이는 색이 있을 때만 도구 줄 아래 한 줄을 더 쓴다 */
+.folderWindow.folderWindowWithLabels {
+  grid-template-rows: 32px 42px 30px minmax(0, 1fr) 24px;
+}
+
+.labelFilterRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px 7px;
+  background: #efe1c0;
+  border-bottom: 2px solid #8f806d;
+  font-size: 11px;
+  scrollbar-width: thin;
+}
+
+.labelFilterTitle {
+  margin-right: 2px;
+  color: #5e5361;
+  white-space: nowrap;
+}
+
+.labelChip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #1b1b2f;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #a89276;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.labelChip[aria-pressed="true"] {
+  color: #fff8e7;
+  background: #2d5c5b;
+  box-shadow: inset 2px 2px 0 #1b3a39;
+}
+
+
+.labelChipSwatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid #10172b;
+}
+
+:is(.colorLabel, .labelChipSwatch)[data-label="red"] { background: #e96872; }
+:is(.colorLabel, .labelChipSwatch)[data-label="orange"] { background: #e7a064; }
+:is(.colorLabel, .labelChipSwatch)[data-label="yellow"] { background: #ffd27d; }
+:is(.colorLabel, .labelChipSwatch)[data-label="green"] { background: #8fbf7f; }
+:is(.colorLabel, .labelChipSwatch)[data-label="blue"] { background: #79a8e8; }
+:is(.colorLabel, .labelChipSwatch)[data-label="indigo"] { background: #6f6fb0; }
+:is(.colorLabel, .labelChipSwatch)[data-label="violet"] { background: #a97fc9; }
+
 /* 우측 가장자리 사이드바(#11) — 손잡이는 데스크 위(z1050), 패널은
    작업표시줄(1100)·다운로드 패널(1200) 아래(z1090). */
 .sidebarHandle {
