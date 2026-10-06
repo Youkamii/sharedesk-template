@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { clearNewBadgeStores } from "@/lib/client/new-badges";
 import { translate, type Locale } from "@/lib/i18n";
 
 export default function LogoutButton({
@@ -17,6 +18,8 @@ export default function LogoutButton({
     <button
       className={className}
       onClick={async () => {
+        // 이 브라우저에 남긴 NEW 배지 기록(#16 C-2 — 키에 이메일이 들어 있다)을 지운다.
+        clearNewBadgeStores();
         await fetch("/api/auth", { method: "DELETE" });
         router.replace("/");
         router.refresh();

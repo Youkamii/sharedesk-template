@@ -944,7 +944,9 @@ test("열린 폴더는 이미지와 GIF를 우측에서 보고 방향키로 넘�
   );
 
   assert.match(source, /sidePreviewLayoutKey: string \| null/);
-  assert.match(source, /folderImagePreviewEntries\(item\.data\.entries\)/);
+  // 라벨 필터(#16 C-7)가 걸리면 보이는 항목 안에서만 넘긴다.
+  assert.match(source, /folderImagePreviewEntries\(visibleEntries\)/);
+  assert.match(source, /const visibleEntries = windowVisibleEntries\(item\);/);
   assert.match(source, /data-folder-side-preview=\{item\.id\}/);
   assert.match(source, /event\.key === "ArrowLeft" \|\| event\.key === "ArrowRight"/);
   assert.match(source, /adjacentFolderImagePreviewKey\(/);

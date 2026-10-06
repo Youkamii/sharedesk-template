@@ -7,6 +7,7 @@ import { FOLDER_COLOR_IDS, type FolderColorId } from "@/lib/folder-color-ids";
 
 export interface LabeledEntry {
   layoutKey: string;
+  isFolder: boolean;
 }
 
 /** 선택한 색의 항목만 남긴다. 필터가 없으면 그대로(같은 배열). */
@@ -19,7 +20,10 @@ export function filterEntriesByLabel<T extends LabeledEntry>(
   return entries.filter((entry) => colors[entry.layoutKey] === filter);
 }
 
-/** 이 목록에서 쓰이는 라벨 색 — 팔레트 순서로, 지금 고른 색은 비어 있어도 남긴다(해제할 수 있게). */
+/**
+ * 칩으로 보일 라벨 색 — 이 목록의 파일 라벨 색만 팔레트 순서로(색 입힌 하위 폴더만 있으면 빈 목록이라
+ * 칩 줄이 생기지 않는다 — #14 폴더 색 사용자의 창 모양 그대로). 지금 고른 색은 비어도 남긴다(해제용).
+ */
 export function labelColorsInUse(
   entries: readonly LabeledEntry[],
   colors: Readonly<Record<string, FolderColorId>>,
@@ -27,7 +31,7 @@ export function labelColorsInUse(
 ): FolderColorId[] {
   const used = new Set<FolderColorId>();
   for (const entry of entries) {
-    const color = colors[entry.layoutKey];
+    const color = entry.isFolder ? undefined : colors[entry.layoutKey];
     if (color) used.add(color);
   }
   if (active) used.add(active);

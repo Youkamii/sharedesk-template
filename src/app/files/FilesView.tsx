@@ -99,18 +99,24 @@ import {
 import { useAutoDismissNotice } from "@/lib/client/use-auto-dismiss-notice";
 import {
   badgeFolders,
+  clearNewBadgeStores,
   countNewEntries,
+  entryTime,
   folderSeenAt,
   foldersDueForCount,
   isNewEntry,
   markFolderSeen,
   newBadgeStorageKey,
   newBadgeText,
-  readNewBadgeState,
+  observeList,
+  openNewBadgeStore,
+  ownUploadIndex,
+  pruneBadgeCache,
   rememberOwnUpload,
   ROOT_SEEN_DELAY_MS,
-  writeNewBadgeState,
+  settleOwnUploads,
   type NewBadgeState,
+  type NewBadgeStore,
 } from "@/lib/client/new-badges";
 import { createApiJson } from "@/lib/client/api-json";
 import { errorMessage, isAbortError } from "@/lib/client/errors";
@@ -353,6 +359,11 @@ type DeskWindow = {
   minimized: boolean;
   maximized: boolean;
   sidePreviewLayoutKey: string | null;
+  // 라벨 필터(#16 C-7) — 이 창·이 폴더에서만. 폴더를 옮기면(같은 폴더로 돌아와도) 비운다.
+  labelFilter: FolderColorId | null;
+  // NEW 점의 기준(#16 C-2) — 이 창이 지금 폴더의 목록을 처음 받은 순간의 확인 기준.
+  // 아직 목록을 못 받았으면 null(폴더를 옮기면 다시 null).
+  newBaseline: { at: number | null } | null;
   restoreRect?: { x: number; y: number; width: number; height: number };
   data: FolderData;
 };
@@ -568,14 +579,6 @@ function useViewport() {
   return { width, height };
 }
 
-// 저장소 접근 자체가 막힌 브라우저(사생활 보호 모드 등)에서는 null — 그 탭에서만 기억한다.
-function browserStorage(): Storage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function clamp(value: number, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
@@ -702,6 +705,9 @@ function searchContextMenuHeight(entry: Entry, allowEdit: boolean) {
   return (canOpenPreviewInNewTab(entry) ? 183 : 148) + shareHeight;
 }
 
+// 우클릭 메뉴의 색 스와치 줄(폴더 색 #14·파일 라벨 색 #16 C-7) — .colorSwatchRow 위아래 6px + 16px 칸.
+const COLOR_SWATCH_ROW_HEIGHT = 28;
+
 function itemContextMenuHeight(
   entry: Entry,
   isAdmin: boolean,
@@ -709,6 +715,8 @@ function itemContextMenuHeight(
   allowEdit: boolean,
   // 다중 선택 일괄 다운로드 줄이 붙으면 그만큼 메뉴가 길어진다.
   batchDownload = 0,
+  // 색 스와치 줄은 올릴 수 있는 역할(upload)이면 파일·폴더 모두에 붙는다.
+  colorRow = false,
 ) {
   // 편집 권한이 없으면 열기·새 탭·다운로드만 남는다 (구분선·편집 그룹 제거).
   const fullHeight = allowEdit
@@ -716,7 +724,10 @@ function itemContextMenuHeight(
     : 125;
   // 빠른 1시간 공유와 링크 관리 두 줄은 파일·폴더 모두에 붙는다.
   const shareLinkHeight = allowEdit ? 70 : 0;
-  const batchHeight = (batchDownload > 1 ? 35 : 0) + shareLinkHeight;
+  const batchHeight =
+    (batchDownload > 1 ? 35 : 0) +
+    shareLinkHeight +
+    (colorRow ? COLOR_SWATCH_ROW_HEIGHT : 0);
   if (!previewKindOf(entry)) return fullHeight - 70 + batchHeight;
   return (
     (canOpenPreviewInNewTab(entry) ? fullHeight : fullHeight - 35) + batchHeight
@@ -958,45 +969,36 @@ export default function FilesView({
   const sidebarRef = useRef<HTMLElement | null>(null);
   const sidebarHandleRef = useRef<HTMLButtonElement | null>(null);
 
-  // 안 본 새 파일 NEW 배지(#16 C-2) — 확인 시각은 이 브라우저 localStorage에만 둔다
-  // (src/lib/client/new-badges.ts). 점의 기준은 바탕화면은 데스크를 띄운 순간,
-  // 폴더 창은 그 폴더를 연 순간의 "이전" 확인 시각이라 새로 온 것이 보인다.
-  const newBadgeKeyRef = useRef<string | null>(null);
-  const newBadgesRef = useRef<NewBadgeState | null>(null);
+  // 안 본 새 파일 NEW 배지(#16 C-2) — 규칙과 시각은 src/lib/client/new-badges.ts(서버 시각만
+  // 쓴다). 기록은 이 브라우저 localStorage에만. 화면의 점은 그 자리를 처음 연 순간의 기준으로
+  // 그리고(창마다의 기준은 DeskWindow.newBaseline), 저장값은 목록을 받을 때마다 오른다.
+  const newBadgeStoreRef = useRef<NewBadgeStore | null>(null);
   const [newBadges, setNewBadges] = useState<NewBadgeState | null>(null);
-  const [rootNewBaseline, setRootNewBaseline] = useState<number | null>(null);
-  const [windowNewBaselines, setWindowNewBaselines] = useState<
-    Record<string, { folderId: string; at: number }>
-  >({});
-  const windowNewBaselinesRef = useRef(windowNewBaselines);
-  windowNewBaselinesRef.current = windowNewBaselines;
-  // 폴더 아이콘 배지용 하위 목록 — 폴더 id → 바로 아래 항목과 받은 시각.
+  // 바탕화면 점의 기준 — 이 탭에서 바탕화면 목록을 처음 받은 순간의 확인 기준(탭 동안 고정).
+  const [rootNewBaseline, setRootNewBaseline] = useState<{
+    at: number | null;
+  } | null>(null);
+  const rootNewBaselineRef = useRef(rootNewBaseline);
+  rootNewBaselineRef.current = rootNewBaseline;
+  // 바탕화면에 10초 머물렀는가 — 그 뒤부터 목록을 받을 때마다 루트 확인 기준을 올린다.
+  const [rootDwelled, setRootDwelled] = useState(false);
+  const rootDwelledRef = useRef(rootDwelled);
+  rootDwelledRef.current = rootDwelled;
+  // 폴더 아이콘 배지용 하위 목록 — 폴더 id → 바로 아래 항목과 센 회차의 시각(주기 계산용).
   const [badgeChildren, setBadgeChildren] = useState<
     Record<string, { entries: Entry[]; fetchedAt: number }>
   >({});
   const badgeChildrenRef = useRef(badgeChildren);
   badgeChildrenRef.current = badgeChildren;
-  const rootListedAtRef = useRef<number | null>(null);
+  // 30초 목록 확인이 배지 세기를 함께 부른다(아래에서 채운다).
+  const refreshFolderBadgesRef = useRef<() => Promise<void>>(async () => {});
   const newBadgesReady = newBadges !== null;
-  const ownUploadIds = useMemo(
-    () => new Set(newBadges?.own ?? []),
-    [newBadges],
-  );
+  const ownUploads = useMemo(() => ownUploadIndex(newBadges), [newBadges]);
 
-  // 다른 탭이 그사이 쓴 값과 섞이도록 저장소에서 다시 읽은 위에 바꾼다.
   const updateNewBadges = useCallback(
     (change: (state: NewBadgeState) => NewBadgeState) => {
-      const key = newBadgeKeyRef.current;
-      const current = newBadgesRef.current;
-      if (!key || !current) return;
-      const storage = browserStorage();
-      const base = storage
-        ? readNewBadgeState(storage, key, current.since)
-        : current;
-      const next = change(base);
-      newBadgesRef.current = next;
-      setNewBadges(next);
-      writeNewBadgeState(storage, key, next);
+      const store = newBadgeStoreRef.current;
+      if (store) setNewBadges(store.update(change));
     },
     [],
   );
@@ -1009,28 +1011,35 @@ export default function FilesView({
     [publicFolderIds],
   );
 
-  // 폴더 창 라벨 필터(#16 C-7) — 창마다 따로, 저장하지 않는 화면 상태. 창이 다른 폴더로
-  // 넘어가면 그 폴더에는 적용하지 않는다(folderId로 묶어 둔다).
-  const [windowLabelFilters, setWindowLabelFilters] = useState<
-    Record<string, { folderId: string; color: FolderColorId }>
-  >({});
-
-  function windowLabelFilter(scopeId: string): FolderColorId | null {
-    const filter = windowLabelFilters[scopeId];
-    return filter && filter.folderId === scopeFolderId(scopeId)
-      ? filter.color
-      : null;
+  // 폴더 창 라벨 필터(#16 C-7) — 창마다 따로인 화면 상태라 DeskWindow.labelFilter에 둔다.
+  // 창을 닫으면 함께 사라지고, 창이 다른 폴더로 가면(같은 폴더로 돌아와도) 비운다.
+  function windowVisibleEntries(item: DeskWindow): Entry[] {
+    return filterEntriesByLabel(
+      item.data.entries,
+      folderColors,
+      item.labelFilter,
+    ) as Entry[];
   }
 
-  function pressLabelFilter(scopeId: string, pressed: FolderColorId | null) {
-    const color = nextLabelFilter(windowLabelFilter(scopeId), pressed);
-    setSelected((current) => (current?.scopeId === scopeId ? null : current));
-    setWindowLabelFilters((current) => {
-      const next = { ...current };
-      if (color === null) delete next[scopeId];
-      else next[scopeId] = { folderId: scopeFolderId(scopeId), color };
-      return next;
-    });
+  function pressLabelFilter(windowId: string, pressed: FolderColorId | null) {
+    setSelected((current) => (current?.scopeId === windowId ? null : current));
+    setDeskWindows((current) =>
+      current.map((item) => {
+        if (item.id !== windowId) return item;
+        const labelFilter = nextLabelFilter(item.labelFilter, pressed);
+        // 걸러져 숨는 항목을 옆에서 미리 보던 중이면 미리보기를 닫는다.
+        const keepPreview =
+          item.sidePreviewLayoutKey !== null &&
+          filterEntriesByLabel(item.data.entries, folderColors, labelFilter).some(
+            (entry) => entry.layoutKey === item.sidePreviewLayoutKey,
+          );
+        return {
+          ...item,
+          labelFilter,
+          sidePreviewLayoutKey: keepPreview ? item.sidePreviewLayoutKey : null,
+        };
+      }),
+    );
   }
 
   // 폴더 색(#14)과 파일 라벨 색(#16 C-7)은 같은 저장소·같은 권한(upload)을 쓴다.
@@ -1504,6 +1513,8 @@ export default function FilesView({
           void loadDeskWindow(item.id, folderId, true);
         }
       }
+      // 폴더 아이콘의 NEW 배지(#16 C-2)도 이 확인에 얹어 센다(폴더마다 2분에 한 번).
+      void refreshFolderBadgesRef.current();
     }, LIST_POLL_MS);
     return () => {
       window.clearTimeout(initial);
@@ -1763,129 +1774,203 @@ export default function FilesView({
     }
   }, []);
 
-  // NEW 배지(#16 C-2): 이 데스크(원점·스페이스·사용자)의 확인 기록을 읽는다. 처음 온
-  // 브라우저면 지금이 since가 되어 기존 파일은 NEW가 아니다.
+  // NEW 배지(#16 C-2): 이 데스크(원점·스페이스·사용자)의 확인 기록을 연다.
   useEffect(() => {
-    const key = newBadgeStorageKey(
-      window.location.origin,
-      spaceSlugFromPathname(window.location.pathname),
-      userEmail,
+    const store = openNewBadgeStore(
+      newBadgeStorageKey(
+        window.location.origin,
+        spaceSlugFromPathname(window.location.pathname),
+        userEmail,
+      ),
     );
-    newBadgeKeyRef.current = key;
-    const storage = browserStorage();
-    const state = readNewBadgeState(storage, key, Date.now());
-    writeNewBadgeState(storage, key, state);
-    newBadgesRef.current = state;
-    setNewBadges(state);
-    setRootNewBaseline(folderSeenAt(state, ROOT_ID));
+    newBadgeStoreRef.current = store;
+    setNewBadges(store.read());
   }, [userEmail]);
 
-  // 바탕화면은 데스크를 띄우기만 해도 열리므로, 첫 목록이 뜬 뒤 10초 머물러야 "본 것"이다.
-  // 저장하는 시각은 그 목록이 뜬 순간 — 그 뒤에 온 파일은 다음 방문에도 NEW로 남는다.
-  const rootListedForBadges =
-    newBadgesReady && !rootData.loading && !rootData.error;
-  useEffect(() => {
-    if (!rootListedForBadges || rootListedAtRef.current !== null) return;
-    const listedAt = Date.now();
-    rootListedAtRef.current = listedAt;
-    let fired = false;
-    const timer = window.setTimeout(() => {
-      fired = true;
-      updateNewBadges((state) => markFolderSeen(state, ROOT_ID, listedAt));
-    }, ROOT_SEEN_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-      if (!fired) rootListedAtRef.current = null;
-    };
-  }, [rootListedForBadges, updateNewBadges]);
-
-  // 폴더 창은 목록이 처음 뜬 순간이 확인 시각이다. 창 안의 점은 그 직전 기준으로 계속 그리고,
-  // 바깥 폴더 아이콘의 배지는 새 확인 시각으로 다시 세어 사라진다.
-  useEffect(() => {
-    const state = newBadgesRef.current;
-    if (!newBadgesReady || !state) return;
-    const opened: Record<string, { folderId: string; at: number }> = {};
-    for (const item of deskWindows) {
+  // 받은 목록을 기록에 비추고 확인 기준을 올린다(서버 시각 — 목록의 최대 modifiedAt).
+  // 화면의 점 기준(바탕화면·창마다)은 처음 받은 목록에서 한 번 정한다. 저장값은 탭이 보이는
+  // 동안 목록을 받을 때마다(30초 목록 확인 포함) 올린다 — 바탕화면은 10초 머문 뒤부터,
+  // 폴더 창은 목록이 뜬 순간부터(최소화된 창은 빼고). 하루 종일 띄워 둬도 다음 날 전부 NEW가 아니다.
+  const syncNewBadges = useCallback(() => {
+    const store = newBadgeStoreRef.current;
+    if (!store) return;
+    const root = rootDataRef.current;
+    const rootReady = !root.loading && !root.error;
+    const windows = windowsRef.current.flatMap((item) => {
       const folderId = item.path.at(-1)?.id;
-      if (!folderId || item.data.loading || item.data.error) continue;
-      if (windowNewBaselinesRef.current[item.id]?.folderId === folderId) continue;
-      opened[item.id] = { folderId, at: folderSeenAt(state, folderId) };
-    }
-    const openedWindows = Object.entries(opened);
-    if (openedWindows.length === 0) return;
-    const now = Date.now();
-    setWindowNewBaselines((current) => ({ ...current, ...opened }));
-    updateNewBadges((current) =>
-      openedWindows.reduce(
-        (next, [, { folderId }]) => markFolderSeen(next, folderId, now),
-        current,
+      return folderId && !item.data.loading && !item.data.error
+        ? [{ item, folderId }]
+        : [];
+    });
+    if (!rootReady && windows.length === 0) return;
+    // 1) 처음이면 since를 정하고, 시각을 모르던 내 업로드를 채운다.
+    const observed = store.update((state) =>
+      windows.reduce(
+        (next, { item }) => observeList(next, item.data.entries),
+        rootReady ? observeList(state, root.entries) : state,
       ),
     );
-  }, [deskWindows, newBadgesReady, updateNewBadges]);
+    // 2) 화면의 점 기준 — 바탕화면은 탭에서 한 번, 창은 폴더를 열 때마다 한 번.
+    if (rootReady && rootNewBaselineRef.current === null) {
+      const baseline = { at: folderSeenAt(observed, ROOT_ID) };
+      rootNewBaselineRef.current = baseline;
+      setRootNewBaseline(baseline);
+    }
+    const fresh = new Map(
+      windows
+        .filter(({ item }) => item.newBaseline === null)
+        .map(({ item, folderId }) => [
+          item.id,
+          { folderId, at: folderSeenAt(observed, folderId) },
+        ]),
+    );
+    if (fresh.size > 0) {
+      setDeskWindows((current) =>
+        current.map((item) => {
+          const baseline = fresh.get(item.id);
+          return baseline &&
+            item.newBaseline === null &&
+            item.path.at(-1)?.id === baseline.folderId
+            ? { ...item, newBaseline: { at: baseline.at } }
+            : item;
+        }),
+      );
+    }
+    // 3) 저장값 올리기 — 탭이 보이는 동안만.
+    const next =
+      document.visibilityState !== "visible"
+        ? observed
+        : store.update((state) =>
+            windows.reduce(
+              (marked, { item, folderId }) =>
+                item.minimized
+                  ? marked
+                  : markFolderSeen(marked, folderId, item.data.entries),
+              rootReady && rootDwelledRef.current
+                ? markFolderSeen(state, ROOT_ID, root.entries)
+                : state,
+            ),
+          );
+    setNewBadges(next);
+  }, []);
 
-  // 폴더 아이콘 배지는 그 폴더의 바로 아래 목록으로 센다. 보이는 폴더(바탕화면 → 열린 창
-  // 순서) 중 앞의 몇 개만, 배치 저장이 없는 가벼운 목록(layout=0)으로 2분마다 다시 받는다.
-  const badgeFolderKey = badgeFolders([
-    ...rootData.entries.filter((entry) => entry.isFolder).map((entry) => entry.id),
-    ...deskWindows
-      .filter((item) => !item.minimized)
-      .flatMap((item) =>
-        item.data.entries
-          .filter((entry) => entry.isFolder)
-          .map((entry) => entry.id),
-      ),
-  ]).join("\n");
   useEffect(() => {
-    if (!newBadgesReady || !badgeFolderKey) return;
-    const folderIds = badgeFolderKey.split("\n");
+    if (newBadgesReady) syncNewBadges();
+  }, [newBadgesReady, rootData, deskWindows, rootDwelled, syncNewBadges]);
+
+  // 숨었던 탭이 다시 보이면 그때 보이는 목록으로 기준을 올린다.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") syncNewBadges();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [syncNewBadges]);
+
+  // 바탕화면은 데스크를 띄우기만 해도 열리므로 첫 목록이 뜬 뒤 10초 머물러야 "본 것"이다.
+  const rootBaselineReady = rootNewBaseline !== null;
+  useEffect(() => {
+    if (!rootBaselineReady) return;
+    const timer = window.setTimeout(
+      () => setRootDwelled(true),
+      ROOT_SEEN_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [rootBaselineReady]);
+
+  // 폴더 아이콘 배지 — 보이는 폴더(바탕화면 → 열린 창 순서) 중 창으로 열려 있지 않은 앞의
+  // 몇 개를, 배치를 건드리지 않는 가벼운 목록(layout=0)으로 센다. 30초 목록 확인에 얹혀
+  // 돌고(폴더마다 2분에 한 번), 대상이 바뀌면(처음 열 때·새 폴더) 그 자리에서 한 번 돈다.
+  // 대상에서 빠진 폴더(사라졌거나 창으로 열린 폴더)의 캐시는 버린다.
+  const badgeTargets = useMemo(() => {
+    const openFolders = new Set(
+      deskWindows.flatMap((item) => {
+        const folderId = item.path.at(-1)?.id;
+        return folderId && !item.data.loading && !item.data.error
+          ? [folderId]
+          : [];
+      }),
+    );
+    return badgeFolders(
+      [
+        ...rootData.entries,
+        ...deskWindows
+          .filter((item) => !item.minimized)
+          .flatMap((item) => item.data.entries),
+      ]
+        .filter((entry) => entry.isFolder)
+        .map((entry) => entry.id),
+      openFolders,
+    );
+  }, [rootData.entries, deskWindows]);
+  const badgeTargetsRef = useRef(badgeTargets);
+  badgeTargetsRef.current = badgeTargets;
+  const badgeRoundRunningRef = useRef(false);
+  const badgeAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
     const controller = new AbortController();
-    let running = false;
-    const round = async () => {
-      if (running || document.visibilityState !== "visible") return;
-      running = true;
-      try {
-        const fetchedAt = Object.fromEntries(
-          Object.entries(badgeChildrenRef.current).map(([folderId, value]) => [
-            folderId,
-            value.fetchedAt,
-          ]),
-        );
-        for (const folderId of foldersDueForCount(folderIds, fetchedAt, Date.now())) {
-          if (controller.signal.aborted) return;
-          let entries: Entry[] = [];
-          try {
-            const response = await fetch(
-              apiPath(
-                `/api/drive/list?folderId=${encodeURIComponent(folderId)}&layout=0`,
-              ),
-              { cache: "no-store", signal: controller.signal },
-            );
-            const body = response.ok
-              ? ((await response.json().catch(() => null)) as {
-                  entries?: unknown;
-                } | null)
-              : null;
-            if (Array.isArray(body?.entries)) entries = body.entries as Entry[];
-          } catch (error) {
-            if (isAbortError(error)) return;
-          }
-          // 실패해도 받은 시각은 남긴다 — 안 되는 폴더를 매 회차 두드리지 않게.
-          setBadgeChildren((current) => ({
-            ...current,
-            [folderId]: { entries, fetchedAt: Date.now() },
-          }));
+    badgeAbortRef.current = controller;
+    return () => controller.abort();
+  }, []);
+
+  const refreshFolderBadges = useCallback(async () => {
+    const targets = badgeTargetsRef.current;
+    setBadgeChildren((current) => pruneBadgeCache(current, targets));
+    const controller = badgeAbortRef.current;
+    if (
+      !controller ||
+      controller.signal.aborted ||
+      badgeRoundRunningRef.current ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+    badgeRoundRunningRef.current = true;
+    const roundAt = Date.now();
+    try {
+      const fetchedAt = Object.fromEntries(
+        Object.entries(badgeChildrenRef.current).map(([folderId, value]) => [
+          folderId,
+          value.fetchedAt,
+        ]),
+      );
+      for (const folderId of foldersDueForCount(targets, fetchedAt, roundAt)) {
+        if (controller.signal.aborted) return;
+        let entries: Entry[] = [];
+        try {
+          const response = await fetch(
+            apiPath(
+              `/api/drive/list?folderId=${encodeURIComponent(folderId)}&layout=0`,
+            ),
+            { cache: "no-store", signal: controller.signal },
+          );
+          const body = response.ok
+            ? ((await response.json().catch(() => null)) as {
+                entries?: unknown;
+              } | null)
+            : null;
+          if (Array.isArray(body?.entries)) entries = body.entries as Entry[];
+        } catch (error) {
+          if (isAbortError(error)) return;
         }
-      } finally {
-        running = false;
+        // 실패해도 이번 회차에 센 것으로 친다 — 안 되는 폴더를 매번 두드리지 않게.
+        setBadgeChildren((current) => ({
+          ...current,
+          [folderId]: { entries, fetchedAt: roundAt },
+        }));
+        updateNewBadges((state) => settleOwnUploads(state, entries));
       }
-    };
-    void round();
-    const timer = window.setInterval(() => void round(), 15_000);
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
-  }, [badgeFolderKey, newBadgesReady]);
+    } finally {
+      badgeRoundRunningRef.current = false;
+    }
+  }, [updateNewBadges]);
+  refreshFolderBadgesRef.current = refreshFolderBadges;
+
+  useEffect(() => {
+    if (newBadgesReady) void refreshFolderBadges();
+  }, [badgeTargets, newBadgesReady, refreshFolderBadges]);
 
   useEffect(() => {
     return () => {
@@ -2067,6 +2152,7 @@ export default function FilesView({
               hasParent,
               allowEdit,
               current.batchDownload ?? 0,
+              allowUpload,
             )
           : desktopContextMenuHeight(allowUpload, allowEdit);
       return {
@@ -2577,6 +2663,7 @@ export default function FilesView({
       Boolean(scopeParentFolderId(scopeId)),
       allowEdit,
       batchDownload,
+      allowUpload,
     );
   }
 
@@ -3151,6 +3238,8 @@ export default function FilesView({
       minimized: false,
       maximized: false,
       sidePreviewLayoutKey: null,
+      labelFilter: null,
+      newBaseline: null,
       data: blankFolder(),
     };
     setDeskWindows((current) => [...current, next]);
@@ -3190,6 +3279,8 @@ export default function FilesView({
                 ...item,
                 path: nextPath,
                 sidePreviewLayoutKey: null,
+                labelFilter: null,
+                newBaseline: null,
                 data: blankFolder(),
               }
             : item,
@@ -3759,8 +3850,8 @@ export default function FilesView({
           content: textSnapshot,
         }),
       });
-      // 내가 고친 파일도 내 손을 탄 것이라 NEW가 아니다(#16 C-2).
-      markOwnUpload(result.entry.id);
+      // 내가 고친 버전도 NEW가 아니다(#16 C-2) — 그 뒤 누가 다시 고치면 다시 NEW.
+      markOwnUpload(result.entry.id, entryTime(result.entry));
       if (previewInstanceRef.current !== preview.instanceId) return;
       const layoutTargets = entryLayoutTargets(preview.entry);
       const preferredScopeId =
@@ -4161,13 +4252,15 @@ export default function FilesView({
     entry: Entry,
     direction: -1 | 1,
   ) {
+    // 라벨 필터(#16 C-7)로 숨은 이미지는 건너뛴다 — 보이는 것끼리만 넘긴다.
+    const visibleEntries = windowVisibleEntries(item);
     const nextLayoutKey = adjacentFolderImagePreviewKey(
-      item.data.entries,
+      visibleEntries,
       entry.layoutKey,
       direction,
     );
     if (!nextLayoutKey) return;
-    const nextEntry = item.data.entries.find(
+    const nextEntry = visibleEntries.find(
       (candidate) => candidate.layoutKey === nextLayoutKey,
     );
     if (!nextEntry) return;
@@ -4264,6 +4357,8 @@ export default function FilesView({
               ...value,
               path: nextPath,
               sidePreviewLayoutKey: null,
+              labelFilter: null,
+              newBaseline: null,
               data: blankFolder(),
             }
           : value,
@@ -4322,6 +4417,8 @@ export default function FilesView({
                 ...value,
                 path: nextPath,
                 sidePreviewLayoutKey: null,
+                labelFilter: null,
+                newBaseline: null,
                 data: blankFolder(),
               }
             : value,
@@ -6831,7 +6928,7 @@ export default function FilesView({
         }));
         return;
       }
-      markOwnUpload(await flow.resume(record, file, updateTransfer));
+      markOwnUpload(await flow.resume(record, file, updateTransfer), null);
       // 전송하는 동안 창이 닫혔을 수도 있으므로 현재 창 목록을 확인한다.
       const folderWindow = windowsRef.current.find((item) => item.path.at(-1)?.id === record.parentId);
       if (folderWindow) {
@@ -6847,9 +6944,10 @@ export default function FilesView({
     }
   }
 
-  // 내가 이 브라우저에서 올린 파일은 NEW 배지에서 뺀다(#16 C-2) — 목록에 올린 사람이 없어서다.
-  function markOwnUpload(id: string | null) {
-    if (id) updateNewBadges((state) => rememberOwnUpload(state, id));
+  // 내가 이 브라우저에서 올린 버전은 NEW 배지에서 뺀다(#16 C-2) — 목록에 올린 사람이 없어서다.
+  // at은 그 버전의 modifiedAt(서버 시각). 모르면 null — 목록에서 처음 볼 때 채운다.
+  function markOwnUpload(id: string | null, at: number | null) {
+    if (id) updateNewBadges((state) => rememberOwnUpload(state, id, at));
   }
 
   async function uploadOne(file: File, folderId: string) {
@@ -6887,7 +6985,7 @@ export default function FilesView({
           file,
         });
         const uploadedId = await flow.uploadDirect(record, file, updateTransfer, { persist: true });
-        markOwnUpload(uploadedId);
+        markOwnUpload(uploadedId, null);
         return uploadedId;
       }
       const reservationQuery = session.reservationId
@@ -6912,7 +7010,7 @@ export default function FilesView({
         throw new Error(body?.error ?? t("업로드에 실패했습니다"));
       }
       const uploadedId = body?.entry?.id ?? null;
-      markOwnUpload(uploadedId);
+      markOwnUpload(uploadedId, entryTime(body?.entry));
       return uploadedId;
     } finally {
       reportTransferProgress(null, transferId);
@@ -7387,6 +7485,8 @@ export default function FilesView({
       cache: "no-store",
       keepalive: true,
     }).catch(() => undefined);
+    // 이 브라우저에 남긴 NEW 배지 기록(#16 C-2 — 키에 이메일이 들어 있다)을 지운다.
+    clearNewBadgeStores();
     await fetch(apiPath("/api/auth"), { method: "DELETE" });
     router.replace("/");
     router.refresh();
@@ -7415,22 +7515,17 @@ export default function FilesView({
     const dimensions = isRoot ? null : planeDimensions(scopeId, data.entries);
     // 라벨 필터(#16 C-7) — 폴더 창에서만. 숨긴 항목은 자리(저장된 위치)를 비워 둘 뿐
     // 옮기지 않고, 끌어 고르기·키보드 이동·범위 선택에도 걸리지 않는다.
-    const labelFilter = isRoot ? null : windowLabelFilter(scopeId);
-    const visibleEntries = filterEntriesByLabel(
-      data.entries,
-      folderColors,
-      labelFilter,
-    ) as Entry[];
-    const visibleKeys = labelFilter
+    const scopeItem = isRoot ? null : scopeWindow(scopeId);
+    const visibleEntries = scopeItem
+      ? windowVisibleEntries(scopeItem)
+      : data.entries;
+    const visibleKeys = scopeItem?.labelFilter
       ? new Set(visibleEntries.map((entry) => entry.layoutKey))
       : null;
-    // NEW 점의 기준(#16 C-2) — 이 창이 지금 폴더를 연 순간의 이전 확인 시각.
-    const windowBaseline = windowNewBaselines[scopeId];
+    // NEW 점의 기준(#16 C-2) — 바탕화면은 탭에서 처음, 창은 이 폴더를 처음 받은 순간의 기준.
     const newBaseline = isRoot
-      ? rootNewBaseline
-      : windowBaseline && windowBaseline.folderId === scopeFolderId(scopeId)
-        ? windowBaseline.at
-        : null;
+      ? (rootNewBaseline?.at ?? null)
+      : (scopeItem?.newBaseline?.at ?? null);
 
     return (
       <div
@@ -7511,13 +7606,13 @@ export default function FilesView({
             left: position.x,
             top: position.y,
           } as CSSProperties;
-          const isNew = isNewEntry(entry, newBaseline, ownUploadIds);
+          const isNew = isNewEntry(entry, newBaseline, ownUploads);
           const newCount =
             entry.isFolder && newBadges
               ? countNewEntries(
                   badgeChildEntries(entry.id),
                   folderSeenAt(newBadges, entry.id),
-                  ownUploadIds,
+                  ownUploads,
                 )
               : 0;
           const newCountText = newBadgeText(newCount);
@@ -7662,7 +7757,7 @@ export default function FilesView({
                   {fileLabel && (
                     <span
                       className={styles.colorLabel}
-                      data-label={fileLabel}
+                      data-color={fileLabel}
                       aria-hidden="true"
                     />
                   )}
@@ -8037,19 +8132,17 @@ export default function FilesView({
           busy: false,
           error: null,
         };
-        const sidePreviewEntries = folderImagePreviewEntries(item.data.entries);
-        // 라벨 필터 칩(#16 C-7) — 이 폴더에서 쓰이는 색만, 고른 색은 비어도 남긴다.
-        const labelFilter = windowLabelFilter(item.id);
+        // 라벨 필터(#16 C-7) — 보이는 항목만 세고 옆 미리보기도 그 안에서 넘긴다. 칩은 이 폴더의
+        // 파일 라벨 색만(색 입힌 하위 폴더만 있으면 줄이 생기지 않는다), 고른 색은 비어도 남긴다.
+        const labelFilter = item.labelFilter;
+        const visibleEntries = windowVisibleEntries(item);
         const labelColors = labelColorsInUse(
           item.data.entries,
           folderColors,
           labelFilter,
         );
-        const shownCount = filterEntriesByLabel(
-          item.data.entries,
-          folderColors,
-          labelFilter,
-        ).length;
+        const shownCount = visibleEntries.length;
+        const sidePreviewEntries = folderImagePreviewEntries(visibleEntries);
         const sidePreviewEntry = item.sidePreviewLayoutKey
           ? sidePreviewEntries.find(
               (entry) => entry.layoutKey === item.sidePreviewLayoutKey,
@@ -8254,7 +8347,7 @@ export default function FilesView({
                   >
                     <span
                       className={styles.labelChipSwatch}
-                      data-label={color}
+                      data-color={color}
                       aria-hidden="true"
                     />
                     {t(FOLDER_COLOR_LABELS[color])}

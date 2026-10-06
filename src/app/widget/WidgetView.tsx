@@ -19,11 +19,14 @@ import {
   isNewEntry,
   markFolderSeen,
   newBadgeStorageKey,
-  readNewBadgeState,
+  observeList,
+  openNewBadgeStore,
+  ownUploadIndex,
   rememberOwnUpload,
   ROOT_SEEN_DELAY_MS,
-  writeNewBadgeState,
   type NewBadgeState,
+  type NewBadgeStore,
+  type OwnUploadIndex,
 } from "@/lib/client/new-badges";
 import { downloadFileName } from "@/lib/client/file-activation";
 import {
@@ -233,68 +236,76 @@ export default function WidgetView({
   }, [folderId]);
 
   // ── 안 본 새 파일 NEW 점(#16 C-2) ─────────────────────────────────────
-  // 데스크 화면과 같은 규칙(src/lib/client/new-badges.ts): 폴더를 열어 목록이 뜬 순간이 확인
-  // 시각이고, 바탕화면(루트)은 10초 머물러야 본 것으로 친다. 서랍은 파일 점만 그린다(폴더 배지 없음).
-  // 위젯 창의 저장소는 브라우저와 따로라 기록도 따로다.
-  const newBadgeKeyRef = useRef<string | null>(null);
-  const newBadgesRef = useRef<NewBadgeState | null>(null);
-  const [ownUploadIds, setOwnUploadIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [newBaseline, setNewBaseline] = useState<{ folderId: string; at: number } | null>(null);
+  // 데스크 화면과 같은 규칙(src/lib/client/new-badges.ts — 서버 시각만 쓴다): 지금 폴더의 목록을
+  // 받을 때마다 기록에 비추고, 창이 보이는 동안 확인 기준을 그 목록의 도장까지 올린다(바탕화면은
+  // 10초 머문 뒤부터). 점은 그 폴더에 들어온 순간의 기준으로 그린다. 서랍은 파일 점만(폴더 배지
+  // 없음). 위젯 창의 저장소는 브라우저와 따로라 기록도 따로다.
+  const newBadgeStoreRef = useRef<NewBadgeStore | null>(null);
+  const lastNewBadgesRef = useRef<NewBadgeState | null>(null);
+  const [ownUploads, setOwnUploads] = useState<OwnUploadIndex>(() => new Map());
+  const [newBaseline, setNewBaseline] = useState<{
+    folderId: string;
+    at: number | null;
+  } | null>(null);
+  const newBaselineRef = useRef(newBaseline);
+  // 바탕화면에 10초 머물렀는가 — 그 뒤부터 목록을 받을 때마다 루트 확인 기준을 올린다.
+  const rootDwelledRef = useRef(false);
+  const rootDwellTimerRef = useRef<number | null>(null);
   const updateNewBadges = useCallback((change: (state: NewBadgeState) => NewBadgeState) => {
-    const key = newBadgeKeyRef.current;
-    const current = newBadgesRef.current;
-    if (!key || !current) return;
-    let storage: Storage | null = null;
-    try {
-      storage = window.localStorage;
-    } catch {
-      storage = null;
+    const store = newBadgeStoreRef.current;
+    if (!store) return null;
+    const next = store.update(change);
+    if (next !== lastNewBadgesRef.current) {
+      lastNewBadgesRef.current = next;
+      setOwnUploads(ownUploadIndex(next));
     }
-    const next = change(storage ? readNewBadgeState(storage, key, current.since) : current);
-    newBadgesRef.current = next;
-    setOwnUploadIds(new Set(next.own));
-    writeNewBadgeState(storage, key, next);
+    return next;
   }, []);
   useEffect(() => {
-    const key = newBadgeStorageKey(
-      window.location.origin,
-      spaceSlugFromPathname(window.location.pathname),
-      userEmail,
+    newBadgeStoreRef.current = openNewBadgeStore(
+      newBadgeStorageKey(
+        window.location.origin,
+        spaceSlugFromPathname(window.location.pathname),
+        userEmail,
+      ),
     );
-    newBadgeKeyRef.current = key;
-    let storage: Storage | null = null;
-    try {
-      storage = window.localStorage;
-    } catch {
-      storage = null;
-    }
-    const state = readNewBadgeState(storage, key, Date.now());
-    writeNewBadgeState(storage, key, state);
-    newBadgesRef.current = state;
   }, [userEmail]);
-  // 목록이 이 폴더 것으로 처음 뜬 순간 — 점의 기준(이전 확인 시각)을 잡고, 폴더면 바로 확인 시각을 남긴다.
-  // 점은 목록이 뜬 뒤에만 그리므로 내 업로드 목록도 여기서 저장소 값으로 맞춘다.
-  useEffect(() => {
-    const state = newBadgesRef.current;
-    if (!state || entries === null || newBaseline?.folderId === folderId) return;
-    setOwnUploadIds(new Set(state.own));
-    setNewBaseline({ folderId, at: folderSeenAt(state, folderId) });
-    if (folderId !== ROOT_ID) {
-      const listedAt = Date.now();
-      updateNewBadges((current) => markFolderSeen(current, folderId, listedAt));
-    }
-  }, [entries, folderId, newBaseline, updateNewBadges]);
-  // 루트는 목록이 뜬 뒤 10초 머물렀을 때 그 순간을 확인 시각으로 남긴다. 그 전에 떠나면 남기지 않는다.
-  const rootListedForBadges = newBaseline?.folderId === ROOT_ID && isRoot;
-  useEffect(() => {
-    if (!rootListedForBadges) return;
-    const listedAt = Date.now();
-    const timer = window.setTimeout(
-      () => updateNewBadges((current) => markFolderSeen(current, ROOT_ID, listedAt)),
-      ROOT_SEEN_DELAY_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [rootListedForBadges, updateNewBadges]);
+  useEffect(
+    () => () => {
+      if (rootDwellTimerRef.current !== null) window.clearTimeout(rootDwellTimerRef.current);
+    },
+    [],
+  );
+  // 목록을 받을 때마다(refreshList) 부른다. 이 폴더 목록을 처음 받았으면 점의 기준을 정하고,
+  // 바탕화면이면 10초 머무는지 센다. 창이 보이면 확인 기준을 그 목록의 도장까지 올린다.
+  const noteListedForBadges = useCallback(
+    (listedFolderId: string, listed: Entry[]) => {
+      const observed = updateNewBadges((state) => observeList(state, listed));
+      if (!observed) return;
+      if (newBaselineRef.current?.folderId !== listedFolderId) {
+        const baseline = { folderId: listedFolderId, at: folderSeenAt(observed, listedFolderId) };
+        newBaselineRef.current = baseline;
+        setNewBaseline(baseline);
+        rootDwelledRef.current = false;
+        if (rootDwellTimerRef.current !== null) window.clearTimeout(rootDwellTimerRef.current);
+        rootDwellTimerRef.current = null;
+        if (listedFolderId === ROOT_ID) {
+          rootDwellTimerRef.current = window.setTimeout(() => {
+            rootDwellTimerRef.current = null;
+            if (newBaselineRef.current !== baseline) return;
+            rootDwelledRef.current = true;
+            if (!isWidgetHidden(document, window)) {
+              updateNewBadges((state) => markFolderSeen(state, ROOT_ID, listed));
+            }
+          }, ROOT_SEEN_DELAY_MS);
+        }
+      }
+      if (isWidgetHidden(document, window)) return;
+      if (listedFolderId === ROOT_ID && !rootDwelledRef.current) return;
+      updateNewBadges((state) => markFolderSeen(state, listedFolderId, listed));
+    },
+    [updateNewBadges],
+  );
 
   // ── 공용 요청 ────────────────────────────────────────────────────────
 
@@ -349,13 +360,15 @@ export default function WidgetView({
         { cache: "no-store" },
       );
       if (folderIdRef.current !== requested) return;
-      setEntries(Array.isArray(body.entries) ? body.entries : []);
+      const listed = Array.isArray(body.entries) ? body.entries : [];
+      setEntries(listed);
       setListError(null);
+      noteListedForBadges(requested, listed);
     } catch (error) {
       if (folderIdRef.current !== requested) return;
       setListError(errorMessage(error, t("목록을 불러오지 못했습니다")));
     }
-  }, [apiJson, t]);
+  }, [apiJson, noteListedForBadges, t]);
 
   // 폴더가 바뀌면 refreshFolder가 새 함수가 되어 주기 확인이 즉시 다시 시작된다
   const refreshFolder = useCallback(
@@ -457,7 +470,8 @@ export default function WidgetView({
           },
         });
         // 내가 올린 파일은 NEW가 아니다(#16 C-2)
-        if (uploadedId) updateNewBadges((state) => rememberOwnUpload(state, uploadedId));
+        // 시각은 목록에서 처음 볼 때 채운다(그 뒤 누가 다시 고치면 다시 NEW).
+        if (uploadedId) updateNewBadges((state) => rememberOwnUpload(state, uploadedId, null));
         recordTransferResult("ok", file.size);
       } catch (error) {
         failed.push(`${file.name}: ${errorMessage(error, t("실패"))}`);
@@ -917,7 +931,7 @@ export default function WidgetView({
               const isNew = isNewEntry(
                 entry,
                 newBaseline?.folderId === folderId ? newBaseline.at : null,
-                ownUploadIds,
+                ownUploads,
               );
               return (
                 <button

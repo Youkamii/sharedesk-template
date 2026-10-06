@@ -499,6 +499,13 @@ export async function getLayoutSnapshotForEntries(
   );
 }
 
+// 배치 없이 항목만(#16 C-2 폴더 아이콘의 NEW 배지 세기용). 배치 상태를 읽지도, 처음 배치를
+// 저장하지도 않는다 — 열어 보지 않은 폴더에 배치 파일이 생기지 않게. id 검증은 배치 목록과 같다.
+export async function getFolderEntries(folderId: string): Promise<Entry[]> {
+  assertId(folderId);
+  return getAdapter().list(folderId);
+}
+
 // list와 folderIdentity를 한 흐름에서 읽고 앞뒤 identity를 검증한다. local 경로가
 // 조회 도중 재사용되면 옛 entries를 버리고 전체 목록부터 다시 읽는다.
 export async function getFolderListingWithLayout(
