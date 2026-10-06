@@ -67,7 +67,7 @@ export default function KeyForm({ locale }: { locale: Locale }) {
       <button type="submit" disabled={busy || !key.trim()}>
         {busy ? t("확인 중...") : t("키로 입장")}
       </button>
-      {error && <p>{t(error)}</p>}
+      {error && <p role="alert">{t(error)}</p>}
     </form>
   );
 }

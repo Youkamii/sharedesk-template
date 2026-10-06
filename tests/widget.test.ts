@@ -383,8 +383,9 @@ test("배선: 벽 붙임 — 화면·껍데기·권한이 같은 이름을 쓴�
   assert.match(globals, /html\[data-widget\]\[data-widget-wall\] body\s*\{\s*background:\s*transparent/);
   assert.match(css, /\.widget\[data-wall="right"\]:not\(\[data-wall-expanded\]\)\s*\{\s*transform:\s*translateX\(100%\)/);
   assert.match(css, /\.widget\[data-wall="left"\]:not\(\[data-wall-expanded\]\)\s*\{\s*transform:\s*translateX\(-100%\)/);
-  // 손잡이는 .widget 밖(body)에 있으므로 색 토큰이 html[data-widget]에 있어야 한다
-  assert.match(globals, /html\[data-widget\]\s*\{[^}]*--peach:/);
+  // 손잡이는 .widget 밖(body)에 있으므로 색 토큰이 문서 뿌리(html[data-widget] 또는 :root)에 있어야 한다.
+  // --peach·--ink는 입장 화면 카드(#6)가 웹에서도 읽도록 :root로 올렸다.
+  assert.match(globals, /(?::root|html\[data-widget\])\s*\{[^}]*--peach:/);
   assert.doesNotMatch(css, /\.widget\s*\{[^}]*--peach:/);
 });
 

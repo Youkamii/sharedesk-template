@@ -12,6 +12,10 @@
   --background: #ffffff;
   --foreground: #171717;
   --font-pixel: "Galmuri11";
+  /* Dusk Room 색 토큰 중 웹·위젯 화면이 함께 쓰는 것 — 입장 화면 카드(auth.module.css)가
+     웹(data-widget 없음)에서도 같은 값을 읽는다. 나머지 위젯 토큰은 아래 html[data-widget]. */
+  --ink: #111629;
+  --peach: #f2a56f;
 }
 
 @theme inline {
@@ -48,11 +52,9 @@ html[data-widget] {
   --night: #10172b;
   --panel: #182446;
   --title: #2f4670;
-  --peach: #f2a56f;
   --amber: #ffd27d;
   --cream: #fff4d2;
   --teal: #61b3a6;
-  --ink: #111629;
   --error: #e96872;
   /* 벽 손잡이의 전송 게이지(#31) — 팔레트에 맞춘 픽셀 초록 (--teal은 청록이라 따로 둔다) */
   --leaf: #82cf6a;

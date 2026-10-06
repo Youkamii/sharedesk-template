@@ -83,15 +83,18 @@ test("배선: 입장 화면 네 파일은 공용 도트 모듈을 쓰고 Tailwin
   assert.match(keyForm, /className=\{auth\.keyForm\}/);
   // 자리표시자만으로는 이름이 사라지므로 입력칸에 접근 가능한 이름을 단다.
   assert.match(keyForm, /aria-label=\{t\("접속 키"\)\}/);
+  // 틀린 키 오류는 화면 낭독기가 바로 읽는다.
+  assert.match(keyForm, /<p role="alert">\{t\(error\)\}<\/p>/);
 
   const frame = await read("src/app/widget/WidgetFrame.tsx");
   assert.match(frame, /<main className=\{auth\.authBody\}>/);
 });
 
 test("공용 도트 모듈은 Dusk Room 팔레트·2px 프레임·Galmuri이고 위젯 모듈에서 옮겨 왔다 (#6)", async () => {
-  const [css, widgetCss] = await Promise.all([
+  const [css, widgetCss, globals] = await Promise.all([
     read("src/app/auth.module.css"),
     read("src/app/widget/widget.module.css"),
+    read("src/app/globals.css"),
   ]);
 
   for (const name of [
@@ -119,11 +122,18 @@ test("공용 도트 모듈은 Dusk Room 팔레트·2px 프레임·Galmuri이고 
   const screen = css.slice(css.indexOf(".screen {"), css.indexOf("}", css.indexOf(".screen {")));
   assert.match(screen, /background: #10172b;/, "웹 무대는 미설정 안내와 같은 밤 배경");
   assert.match(screen, /font-family: var\(--font-pixel\)/, "웹 무대 글꼴은 Galmuri11");
-  // 웹에는 html[data-widget]이 없으므로 위젯 전용 색 토큰을 쓰면 색이 빠진다.
-  assert.doesNotMatch(css, /var\(--(?:ink|peach|amber|cream|night|teal)\)/);
-  // 키보드 포커스 링(크림 바탕 위에서 보이는 청록)과 오류 띠의 밝은 글자.
-  assert.match(css, /\.screen :where\(a, button, input\):focus-visible \{\s*outline: 2px solid #2d5c5b;/);
-  assert.match(css, /\.page \.authError \{\s*color: #fff8e7;/);
+  // 카드가 쓰는 색 토큰은 웹(data-widget 없음)에서도 읽히는 :root에 있다.
+  assert.match(css, /var\(--ink\)/);
+  assert.match(css, /var\(--peach\)/);
+  const rootBlock = globals.slice(globals.indexOf(":root {"), globals.indexOf("}", globals.indexOf(":root {")));
+  assert.match(rootBlock, /--ink: #111629;/);
+  assert.match(rootBlock, /--peach: #f2a56f;/);
+  // 키보드 포커스 링 — 위젯 틀(.authBody)과 웹 무대(.screen) 모두, 크림 위에서 보이는 청록.
+  // 위젯의 .widget amber 링(크림 위 1.16:1)보다 구체적이어야 덮는다.
+  assert.match(css, /\.authBody, \.screen\) \.authCard :is\(a, button, input\):focus-visible \{\s*outline: 2px solid #2d5c5b;/);
+  // 오류 띠의 밝은 글자는 위젯·웹 공통(.authCard p보다 구체적으로).
+  assert.match(css, /\.authCard \.authError \{\s*color: #fff8e7;/);
+  assert.doesNotMatch(css, /\.page \.authError/);
 });
 
 test("DESIGN.md 글꼴 문장은 입장 화면의 실제 구현(도트 Galmuri11)을 말한다 (#6)", async () => {

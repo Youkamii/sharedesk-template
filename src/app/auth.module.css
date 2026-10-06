@@ -1,7 +1,6 @@
 /* 로그인·가입·차단 화면의 도트 카드 — 위젯 창(WidgetFrame)과 웹(전체 화면) 입장 화면이 함께 쓴다(#6).
    팔레트와 2px 빛/어둠 프레임 문법은 Dusk Room OS(DESIGN.md, desktop.module.css)를 따른다.
-   위젯 색 토큰(--ink·--peach)은 html[data-widget]에만 있으므로 여기서는 같은 값을 직접 쓴다
-   (--ink #111629, --peach #f2a56f — globals.css). */
+   색 토큰 --ink·--peach는 globals.css의 :root에 있어 웹·위젯 모두에서 읽힌다. */
 
 /* ── 공용 카드(위젯 모양 그대로) ─────────────────────────────────────── */
 
@@ -24,6 +23,13 @@
   background: #f4e7c5;
   border: 2px solid #10172b;
   box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 4px 4px 0 rgb(5 9 20 / 62%);
+}
+
+/* 키보드 포커스 링 — 크림 카드 위에서 보이는 청록. 위젯의 .widget amber 링은 크림 위에서
+   1.16:1이라 보이지 않으므로 그보다 구체적으로 적어 덮는다(위젯 틀 .authBody·웹 무대 .screen). */
+:is(.authBody, .screen) .authCard :is(a, button, input):focus-visible {
+  outline: 2px solid #2d5c5b;
+  outline-offset: 2px;
 }
 
 .authCard h1 {
@@ -59,13 +65,19 @@
   line-height: 1.5;
 }
 
+/* 오류 띠는 p로 그리므로 .authCard p(어두운 글자)보다 구체적으로 적어 밝은 글자가 지게 한다 —
+   빨강 위 4.5:1 이상. 위젯·웹 공통. */
+.authCard .authError {
+  color: #fff8e7;
+}
+
 .authPrimary {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 9px 10px;
-  color: #111629;
-  background: #f2a56f;
+  color: var(--ink);
+  background: var(--peach);
   border: 0;
   box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0;
   text-decoration: none;
@@ -104,7 +116,7 @@
    이 규칙이 그 위를 덮는다(모듈 CSS는 Tailwind 레이어보다 우선한다). */
 .authForm input {
   padding: 8px 9px;
-  color: #111629;
+  color: var(--ink);
   background: #fff8e7;
   border: 0;
   border-radius: 0;
@@ -165,10 +177,6 @@
   font-size: 13px;
 }
 
-.screen :where(a, button, input):focus-visible {
-  outline: 2px solid #2d5c5b;
-  outline-offset: 2px;
-}
 
 .page {
   width: min(400px, 100%);
@@ -200,10 +208,6 @@
   font-size: 11px;
 }
 
-/* 오류 띠는 .authCard p보다 구체적으로 적어 밝은 글자가 지게 한다(빨강 위 4.5:1 이상) */
-.page .authError {
-  color: #fff8e7;
-}
 
 /* 로그인 카드 아래 "새 공유 공간" 안내 — 구분선 위에 제목·설명·보조 단추 */
 .authSection {
