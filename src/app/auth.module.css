@@ -1,0 +1,232 @@
+/* 로그인·가입·차단 화면의 도트 카드 — 위젯 창(WidgetFrame)과 웹(전체 화면) 입장 화면이 함께 쓴다(#6).
+   팔레트와 2px 빛/어둠 프레임 문법은 Dusk Room OS(DESIGN.md, desktop.module.css)를 따른다.
+   위젯 색 토큰(--ink·--peach)은 html[data-widget]에만 있으므로 여기서는 같은 값을 직접 쓴다
+   (--ink #111629, --peach #f2a56f — globals.css). */
+
+/* ── 공용 카드(위젯 모양 그대로) ─────────────────────────────────────── */
+
+/* 위젯 틀(WidgetFrame)의 본문 — 머리띠 아래를 채운다 */
+.authBody {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 12px;
+  overflow: auto;
+}
+
+.authCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 4px 4px 0 rgb(5 9 20 / 62%);
+}
+
+.authCard h1 {
+  margin: 0;
+  color: #2d5c5b;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.authCard p {
+  margin: 0;
+  color: #4a4a5c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.authCard strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.authCard small {
+  color: #74717d;
+  font-size: 10px;
+}
+
+.authError {
+  padding: 6px 8px;
+  color: #fff8e7;
+  background: #a53c46;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.authPrimary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 10px;
+  color: #111629;
+  background: #f2a56f;
+  border: 0;
+  box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.authPrimary:hover {
+  background: #ffb787;
+}
+
+.authDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #74717d;
+  font-size: 10px;
+}
+
+.authDivider::before,
+.authDivider::after {
+  content: "";
+  height: 2px;
+  flex: 1;
+  background: #9c8c78;
+  box-shadow: 0 1px 0 #fff8e7;
+}
+
+/* 접속 키 폼(KeyForm)의 줄 배치 */
+.keyForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 입력·단추는 픽셀 프레임으로 그린다. JoinCodeForm은 아직 Tailwind 클래스를 갖고 있어
+   이 규칙이 그 위를 덮는다(모듈 CSS는 Tailwind 레이어보다 우선한다). */
+.authForm input {
+  padding: 8px 9px;
+  color: #111629;
+  background: #fff8e7;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+  user-select: text;
+}
+
+.authForm button {
+  padding: 8px 9px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0 #1b3a39, inset 2px 2px 0 #5f8f8d;
+  cursor: pointer;
+}
+
+.authForm button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.authForm p {
+  color: #a53c46;
+}
+
+.authFoot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 2px solid #9c8c78;
+  text-align: center;
+}
+
+.authFoot button {
+  padding: 0;
+  color: #2d5c5b;
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ── 웹(비위젯) 입장 화면 — 전체 화면 밤 배경 가운데 카드 하나 ──────────
+   무대는 미설정 안내(unconfigured.module.css)와 같고, 카드는 위 공용 규칙에
+   .page를 덧대 큰 화면에 맞게 키운다. 위젯 화면은 아래 규칙을 쓰지 않는다. */
+
+.screen {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #10172b;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 13px;
+}
+
+.screen :where(a, button, input):focus-visible {
+  outline: 2px solid #2d5c5b;
+  outline-offset: 2px;
+}
+
+.page {
+  width: min(400px, 100%);
+  gap: 12px;
+  padding: 20px;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 7px 7px 0 rgb(5 9 20 / 70%);
+}
+
+.page h1 {
+  font-size: 18px;
+}
+
+.page p {
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.page strong {
+  font-size: 13px;
+}
+
+/* 작은 글씨(이메일·안내)는 큰 화면에서 오래 읽으므로 크림 바탕 위 4.5:1을 넘는 색으로 올린다 */
+.page small,
+.page .authDivider {
+  color: #5e5361;
+}
+
+.page small {
+  font-size: 11px;
+}
+
+/* 오류 띠는 .authCard p보다 구체적으로 적어 밝은 글자가 지게 한다(빨강 위 4.5:1 이상) */
+.page .authError {
+  color: #fff8e7;
+}
+
+/* 로그인 카드 아래 "새 공유 공간" 안내 — 구분선 위에 제목·설명·보조 단추 */
+.authSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 2px solid #9c8c78;
+}
+
+.authSecondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  padding: 9px 10px;
+  color: #1b1b2f;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #ffffff, inset -2px -2px 0 #d9c9a4;
+  text-decoration: none;
+}
+
+.authSecondary:hover {
+  background: #ffd27d;
+}

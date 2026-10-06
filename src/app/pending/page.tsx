@@ -4,9 +4,9 @@ import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { isWidgetCookieStore } from "@/lib/widget-mode";
+import auth from "../auth.module.css";
 import LogoutButton from "../LogoutButton";
 import WidgetFrame from "../widget/WidgetFrame";
-import widgetStyles from "../widget/widget.module.css";
 
 export default async function PendingPage() {
   const cookieStore = await cookies();
@@ -26,14 +26,14 @@ export default async function PendingPage() {
   if (isWidgetCookieStore(cookieStore)) {
     return (
       <WidgetFrame>
-        <div className={widgetStyles.authCard}>
+        <div className={auth.authCard}>
           <h1>{t("접근이 막혀 있습니다")}</h1>
           <p>{t("관리자가 이 계정의 접근을 막았습니다.")}</p>
           <div>
             <strong>{me.name}</strong>
             <small>{me.email}</small>
           </div>
-          <div className={widgetStyles.authFoot}>
+          <div className={auth.authFoot}>
             <LogoutButton locale={locale} className="" />
           </div>
         </div>
@@ -41,19 +41,18 @@ export default async function PendingPage() {
     );
   }
 
+  // 웹 차단 안내 — 위젯과 같은 도트 카드를 밤 배경 가운데에 크게 놓는다(#6).
   return (
-    <main className="relative flex flex-1 items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 text-center shadow-sm dark:border-white/15">
-        <h1 className="text-xl font-semibold tracking-tight">
-          {t("접근이 막혀 있습니다")}
-        </h1>
-        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
-          {t("관리자가 이 계정의 접근을 막았습니다.")}
-        </p>
-        <p className="mt-4 text-sm font-medium">{me.name}</p>
-        <p className="text-xs text-zinc-400">{me.email}</p>
-        <div className="mt-6">
-          <LogoutButton locale={locale} />
+    <main className={auth.screen}>
+      <div className={`${auth.authCard} ${auth.page}`}>
+        <h1>{t("접근이 막혀 있습니다")}</h1>
+        <p>{t("관리자가 이 계정의 접근을 막았습니다.")}</p>
+        <div>
+          <strong>{me.name}</strong>
+          <small>{me.email}</small>
+        </div>
+        <div className={auth.authFoot}>
+          <LogoutButton locale={locale} className="" />
         </div>
       </div>
     </main>

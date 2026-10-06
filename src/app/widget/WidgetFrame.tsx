@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import auth from "../auth.module.css";
 import WidgetBand from "./WidgetBand";
 import styles from "./widget.module.css";
 
@@ -9,7 +10,7 @@ export default function WidgetFrame({ children }: { children: ReactNode }) {
     <div className={styles.widget}>
       <div className={styles.wallpaper} aria-hidden="true" />
       <WidgetBand title="ShareDesk" />
-      <main className={styles.authBody}>{children}</main>
+      <main className={auth.authBody}>{children}</main>
     </div>
   );
 }

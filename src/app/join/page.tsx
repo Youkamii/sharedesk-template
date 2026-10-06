@@ -4,9 +4,9 @@ import { COOKIE_NAME, resolveIdentity } from "@/lib/auth";
 import { LOCALE_COOKIE, resolveEffectiveLocale, translate } from "@/lib/i18n";
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { isWidgetCookieStore } from "@/lib/widget-mode";
+import auth from "../auth.module.css";
 import LogoutButton from "../LogoutButton";
 import WidgetFrame from "../widget/WidgetFrame";
-import widgetStyles from "../widget/widget.module.css";
 import JoinCodeForm from "./JoinCodeForm";
 
 const ERRORS: Record<string, string> = {
@@ -44,7 +44,7 @@ export default async function JoinPage({
   if (isWidgetCookieStore(cookieStore)) {
     return (
       <WidgetFrame>
-        <div className={widgetStyles.authCard}>
+        <div className={auth.authCard}>
           <h1>{t("데스크 가입")}</h1>
           <p>{t("관리자에게 받은 초대 코드를 입력하세요. 처음 한 번만 필요합니다.")}</p>
           <div>
@@ -52,14 +52,14 @@ export default async function JoinPage({
             <small>{me.email}</small>
           </div>
           {error && (
-            <p className={widgetStyles.authError} role="alert">
+            <p className={auth.authError} role="alert">
               {t(ERRORS[error] ?? "초대 코드를 확인하지 못했습니다.")}
             </p>
           )}
-          <div className={widgetStyles.authForm}>
+          <div className={auth.authForm}>
             <JoinCodeForm locale={locale} />
           </div>
-          <div className={widgetStyles.authFoot}>
+          <div className={auth.authFoot}>
             <small>{t("다른 Google 계정을 쓰려면 먼저 로그아웃하세요.")}</small>
             <LogoutButton locale={locale} className="" />
           </div>
@@ -68,34 +68,35 @@ export default async function JoinPage({
     );
   }
 
+  // 웹 가입 화면 — 위젯과 같은 도트 카드를 밤 배경 가운데에 크게 놓는다(#6).
   return (
-    <main className="relative flex flex-1 items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
-        <h1 className="text-xl font-semibold tracking-tight">{t("데스크 가입")}</h1>
-        <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+    <main className={auth.screen}>
+      <div className={`${auth.authCard} ${auth.page}`}>
+        <h1>{t("데스크 가입")}</h1>
+        <p>
           {t(
             "관리자에게 받은 기간제 초대 코드를 입력하세요. 1회용은 한 명이 가입하면 끝납니다. 기간 내 무제한은 만료되거나 관리자가 끌 때까지 여러 명이 함께 씁니다.",
           )}
         </p>
 
-        <div className="mt-4 rounded-lg bg-black/5 px-3 py-2 dark:bg-white/5">
-          <p className="text-sm font-medium">{me.name}</p>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{me.email}</p>
+        <div>
+          <strong>{me.name}</strong>
+          <small>{me.email}</small>
         </div>
 
         {error && (
-          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+          <p className={auth.authError} role="alert">
             {t(ERRORS[error] ?? "초대 코드를 확인하지 못했습니다.")}
           </p>
         )}
 
-        <JoinCodeForm locale={locale} initialCode={code} />
+        <div className={auth.authForm}>
+          <JoinCodeForm locale={locale} initialCode={code} />
+        </div>
 
-        <div className="mt-5 border-t border-black/10 pt-5 text-center dark:border-white/15">
-          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-            {t("다른 Google 계정을 쓰려면 먼저 로그아웃하세요.")}
-          </p>
-          <LogoutButton locale={locale} />
+        <div className={auth.authFoot}>
+          <small>{t("다른 Google 계정을 쓰려면 먼저 로그아웃하세요.")}</small>
+          <LogoutButton locale={locale} className="" />
         </div>
       </div>
     </main>

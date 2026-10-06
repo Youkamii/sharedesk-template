@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
+import auth from "./auth.module.css";
 
 export default function KeyForm({ locale }: { locale: Locale }) {
   const router = useRouter();
@@ -46,9 +47,11 @@ export default function KeyForm({ locale }: { locale: Locale }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 모양은 공용 도트 카드(auth.module.css)가 정한다 — 부모가 .authForm으로 감싸면
+  // 입력·단추가 픽셀 프레임이 된다(위젯·웹 공통, #6).
   return (
     <form
-      className="flex flex-col gap-3"
+      className={auth.keyForm}
       onSubmit={(e) => {
         e.preventDefault();
         void submitKey(key);
@@ -59,18 +62,12 @@ export default function KeyForm({ locale }: { locale: Locale }) {
         value={key}
         onChange={(e) => setKey(e.target.value)}
         placeholder={t("접속 키")}
-        className="rounded-lg border border-black/15 bg-transparent px-3 py-2 outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/50"
+        aria-label={t("접속 키")}
       />
-      <button
-        type="submit"
-        disabled={busy || !key.trim()}
-        className="rounded-lg border border-black/15 py-2 font-medium transition-opacity disabled:opacity-40 dark:border-white/20"
-      >
+      <button type="submit" disabled={busy || !key.trim()}>
         {busy ? t("확인 중...") : t("키로 입장")}
       </button>
-      {error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{t(error)}</p>
-      )}
+      {error && <p>{t(error)}</p>}
     </form>
   );
 }

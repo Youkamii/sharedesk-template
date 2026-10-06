@@ -10,10 +10,10 @@ import { LOCALE_COOKIE, parseLocale, resolveEffectiveLocale, translate,
 import { getDeskSettingsOrDefault } from "@/lib/users";
 import { getAccessKeys } from "@/lib/session-token";
 import { isWidgetCookieStore } from "@/lib/widget-mode";
+import auth from "./auth.module.css";
 import KeyForm from "./KeyForm";
 import pixel from "./unconfigured.module.css";
 import WidgetFrame from "./widget/WidgetFrame";
-import widgetStyles from "./widget/widget.module.css";
 
 
 const GOOGLE_LOGIN_ENV = [
@@ -153,7 +153,7 @@ export default async function Home({
   if (isWidgetCookieStore(cookieStore)) {
     return (
       <WidgetFrame>
-        <div className={widgetStyles.authCard}>
+        <div className={auth.authCard}>
           <h1>{t("데스크에 로그인")}</h1>
           <p>
             {googleLoginEnabled
@@ -163,7 +163,7 @@ export default async function Home({
               : t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
           </p>
           {error && (
-            <p className={widgetStyles.authError} role="alert">
+            <p className={auth.authError} role="alert">
               {t(ERRORS[error] ?? "로그인에 실패했습니다.")}
             </p>
           )}
@@ -171,7 +171,7 @@ export default async function Home({
             <Link
               href="/api/auth/google"
               prefetch={false}
-              className={widgetStyles.authPrimary}
+              className={auth.authPrimary}
             >
               {t("Google로 계속하기")}
             </Link>
@@ -179,9 +179,9 @@ export default async function Home({
           {keyLoginEnabled && (
             <>
               {googleLoginEnabled && (
-                <div className={widgetStyles.authDivider}>{t("또는 손님용 키")}</div>
+                <div className={auth.authDivider}>{t("또는 손님용 키")}</div>
               )}
-              <div className={widgetStyles.authForm}>
+              <div className={auth.authForm}>
                 <KeyForm locale={locale} />
               </div>
             </>
@@ -191,24 +191,23 @@ export default async function Home({
     );
   }
 
+  // 웹 로그인 — 위젯과 같은 도트 카드(auth.module.css)를 밤 배경 가운데에 크게 놓는다(#6).
   return (
-    <main className="relative flex flex-1 items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl border border-black/10 p-8 shadow-sm dark:border-white/15">
-        <h1 className="text-2xl font-semibold tracking-tight">ShareDesk</h1>
+    <main className={auth.screen}>
+      <div className={`${auth.authCard} ${auth.page}`}>
+        <h1>ShareDesk</h1>
         {googleLoginEnabled ? (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+          <p>
             {t(
               "호스트의 Google Drive 저장 공간을 여러 사람이 함께 쓰는 ShareDesk입니다. 초대받았다면 별도 설치 없이 내 Google 계정으로 로그인하고, 처음 한 번만 호스트가 준 초대 코드를 입력하세요.",
             )}
           </p>
         ) : (
-          <p className="mt-2 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
-            {t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}
-          </p>
+          <p>{t("OAuth 없는 로컬 모드입니다. 아래 손님용 키로 시작하세요.")}</p>
         )}
 
         {error && (
-          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+          <p className={auth.authError} role="alert">
             {t(ERRORS[error] ?? "로그인에 실패했습니다.")}
           </p>
         )}
@@ -217,7 +216,7 @@ export default async function Home({
           <Link
             href="/api/auth/google"
             prefetch={false}
-            className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-foreground py-2.5 font-medium text-background"
+            className={auth.authPrimary}
           >
             {t("Google로 계속하기")}
           </Link>
@@ -226,23 +225,17 @@ export default async function Home({
         {keyLoginEnabled && (
           <>
             {googleLoginEnabled && (
-              <div className="my-6 flex items-center gap-3 text-xs text-zinc-400">
-                <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
-                {t("또는 손님용 키")}
-                <span className="h-px flex-1 bg-black/10 dark:bg-white/15" />
-              </div>
+              <div className={auth.authDivider}>{t("또는 손님용 키")}</div>
             )}
-            <div className={googleLoginEnabled ? "" : "mt-6"}>
+            <div className={auth.authForm}>
               <KeyForm locale={locale} />
             </div>
           </>
         )}
 
-        <section className="mt-6 border-t border-black/10 pt-6 dark:border-white/15">
-          <p className="text-sm font-medium">
-            {t("내 Drive로 새 공유 공간을 열고 싶나요?")}
-          </p>
-          <p className="mt-1 text-sm leading-6 text-zinc-500 dark:text-zinc-400">
+        <section className={auth.authSection}>
+          <strong>{t("내 Drive로 새 공유 공간을 열고 싶나요?")}</strong>
+          <p>
             {t(
               "내 Google Drive 용량을 여러 사람과 함께 쓸 새 공유 공간을 열 때만 설치하세요. 누군가에게 초대받은 참여자라면 GitHub, Vercel, OAuth 설정 없이 위의 Google 로그인만 하면 됩니다.",
             )}
@@ -251,7 +244,7 @@ export default async function Home({
             href={createDeskUrl}
             target="_blank"
             rel="noreferrer"
-            className="mt-4 flex items-center justify-center rounded-lg border border-black/15 py-2.5 font-medium transition-colors hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10"
+            className={auth.authSecondary}
           >
             {t("호스트 설치 안내")}
           </a>

@@ -16,7 +16,7 @@
 ## Typography
 
 - **Desktop UI:** Galmuri11 — 한글이 흐트러지지 않는 실제 비트맵 계열 글꼴. 데스크톱 화면의 아이콘, 창, 작업표시줄에 사용한다.
-- **Login/Admin Body:** Geist Sans — 로그인, 가입, 관리 화면과 긴 설명에 먼저 사용한다.
+- **Login/Join/Admin:** Galmuri11 — 로그인·가입·차단 화면도 데스크톱과 같은 도트 카드(`src/app/auth.module.css`)로 그리며, 위젯 창과 웹 화면이 같은 규칙을 쓴다. Geist Sans는 Galmuri11에 없는 글자의 대체 글꼴이자 관리 화면 표·설명처럼 길게 읽는 본문에만 쓴다.
 - **Data:** Geist Mono — 용량, 시간, 진행률처럼 숫자 정렬이 필요한 곳에만 사용한다.
 - **Loading:** `/public/fonts/Galmuri11.woff2`를 자체 호스팅한다. OFL 1.1 라이선스 파일을 함께 둔다.
 - **Scale:** 데스크톱 UI는 9–20px 범위에서 정보 밀도와 모바일 화면에 맞춰 조절한다. 핵심 라벨은 11–14px을 기본으로 삼는다.
