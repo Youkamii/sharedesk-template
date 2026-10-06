@@ -2127,12 +2127,16 @@ export default function FilesView({
       }),
     [router, t],
   );
+  // 이어받기 흐름은 한 번만 만들어 두고 쓰므로, 언어가 바뀌어 apiJson이 새로 만들어져도 그 흐름이
+  // 최신 번역의 apiJson을 부르게 ref로 읽는다 (MobileFilesView의 uploadSessionJsonRef와 같은 이유).
+  const apiJsonRef = useRef(apiJson);
 
   useEffect(() => {
+    apiJsonRef.current = apiJson;
     // 렌더 중에는 만들지 않고 브라우저에 마운트된 뒤 저장소를 준비한다.
     const flow = pendingUploadFlowRef.current ??= createPendingUploadFlow({
       store: createIndexedDbPendingUploadStore(),
-      post: (path, body) => apiJson(apiPath(path), {
+      post: (path, body) => apiJsonRef.current(apiPath(path), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

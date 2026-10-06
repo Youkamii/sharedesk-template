@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import {
   createPendingUploadFlow,
@@ -1071,4 +1072,17 @@ test("재개 중 네트워크 실패는 원래 기록과 진행량을 남긴다"
   assertRanges(h.xhr.requests, Array(4).fill("bytes */5"));
   assert.deepEqual(await h.store.list(), [h.record]);
   assert.deepEqual(h.records, [h.record]);
+});
+
+test("배선: 이어받기 흐름은 최신 번역의 요청 함수를 ref로 읽는다 — 언어를 바꿔도 오류 문구가 옛 언어로 남지 않게 (#25)", async () => {
+  const read = (p: string) => readFile(new URL(p, import.meta.url), "utf8");
+  const desktop = await read("../src/app/files/FilesView.tsx");
+  const mobile = await read("../src/app/files/MobileFilesView.tsx");
+  // 흐름은 한 번만 만든다(??=) — 그 안의 post는 만든 시점의 apiJson이 아니라 ref를 부른다
+  assert.match(
+    desktop,
+    /pendingUploadFlowRef\.current \?\?= createPendingUploadFlow\(\{[\s\S]{0,200}post: \(path, body\) => apiJsonRef\.current\(apiPath\(path\)/,
+  );
+  assert.match(desktop, /apiJsonRef\.current = apiJson;/);
+  assert.match(mobile, /post: \(path, body\) => uploadSessionJsonRef\.current\(path, body\)/);
 });
