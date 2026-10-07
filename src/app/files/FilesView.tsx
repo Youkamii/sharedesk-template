@@ -423,7 +423,7 @@ type EntryProperties = {
   uploadedBy: string | null;
   uploadedAt: string | null;
   // 공개 폴더 방문자가 올렸으면 true(#17 B-4) — "손님 · 이름"으로 보인다.
-  uploadedByGuest?: boolean;
+  uploadedByGuest: boolean;
   // 관리자가 아니면 null — 화면에서 줄 자체를 감춘다.
   downloadCount: number | null;
   downloads: EntryDownloadRecord[] | null;

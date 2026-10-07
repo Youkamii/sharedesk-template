@@ -89,13 +89,18 @@ export class StorageError extends Error {
   }
 }
 
+// 보이지 않는 문자 — 정규식 문자 클래스 안쪽 조각(String.raw라 \u 이스케이프는
+// RegExp가 해석한다). 제어문자, 방향 제어(bidi), zero-width·줄/문단 구분자·BOM.
+// 저장소 이름 검증과 무로그인 방문자 이름 정제(nickname.parseGuestName)가 함께
+// 쓴다 — 방문자 이름 쪽은 여기에 더 넓은 집합을 덧붙인다. 이름 검증 동작을
+// 그대로 두려고 이 조각에는 더하지 않는다(tests/public-upload-sender가 고정).
+export const INVISIBLE_CHARS = String.raw`\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff`;
+
 // 경로 구분자·제어문자에 더해 방향 제어(bidi)·zero-width도 막는다. 이들은
 // 정상 이름에 들어갈 이유가 없고, 목록·다운로드 화면에서 확장자를 뒤집어
 // 보이게 하는 스푸핑(예: RLO로 "…gpj.exe"를 "exe.jpg"처럼) 보조 수단이 된다.
 // 무로그인 공개 업로드가 외부인 이름을 받으므로 이름 검증 기반에서 막는다.
-const INVALID_NAME_CHARS = new RegExp(
-  "[/\\\\\\u0000-\\u001f\\u007f\\u200b-\\u200f\\u2028\\u2029\\u202a-\\u202e\\u2066-\\u2069\\ufeff]",
-);
+const INVALID_NAME_CHARS = new RegExp(String.raw`[/\\${INVISIBLE_CHARS}]`);
 
 export function assertValidName(name: string): string {
   const trimmed = name.trim();

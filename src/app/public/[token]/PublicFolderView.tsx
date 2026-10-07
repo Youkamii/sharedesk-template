@@ -10,7 +10,7 @@ import {
 } from "react";
 import { translate, type Locale } from "@/lib/i18n";
 import { formatSize } from "@/lib/client/mobile-listing";
-import { MAX_GUEST_NAME_LENGTH } from "@/lib/nickname";
+import { GUEST_NAME_HEADER, MAX_GUEST_NAME_LENGTH } from "@/lib/nickname";
 import PixelFileIcon from "../../files/PixelFileIcon";
 import desktopStyles from "../../files/desktop.module.css";
 import mobileStyles from "../../files/mobile.module.css";
@@ -61,20 +61,11 @@ function readDownloadFirst(_revision: number): boolean {
   }
 }
 
-// 보내는 사람 이름(#17 B-4) — 선택 입력. 이 브라우저에만 기억해 다음 업로드에
-// 미리 채운다(서버는 업로드 기록에만 쓰고 따로 보관하지 않는다).
-const SENDER_NAME_KEY = "sharedesk-public-sender-name";
-
-function readSenderName(_revision: number): string {
-  void _revision;
-  try {
-    return (window.localStorage.getItem(SENDER_NAME_KEY) ?? "").slice(
-      0,
-      MAX_GUEST_NAME_LENGTH,
-    );
-  } catch {
-    return "";
-  }
+// 보내는 사람 이름(#17 B-4) — 선택 입력. 이 브라우저에, 공개 폴더(토큰)마다
+// 따로 기억해 다음 업로드에 미리 채운다(서버는 업로드 기록에만 쓰고 따로
+// 보관하지 않는다).
+function senderNameKey(token: string): string {
+  return `sharedesk-public-sender-name:${token}`;
 }
 
 const ICON_COLUMNS = 6;
@@ -176,25 +167,37 @@ export default function PublicFolderView({
     }
     setStoredRevision((revision) => revision + 1);
   }, []);
-  // 보내는 사람: 저장값은 다운로드 우선과 같은 방식(마운트 뒤 읽기)으로 읽고,
-  // 고치기 시작하면 입력값(draft)이 우선한다 — 저장이 막힌 브라우저에서도
-  // 입력이 멈추지 않게.
-  const storedSender = useSyncExternalStore(
-    subscribeNoop,
-    useCallback(() => readSenderName(storedRevision), [storedRevision]),
-    () => "",
+  // 보내는 사람: 저장값은 마운트 뒤에 한 번 읽는다(서버 HTML은 늘 빈 칸이라
+  // 첫 렌더에서 읽으면 hydration이 어긋난다). effect 본문에서 바로 setState하면
+  // 연쇄 렌더 규칙(react-hooks/set-state-in-effect)에 걸려, 생성된 링크 창처럼
+  // 0ms 타이머 콜백에서 읽는다. 그 사이 입력한 값이 있으면 덮지 않는다. 저장이
+  // 막힌 브라우저에서도 입력은 이 상태로 동작한다.
+  const [sender, setSender] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(senderNameKey(token));
+        if (stored) {
+          setSender((current) => current || stored.slice(0, MAX_GUEST_NAME_LENGTH));
+        }
+      } catch {
+        // 읽기 실패는 무시 — 빈 칸에서 시작한다.
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [token]);
+  const changeSender = useCallback(
+    (next: string) => {
+      setSender(next);
+      try {
+        if (next.trim()) window.localStorage.setItem(senderNameKey(token), next);
+        else window.localStorage.removeItem(senderNameKey(token));
+      } catch {
+        // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
+      }
+    },
+    [token],
   );
-  const [senderDraft, setSenderDraft] = useState<string | null>(null);
-  const sender = senderDraft ?? storedSender;
-  const changeSender = useCallback((next: string) => {
-    setSenderDraft(next);
-    try {
-      if (next.trim()) window.localStorage.setItem(SENDER_NAME_KEY, next);
-      else window.localStorage.removeItem(SENDER_NAME_KEY);
-    } catch {
-      // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
-    }
-  }, []);
   const [uploading, setUploading] = useState<{
     current: number;
     total: number;
@@ -335,23 +338,25 @@ export default function PublicFolderView({
       if (files.length === 0 || uploading) return;
       setNotice(null);
       setUploading({ current: 0, total: files.length });
-      // 서버가 다시 정제·검증한다(제어문자·방향 제어 제거, 40자).
+      // 이름은 URL이 아니라 헤더로(접근 로그에 남지 않게), 헤더는 ASCII만 되므로
+      // percent-encoding. 서버가 다시 정제·검증한다(보이지 않는 문자 제거, 40자).
       const senderName = sender.trim();
-      const senderQuery = senderName
-        ? `&sender=${encodeURIComponent(senderName)}`
-        : "";
+      const senderHeader: Record<string, string> = senderName
+        ? { [GUEST_NAME_HEADER]: encodeURIComponent(senderName) }
+        : {};
       let failed: string | null = null;
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         setUploading({ current: index + 1, total: files.length });
         try {
           const response = await fetch(
-            `/api/public-folder/${token}/upload?name=${encodeURIComponent(file.name)}${senderQuery}`,
+            `/api/public-folder/${token}/upload?name=${encodeURIComponent(file.name)}`,
             {
               method: "POST",
               cache: "no-store",
               headers: {
                 "Content-Type": file.type || "application/octet-stream",
+                ...senderHeader,
               },
               body: file,
             },

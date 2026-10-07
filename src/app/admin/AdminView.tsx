@@ -2247,9 +2247,14 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             {t(ACTIVITY_LABELS[entry.action])}
                             {entry.action === "empty-trash"
                               ? ` · ${t("{count}개 항목", { count: entry.name })}`
-                              : entry.name
-                                ? ` · ${entry.name}`
-                                : ""}
+                              : entry.count && entry.count > 1
+                                ? ` · ${t("{name} 등 {count}개", {
+                                    name: entry.name,
+                                    count: entry.count,
+                                  })}`
+                                : entry.name
+                                  ? ` · ${entry.name}`
+                                  : ""}
                           </span>
                         </li>
                       ))}

@@ -568,7 +568,7 @@ export default function MobileFilesView({
         entry: { size: number | null; modifiedAt: string | null };
         uploadedBy: string | null;
         uploadedAt: string | null;
-        uploadedByGuest?: boolean;
+        uploadedByGuest: boolean;
         downloadCount: number | null;
       }>(`/api/drive/properties?id=${encodeURIComponent(entry.id)}`, {
         cache: "no-store",
@@ -576,7 +576,7 @@ export default function MobileFilesView({
       setSheetInfo({
         uploadedBy: data.uploadedBy,
         uploadedAt: data.uploadedAt,
-        uploadedByGuest: data.uploadedByGuest === true,
+        uploadedByGuest: data.uploadedByGuest,
         downloadCount: data.downloadCount,
         size: data.entry.size,
         modifiedAt: data.entry.modifiedAt,
