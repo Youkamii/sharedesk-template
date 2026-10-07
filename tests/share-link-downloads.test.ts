@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createWindowLimiter } from "../src/lib/rate-window";
+import { createSerialQueue } from "../src/lib/serial-queue";
 import {
   applyShareLinkDownload,
   MAX_TRACKED_LINKS,
@@ -60,6 +61,34 @@ test("기록 상한: 링크당 분당 6회·전역 분당 60회 (#17 B-7)", () =
     "전역 60번째 시도 뒤로는 기록하지 않는다",
   );
   assert.equal(spread.filter((over) => !over).length, RECORD_LIMIT_TOTAL - 10);
+});
+
+test("한 줄 쓰기: 겹쳐 들어온 작업을 차례로 돌리고, 실패해도 다음은 돈다", async () => {
+  const enqueue = createSerialQueue();
+  const order: string[] = [];
+  let running = 0;
+  let maxRunning = 0;
+  const task = (label: string, fail = false) => () =>
+    (async () => {
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      order.push(label);
+      running -= 1;
+      if (fail) throw new Error(label);
+      return label;
+    })();
+  const results = await Promise.allSettled([
+    enqueue(task("a")),
+    enqueue(task("b", true)),
+    enqueue(task("c")),
+  ]);
+  assert.deepEqual(order, ["a", "b", "c"]);
+  assert.equal(maxRunning, 1, "한 번에 하나만");
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["fulfilled", "rejected", "fulfilled"],
+  );
 });
 
 test("장부: 받을 때마다 1씩 늘고 마지막 시각이 바뀐다 (#17 B-7)", () => {
@@ -406,13 +435,20 @@ test("링크를 멈추거나 만료 정리하면 장부 기록도 지운다, 넘
 });
 
 test("배선: 공유 라우트·목록 API·속성 API (#17 B-7)", async () => {
-  const [route, listRoute, properties, ledger, upload] = await Promise.all([
+  const [route, listRoute, properties, ledger, upload, audit] = await Promise.all([
     read("src/app/api/share/[linkId]/route.ts"),
     read("src/app/api/drive/share-link/route.ts"),
     read("src/app/api/drive/properties/route.ts"),
     read("src/lib/share-link-downloads.ts"),
     read("src/app/api/public-folder/[token]/upload/route.ts"),
+    read("src/lib/entry-audit.ts"),
   ]);
+  // 장부·항목 내력 쓰기는 프로세스 안에서 한 줄로(응답 뒤 기록이 몰려 CAS 재시도를
+  // 다 쓰고 잃던 것 — 개발 서버에서 연달아 6번 받으면 5번만 남았다).
+  for (const source of [ledger, audit]) {
+    assert.match(source, /const writeQueue = createSerialQueue\(\);/);
+    assert.match(source, /await writeQueue\(async \(\) => \{/);
+  }
 
   // 처음부터 받는 요청만, HEAD 제외.
   assert.match(route, /range\.replace\(\/\\s\+\/g, ""\) === "bytes=0-"/);

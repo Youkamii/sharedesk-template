@@ -1,4 +1,5 @@
 import { after } from "next/server";
+import { createSerialQueue } from "@/lib/serial-queue";
 import { getAdapter } from "@/lib/storage";
 
 // 항목별 내력(#14) — "이 파일을 누가 올렸고, 누가 받아 갔는지".
@@ -155,24 +156,30 @@ export async function getEntryAudit(
   return normalize(state.value).entries[layoutKey] ?? null;
 }
 
+// 프로세스 안의 기록은 한 줄로 쓴다 — 응답 뒤 기록이 몰려도 CAS 재시도를
+// 다 써서 잃지 않게(serial-queue 주석 참조).
+const writeQueue = createSerialQueue();
+
 async function mutate(
   layoutKey: string,
   apply: (audit: EntryAudit) => EntryAudit,
 ): Promise<void> {
   if (!layoutKey || layoutKey.length > MAX_KEY_LENGTH) return;
-  const adapter = getAdapter();
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const state = await adapter.readStateVersioned<EntryAuditFile>(FILE);
-    const file = normalize(state.value);
-    file.entries[layoutKey] = apply(file.entries[layoutKey] ?? {});
-    evictOverflow(file.entries, layoutKey);
-    try {
-      await adapter.compareAndSwapState(FILE, file, state.version);
-      return;
-    } catch {
-      // 다른 요청과 겹쳤다. 다시 읽고 시도한다.
+  await writeQueue(async () => {
+    const adapter = getAdapter();
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const state = await adapter.readStateVersioned<EntryAuditFile>(FILE);
+      const file = normalize(state.value);
+      file.entries[layoutKey] = apply(file.entries[layoutKey] ?? {});
+      evictOverflow(file.entries, layoutKey);
+      try {
+        await adapter.compareAndSwapState(FILE, file, state.version);
+        return;
+      } catch {
+        // 다른 인스턴스와 겹쳤다. 다시 읽고 시도한다.
+      }
     }
-  }
+  });
 }
 
 export async function recordEntryUpload(

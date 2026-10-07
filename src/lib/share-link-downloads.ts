@@ -1,5 +1,6 @@
 import { bestEffort, recordEntryDownload } from "@/lib/entry-audit";
 import { createWindowLimiter } from "@/lib/rate-window";
+import { createSerialQueue } from "@/lib/serial-queue";
 import { getAdapter } from "@/lib/storage";
 
 // 공유 링크 "받아 갔는지"(#17 B-7) — 링크마다 받아 간 횟수와 마지막 시각.
@@ -26,6 +27,9 @@ const recordLimiter = createWindowLimiter({
   perKey: RECORD_LIMIT_PER_LINK,
   total: RECORD_LIMIT_TOTAL,
 });
+// 프로세스 안의 장부 쓰기는 한 줄로 — 같은 링크를 연달아 받아도 CAS 재시도를
+// 다 써서 기록을 잃지 않게(serial-queue 주석 참조).
+const writeQueue = createSerialQueue();
 
 export interface ShareLinkDownloadStat {
   count: number;
@@ -144,27 +148,29 @@ async function activeLinkIds(): Promise<Set<string>> {
 
 export async function recordShareLinkDownload(linkId: string): Promise<void> {
   if (!LINK_ID_PATTERN.test(linkId)) return;
-  const adapter = getAdapter();
   const at = new Date().toISOString();
-  let active: Set<string> | undefined;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const state = await adapter.readStateVersioned<ShareLinkDownloadFile>(FILE);
-    const file = normalizeShareLinkDownloads(state.value);
-    if (
-      !active &&
-      !Object.hasOwn(file.links, linkId) &&
-      Object.keys(file.links).length >= MAX_TRACKED_LINKS
-    ) {
-      active = await activeLinkIds();
+  await writeQueue(async () => {
+    const adapter = getAdapter();
+    let active: Set<string> | undefined;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const state = await adapter.readStateVersioned<ShareLinkDownloadFile>(FILE);
+      const file = normalizeShareLinkDownloads(state.value);
+      if (
+        !active &&
+        !Object.hasOwn(file.links, linkId) &&
+        Object.keys(file.links).length >= MAX_TRACKED_LINKS
+      ) {
+        active = await activeLinkIds();
+      }
+      const next = applyShareLinkDownload(file, linkId, at, active);
+      try {
+        await adapter.compareAndSwapState(FILE, next, state.version);
+        return;
+      } catch {
+        // 다른 인스턴스의 기록과 겹쳤다. 다시 읽고 시도한다.
+      }
     }
-    const next = applyShareLinkDownload(file, linkId, at, active);
-    try {
-      await adapter.compareAndSwapState(FILE, next, state.version);
-      return;
-    } catch {
-      // 다른 내려받기 기록과 겹쳤다. 다시 읽고 시도한다.
-    }
-  }
+  });
 }
 
 /** 멈추거나 만료 정리된 링크의 기록을 지운다(share-links가 부른다). */
@@ -172,20 +178,22 @@ export async function forgetShareLinkDownloads(
   linkIds: readonly string[],
 ): Promise<void> {
   if (linkIds.length === 0) return;
-  const adapter = getAdapter();
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const state = await adapter.readStateVersioned<ShareLinkDownloadFile>(FILE);
-    const file = normalizeShareLinkDownloads(state.value);
-    const present = linkIds.filter((linkId) => Object.hasOwn(file.links, linkId));
-    if (present.length === 0) return;
-    for (const linkId of present) delete file.links[linkId];
-    try {
-      await adapter.compareAndSwapState(FILE, file, state.version);
-      return;
-    } catch {
-      // 겹쳤다. 다시 읽고 시도한다.
+  await writeQueue(async () => {
+    const adapter = getAdapter();
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const state = await adapter.readStateVersioned<ShareLinkDownloadFile>(FILE);
+      const file = normalizeShareLinkDownloads(state.value);
+      const present = linkIds.filter((linkId) => Object.hasOwn(file.links, linkId));
+      if (present.length === 0) return;
+      for (const linkId of present) delete file.links[linkId];
+      try {
+        await adapter.compareAndSwapState(FILE, file, state.version);
+        return;
+      } catch {
+        // 겹쳤다. 다시 읽고 시도한다.
+      }
     }
-  }
+  });
 }
 
 /**
