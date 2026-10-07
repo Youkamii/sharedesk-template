@@ -32,6 +32,7 @@ import type { User } from "@/lib/users";
 import styles from "./admin.module.css";
 import PublicFoldersPanel from "./PublicFoldersPanel";
 import type { ActivityAction, ActivityEntry } from "@/lib/activity";
+import { guestDisplayName } from "@/lib/nickname";
 
 type InvitationState = "active" | "inactive" | "used" | "expired";
 type InvitationUsageMode = "once" | "unlimited";
@@ -2237,7 +2238,10 @@ export default function AdminView({ locale }: { locale: Locale }) {
                             {formatDate(entry.at, locale)}
                           </span>
                           <span className={styles.activityActor}>
-                            {entry.actorName}
+                            {/* 공개 폴더 방문자(#17 B-4)는 "손님 · 이름"/"손님". */}
+                            {entry.guest === true
+                              ? guestDisplayName(entry.actorName || null, t)
+                              : entry.actorName}
                           </span>
                           <span>
                             {t(ACTIVITY_LABELS[entry.action])}

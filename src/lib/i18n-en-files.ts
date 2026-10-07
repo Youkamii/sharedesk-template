@@ -687,4 +687,9 @@ export const EN_FILES: Record<string, string> = {
   "{count}회 · 마지막 {time}": "{count} times · last {time}",
   "받아 감 {count}회 · 마지막 {time}": "Downloaded {count} times · last {time}",
   "아직 받아 간 기록 없음": "Not downloaded yet",
+  // 공개 폴더 보내는 사람 이름 (#17 B-4)
+  "손님 · {name}": "Guest · {name}",
+  "보내는 사람 (선택)": "From (optional)",
+  "이름 (선택)": "Name (optional)",
+  "보내는 사람 이름은 40자까지 쓸 수 있습니다": "The sender name can be up to 40 characters",
 };

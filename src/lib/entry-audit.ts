@@ -30,6 +30,10 @@ export interface EntryDownload {
 export interface EntryAudit {
   uploadedBy?: string;
   uploadedAt?: string;
+  // 공개 폴더로 들어온 무로그인 방문자가 올렸다(#17 B-4). uploadedBy는 방문자가
+  // 스스로 적은 이름(없을 수 있다)이라, 화면은 이 표시를 보고 "손님 · 이름"으로
+  // 바꿔 보여 멤버 이름과 섞이지 않게 한다.
+  uploadedByGuest?: boolean;
   downloadCount?: number;
   // 최근 것부터. 전체 횟수는 downloadCount가 따로 센다.
   downloads?: EntryDownload[];
@@ -85,6 +89,7 @@ function cleanAudit(value: unknown): EntryAudit | null {
   const downloads = cleanDownloads(raw.downloads);
   if (uploadedBy) audit.uploadedBy = uploadedBy;
   if (uploadedAt) audit.uploadedAt = uploadedAt;
+  if (raw.uploadedByGuest === true) audit.uploadedByGuest = true;
   if (downloads) audit.downloads = downloads;
   if (typeof raw.downloadCount === "number" && raw.downloadCount > 0) {
     audit.downloadCount = Math.min(
@@ -178,12 +183,35 @@ export async function recordEntryUpload(
   const by = cleanName(actorName);
   if (!by) return;
   const at = new Date().toISOString();
-  // 같은 자리에 다시 올리면 마지막에 올린 사람이 주인이다.
-  await mutate(layoutKey, (audit) => ({
-    ...audit,
-    uploadedBy: by,
-    uploadedAt: at,
-  }));
+  // 같은 자리에 다시 올리면 마지막에 올린 사람이 주인이다 — 앞서 손님이
+  // 올렸던 표시도 함께 지운다.
+  await mutate(layoutKey, (audit) => {
+    const { uploadedByGuest: _guest, ...rest } = audit;
+    void _guest;
+    return { ...rest, uploadedBy: by, uploadedAt: at };
+  });
+}
+
+// 공개 폴더 방문자의 업로드(#17 B-4). 이름은 방문자가 적은 값(정제는 호출자가
+// nickname.parseGuestName으로 마쳤다)이고 비어 있을 수 있다 — 그래도 "손님이
+// 올렸다"는 표시와 시각은 남긴다. 앞 주인의 이름이 남지 않게 uploadedBy를
+// 새 값으로 바꾸거나 지운다.
+export async function recordEntryGuestUpload(
+  layoutKey: string,
+  guestName: string | null,
+): Promise<void> {
+  const by = guestName ? cleanName(guestName) : undefined;
+  const at = new Date().toISOString();
+  await mutate(layoutKey, (audit) => {
+    const { uploadedBy: _previous, ...rest } = audit;
+    void _previous;
+    return {
+      ...rest,
+      ...(by ? { uploadedBy: by } : {}),
+      uploadedByGuest: true,
+      uploadedAt: at,
+    };
+  });
 }
 
 export async function recordEntryDownload(
@@ -236,6 +264,13 @@ function bestEffort(work: () => Promise<void>) {
 
 export function recordEntryUploadAfter(layoutKey: string, actorName: string) {
   bestEffort(() => recordEntryUpload(layoutKey, actorName));
+}
+
+export function recordEntryGuestUploadAfter(
+  layoutKey: string,
+  guestName: string | null,
+) {
+  bestEffort(() => recordEntryGuestUpload(layoutKey, guestName));
 }
 
 export function recordEntryDownloadAfter(

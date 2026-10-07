@@ -2064,6 +2064,42 @@
   box-shadow: inset 2px 2px 0 #b9e1cf, inset -2px -2px 0 #2d5c5b;
 }
 
+/* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 다운로드 우선 칸과 같은 틀. */
+.publicSender {
+  display: inline-flex;
+  height: 38px;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  padding-left: 9px;
+  color: #cdd5e8;
+  background: #182446;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #465b83, inset -2px -2px 0 #0d162d;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.publicSender input {
+  width: 150px;
+  min-width: 0;
+  height: 100%;
+  padding: 3px 7px;
+  color: #fff8e7;
+  background: #10172b;
+  border: 0;
+  border-left: 2px solid #51658d;
+  outline: 0;
+  font: inherit;
+}
+
+.publicSender input::placeholder { color: #9eabc4; }
+
+.publicSender:focus-within {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
 .userTray {
   display: flex;
   align-items: center;

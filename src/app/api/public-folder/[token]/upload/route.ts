@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordActivityAfter } from "@/lib/activity";
 import { errorResponse } from "@/lib/api";
+import { recordEntryGuestUploadAfter } from "@/lib/entry-audit";
+import { parseGuestName } from "@/lib/nickname";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
@@ -74,6 +77,16 @@ export async function POST(
       return NextResponse.json({ error: "본문이 없습니다" }, { status: 400 });
     }
     const name = req.nextUrl.searchParams.get("name") ?? "";
+    // 보내는 사람 이름(#17 B-4) — 선택. 보이지 않는 문자를 걷어 낸 뒤
+    // MAX_GUEST_NAME_LENGTH(40)자를 넘으면 받지 않는다(화면은 maxLength로 막으므로
+    // 손으로 만든 요청뿐이다). 문구는 번역 키라 숫자를 그대로 적는다.
+    const sender = parseGuestName(req.nextUrl.searchParams.get("sender"));
+    if (sender === undefined) {
+      return NextResponse.json(
+        { error: "보내는 사람 이름은 40자까지 쓸 수 있습니다" },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
     const mimeType =
       req.headers.get("content-type") || "application/octet-stream";
     const uploaderId = PUBLIC_UPLOADER_PREFIX + resolved.folder.id;
@@ -107,6 +120,10 @@ export async function POST(
       if (!completed) {
         throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
       }
+      // 누가 올렸는지(#17 B-4) — 무로그인 표시와 함께 항목 내력·활동에 남긴다.
+      // 최선 노력이라 실패해도 업로드는 성공이다.
+      recordEntryGuestUploadAfter(entry.layoutKey, sender);
+      recordActivityAfter({ name: sender ?? "", guest: true }, "upload", entry.name);
       return NextResponse.json(
         { entry: { id: entry.id, name: entry.name, size: entry.size } },
         { status: 201, headers: { "Cache-Control": "no-store" } },

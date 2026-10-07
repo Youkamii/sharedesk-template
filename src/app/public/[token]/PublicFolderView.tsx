@@ -10,6 +10,7 @@ import {
 } from "react";
 import { translate, type Locale } from "@/lib/i18n";
 import { formatSize } from "@/lib/client/mobile-listing";
+import { MAX_GUEST_NAME_LENGTH } from "@/lib/nickname";
 import PixelFileIcon from "../../files/PixelFileIcon";
 import desktopStyles from "../../files/desktop.module.css";
 import mobileStyles from "../../files/mobile.module.css";
@@ -55,6 +56,22 @@ function readDownloadFirst(_revision: number): boolean {
     return window.localStorage.getItem(DOWNLOAD_FIRST_KEY) !== "0";
   } catch {
     return true;
+  }
+}
+
+// 보내는 사람 이름(#17 B-4) — 선택 입력. 이 브라우저에만 기억해 다음 업로드에
+// 미리 채운다(서버는 업로드 기록에만 쓰고 따로 보관하지 않는다).
+const SENDER_NAME_KEY = "sharedesk-public-sender-name";
+
+function readSenderName(_revision: number): string {
+  void _revision;
+  try {
+    return (window.localStorage.getItem(SENDER_NAME_KEY) ?? "").slice(
+      0,
+      MAX_GUEST_NAME_LENGTH,
+    );
+  } catch {
+    return "";
   }
 }
 
@@ -152,6 +169,25 @@ export default function PublicFolderView({
       // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
     }
     setStoredRevision((revision) => revision + 1);
+  }, []);
+  // 보내는 사람: 저장값은 다운로드 우선과 같은 방식(마운트 뒤 읽기)으로 읽고,
+  // 고치기 시작하면 입력값(draft)이 우선한다 — 저장이 막힌 브라우저에서도
+  // 입력이 멈추지 않게.
+  const storedSender = useSyncExternalStore(
+    subscribeNoop,
+    useCallback(() => readSenderName(storedRevision), [storedRevision]),
+    () => "",
+  );
+  const [senderDraft, setSenderDraft] = useState<string | null>(null);
+  const sender = senderDraft ?? storedSender;
+  const changeSender = useCallback((next: string) => {
+    setSenderDraft(next);
+    try {
+      if (next.trim()) window.localStorage.setItem(SENDER_NAME_KEY, next);
+      else window.localStorage.removeItem(SENDER_NAME_KEY);
+    } catch {
+      // 저장 실패는 무시 — 이번 방문 동안만 유지된다.
+    }
   }, []);
   const [uploading, setUploading] = useState<{
     current: number;
@@ -287,13 +323,18 @@ export default function PublicFolderView({
       if (files.length === 0 || uploading) return;
       setNotice(null);
       setUploading({ current: 0, total: files.length });
+      // 서버가 다시 정제·검증한다(제어문자·방향 제어 제거, 40자).
+      const senderName = sender.trim();
+      const senderQuery = senderName
+        ? `&sender=${encodeURIComponent(senderName)}`
+        : "";
       let failed: string | null = null;
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
         setUploading({ current: index + 1, total: files.length });
         try {
           const response = await fetch(
-            `/api/public-folder/${token}/upload?name=${encodeURIComponent(file.name)}`,
+            `/api/public-folder/${token}/upload?name=${encodeURIComponent(file.name)}${senderQuery}`,
             {
               method: "POST",
               cache: "no-store",
@@ -330,7 +371,7 @@ export default function PublicFolderView({
       else setNotice(t("올렸습니다"));
       reload();
     },
-    [token, uploading, reload, t],
+    [token, uploading, reload, sender, t],
   );
 
   // 정상 상태에서 공개 폴더는 평평하다 — 혹시 남은 폴더 항목은 렌더에서
@@ -535,6 +576,15 @@ export default function PublicFolderView({
           ))}
         </ul>
         <footer className={mobileStyles.dock}>
+          <input
+            className={mobileStyles.senderInput}
+            value={sender}
+            maxLength={MAX_GUEST_NAME_LENGTH}
+            placeholder={t("보내는 사람 (선택)")}
+            aria-label={t("보내는 사람 (선택)")}
+            autoComplete="name"
+            onChange={(event) => changeSender(event.target.value)}
+          />
           <button
             type="button"
             disabled={uploading !== null}
@@ -790,6 +840,19 @@ export default function PublicFolderView({
             />
             <span className={desktopStyles.preferenceCheck} aria-hidden="true" />
             <span>{t("다운로드 우선")}</span>
+          </label>
+          {/* 올릴 때 함께 남는 이름(#17 B-4) — 비워 두면 "손님"으로만 남는다. */}
+          <label className={desktopStyles.publicSender}>
+            <span>{t("보내는 사람")}</span>
+            <input
+              value={sender}
+              maxLength={MAX_GUEST_NAME_LENGTH}
+              placeholder={t("이름 (선택)")}
+              aria-label={t("보내는 사람 (선택)")}
+              autoComplete="name"
+              spellCheck={false}
+              onChange={(event) => changeSender(event.target.value)}
+            />
           </label>
           {isAdmin && (
             <span className={desktopStyles.desktopLabel}>

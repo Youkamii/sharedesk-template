@@ -4,6 +4,7 @@ import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { translate, type Locale } from "@/lib/i18n";
+import { guestDisplayName } from "@/lib/nickname";
 import {
   formatSize,
   sortEntries,
@@ -135,6 +136,7 @@ export default function MobileFilesView({
   const [sheetInfo, setSheetInfo] = useState<{
     uploadedBy: string | null;
     uploadedAt: string | null;
+    uploadedByGuest: boolean;
     downloadCount: number | null;
     size: number | null;
     modifiedAt: string | null;
@@ -566,6 +568,7 @@ export default function MobileFilesView({
         entry: { size: number | null; modifiedAt: string | null };
         uploadedBy: string | null;
         uploadedAt: string | null;
+        uploadedByGuest?: boolean;
         downloadCount: number | null;
       }>(`/api/drive/properties?id=${encodeURIComponent(entry.id)}`, {
         cache: "no-store",
@@ -573,6 +576,7 @@ export default function MobileFilesView({
       setSheetInfo({
         uploadedBy: data.uploadedBy,
         uploadedAt: data.uploadedAt,
+        uploadedByGuest: data.uploadedByGuest === true,
         downloadCount: data.downloadCount,
         size: data.entry.size,
         modifiedAt: data.entry.modifiedAt,
@@ -1153,7 +1157,10 @@ export default function MobileFilesView({
               <dl className={styles.sheetProps}>
                 <dt>{t("올린 사람")}</dt>
                 <dd>
-                  {sheetInfo.uploadedBy ?? t("기록 없음")}
+                  {/* 공개 폴더 방문자는 "손님 · 이름"(#17 B-4) — 멤버 이름과 섞이지 않게. */}
+                  {sheetInfo.uploadedByGuest
+                    ? guestDisplayName(sheetInfo.uploadedBy, t)
+                    : (sheetInfo.uploadedBy ?? t("기록 없음"))}
                   {sheetInfo.uploadedAt
                     ? ` · ${new Date(sheetInfo.uploadedAt).toLocaleString()}`
                     : ""}

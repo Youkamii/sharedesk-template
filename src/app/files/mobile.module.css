@@ -218,6 +218,21 @@
   background: #fff4d2;
 }
 
+/* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 올리기 버튼 옆. */
+.senderInput {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  padding: 0 10px;
+  color: #10172b;
+  background: #fff8e7;
+  border: 2px solid #080d1c;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #c7b994;
+  font: inherit;
+  font-size: 13px;
+}
+
 .dock button:disabled,
 .resumeActions button:disabled {
   color: #686474;

@@ -27,6 +27,8 @@ export async function GET(req: NextRequest) {
         },
         uploadedBy: audit?.uploadedBy ?? null,
         uploadedAt: audit?.uploadedAt ?? null,
+        // 공개 폴더 방문자가 올렸다(#17 B-4) — 화면이 "손님 · 이름"으로 보인다.
+        uploadedByGuest: audit?.uploadedByGuest === true,
         // 내려받기 기록은 "누가 내 파일을 가져갔나"라서 관리자만 본다.
         downloadCount: admin ? (audit?.downloadCount ?? 0) : null,
         downloads: admin ? (audit?.downloads ?? []) : null,

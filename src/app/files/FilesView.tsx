@@ -149,6 +149,7 @@ import {
   translate,
   type Locale,
 } from "@/lib/i18n";
+import { guestDisplayName } from "@/lib/nickname";
 import {
   FOLDER_COLOR_IDS,
   type FolderColorId,
@@ -423,6 +424,8 @@ type EntryProperties = {
   };
   uploadedBy: string | null;
   uploadedAt: string | null;
+  // 공개 폴더 방문자가 올렸으면 true(#17 B-4) — "손님 · 이름"으로 보인다.
+  uploadedByGuest?: boolean;
   // 관리자가 아니면 null — 화면에서 줄 자체를 감춘다.
   downloadCount: number | null;
   downloads: EntryDownloadRecord[] | null;
@@ -10144,8 +10147,13 @@ export default function FilesView({
                 <dd>
                   {properties.loading
                     ? t("불러오는 중…")
-                    : properties.data?.uploadedBy
-                      ? `${properties.data.uploadedBy}${
+                    : properties.data?.uploadedByGuest ||
+                        properties.data?.uploadedBy
+                      ? `${
+                          properties.data.uploadedByGuest
+                            ? guestDisplayName(properties.data.uploadedBy, t)
+                            : properties.data.uploadedBy
+                        }${
                           properties.data.uploadedAt
                             ? ` · ${formatDate(properties.data.uploadedAt, dateLocale)}`
                             : ""

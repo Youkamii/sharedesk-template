@@ -31,7 +31,13 @@ export interface ActivityEntry {
   action: ActivityAction;
   // 대상 이름. empty-trash만 예외로 지운 개수를 담는다(대상이 여럿이라).
   name: string;
+  // 공개 폴더로 들어온 무로그인 방문자(#17 B-4). actorName은 방문자가 적은
+  // 이름이거나 빈 문자열 — 화면은 "손님 · 이름"/"손님"으로 보여 준다.
+  guest?: boolean;
 }
+
+// 기록하는 쪽 — 세션 이름, 또는 무로그인 방문자면 guest 표시를 함께.
+export type ActivityActor = Pick<SessionInfo, "name"> & { guest?: boolean };
 
 interface ActivityFile {
   version: 1;
@@ -53,12 +59,17 @@ function normalize(value: unknown): ActivityFile {
           );
         })
         .slice(0, MAX_ENTRIES)
+        // guest는 true일 때만 남긴다(손으로 고친 값이 표시를 흔들지 않게).
+        .map((entry) => {
+          const { guest, ...rest } = entry;
+          return guest === true ? { ...rest, guest: true } : rest;
+        })
     : [];
   return { version: 1, entries };
 }
 
 export async function recordActivity(
-  session: Pick<SessionInfo, "name">,
+  session: ActivityActor,
   action: ActivityAction,
   name: string,
 ): Promise<void> {
@@ -67,6 +78,7 @@ export async function recordActivity(
     actorName: session.name,
     action,
     name,
+    ...(session.guest === true ? { guest: true } : {}),
   };
   try {
     const adapter = getAdapter();
@@ -90,7 +102,7 @@ export async function recordActivity(
 // 밖(핸들러를 직접 부르는 테스트 등)에서는 after()가 던지므로, 그때는
 // 기다리지 않는 호출로 대신하고 본 작업은 계속 성공시킨다.
 export function recordActivityAfter(
-  session: Pick<SessionInfo, "name">,
+  session: ActivityActor,
   action: ActivityAction,
   name: string,
 ): void {
