@@ -422,35 +422,46 @@ export default function ShareLinkDialog({
                     aria-label={t("공유 링크 주소")}
                     onFocus={(event) => event.target.select()}
                   />
-                  <button
-                    type="button"
-                    className={styles.primaryButton}
-                    style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
-                    onClick={() => void copyLink(createdLinkId)}
-                  >
-                    {t("복사")}
-                  </button>
-                  <ShareOutButton
-                    url={shareUrl(createdLinkId)}
-                    title={entry.name}
-                    label={t("공유")}
-                    className={styles.secondaryButton}
-                    style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
-                    onOutcome={(outcome) => {
-                      if (outcome === "copied") {
-                        onNotice(t("공유 링크를 복사했습니다."));
-                      } else if (outcome === "manual") {
-                        setError("아래 주소를 직접 선택해 복사해 주세요");
-                      }
+                  {/* 복사·공유·QR은 한 줄로 — 세로 칸(panelStyle)에 바로 넣으면
+                      버튼마다 줄이 바뀌어 위아래로 쌓인다. */}
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                      gap: 6,
                     }}
-                  />
-                  <QrCodeToggle
-                    value={shareUrl(createdLinkId)}
-                    label="QR"
-                    closeLabel={t("닫기")}
-                    className={styles.secondaryButton}
-                    style={{ ...compactButtonStyle, alignSelf: "flex-end" }}
-                  />
+                  >
+                    <button
+                      type="button"
+                      className={styles.primaryButton}
+                      style={compactButtonStyle}
+                      onClick={() => void copyLink(createdLinkId)}
+                    >
+                      {t("복사")}
+                    </button>
+                    <ShareOutButton
+                      url={shareUrl(createdLinkId)}
+                      title={entry.name}
+                      label={t("공유")}
+                      className={styles.secondaryButton}
+                      style={compactButtonStyle}
+                      onOutcome={(outcome) => {
+                        if (outcome === "copied") {
+                          onNotice(t("공유 링크를 복사했습니다."));
+                        } else if (outcome === "manual") {
+                          setError("아래 주소를 직접 선택해 복사해 주세요");
+                        }
+                      }}
+                    />
+                    <QrCodeToggle
+                      value={shareUrl(createdLinkId)}
+                      label="QR"
+                      closeLabel={t("닫기")}
+                      className={styles.secondaryButton}
+                      style={compactButtonStyle}
+                    />
+                  </div>
                 </div>
               )}
 
