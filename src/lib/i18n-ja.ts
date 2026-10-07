@@ -945,4 +945,7 @@ export const JA: Record<string, string> = {
   "닫혔습니다": "閉じられました",
   "{days}일 {time} 남음": "残り {days}日 {time}",
   "{time} 남음": "残り {time}",
+  // 공개 폴더 여러 파일 받기 (#17 B-6)
+  "고르기": "選択",
+  "선택 {count}개 받기": "選択した {count} 件をダウンロード",
 };

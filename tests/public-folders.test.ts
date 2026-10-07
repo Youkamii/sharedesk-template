@@ -663,8 +663,9 @@ test("공개 폴더 방문자도 데스크처럼 고르고 열 수 있다 (#14 1
 
   const view = await read("src/app/public/[token]/PublicFolderView.tsx");
 
-  // 한 번 누르면 골라지고(눌린 티가 나고), 두 번 누르면 열린다.
-  assert.match(view, /onClick=\{\(\) => setSelectedId\(entry\.id\)\}/);
+  // 한 번 누르면 골라지고(눌린 티가 나고), 두 번 누르면 열린다. 고르기는 여러
+  // 개 고르기(#17 B-6) 규칙 하나로 — Ctrl/⌘·Shift는 selectFromClick이 읽는다.
+  assert.match(view, /onClick=\{\(event\) => selectFromClick\(entry\.id, event\)\}/);
   assert.match(view, /aria-pressed=\{selected\}/);
   assert.match(view, /selected \? desktopStyles\.iconSelected : ""/);
   assert.match(view, /onDoubleClick=\{\(\) => activate\(entry\)\}/);

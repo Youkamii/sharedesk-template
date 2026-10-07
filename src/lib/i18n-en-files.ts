@@ -717,4 +717,7 @@ export const EN_FILES: Record<string, string> = {
   "닫혔습니다": "Closed",
   "{days}일 {time} 남음": "{days}d {time} left",
   "{time} 남음": "{time} left",
+  // 공개 폴더 여러 파일 받기 (#17 B-6)
+  "고르기": "Select",
+  "선택 {count}개 받기": "Download {count} selected",
 };

@@ -2136,6 +2136,34 @@
 }
 
 /* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 다운로드 우선 칸과 같은 틀. */
+/* 공개 폴더 방문자: 고른 파일 한꺼번에 받기(#17 B-6) — 작업표시줄의 주 동작이라
+   데스크 단추처럼 노란 면. 받는 동안은 눌리지 않는다. */
+.publicBatchDownload {
+  height: 38px;
+  flex: none;
+  padding: 0 11px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #0a1020;
+  box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f, 2px 2px 0 #070b16;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.publicBatchDownload:active:not(:disabled) {
+  box-shadow: inset 2px 2px 0 #b5754f;
+}
+
+.publicBatchDownload:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.publicBatchDownload:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
 .publicSender {
   display: inline-flex;
   height: 38px;

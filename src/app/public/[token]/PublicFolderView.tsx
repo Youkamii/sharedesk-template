@@ -7,9 +7,21 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { translate, type Locale } from "@/lib/i18n";
+import type { SelectionRect } from "@/lib/client/batch-selection";
 import { formatSize } from "@/lib/client/mobile-listing";
+import { useVisitorDownloads } from "@/lib/client/visitor-downloads";
+import {
+  EMPTY_VISITOR_SELECTION,
+  clickVisitorSelection,
+  isVisitorSelected,
+  pruneVisitorSelection,
+  rectangleVisitorSelection,
+  selectedVisitorFiles,
+  type VisitorSelection,
+} from "@/lib/client/visitor-selection";
 import { GUEST_NAME_HEADER, MAX_GUEST_NAME_LENGTH } from "@/lib/nickname";
 import PixelFileIcon from "../../files/PixelFileIcon";
 import desktopStyles from "../../files/desktop.module.css";
@@ -24,8 +36,9 @@ import {
 // PixelFileIcon·ui-scale을 그대로 재사용해 픽셀 룩을 재현한다. FilesView는
 // 세션·presence·채팅에 얽힌 멤버 전용 셸이라 재사용하지 않는다(별도 축소 뷰).
 //
-// 방문자가 할 수 있는 것: 목록 보기 · 다운로드 · 업로드. 하위 폴더 생성·
-// 삭제·이름 변경·아이콘 드래그는 없다. 폴더 드롭은 거부한다(평평 유지).
+// 방문자가 할 수 있는 것: 목록 보기 · 다운로드 · 업로드 · 여러 파일 골라 한꺼번에
+// 받기(#17 B-6). 하위 폴더 생성·삭제·이름 변경·아이콘 드래그는 없다. 폴더
+// 드롭은 거부한다(평평 유지).
 
 interface PublicEntry {
   id: string;
@@ -129,6 +142,9 @@ const ICON_ROW_HEIGHT = 104;
 const ICON_INSET_X = 12;
 const ICON_INSET_Y = 10;
 const LIST_POLL_MS = 30_000;
+// 아이콘 한 칸의 크기(desktop.module.css .desktopIcon) — 고무줄 선택의 판정 상자.
+const ICON_WIDTH = 88;
+const ICON_HEIGHT = 94;
 
 function subscribeViewport(listener: () => void) {
   window.addEventListener("resize", listener);
@@ -262,7 +278,19 @@ export default function PublicFolderView({
   const [dragOver, setDragOver] = useState(false);
   // 데스크와 같은 사용감(#14): 한 번 눌러 고르고, 두 번 눌러 열고,
   // 오른쪽 눌러 메뉴. 방문자라고 클릭이 아무 반응 없으면 안 된다.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 여러 개 고르기(#17 B-6)는 데스크 규칙 그대로 — Ctrl/⌘ 넣고 빼기, Shift 범위,
+  // 빈 바탕에서 끌어 고무줄.
+  const [selection, setSelection] = useState<VisitorSelection>(
+    EMPTY_VISITOR_SELECTION,
+  );
+  const [marquee, setMarquee] = useState<SelectionRect | null>(null);
+  // 좁은 화면은 Ctrl·고무줄이 없으니 "고르기"를 켜고 줄을 눌러 고른다.
+  const [selectMode, setSelectMode] = useState(false);
+  // 고른 파일 받기 — 서버 zip 없이 3개씩 차례로(받기 화면의 모두 받기와 같은 큐).
+  const downloads = useVisitorDownloads(
+    (entryId) =>
+      `/api/public-folder/${token}/download?id=${encodeURIComponent(entryId)}`,
+  );
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -502,6 +530,61 @@ export default function PublicFolderView({
     return result;
   }, [files, listing]);
 
+  // 화면 순서(위→아래, 왼쪽→오른쪽 격자) — Shift 범위와 받는 순서의 기준.
+  const orderedFiles = useMemo(
+    () =>
+      [...visibleFiles].sort((left, right) => {
+        const a = placements[left.id];
+        const b = placements[right.id];
+        return a.y - b.y || a.x - b.x;
+      }),
+    [visibleFiles, placements],
+  );
+  // 목록이 바뀌면(30초 폴링·검색) 사라지거나 가려진 항목은 선택에서 빠진다 —
+  // 상태를 고쳐 쓰지 않고 그릴 때 거른다.
+  const liveSelection = useMemo(
+    () =>
+      pruneVisitorSelection(
+        selection,
+        visibleFiles.map((entry) => entry.id),
+      ),
+    [selection, visibleFiles],
+  );
+  const selectFromClick = useCallback(
+    (
+      id: string,
+      event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean },
+    ) => {
+      setSelection(
+        clickVisitorSelection(
+          liveSelection,
+          id,
+          orderedFiles.map((entry) => entry.id),
+          { toggle: event.ctrlKey || event.metaKey, range: event.shiftKey },
+        ),
+      );
+    },
+    [liveSelection, orderedFiles],
+  );
+  // 받을 파일 — 고른 것 중 파일만, 화면 순서대로.
+  const selectedFiles = selectedVisitorFiles(orderedFiles, liveSelection);
+  // 받기 진행 표시 — 받기 화면(#17 B-3)의 모두 받기와 같은 문구.
+  const { summary: downloadSummary } = downloads;
+  const downloadStatus =
+    downloadSummary.total === 0
+      ? null
+      : downloadSummary.active > 0
+        ? t("내려받는 중 {done}/{total}", {
+            done: downloadSummary.done + downloadSummary.failed,
+            total: downloadSummary.total,
+          })
+        : downloadSummary.failed === 0
+          ? t("{count}개를 내려받았습니다", { count: downloadSummary.done })
+          : t("{done}개 받음 · {failed}개 실패", {
+              done: downloadSummary.done,
+              failed: downloadSummary.failed,
+            });
+
   // 관리자 끌어놓기(요청: 관리자는 공유폴더에서 파일 위치를 바꾼다). 데스크
   // 폴더 창과 같은 격자에 스냅하고, 이미 차 있는 칸이면 가장 가까운 빈 칸으로
   // 보낸다 — 아이콘이 겹쳐 파묻히는 일이 없게.
@@ -605,6 +688,8 @@ export default function PublicFolderView({
 
   // 좁은 화면은 데스크와 같은 규칙으로 세로 목록을 쓴다.
   if (viewport.width > 0 && viewport.width < MOBILE_LAYOUT_MAX_WIDTH) {
+    // 목록 순서대로 받는다.
+    const mobileSelected = selectedVisitorFiles(files, liveSelection);
     return (
       <main className={mobileStyles.screen}>
         <header className={mobileStyles.bar}>
@@ -617,6 +702,20 @@ export default function PublicFolderView({
           <strong className={mobileStyles.title}>
             {t("공개폴더: {name}", { name: listing?.name ?? name })}
           </strong>
+          {/* 좁은 화면의 여러 개 고르기(#17 B-6) — 켜면 줄을 눌러 고르고, 끄면 놓는다. */}
+          {files.length > 0 && (
+            <button
+              type="button"
+              className={`${mobileStyles.backButton} ${mobileStyles.publicSelectToggle}`}
+              aria-pressed={selectMode}
+              onClick={() => {
+                setSelectMode((current) => !current);
+                setSelection(EMPTY_VISITOR_SELECTION);
+              }}
+            >
+              {selectMode ? t("취소") : t("고르기")}
+            </button>
+          )}
           {isDeskUser && (
             <a href="/files" className={mobileStyles.backButton}>
               {t("나가기")}
@@ -636,17 +735,45 @@ export default function PublicFolderView({
             {error}
           </p>
         )}
+        {downloadStatus && (
+          <p className={mobileStyles.notice} role="status">
+            {downloadStatus}
+          </p>
+        )}
         <ul className={mobileStyles.list}>
           {files.length === 0 && !error && (
             <li className={mobileStyles.empty}>{t("아직 파일이 없습니다")}</li>
           )}
-          {files.map((entry) => (
+          {files.map((entry) => {
+            const picked = selectMode && isVisitorSelected(liveSelection, entry.id);
+            return (
             <li key={entry.id}>
               <button
                 type="button"
-                className={mobileStyles.row}
-                onClick={() => activate(entry)}
+                className={`${mobileStyles.row} ${picked ? mobileStyles.rowPicked : ""}`}
+                aria-pressed={selectMode ? picked : undefined}
+                onClick={() => {
+                  if (!selectMode) {
+                    activate(entry);
+                    return;
+                  }
+                  setSelection(
+                    clickVisitorSelection(
+                      liveSelection,
+                      entry.id,
+                      files.map((file) => file.id),
+                      { toggle: true, range: false },
+                    ),
+                  );
+                }}
               >
+                {selectMode && (
+                  <span
+                    className={mobileStyles.rowCheck}
+                    data-checked={picked ? "true" : "false"}
+                    aria-hidden="true"
+                  />
+                )}
                 <span className={mobileStyles.rowIcon} aria-hidden="true">
                   <PixelFileIcon entry={entry} size={34} />
                 </span>
@@ -658,27 +785,40 @@ export default function PublicFolderView({
                 </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
         <footer className={mobileStyles.dock}>
-          <input
-            className={mobileStyles.senderInput}
-            value={sender}
-            maxLength={MAX_GUEST_NAME_LENGTH}
-            placeholder={t("보내는 사람 (선택)")}
-            aria-label={t("보내는 사람 (선택)")}
-            autoComplete="name"
-            onChange={(event) => changeSender(event.target.value)}
-          />
-          <button
-            type="button"
-            disabled={uploading !== null}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading
-              ? t("올리는 중 {current}/{total}", uploading)
-              : t("올리기")}
-          </button>
+          {selectMode ? (
+            <button
+              type="button"
+              disabled={mobileSelected.length === 0 || downloadSummary.active > 0}
+              onClick={() => downloads.enqueue(mobileSelected)}
+            >
+              {t("선택 {count}개 받기", { count: mobileSelected.length })}
+            </button>
+          ) : (
+            <>
+              <input
+                className={mobileStyles.senderInput}
+                value={sender}
+                maxLength={MAX_GUEST_NAME_LENGTH}
+                placeholder={t("보내는 사람 (선택)")}
+                aria-label={t("보내는 사람 (선택)")}
+                autoComplete="name"
+                onChange={(event) => changeSender(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={uploading !== null}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading
+                  ? t("올리는 중 {current}/{total}", uploading)
+                  : t("올리기")}
+              </button>
+            </>
+          )}
         </footer>
         <input
           ref={fileInputRef}
@@ -701,6 +841,66 @@ export default function PublicFolderView({
     viewport.height,
     uiScale,
   );
+
+  // 빈 바탕을 누르면 고른 것을 놓고(Ctrl/⌘면 그대로), 마우스로 끌면 고무줄로
+  // 고른다 — 데스크와 같다. 좌표는 아이콘 판 기준 논리 좌표(uiScale로 나눈 값)라
+  // 아이콘 배치(placements)와 바로 견준다.
+  const startMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("[data-public-entry]")) return;
+    const additive = event.ctrlKey || event.metaKey;
+    if (!additive) setSelection(EMPTY_VISITOR_SELECTION);
+    if (event.pointerType !== "mouse") return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const pointerId = event.pointerId;
+    const startX = (event.clientX - bounds.left) / uiScale;
+    const startY = (event.clientY - bounds.top) / uiScale;
+    const initial = liveSelection;
+    const candidates = visibleFiles.map((entry) => ({
+      layoutKey: entry.id,
+      x: placements[entry.id].x,
+      y: placements[entry.id].y,
+      width: ICON_WIDTH,
+      height: ICON_HEIGHT,
+    }));
+    let moved = false;
+    const onMove = (next: PointerEvent) => {
+      if (next.pointerId !== pointerId) return;
+      const currentX = (next.clientX - bounds.left) / uiScale;
+      const currentY = (next.clientY - bounds.top) / uiScale;
+      if (!moved && Math.hypot(currentX - startX, currentY - startY) < 3) return;
+      moved = true;
+      const rectangle = {
+        x: Math.min(startX, currentX),
+        y: Math.min(startY, currentY),
+        width: Math.abs(currentX - startX),
+        height: Math.abs(currentY - startY),
+      };
+      setMarquee(rectangle);
+      setSelection(
+        rectangleVisitorSelection(initial, candidates, rectangle, additive),
+      );
+    };
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onCancel);
+      setMarquee(null);
+    };
+    const onEnd = (next: PointerEvent) => {
+      if (next.pointerId !== pointerId) return;
+      cleanup();
+    };
+    const onCancel = (next: PointerEvent) => {
+      if (next.pointerId !== pointerId) return;
+      cleanup();
+      setSelection(initial);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onCancel);
+  };
 
   return (
     <main
@@ -758,19 +958,17 @@ export default function PublicFolderView({
               }
               void uploadFiles(Array.from(event.dataTransfer.files ?? []));
             }}
-            onPointerDown={(event) => {
-              // 빈 바탕을 누르면 고른 것을 놓는다 — 데스크와 같다.
-              if (event.target === event.currentTarget) setSelectedId(null);
-            }}
           >
-            <div className={desktopStyles.iconPlane}>
+            {/* 판이 캔버스를 다 덮으므로 빈 바탕 누르기·고무줄은 판에서 받는다. */}
+            <div className={desktopStyles.iconPlane} onPointerDown={startMarquee}>
               {visibleFiles.map((entry) => {
                 const placement = placements[entry.id];
-                const selected = selectedId === entry.id;
+                const selected = isVisitorSelected(liveSelection, entry.id);
                 const dragging = drag?.id === entry.id;
                 return (
                   <div
                     key={entry.id}
+                    data-public-entry=""
                     className={`${desktopStyles.desktopIcon} ${
                       selected ? desktopStyles.iconSelected : ""
                     }`}
@@ -791,7 +989,15 @@ export default function PublicFolderView({
                       isAdmin
                         ? (event) => {
                             if (event.button !== 0) return;
-                            setSelectedId(entry.id);
+                            // Ctrl/⌘·Shift 누름은 고르기다 — 끌기를 시작하지 않고
+                            // 아래 클릭(selectFromClick)에 맡긴다.
+                            if (event.ctrlKey || event.metaKey || event.shiftKey) {
+                              return;
+                            }
+                            // 이미 고른 묶음 안의 아이콘이면 묶음을 깨지 않는다.
+                            if (!isVisitorSelected(liveSelection, entry.id)) {
+                              setSelection({ ids: [entry.id], anchorId: entry.id });
+                            }
                             dragRef.current = {
                               id: entry.id,
                               startX: event.clientX,
@@ -831,7 +1037,12 @@ export default function PublicFolderView({
                             const current = dragRef.current;
                             dragRef.current = null;
                             setDrag(null);
-                            if (!current || current.id !== entry.id || !current.moved) {
+                            if (!current || current.id !== entry.id) return;
+                            if (!current.moved) {
+                              // 끌지 않고 뗀 그냥 누름 — 그것 하나만 고른다(데스크와
+                              // 같다). 포인터를 잡은 동안의 click은 버튼까지 오지
+                              // 않을 수 있어 여기서 정한다.
+                              setSelection({ ids: [entry.id], anchorId: entry.id });
                               return;
                             }
                             const target = nearestFreeCell(
@@ -870,18 +1081,21 @@ export default function PublicFolderView({
                           ? t("두 번 눌러 내려받기")
                           : t("두 번 눌러 열기")
                       }
-                      onClick={() => setSelectedId(entry.id)}
+                      onClick={(event) => selectFromClick(entry.id, event)}
                       onDoubleClick={() => activate(entry)}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
                         event.preventDefault();
-                        setSelectedId(entry.id);
+                        selectFromClick(entry.id, event);
                         if (event.key === "Enter") activate(entry);
                       }}
                       onContextMenu={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        setSelectedId(entry.id);
+                        // 고른 묶음 안에서 연 메뉴는 묶음을 그대로 둔다.
+                        if (!isVisitorSelected(liveSelection, entry.id)) {
+                          setSelection({ ids: [entry.id], anchorId: entry.id });
+                        }
                         setMenu({
                           x: event.clientX / uiScale,
                           y: event.clientY / uiScale,
@@ -902,6 +1116,18 @@ export default function PublicFolderView({
                     {t("다시 시도")}
                   </button>
                 </div>
+              )}
+              {marquee && (
+                <div
+                  className={desktopStyles.selectionRectangle}
+                  style={{
+                    left: marquee.x,
+                    top: marquee.y,
+                    width: marquee.width,
+                    height: marquee.height,
+                  }}
+                  aria-hidden="true"
+                />
               )}
             </div>
             {dragOver && (
@@ -933,6 +1159,22 @@ export default function PublicFolderView({
             <span className={desktopStyles.preferenceCheck} aria-hidden="true" />
             <span>{t("다운로드 우선")}</span>
           </label>
+          {/* 고른 파일 한꺼번에 받기(#17 B-6) — 서버 zip 없이 3개씩 차례로. */}
+          {selectedFiles.length > 0 && (
+            <button
+              type="button"
+              className={desktopStyles.publicBatchDownload}
+              disabled={downloadSummary.active > 0}
+              onClick={() => downloads.enqueue(selectedFiles)}
+            >
+              {t("선택 {count}개 받기", { count: selectedFiles.length })}
+            </button>
+          )}
+          {downloadStatus && (
+            <span role="status" className={desktopStyles.desktopLabel}>
+              {downloadStatus}
+            </span>
+          )}
           {/* 올릴 때 함께 남는 이름(#17 B-4) — 비워 두면 "손님"으로만 남는다. */}
           <label className={desktopStyles.publicSender}>
             <span>{t("보내는 사람")}</span>

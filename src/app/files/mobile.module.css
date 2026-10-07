@@ -273,6 +273,48 @@
 }
 
 /* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 올리기 버튼 옆. */
+/* 공개 폴더 고르기 모드(#17 B-6) — 머리줄의 켜기/끄기 단추, 고른 줄과 칸 표시. */
+.publicSelectToggle {
+  margin-left: auto;
+  padding: 0 10px;
+}
+
+.publicSelectToggle[aria-pressed="true"] {
+  color: #fff8e7;
+  background: #a53c46;
+}
+
+.rowPicked {
+  background: #ffd27d;
+}
+
+.rowCheck {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #c7b994;
+}
+
+.rowCheck[data-checked="true"] {
+  background: #61b3a6;
+  box-shadow: inset 2px 2px 0 #b9e1cf;
+}
+
+.rowCheck[data-checked="true"]::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  width: 5px;
+  height: 10px;
+  border-right: 3px solid #10172b;
+  border-bottom: 3px solid #10172b;
+  transform: rotate(45deg);
+}
+
 .senderInput {
   min-width: 0;
   min-height: 44px;
