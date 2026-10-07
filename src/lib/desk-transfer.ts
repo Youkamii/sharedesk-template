@@ -7,7 +7,10 @@
 
 // 붙여넣기 실수로 들어오는 긴 쓰레기 값을 파싱 전에 자른다.
 const MAX_INPUT_LENGTH = 2048;
-const SHARE_PATH = /^\/api\/share\/([0-9a-f]{48})$/;
+// 링크 주소(/api/share/<linkId>)와, 그 링크를 브라우저로 열면 보이는 받기 화면
+// 주소(/public/share/<linkId> — #17 B-3)를 모두 받는다. 어느 쪽이든 가져오기는
+// 원래 링크 주소(/api/share/<linkId>)로 한다.
+const SHARE_PATH = /^\/(?:api|public)\/share\/([0-9a-f]{48})$/;
 // 항목 id는 보내는 데스크가 목록으로 알려 준 값이다. 로컬 저장소는 상대경로를
 // base64url로 감싼 id를 쓰는데(3바이트가 4자), 한글 폴더 몇 단계면 256자를
 // 쉽게 넘어 정상 트리가 복사되지 않았다.

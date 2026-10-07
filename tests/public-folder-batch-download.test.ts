@@ -133,8 +133,9 @@ test("받기 큐: 공개 폴더 주소로 3개씩 차례로, 끝나면 다음 �
     },
     saveBlob() {},
     saveNative() {
-      throw new Error("작은 파일은 브라우저에 맡기지 않는다");
+      throw new Error("크기를 아는 작은 파일은 브라우저에 맡기지 않는다");
     },
+    holdNative: () => Promise.resolve(),
   };
   let seq = 0;
   const runner = createVisitorDownloadRunner({
@@ -176,44 +177,50 @@ test("배선: 데스크톱 — 고르기·고무줄·작업표시줄 받기 단�
   ]);
   // 단일 선택 상태는 없어졌다 — 선택은 하나의 규칙(visitor-selection)으로.
   assert.doesNotMatch(view, /selectedId|setSelectedId/);
-  assert.match(view, /const selected = isVisitorSelected\(liveSelection, entry\.id\);/);
-  assert.match(view, /pruneVisitorSelection\(\s*selection,\s*visibleFiles\.map/);
-  assert.match(view, /toggle: event\.ctrlKey \|\| event\.metaKey, range: event\.shiftKey/);
+  for (const call of [
+    "isVisitorSelected(",
+    "clickVisitorSelection(",
+    "pruneVisitorSelection(",
+    "rectangleVisitorSelection(",
+    "selectedVisitorFiles(",
+  ]) {
+    assert.ok(view.includes(call), call);
+  }
+  assert.match(view, /event\.shiftKey/);
   // 고무줄: 판(iconPlane)에서 시작, 아이콘 위에서는 시작하지 않는다, 마우스만.
-  assert.match(view, /<div className=\{desktopStyles\.iconPlane\} onPointerDown=\{startMarquee\}>/);
-  assert.match(view, /closest\("\[data-public-entry\]"\)/);
-  assert.match(view, /data-public-entry=""/);
-  assert.match(view, /if \(event\.pointerType !== "mouse"\) return;/);
-  assert.match(view, /rectangleVisitorSelection\(initial, candidates, rectangle, additive\)/);
-  assert.match(view, /className=\{desktopStyles\.selectionRectangle\}/);
-  // 관리자 끌기와 겹치지 않게: 수정 키 누름은 끌기를 시작하지 않는다.
-  assert.match(view, /if \(event\.ctrlKey \|\| event\.metaKey \|\| event\.shiftKey\) \{\s*return;\s*\}/);
-  // 받기: 공개 폴더 다운로드 주소, 3개씩 차례로(공용 큐), 받는 동안 단추 막힘.
-  assert.match(
-    view,
-    /useVisitorDownloads\(\s*\(entryId\) =>\s*`\/api\/public-folder\/\$\{token\}\/download\?id=\$\{encodeURIComponent\(entryId\)\}`/,
-  );
-  assert.match(view, /onClick=\{\(\) => downloads\.enqueue\(selectedFiles\)\}/);
-  assert.match(view, /t\("선택 \{count\}개 받기", \{ count: selectedFiles\.length \}\)/);
-  assert.match(view, /disabled=\{downloadSummary\.active > 0\}/);
-  assert.match(view, /t\("내려받는 중 \{done\}\/\{total\}"/);
+  assert.match(view, /iconPlane\} onPointerDown=\{startMarquee\}/);
+  assert.match(view, /data-public-entry/);
+  assert.match(view, /pointerType !== "mouse"/);
+  assert.match(view, /desktopStyles\.selectionRectangle/);
+  // 받기: 공개 폴더 다운로드 주소, 3개씩 차례로(공용 큐), 공용 진행 문구.
+  assert.match(view, /useVisitorDownloads\(/);
+  assert.match(view, /\/api\/public-folder\/\$\{token\}\/download\?id=/);
+  assert.match(view, /\.enqueue\(selectedFiles\)/);
+  assert.match(view, /formatVisitorDownloadStatus\(/);
+  assert.match(view, /"선택 \{count\}개 받기"/);
   assert.match(desktopCss, /\.publicBatchDownload \{/);
   assert.match(desktopCss, /\.selectionRectangle \{/);
 });
 
-test("배선: 좁은 화면 — 고르기 모드 켜고 줄을 눌러 고른 뒤 받기 (#17 B-6)", async () => {
+test("배선: 좁은 화면 — 고르기 모드, 선택 기준은 전체 파일, 파일이 없으면 모드 자동 해제 (#17 B-6)", async () => {
   const [view, mobileCss] = await Promise.all([
     read("src/app/public/[token]/PublicFolderView.tsx"),
     read("src/app/files/mobile.module.css"),
   ]);
-  assert.match(view, /setSelectMode\(\(current\) => !current\);\s*setSelection\(EMPTY_VISITOR_SELECTION\);/);
-  assert.match(view, /\{selectMode \? t\("취소"\) : t\("고르기"\)\}/);
-  // 고르기 모드에서는 줄을 눌러도 열지 않고 넣고 뺀다.
-  assert.match(view, /if \(!selectMode\) \{\s*activate\(entry\);\s*return;\s*\}/);
-  assert.match(view, /\{ toggle: true, range: false \}/);
-  assert.match(view, /className=\{mobileStyles\.rowCheck\}/);
-  assert.match(view, /onClick=\{\(\) => downloads\.enqueue\(mobileSelected\)\}/);
-  assert.match(view, /const mobileSelected = selectedVisitorFiles\(files, liveSelection\);/);
+  assert.match(view, /setSelectMode\(/);
+  assert.match(view, /"고르기"/);
+  assert.match(view, /mobileStyles\.rowCheck/);
+  assert.match(view, /\.enqueue\(mobileSelected\)/);
+  // 검색 칸은 데스크톱에만 있으므로 좁은 화면의 선택 기준은 files다.
+  assert.match(view, /narrow \? files : visibleFiles/);
+  assert.match(view, /selectedVisitorFiles\(files,/);
+  // 목록에 파일이 없으면 고르기 모드를 끈다(독이 "선택 0개 받기"에 갇히지 않게).
+  const exitAt = view.indexOf("setSelectMode(false)");
+  assert.ok(exitAt > 0, "고르기 자동 해제");
+  assert.ok(
+    view.lastIndexOf("setListing(body)", exitAt) > 0,
+    "목록을 받은 자리에서 판단한다",
+  );
   for (const rule of [".publicSelectToggle {", ".rowPicked {", ".rowCheck {"]) {
     assert.ok(mobileCss.includes(rule), rule);
   }

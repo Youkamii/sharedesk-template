@@ -251,7 +251,45 @@
   pointer-events: none;
 }
 
-.screen :is(a, button):focus-visible {
+/* 링크 주소 복사(원래 /api/share/<linkId> 꼴) — 받기 단추 아래 크림 보조 단추. */
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  color: #1b1b2f;
+  background: #fff8e7;
+  border: 2px solid #10172b;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #ffffff, inset -2px -2px 0 #d9c9a4;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.secondary:hover {
+  background: #ffd27d;
+}
+
+.copyField {
+  min-width: 0;
+  padding: 7px 8px;
+  color: var(--ink);
+  background: #fff8e7;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+  user-select: text;
+}
+
+.screen :is(a, button, input):focus-visible {
   outline: 2px solid #2d5c5b;
   outline-offset: 2px;
 }

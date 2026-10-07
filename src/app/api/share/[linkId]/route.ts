@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   SHARE_LINK_ID_PATTERN,
   formatUtcExpiry,
-  shareLandingInlineType,
   shareLandingPath,
+  shareLandingPreviewPlan,
   wantsShareLanding,
 } from "@/lib/share-landing";
 import { recordShareLinkDownloadAfter } from "@/lib/share-link-downloads";
 import { resolveShareLink } from "@/lib/share-links";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
-import type { DownloadResult, Entry } from "@/lib/storage/types";
+import type { DownloadResult, Entry, StorageAdapter } from "@/lib/storage/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -63,21 +63,91 @@ function downloadResponse(
   return new Response(file.stream, { status: file.status, headers });
 }
 
-// 받기 화면(#17 B-3)의 작은 미리보기. 링크·폴더 범위 가드는 내려받기와 같은
-// 길을 지난 뒤에만 여기 온다. 이미지·PDF·텍스트(텍스트는 text/plain 강제)만
-// inline으로 내고, 그 밖의 형식은 내주지 않는다 — 미리보기는 받아 간 횟수에
-// 세지 않으므로, 세지 않는 내려받기 통로가 되지 않게 한다.
-function previewResponse(file: DownloadResult, name: string): Response | null {
-  const inlineType = shareLandingInlineType({ name, mimeType: file.mimeType });
-  if (!inlineType) return null;
-  return downloadResponse(file, name, inlineType);
+// 앞 maxBytes만 흘려보내고 원본은 닫는다 — 저장소가 범위 요청을 무시하고
+// 전체를 주더라도 텍스트 미리보기는 앞부분만 나간다.
+function limitDownload(file: DownloadResult, maxBytes: number): DownloadResult {
+  const reader = file.stream.getReader();
+  let sent = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        controller.close();
+        return;
+      }
+      const room = maxBytes - sent;
+      const part =
+        chunk.value.byteLength > room ? chunk.value.subarray(0, room) : chunk.value;
+      sent += part.byteLength;
+      if (part.byteLength > 0) controller.enqueue(part);
+      if (sent >= maxBytes) {
+        controller.close();
+        await reader.cancel().catch(() => undefined);
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+  const length = file.contentLength ?? file.size;
+  return {
+    ...file,
+    stream,
+    contentLength: length === null ? null : Math.min(length, maxBytes),
+  };
 }
 
-function previewUnsupported(file: DownloadResult): Response {
-  void file.stream.cancel().catch(() => undefined);
+function previewUnsupported(): Response {
   return NextResponse.json(
-    { error: "미리보기를 지원하지 않는 형식입니다" },
+    { error: "미리보기로 열 수 없는 파일입니다(형식이나 크기)" },
     { status: 415, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+// 받기 화면(#17 B-3)의 작은 미리보기(preview=1). 링크·폴더 범위 가드는 내려받기와
+// 같은 길을 지난 뒤에만 여기 온다. 미리보기는 받아 간 횟수(B-7)에 세지 않으므로:
+// - 이미지·PDF·텍스트만 inline으로 낸다(텍스트는 text/plain 강제, nosniff).
+// - 크기 상한(이미지 8MB·PDF 16MB)을 넘거나 크기를 모르면 내주지 않는다(415) —
+//   큰 파일이 세지 않는 내려받기 통로가 되지 않게. 상한 이하의 작은 이미지·PDF는
+//   미리보기로도 통째 받을 수 있다(그만큼은 세지 않는다).
+// - 텍스트는 크기와 상관없이 앞 64KB만 낸다(요청의 Range는 보지 않는다).
+// - 그 밖의 형식은 415.
+// 먼저 항목 정보로 판정해 넘는 파일은 저장소에서 읽지도 않고, 저장소가 실제로
+// 내준 형식·크기로 한 번 더 판정한다(저장소마다 항목 정보와 다를 수 있다).
+async function previewResponse(
+  adapter: StorageAdapter,
+  id: string,
+  name: string,
+  entry: Entry,
+  range: string | undefined,
+): Promise<Response> {
+  const planned = shareLandingPreviewPlan({ name, mimeType: entry.mimeType });
+  if (!planned) return previewUnsupported();
+  const tooLarge = (size: number | null) =>
+    planned.kind !== "text" && (size === null || size > planned.maxBytes);
+  if (tooLarge(entry.size)) return previewUnsupported();
+  const file = await adapter.download(
+    id,
+    planned.kind === "text" ? `bytes=0-${planned.maxBytes - 1}` : range,
+  );
+  const served = shareLandingPreviewPlan({ name, mimeType: file.mimeType });
+  if (!served || served.kind !== planned.kind || tooLarge(file.size)) {
+    void file.stream.cancel().catch(() => undefined);
+    return previewUnsupported();
+  }
+  // 텍스트는 "앞 64KB짜리 본문"으로 낸다 — 요청에 Range가 없었으니 206·Content-Range
+  // 없이 200으로, 이어받기 광고(Accept-Ranges)도 하지 않는다.
+  return downloadResponse(
+    served.kind === "text"
+      ? {
+          ...limitDownload(file, served.maxBytes),
+          status: 200,
+          contentRange: null,
+          acceptRanges: false,
+        }
+      : file,
+    name,
+    served.inlineType,
   );
 }
 
@@ -190,7 +260,8 @@ export async function GET(
     // 다른 데스크가 복사해 갈 때는 사람이 보는 HTML 대신 기계가 읽을 목록이
     // 필요하다. 노출 범위는 HTML 목록과 같다 — 링크를 아는 쪽만 볼 수 있다.
     const wantsManifest = req.nextUrl.searchParams.get("format") === "json";
-    // 받기 화면의 미리보기(#17 B-3) — 받아 간 횟수에 세지 않는다.
+    // 받기 화면의 미리보기(#17 B-3) — 받아 간 횟수에 세지 않는다(크기 상한은
+    // previewResponse).
     const wantsPreview = req.nextUrl.searchParams.get("preview") === "1";
     // "받아 갔는지"(#17 B-7) = 저장소가 파일 본문 전송을 시작한 것. 끝까지
     // 받았는지는 보지 않는다(중간에 끊긴 내려받기도 센다 — 데스크·공개 폴더
@@ -216,8 +287,7 @@ export async function GET(
         }
         if (wantsManifest) return manifestResponse(link.expiresAt, entry, null);
         if (wantsPreview) {
-          const preview = await adapter.download(entry.id, range);
-          return previewResponse(preview, entry.name) ?? previewUnsupported(preview);
+          return previewResponse(adapter, entry.id, entry.name, entry, range);
         }
         const file = await adapter.download(entry.id, range);
         // 폴더 링크 안의 개별 파일도 기록한다 — 링크 횟수와 그 파일의 내력.
@@ -241,8 +311,10 @@ export async function GET(
         );
       }
       if (wantsPreview) {
-        const preview = await adapter.download(link.fileId, range);
-        return previewResponse(preview, link.name) ?? previewUnsupported(preview);
+        // 파일 링크의 표시 이름은 링크에 적힌 값(간이 링크의 임시 파일은 저장
+        // 이름에 확장자가 없다).
+        const entry = await adapter.getEntry(link.fileId);
+        return previewResponse(adapter, link.fileId, link.name, entry, range);
       }
       const file = await adapter.download(link.fileId, range);
       // 저장소가 파일을 내주기 시작했을 때만 센다(없는 파일은 아래 catch가 404로 접는다).

@@ -12,7 +12,10 @@ import {
 import { translate, type Locale } from "@/lib/i18n";
 import type { SelectionRect } from "@/lib/client/batch-selection";
 import { formatSize } from "@/lib/client/mobile-listing";
-import { useVisitorDownloads } from "@/lib/client/visitor-downloads";
+import {
+  formatVisitorDownloadStatus,
+  useVisitorDownloads,
+} from "@/lib/client/visitor-downloads";
 import {
   EMPTY_VISITOR_SELECTION,
   clickVisitorSelection,
@@ -367,6 +370,12 @@ export default function PublicFolderView({
         }
         setError(null);
         setListing(body);
+        // 파일이 하나도 없으면 좁은 화면의 고르기 모드를 끈다 — 고를 것도, 고르기
+        // 단추도 없는데 독이 "선택 0개 받기"에 갇히지 않게(올리기로 돌아온다).
+        if (!body.entries.some((entry) => !entry.isFolder)) {
+          setSelectMode(false);
+          setSelection(EMPTY_VISITOR_SELECTION);
+        }
         if (typeof body.noteHash !== "string") {
           noteHashRef.current = null;
           setNote(null);
@@ -540,15 +549,18 @@ export default function PublicFolderView({
       }),
     [visibleFiles, placements],
   );
+  // 좁은 화면은 데스크와 같은 규칙으로 세로 목록을 쓴다(검색 칸은 데스크톱 전용).
+  const narrow = viewport.width > 0 && viewport.width < MOBILE_LAYOUT_MAX_WIDTH;
   // 목록이 바뀌면(30초 폴링·검색) 사라지거나 가려진 항목은 선택에서 빠진다 —
-  // 상태를 고쳐 쓰지 않고 그릴 때 거른다.
+  // 상태를 고쳐 쓰지 않고 그릴 때 거른다. 좁은 화면에는 검색이 없으니 전체
+  // 파일(files)이 기준이다(넓은 화면에서 남긴 검색어에 가려지지 않게).
   const liveSelection = useMemo(
     () =>
       pruneVisitorSelection(
         selection,
-        visibleFiles.map((entry) => entry.id),
+        (narrow ? files : visibleFiles).map((entry) => entry.id),
       ),
-    [selection, visibleFiles],
+    [selection, narrow, files, visibleFiles],
   );
   const selectFromClick = useCallback(
     (
@@ -569,21 +581,8 @@ export default function PublicFolderView({
   // 받을 파일 — 고른 것 중 파일만, 화면 순서대로.
   const selectedFiles = selectedVisitorFiles(orderedFiles, liveSelection);
   // 받기 진행 표시 — 받기 화면(#17 B-3)의 모두 받기와 같은 문구.
-  const { summary: downloadSummary } = downloads;
-  const downloadStatus =
-    downloadSummary.total === 0
-      ? null
-      : downloadSummary.active > 0
-        ? t("내려받는 중 {done}/{total}", {
-            done: downloadSummary.done + downloadSummary.failed,
-            total: downloadSummary.total,
-          })
-        : downloadSummary.failed === 0
-          ? t("{count}개를 내려받았습니다", { count: downloadSummary.done })
-          : t("{done}개 받음 · {failed}개 실패", {
-              done: downloadSummary.done,
-              failed: downloadSummary.failed,
-            });
+  const downloadSummary = downloads.summary;
+  const downloadStatus = formatVisitorDownloadStatus(downloadSummary, t);
 
   // 관리자 끌어놓기(요청: 관리자는 공유폴더에서 파일 위치를 바꾼다). 데스크
   // 폴더 창과 같은 격자에 스냅하고, 이미 차 있는 칸이면 가장 가까운 빈 칸으로
@@ -686,8 +685,7 @@ export default function PublicFolderView({
     );
   }
 
-  // 좁은 화면은 데스크와 같은 규칙으로 세로 목록을 쓴다.
-  if (viewport.width > 0 && viewport.width < MOBILE_LAYOUT_MAX_WIDTH) {
+  if (narrow) {
     // 목록 순서대로 받는다.
     const mobileSelected = selectedVisitorFiles(files, liveSelection);
     return (

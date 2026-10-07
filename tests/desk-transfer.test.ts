@@ -17,6 +17,38 @@ test("다른 데스크의 공개 링크는 가져올 주소로 변환된다", ()
   assert.equal(source.manifestUrl, `${VALID}?format=json`);
 });
 
+// 링크를 브라우저로 열면 받기 화면(/public/share/<linkId>, #17 B-3)으로 넘어간다.
+// 그 주소창을 복사해 붙여도 원래 링크 주소(/api/share/<linkId>)로 받아 온다.
+test("받기 화면 주소도 받아 원래 링크 주소로 바꾼다 (#17 B-3)", () => {
+  const landing = `https://friend-desk.vercel.app/public/share/${LINK_ID}`;
+  const source = parseDeskTransferLink(landing);
+  assert.ok(source);
+  assert.equal(source.linkId, LINK_ID);
+  assert.equal(source.entryId, null);
+  assert.equal(source.fileUrl, VALID);
+  assert.equal(source.manifestUrl, `${VALID}?format=json`);
+
+  // 폴더 링크 안 항목(받기 화면의 ?entryId=)도 그대로 살린다.
+  const inside = parseDeskTransferLink(`${landing}?entryId=1AbC_de-42`);
+  assert.ok(inside);
+  assert.equal(inside.entryId, "1AbC_de-42");
+  assert.equal(inside.fileUrl, `${VALID}?entryId=1AbC_de-42`);
+  assert.equal(inside.manifestUrl, `${VALID}?format=json&entryId=1AbC_de-42`);
+
+  // 받기 화면 꼴도 같은 검사를 거친다 — 다른 경로·잘못된 id·로컬 주소는 거부.
+  for (const input of [
+    `https://friend-desk.vercel.app/public/${LINK_ID}`,
+    `https://friend-desk.vercel.app/public/share/${"a".repeat(47)}`,
+    `https://friend-desk.vercel.app/public/share/${LINK_ID}/x`,
+    `https://friend-desk.vercel.app/files/share/${LINK_ID}`,
+    `http://friend-desk.vercel.app/public/share/${LINK_ID}`,
+    `https://localhost/public/share/${LINK_ID}`,
+    `${landing}?entryId=../../secret`,
+  ]) {
+    assert.equal(parseDeskTransferLink(input), null, `통과하면 안 됨: ${input}`);
+  }
+});
+
 test("붙여넣기 앞뒤 공백은 흡수한다", () => {
   assert.ok(parseDeskTransferLink(`  ${VALID}\n`));
 });

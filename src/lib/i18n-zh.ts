@@ -937,6 +937,7 @@ export const ZH: Record<string, string> = {
   "닫혔습니다": "已关闭",
   "{days}일 {time} 남음": "剩余 {days} 天 {time}",
   "{time} 남음": "剩余 {time}",
+  "링크 주소 복사": "复制链接地址",
   // 공개 폴더 여러 파일 받기 (#17 B-6)
   "고르기": "选择",
   "선택 {count}개 받기": "下载所选 {count} 个",

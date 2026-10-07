@@ -140,7 +140,8 @@ export function guessMime(name: string): string {
 }
 
 // mime이 없거나 옥텟이면(예: local 드라이버) 확장자로 보정한 mime을 돌려준다.
-function effectiveMime(mimeType: string | null, name: string): string | null {
+// 공유 링크 받기 화면(share-landing.ts)도 같은 보정을 쓴다.
+export function effectiveMime(mimeType: string | null, name: string): string | null {
   if (mimeType && mimeType !== "application/octet-stream") {
     return mimeType.split(";")[0].trim().toLowerCase();
   }

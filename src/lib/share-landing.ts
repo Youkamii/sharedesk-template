@@ -2,9 +2,19 @@
 // 화면으로 보낼지·미리보기를 inline으로 내도 되는지)와 화면(남은 시간·주소)이
 // 함께 쓴다. 저장소·Node 전용 import가 없어 클라이언트 컴포넌트에서도 쓴다.
 
-import { guessMime, inlineContentType, previewKindOf } from "@/lib/preview";
+import { effectiveMime, inlineContentType, previewKindOf } from "@/lib/preview";
 
 export const SHARE_LINK_ID_PATTERN = /^[a-f0-9]{48}$/;
+
+// 링크 주소 — 사람이 나눠 받은 원래 꼴. 받기 화면의 "링크 주소 복사"가 이 꼴을
+// 준다(다른 데스크에서 받기·도구가 그대로 쓴다). 폴더 안 항목이면 entryId를 붙인다.
+export function shareLinkPath(
+  linkId: string,
+  entryId: string | null = null,
+): string {
+  const base = `/api/share/${encodeURIComponent(linkId)}`;
+  return entryId ? `${base}?entryId=${encodeURIComponent(entryId)}` : base;
+}
 
 // 받기 화면 주소. 링크 주소(/api/share/<linkId>) 자체는 그대로 두고, 브라우저로
 // 연 요청만 이 화면으로 보낸다 — 공개 폴더 화면과 같은 /public 아래(예약어)라
@@ -58,40 +68,58 @@ export function wantsShareLanding(
 
 export type ShareLandingPreview = "image" | "pdf" | "text";
 
+// 미리보기로 내주는 크기 상한. 미리보기는 받아 간 횟수(B-7)에 세지 않으므로,
+// 큰 파일이 세지 않는 내려받기 통로가 되지 않게 상한을 둔다 — 넘으면 라우트가
+// 내주지 않는다(415). 텍스트는 크기와 상관없이 앞부분만 낸다. 상한 이하의 작은
+// 이미지·PDF는 미리보기로도 통째 받을 수 있다(그만큼은 세지 않는다).
+export const SHARE_PREVIEW_MAX_BYTES: Record<ShareLandingPreview, number> = {
+  image: 8 * 1024 * 1024,
+  pdf: 16 * 1024 * 1024,
+  text: 64 * 1024,
+};
+
 // 받기 화면의 작은 미리보기는 이미지·PDF·텍스트만. 판정은 데스크 미리보기와
 // 같은 함수(previewKindOf)에, inline 허용은 다운로드 라우트와 같은 가드
 // (inlineContentType)에 맡긴다. previewKindOf는 저장소가 변환해 줄 수 있는
 // 형식(오피스·구글 문서)도 pdf로 보지만, 받기 화면은 원본을 그대로 내므로
-// 원본 형식이 안전할 때만 미리보기로 친다.
+// 원본 형식이 안전할 때만 미리보기로 친다. 저장소가 형식을 모르면(옥텟 — 간이
+// 링크의 숨김 임시 파일처럼 저장 이름에 확장자가 없을 때) 링크에 적힌 이름의
+// 확장자로 보정한다(preview.ts의 effectiveMime). 보정해도 내보내는 형식은 inline
+// 가드가 정한 안전한 값(이미지·PDF·text/plain)뿐이고 nosniff가 붙는다.
+function inlinePreview(entry: {
+  isFolder: boolean;
+  name: string;
+  mimeType: string | null;
+}): { kind: ShareLandingPreview; inlineType: string } | null {
+  if (entry.isFolder) return null;
+  const kind = previewKindOf(entry);
+  if (kind !== "image" && kind !== "pdf" && kind !== "text") return null;
+  const mime = effectiveMime(entry.mimeType, entry.name);
+  const inlineType = mime ? inlineContentType(mime, entry.name) : null;
+  return inlineType ? { kind, inlineType } : null;
+}
+
 export function shareLandingPreviewKind(entry: {
   isFolder: boolean;
   name: string;
   mimeType: string | null;
 }): ShareLandingPreview | null {
-  if (entry.isFolder) return null;
-  const kind = previewKindOf(entry);
-  if (kind !== "image" && kind !== "pdf" && kind !== "text") return null;
-  return inlineContentType(effectiveMime(entry), entry.name) ? kind : null;
+  return inlinePreview(entry)?.kind ?? null;
 }
 
-// 저장소가 형식을 모르면(옥텟 — 간이 링크의 숨김 임시 파일처럼 저장 이름에
-// 확장자가 없을 때) 링크에 적힌 이름의 확장자로 보정한다. 보정해도 내보내는
-// 형식은 아래 inline 가드가 정한 안전한 값(이미지·PDF·text/plain)뿐이고
-// nosniff가 붙어, 이름만 바꾼 HTML이 화면에서 실행되지 않는다.
-function effectiveMime(entry: { name: string; mimeType: string | null }): string {
-  return entry.mimeType && entry.mimeType !== "application/octet-stream"
-    ? entry.mimeType
-    : guessMime(entry.name);
-}
-
-// 링크 라우트의 미리보기(preview=1) 응답 형식. 미리보기 대상이 아니면 null —
-// 라우트는 내주지 않는다.
-export function shareLandingInlineType(file: {
+// 링크 라우트의 미리보기(preview=1) 판정 — 내보낼 형식·종류·크기 상한.
+// 미리보기 대상이 아니면 null이고 라우트는 내주지 않는다.
+export function shareLandingPreviewPlan(file: {
   name: string;
   mimeType: string | null;
-}): string | null {
-  return shareLandingPreviewKind({ ...file, isFolder: false })
-    ? inlineContentType(effectiveMime(file), file.name)
+}): {
+  kind: ShareLandingPreview;
+  inlineType: string;
+  maxBytes: number;
+} | null {
+  const preview = inlinePreview({ ...file, isFolder: false });
+  return preview
+    ? { ...preview, maxBytes: SHARE_PREVIEW_MAX_BYTES[preview.kind] }
     : null;
 }
 
@@ -102,6 +130,16 @@ export interface ShareRemaining {
   hours: number;
   minutes: number;
   seconds: number;
+}
+
+// 브라우저 시계와 서버 시계의 차이. 받기 화면은 서버가 그린 시각(renderedAt)과
+// 브라우저가 처음 잰 시각의 차이를 보정값으로 잡아, 남은 시간·닫힘 판정을 서버
+// 시계로 잰다 — 시계가 틀린 PC에서 아직 열린 링크를 닫혔다고 하거나 그 반대가
+// 되지 않게. 페이지가 오는 데 걸린 시간만큼은 남은 시간이 조금 길게 보일 수 있다.
+export function serverClockOffset(serverNow: number, clientNow: number): number {
+  return Number.isFinite(serverNow) && Number.isFinite(clientNow)
+    ? serverNow - clientNow
+    : 0;
 }
 
 // 만료까지 남은 시간. 서버 판정(만료 시각 <= 지금이면 닫힘)과 같게, 남은
@@ -166,8 +204,10 @@ export interface ShareLandingModel {
   kind: "file" | "folder";
   // 링크 이름(폴더 링크면 맨 위 폴더 이름).
   rootName: string;
-  // 링크를 만든 사람의 표시 이름. 비어 있으면 화면이 줄을 감춘다.
-  sender: string;
+  // 보낸 사람 — 링크를 만든 멤버의 데스크 별명(nickname)일 때만 싣는다. 링크
+  // 장부의 createdBy는 구글 실명(없으면 이메일)이라 링크만 아는 외부에 내보내지
+  // 않는다. 별명이 없으면 null이고 화면은 줄 자체를 감춘다.
+  sender: string | null;
   expiresAt: string;
   // 지금 보는 항목을 가리키는 entryId. 링크가 가리키는 항목 자신이면 null —
   // 그 id는 화면에 싣지 않는다(local 저장소 id는 경로를 감싼 값이라, 목록
@@ -184,16 +224,17 @@ export interface ShareLandingModel {
   entries: ShareLandingEntry[] | null;
 }
 
-// 화면에 넘길 값만 골라 담는다. 링크 장부의 fileId·만든 사람 id 같은 내부 값은
-// 여기서 걸러져 클라이언트(RSC 페이로드)로 나가지 않는다.
+// 화면에 넘길 값만 골라 담는다. 링크 장부의 fileId·만든 사람 id·만든 사람
+// 실명(createdBy) 같은 내부 값은 받지도 않아 클라이언트(RSC 페이로드)로 나가지
+// 않는다. senderNickname은 서버가 명단에서 찾은 데스크 별명(없으면 null).
 export function describeShareLanding(
   link: {
     linkId: string;
     name: string;
     kind: "file" | "folder";
-    createdBy: string;
     expiresAt: string;
   },
+  senderNickname: string | null,
   entryId: string | null,
   entry: {
     name: string;
@@ -207,7 +248,7 @@ export function describeShareLanding(
     linkId: link.linkId,
     kind: link.kind,
     rootName: link.name,
-    sender: link.createdBy.trim(),
+    sender: senderNickname?.trim() || null,
     expiresAt: link.expiresAt,
     entryId,
     current: {
