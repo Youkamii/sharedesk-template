@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryChangeAfter } from "@/lib/entry-audit";
 import { holdsRegisteredPublicFolder } from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithEditRights } from "@/lib/api";
@@ -23,13 +24,14 @@ export async function POST(req: NextRequest) {
     }
     try {
       const adapter = getAdapter();
-      // 이름은 기록용 — 조회가 실패해도 삭제는 계속한다.
-      const name = await adapter
-        .getEntry(body.id)
-        .then((entry) => entry.name)
-        .catch(() => null);
+      // 항목은 기록용 — 조회가 실패해도 삭제는 계속한다.
+      const entry = await adapter.getEntry(body.id).catch(() => null);
       await adapter.remove(body.id);
-      if (name) recordActivityAfter(session, "trash", name);
+      if (entry) {
+        recordActivityAfter(session, "trash", entry.name);
+        // 최근 파일 창(#16 C-1)이 위치를 찾지 않고 "지워짐"으로 판정하게.
+        recordEntryChangeAfter(entry, session, "deleted");
+      }
       return NextResponse.json({ ok: true });
     } catch (e) {
       return errorResponse(e);

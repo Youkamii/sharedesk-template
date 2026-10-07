@@ -317,12 +317,12 @@ test("API: 헤더로 받은 이름을 손님 표시와 함께 내력·활동에 
       }
 
       // 멤버가 같은 자리에 다시 올리면 손님 표시가 지워진다.
-      await audit.recordEntryUpload(a.layoutKey, "멤버");
+      await audit.recordEntryUpload(a, { userId: "u-member", name: "멤버" });
       const memberAudit = await audit.getEntryAudit(a.layoutKey);
       assert.equal(memberAudit?.uploadedBy, "멤버");
       assert.equal(memberAudit?.uploadedByGuest, undefined);
       // 그 위에 이름 없는 손님이 다시 올리면 앞 주인 이름이 남지 않는다.
-      await audit.recordEntryGuestUpload(a.layoutKey, null);
+      await audit.recordEntryGuestUpload(a, null);
       const guestAgain = await audit.getEntryAudit(a.layoutKey);
       assert.equal(guestAgain?.uploadedBy, undefined);
       assert.equal(guestAgain?.uploadedByGuest, true);
@@ -348,11 +348,8 @@ test("배선: 업로드 라우트·속성 API·화면 셋이 손님 이름을 �
   assert.ok(parseAt > 0, "헤더 이름을 parseGuestNameHeader로 정제한다");
   assert.ok(parseAt < route.indexOf("reserveUpload("), "예약 전에 거른다");
   assert.doesNotMatch(route, /searchParams\.get\("sender"\)/);
-  // 이름(#16 C-1)은 지워진 뒤에도 최근 파일 창이 보여 주려고 함께 남긴다.
-  assert.match(
-    route,
-    /recordEntryGuestUploadAfter\(entry\.layoutKey, sender, \{ name: entry\.name \}\)/,
-  );
+  // 항목을 그대로 넘긴다 — 이름(#16 C-1)은 지워진 뒤에도 최근 파일 창이 보여 준다.
+  assert.match(route, /recordEntryGuestUploadAfter\(entry, sender\)/);
   assert.match(route, /guest: true \}/);
   assert.match(route, /group: `public:\$\{resolved\.folder\.id\}`/);
 

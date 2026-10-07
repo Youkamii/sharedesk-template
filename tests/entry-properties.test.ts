@@ -12,10 +12,10 @@ test("업로드는 항목별 내력에도 올린 사람을 남긴다 (#14)", asy
   ]);
 
   for (const source of [upload, importRoute]) {
-    // 최근 파일 창(#16 C-1)이 지금 화면 이름·지워진 뒤 이름을 찾게 id·이름도 붙는다.
+    // 항목과 세션을 그대로 넘긴다 — 최근 파일 창(#16 C-1)이 쓰는 id·이름도 함께 남는다.
     assert.match(
       source,
-      /recordEntryUploadAfter\(entry\.layoutKey, session\.name, \{\s*userId: session\.userId,\s*name: entry\.name,\s*\}\)/,
+      /recordEntryUploadAfter\(entry, session\)/,
       "activity.json은 최근 200건뿐이라 항목별 기록이 따로 있어야 한다",
     );
   }

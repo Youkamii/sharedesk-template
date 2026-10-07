@@ -14,10 +14,6 @@ import type {
   RecentFilesResponse,
 } from "@/lib/recent-files";
 
-// 한 번 누르기(원래 자리로)를 이만큼 미뤄 두 번 누르기(열기)와 가른다. 바로
-// 옮기면 첫 클릭에 열린 폴더 창이 두 번째 클릭을 가로챈다.
-export const RECENT_REVEAL_DELAY_MS = 250;
-
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -111,17 +107,20 @@ export function recentActionLabel(action: RecentAction): string {
 
 /**
  * 안 본 항목인가 — NEW 배지(#16 C-2)와 같은 판정: 지금 있는 파일이 그 폴더를 마지막으로
- * 본 기준보다 늦게 바뀌었고 내가 올린 그 버전이 아니면 NEW. 사라진 항목·폴더는 점이 없다.
+ * 본 기준보다 늦게 바뀌었고 내가 올린 그 버전이 아니면 NEW. 자리가 없는 항목·폴더는 점이 없다.
  */
 export function recentItemIsNew(
-  item: Pick<RecentFileItem, "entry" | "parentId" | "exists">,
+  item: Pick<RecentFileItem, "location">,
   state: NewBadgeState | null,
   own: OwnUploadIndex,
 ): boolean {
-  if (!state || item.exists !== true || !item.entry || item.parentId === null) {
-    return false;
-  }
-  return isNewEntry(item.entry, folderSeenAt(state, item.parentId), own);
+  const location = item.location;
+  if (!state || !location) return false;
+  return isNewEntry(
+    location.entry,
+    folderSeenAt(state, location.parentId),
+    own,
+  );
 }
 
 /** 서버 시각 − 받은 순간의 브라우저 시각. 읽을 수 없으면 0(보정 없음). */
@@ -132,6 +131,18 @@ export function serverClockOffset(serverNow: unknown, receivedAt: number): numbe
 }
 
 const ACTIONS = new Set<string>(Object.keys(ACTION_LABELS));
+
+function isLocation(value: unknown): value is RecentFileItem["location"] {
+  const location = value as RecentFileItem["location"] | undefined;
+  return (
+    location === null ||
+    (!!location &&
+      typeof location.entry?.id === "string" &&
+      typeof location.parentId === "string" &&
+      Array.isArray(location.breadcrumbs) &&
+      typeof location.path === "string")
+  );
+}
 
 function isRecentItem(value: unknown): value is RecentFileItem {
   const item = value as Partial<RecentFileItem> | null;
@@ -148,9 +159,7 @@ function isRecentItem(value: unknown): value is RecentFileItem {
     !!item.actor &&
     typeof item.actor.guest === "boolean" &&
     (item.exists === true || item.exists === false || item.exists === null) &&
-    Array.isArray(item.path) &&
-    (item.entry === null ||
-      (typeof item.entry === "object" && typeof item.entry?.id === "string"))
+    isLocation(item.location)
   );
 }
 
@@ -165,5 +174,6 @@ export function parseRecentResponse(body: unknown): RecentFilesResponse | null {
     days: typeof value.days === "number" ? value.days : 0,
     items: value.items.filter(isRecentItem),
     truncated: value.truncated === true,
+    explored: typeof value.explored === "number" ? value.explored : 0,
   };
 }

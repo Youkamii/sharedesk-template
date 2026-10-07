@@ -3556,6 +3556,9 @@ button.userName {
 }
 
 .recentRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   background: #f4e7c5;
   border: 2px solid #a89276;
   box-shadow: inset 1px 1px 0 #fff8e7;
@@ -3564,6 +3567,32 @@ button.userName {
 .recentRow:hover {
   border-color: #2f4670;
   background: #f8edcf;
+}
+
+/* 한 번 누른 줄 — 데스크 아이콘 선택과 같은 청록 */
+.recentRow.recentSelected {
+  border-color: #2d5c5b;
+  background: #dcece4;
+}
+
+.recentReveal {
+  margin-right: 6px;
+  min-height: 26px;
+  padding: 3px 7px;
+  color: #1b1b2f;
+  background: #e5d6b7;
+  border: 2px solid #5e5361;
+  box-shadow: inset 1px 1px 0 #fff8e7, inset -1px -1px 0 #a89276;
+  font: inherit;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.recentReveal:hover,
+.recentReveal:focus-visible {
+  color: #fff8e7;
+  background: #2d5c5b;
 }
 
 .recentMain {

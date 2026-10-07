@@ -18,7 +18,7 @@ const MAX_ENTRIES = 4_000;
 const MAX_DOWNLOADS = 20;
 const MAX_KEY_LENGTH = 1024;
 const MAX_NAME_LENGTH = 120;
-// 항목 하나가 기억하는 최근 변경(수정·이름 변경·이동) 수(#16 C-1).
+// 항목 하나가 기억하는 최근 변경(수정·이름 변경·이동·삭제·복원) 수(#16 C-1).
 const MAX_CHANGES = 20;
 // 항목 이름은 저장소 이름 상한(assertValidName 255자)까지 그대로 둔다.
 const MAX_ENTRY_NAME_LENGTH = 255;
@@ -37,8 +37,17 @@ export interface EntryDownload {
 // share는 공유 링크(/api/share/<linkId> — 간이 링크 포함) 방문자다.
 export type EntryDownloadVia = "public" | "share";
 
-// 최근 파일 창(#16 C-1)이 보여 주는 변경. 업로드는 uploadedAt이 따로 맡는다.
-export const ENTRY_CHANGE_KINDS = ["edit", "rename", "move"] as const;
+// 최근 파일 창(#16 C-1)이 읽는 변경. 업로드는 uploadedAt이 따로 맡는다.
+// deleted·restored는 줄이 아니라 상태 표시다 — 마지막 표시가 deleted면 위치를
+// 찾지 않고 "지워짐"으로 판정한다(휴지통으로 보낸 항목만. 지워진 폴더 안의
+// 항목은 표시가 없어 위치 찾기로 가린다).
+export const ENTRY_CHANGE_KINDS = [
+  "edit",
+  "rename",
+  "move",
+  "deleted",
+  "restored",
+] as const;
 export type EntryChangeKind = (typeof ENTRY_CHANGE_KINDS)[number];
 
 export interface EntryChange {
@@ -52,6 +61,8 @@ export interface EntryChange {
 
 // 기록하는 쪽 — 세션의 신원(이름·id).
 export type EntryActor = Pick<SessionInfo, "userId" | "name">;
+// 기록 대상 — 바뀐 뒤의 항목.
+export type EntryTarget = Pick<Entry, "layoutKey" | "name" | "isFolder">;
 
 export interface EntryAudit {
   uploadedBy?: string;
@@ -84,11 +95,24 @@ interface EntryAuditFile {
   entries: Record<string, EntryAudit>;
 }
 
-function cleanName(value: unknown): string | undefined {
+function cleanName(
+  value: unknown,
+  max = MAX_NAME_LENGTH,
+): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   if (!trimmed) return undefined;
-  return trimmed.slice(0, MAX_NAME_LENGTH);
+  return trimmed.slice(0, max);
+}
+
+// 필드 몇 개를 뺀 얕은 복사.
+function omit<T extends object, K extends keyof T>(
+  value: T,
+  ...keys: K[]
+): Omit<T, K> {
+  const copy = { ...value };
+  for (const key of keys) delete copy[key];
+  return copy;
 }
 
 function cleanTime(value: unknown): string | undefined {
@@ -97,12 +121,6 @@ function cleanTime(value: unknown): string | undefined {
   return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
 }
 
-function cleanEntryName(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  return trimmed.slice(0, MAX_ENTRY_NAME_LENGTH);
-}
 
 function cleanActorId(value: unknown): string | undefined {
   if (
@@ -195,7 +213,7 @@ function cleanAudit(value: unknown): EntryAudit | null {
   }
   const uploadedById = cleanActorId(raw.uploadedById);
   if (uploadedById) audit.uploadedById = uploadedById;
-  const name = cleanEntryName(raw.name);
+  const name = cleanName(raw.name, MAX_ENTRY_NAME_LENGTH);
   if (name) audit.name = name;
   if (raw.isFolder === true) audit.isFolder = true;
   const changes = cleanChanges(raw.changes);
@@ -254,9 +272,16 @@ export async function listEntryAudits(): Promise<Record<string, EntryAudit>> {
   return normalize(state.value).entries;
 }
 
-// 두 기록을 합친다(앞 열쇠의 기록을 새 열쇠로 옮길 때). 새 열쇠 쪽 값이
-// 우선이고, 내력 목록은 시각순으로 섞어 상한까지 남긴다.
-function mergeAudits(carried: EntryAudit, current: EntryAudit): EntryAudit {
+// 두 기록을 합친다(앞 열쇠의 기록을 새 열쇠로 옮길 때). 하나짜리 값은 새 열쇠
+// 쪽이 우선이고, 횟수는 더하며, 내력 목록은 시각순으로 섞어 상한까지 남긴다.
+//
+// 알려진 틈: 본문 수정 기록(열쇠 옮기기)보다 앞 열쇠로 가는 기록(예: 같은 순간의
+// 내려받기)이 늦게 줄을 서면 그 한 건은 앞 열쇠에 고아로 남는다. 기록은 최선
+// 노력이고 고아는 넘칠 때 오래된 것부터 버려진다.
+export function mergeAudits(
+  carried: EntryAudit,
+  current: EntryAudit,
+): EntryAudit {
   const merged: EntryAudit = { ...carried, ...current };
   const byNewest = <T extends { at: string }>(left: T, right: T) =>
     Date.parse(right.at) - Date.parse(left.at);
@@ -271,7 +296,35 @@ function mergeAudits(carried: EntryAudit, current: EntryAudit): EntryAudit {
     .sort(byNewest)
     .slice(0, MAX_DOWNLOADS);
   if (downloads.length > 0) merged.downloads = downloads;
+  const sum = (left?: number, right?: number) =>
+    Math.min((left ?? 0) + (right ?? 0), Number.MAX_SAFE_INTEGER);
+  if (carried.downloadCount || current.downloadCount) {
+    merged.downloadCount = sum(carried.downloadCount, current.downloadCount);
+  }
+  if (carried.linkDownloadCount || current.linkDownloadCount) {
+    merged.linkDownloadCount = sum(
+      carried.linkDownloadCount,
+      current.linkDownloadCount,
+    );
+    const last = [carried.lastLinkDownloadAt, current.lastLinkDownloadAt]
+      .filter((value): value is string => value !== undefined)
+      .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+    if (last) merged.lastLinkDownloadAt = last;
+  }
   return merged;
+}
+
+// 직행 업로드(drive)의 완료 요청이 가리키는 파일이 이 예약 뒤에 생기거나 바뀌었나
+// (#16 C-1). 아니면 남이 올린 기존 파일 id를 끼워 넣은 것일 수 있다 — 그때는 올린
+// 사람 기록이 없을 때만 남긴다(recordEntryUpload onlyIfUnrecorded).
+export function changedSince(
+  modifiedAt: string | null,
+  since: string | null,
+): boolean {
+  if (!modifiedAt || !since) return false;
+  const changed = Date.parse(modifiedAt);
+  const start = Date.parse(since);
+  return Number.isFinite(changed) && Number.isFinite(start) && changed >= start;
 }
 
 // 프로세스 안의 기록은 한 줄로 쓴다 — 응답 뒤 기록이 몰려도 CAS 재시도를
@@ -294,11 +347,16 @@ async function mutate(
       const state = await adapter.readStateVersioned<EntryAuditFile>(FILE);
       const file = normalize(state.value);
       let base = file.entries[layoutKey] ?? {};
+      let migrated = false;
       if (previous && file.entries[previous]) {
         base = mergeAudits(file.entries[previous], base);
         delete file.entries[previous];
+        migrated = true;
       }
-      file.entries[layoutKey] = apply(base);
+      const next = apply(base);
+      // 바꿀 것이 없다(조건부 기록) — 쓰지 않는다.
+      if (next === base && !migrated) return;
+      file.entries[layoutKey] = next;
       evictOverflow(file.entries, layoutKey);
       try {
         await adapter.compareAndSwapState(FILE, file, state.version);
@@ -310,36 +368,30 @@ async function mutate(
   });
 }
 
-// 업로드 기록에 덧붙이는 것(#16 C-1) — 올린 사람의 세션 userId와 올린 이름.
-export interface EntryUploadDetails {
-  userId?: string;
-  name?: string;
-}
-
+// 올린 사람(세션 이름)과 그 userId(#16 C-1)·올린 이름을 남긴다.
+// onlyIfUnrecorded: 이미 올린 사람 기록이 있으면 그대로 둔다(직행 업로드 완료가
+// 이 예약으로 막 생긴 파일임을 확인하지 못했을 때 — changedSince).
 export async function recordEntryUpload(
-  layoutKey: string,
-  actorName: string,
-  details: EntryUploadDetails = {},
+  entry: EntryTarget,
+  actor: EntryActor,
+  options: { onlyIfUnrecorded?: boolean } = {},
 ): Promise<void> {
-  const by = cleanName(actorName);
+  const by = cleanName(actor.name);
   if (!by) return;
   const at = new Date().toISOString();
-  const byId = cleanActorId(details.userId);
-  const name = cleanEntryName(details.name);
+  const byId = cleanActorId(actor.userId);
+  const name = cleanName(entry.name, MAX_ENTRY_NAME_LENGTH);
   // 같은 자리에 다시 올리면 마지막에 올린 사람이 주인이다 — 앞서 손님이
   // 올렸던 표시와 앞 주인의 id도 함께 지운다. 올린 것은 언제나 파일이다.
-  await mutate(layoutKey, (audit) => {
-    const {
-      uploadedByGuest: _guest,
-      uploadedById: _previousId,
-      isFolder: _folder,
-      ...rest
-    } = audit;
-    void _guest;
-    void _previousId;
-    void _folder;
+  await mutate(entry.layoutKey, (audit) => {
+    if (
+      options.onlyIfUnrecorded &&
+      (audit.uploadedBy !== undefined || audit.uploadedByGuest === true)
+    ) {
+      return audit;
+    }
     return {
-      ...rest,
+      ...omit(audit, "uploadedByGuest", "uploadedById", "isFolder"),
       uploadedBy: by,
       uploadedAt: at,
       ...(byId ? { uploadedById: byId } : {}),
@@ -353,38 +405,26 @@ export async function recordEntryUpload(
 // 올렸다"는 표시와 시각은 남긴다. 앞 주인의 이름이 남지 않게 uploadedBy를
 // 새 값으로 바꾸거나 지운다.
 export async function recordEntryGuestUpload(
-  layoutKey: string,
+  entry: EntryTarget,
   guestName: string | null,
-  details: Pick<EntryUploadDetails, "name"> = {},
 ): Promise<void> {
   const by = guestName ? cleanName(guestName) : undefined;
   const at = new Date().toISOString();
-  const name = cleanEntryName(details.name);
-  await mutate(layoutKey, (audit) => {
-    const {
-      uploadedBy: _previous,
-      uploadedById: _previousId,
-      isFolder: _folder,
-      ...rest
-    } = audit;
-    void _previous;
-    void _previousId;
-    void _folder;
-    return {
-      ...rest,
-      ...(by ? { uploadedBy: by } : {}),
-      uploadedByGuest: true,
-      uploadedAt: at,
-      ...(name ? { name } : {}),
-    };
-  });
+  const name = cleanName(entry.name, MAX_ENTRY_NAME_LENGTH);
+  await mutate(entry.layoutKey, (audit) => ({
+    ...omit(audit, "uploadedBy", "uploadedById", "isFolder"),
+    ...(by ? { uploadedBy: by } : {}),
+    uploadedByGuest: true,
+    uploadedAt: at,
+    ...(name ? { name } : {}),
+  }));
 }
 
-// 내용 수정·이름 변경·이동(#16 C-1). 바뀐 뒤의 항목(entry)을 받아 지금 이름·폴더
-// 여부를 함께 남긴다. previousLayoutKey는 바뀌기 전 열쇠 — local 본문 수정처럼
-// identity가 새로 생기면 앞 기록(올린 사람·받아 간 기록)을 새 열쇠로 옮긴다.
+// 내용 수정·이름 변경·이동·휴지통으로 보냄·복원(#16 C-1). 바뀐 뒤의 항목(entry)을
+// 받아 지금 이름·폴더 여부를 함께 남긴다. previousLayoutKey는 바뀌기 전 열쇠 —
+// local 본문 수정처럼 identity가 새로 생기면 앞 기록을 새 열쇠로 옮긴다.
 export async function recordEntryChange(
-  entry: Pick<Entry, "layoutKey" | "name" | "isFolder">,
+  entry: EntryTarget,
   actor: EntryActor,
   kind: EntryChangeKind,
   options: { previousLayoutKey?: string } = {},
@@ -398,19 +438,15 @@ export async function recordEntryChange(
     by,
     ...(byId ? { byId } : {}),
   };
-  const name = cleanEntryName(entry.name);
+  const name = cleanName(entry.name, MAX_ENTRY_NAME_LENGTH);
   await mutate(
     entry.layoutKey,
-    (audit) => {
-      const { isFolder: _folder, ...rest } = audit;
-      void _folder;
-      return {
-        ...rest,
-        ...(name ? { name } : {}),
-        ...(entry.isFolder ? { isFolder: true } : {}),
-        changes: [change, ...(audit.changes ?? [])].slice(0, MAX_CHANGES),
-      };
-    },
+    (audit) => ({
+      ...omit(audit, "isFolder"),
+      ...(name ? { name } : {}),
+      ...(entry.isFolder ? { isFolder: true } : {}),
+      changes: [change, ...(audit.changes ?? [])].slice(0, MAX_CHANGES),
+    }),
     options.previousLayoutKey,
   );
 }
@@ -460,35 +496,43 @@ export function bestEffort(work: () => Promise<unknown>) {
   }
 }
 
+// 응답 뒤에 돌므로 지금 값을 복사해 둔다(호출자가 객체를 다시 쓰더라도).
+const copyTarget = (entry: EntryTarget): EntryTarget => ({
+  layoutKey: entry.layoutKey,
+  name: entry.name,
+  isFolder: entry.isFolder,
+});
+const copyActor = (actor: EntryActor): EntryActor => ({
+  userId: actor.userId,
+  name: actor.name,
+});
+
 export function recordEntryUploadAfter(
-  layoutKey: string,
-  actorName: string,
-  details: EntryUploadDetails = {},
+  entry: EntryTarget,
+  actor: EntryActor,
+  options: { onlyIfUnrecorded?: boolean } = {},
 ) {
-  bestEffort(() => recordEntryUpload(layoutKey, actorName, details));
+  const target = copyTarget(entry);
+  const who = copyActor(actor);
+  bestEffort(() => recordEntryUpload(target, who, options));
 }
 
 export function recordEntryGuestUploadAfter(
-  layoutKey: string,
+  entry: EntryTarget,
   guestName: string | null,
-  details: Pick<EntryUploadDetails, "name"> = {},
 ) {
-  bestEffort(() => recordEntryGuestUpload(layoutKey, guestName, details));
+  const target = copyTarget(entry);
+  bestEffort(() => recordEntryGuestUpload(target, guestName));
 }
 
 export function recordEntryChangeAfter(
-  entry: Pick<Entry, "layoutKey" | "name" | "isFolder">,
+  entry: EntryTarget,
   actor: EntryActor,
   kind: EntryChangeKind,
   options: { previousLayoutKey?: string } = {},
 ) {
-  // 응답 뒤에 돌므로 지금 값을 복사해 둔다(호출자가 객체를 다시 쓰더라도).
-  const target = {
-    layoutKey: entry.layoutKey,
-    name: entry.name,
-    isFolder: entry.isFolder,
-  };
-  const who = { userId: actor.userId, name: actor.name };
+  const target = copyTarget(entry);
+  const who = copyActor(actor);
   bestEffort(() => recordEntryChange(target, who, kind, options));
 }
 

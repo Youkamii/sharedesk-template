@@ -9,7 +9,6 @@ import type { NewBadgeState, OwnUploadIndex } from "@/lib/client/new-badges";
 import {
   formatRecentTime,
   parseRecentResponse,
-  RECENT_REVEAL_DELAY_MS,
   recentActionLabel,
   recentItemIsNew,
   serverClockOffset,
@@ -22,9 +21,12 @@ import {
   type RecentFileItem,
   type RecentFilesResponse,
 } from "@/lib/recent-files";
+import type { StorageSearchResult } from "@/lib/search";
 import PixelFileIcon from "./PixelFileIcon";
 import { folderAddress } from "./ui-scale";
 import styles from "./desktop.module.css";
+
+type Location = StorageSearchResult;
 
 type Props = {
   locale: Locale;
@@ -38,13 +40,16 @@ type Props = {
   onMinimize: () => void;
   onToggleMaximize: () => void;
   onActivate: () => void;
-  // 한 번 누르기 — 원래 자리(폴더 창·바탕화면)를 열고 그 항목을 고른다.
-  onReveal: (item: RecentFileItem, opener: HTMLElement) => void;
+  // 위치 열기(단추·Enter) — 원래 자리(폴더 창·바탕화면)를 열고 그 항목을 고른다.
+  onReveal: (location: Location, opener: HTMLElement) => void;
   // 두 번 누르기 — 데스크의 열기(미리보기·폴더 열기·내려받기)와 같은 흐름.
-  onOpen: (item: RecentFileItem, opener: HTMLElement) => void;
-  onContextMenu: (event: React.MouseEvent, item: RecentFileItem) => void;
-  onKeyboardMenu: (target: HTMLElement, item: RecentFileItem) => void;
+  onOpen: (location: Location, opener: HTMLElement) => void;
+  onContextMenu: (event: React.MouseEvent, location: Location) => void;
+  onKeyboardMenu: (target: HTMLElement, location: Location) => void;
 };
+
+const rowKey = (item: RecentFileItem) =>
+  `${item.layoutKey}:${item.action}:${item.at}`;
 
 export default function RecentFilesWindow({
   locale,
@@ -67,11 +72,12 @@ export default function RecentFilesWindow({
   const [data, setData] = useState<RecentFilesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 한 번 누르기는 줄을 고르기만 한다(데스크 아이콘과 같은 문법).
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // 서버 시각 − 브라우저 시각. "n분 전"은 서버 기록 시각과 견주므로 보정한다.
   const [clockOffset, setClockOffset] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const requestRef = useRef<AbortController | null>(null);
-  const revealTimerRef = useRef<number | null>(null);
   const t = useCallback(
     (text: string, vars?: Record<string, string | number>) =>
       translate(locale, text, vars),
@@ -149,38 +155,8 @@ export default function RecentFilesWindow({
   }, [load, days]);
 
   useEffect(() => {
-    return () => {
-      requestRef.current?.abort();
-      if (revealTimerRef.current !== null) {
-        window.clearTimeout(revealTimerRef.current);
-      }
-    };
+    return () => requestRef.current?.abort();
   }, []);
-
-  function cancelReveal() {
-    if (revealTimerRef.current === null) return;
-    window.clearTimeout(revealTimerRef.current);
-    revealTimerRef.current = null;
-  }
-
-  function handleClick(
-    event: React.MouseEvent<HTMLButtonElement>,
-    item: RecentFileItem,
-  ) {
-    cancelReveal();
-    if (!item.entry) return;
-    const opener = event.currentTarget;
-    // detail 0은 키보드(Enter·Space) — 기다릴 두 번째 클릭이 없다.
-    if (event.detail === 0) {
-      onReveal(item, opener);
-      return;
-    }
-    if (event.detail > 1) return;
-    revealTimerRef.current = window.setTimeout(() => {
-      revealTimerRef.current = null;
-      onReveal(item, opener);
-    }, RECENT_REVEAL_DELAY_MS);
-  }
 
   const items = data?.items ?? [];
   const shownNow = now + clockOffset;
@@ -225,7 +201,7 @@ export default function RecentFilesWindow({
           ))}
         </div>
         <span className={styles.recentHint}>
-          {t("한 번 누르면 원래 자리, 두 번 누르면 열기")}
+          {t("두 번 누르면 열고, Enter나 위치 열기로 원래 자리를 엽니다")}
         </span>
       </div>
       <div className={styles.recentBody}>
@@ -238,17 +214,19 @@ export default function RecentFilesWindow({
         ) : (
           <ul className={styles.recentList}>
             {items.map((item) => {
+              const key = rowKey(item);
+              const selected = selectedKey === key;
+              const location = item.location;
               const gone = item.exists === false;
-              const reachable = item.entry !== null;
               const isNew = recentItemIsNew(item, newBadges, ownUploads);
-              const where = gone
-                ? t("지워짐")
-                : item.exists === null
-                  ? t("위치를 확인하지 못했습니다")
-                  : folderAddress(item.path);
+              const where = location
+                ? folderAddress(location.breadcrumbs)
+                : gone
+                  ? t("지워짐")
+                  : t("위치를 확인하지 못했습니다");
               const actor = item.actor.guest
                 ? guestDisplayName(item.actor.name, t)
-                : (item.actor.name ?? t("알 수 없음"));
+                : (item.actor.name ?? t("멤버"));
               const action =
                 item.count > 1
                   ? `${t(recentActionLabel(item.action))} · ${t("{count}회", {
@@ -259,40 +237,41 @@ export default function RecentFilesWindow({
               const when = formatRecentTime(at, shownNow, locale, t);
               return (
                 <li
-                  key={`${item.layoutKey}:${item.action}:${item.at}`}
-                  className={`${styles.recentRow} ${gone ? styles.recentGone : ""}`}
+                  key={key}
+                  className={`${styles.recentRow} ${gone ? styles.recentGone : ""} ${
+                    selected ? styles.recentSelected : ""
+                  }`}
                   onContextMenu={(event) => {
                     event.preventDefault();
-                    if (reachable) onContextMenu(event, item);
+                    if (location) onContextMenu(event, location);
                   }}
                 >
                   <button
                     type="button"
                     className={styles.recentMain}
-                    aria-disabled={!reachable}
+                    aria-pressed={selected}
                     aria-label={`${item.name}, ${where}, ${action}, ${actor}, ${when}${
                       isNew ? `, ${t("새 파일")}` : ""
                     }`}
-                    title={
-                      reachable
-                        ? `${folderAddress(item.path)} · ${new Date(at).toLocaleString(
-                            LOCALE_BCP47[locale],
-                          )}`
-                        : new Date(at).toLocaleString(LOCALE_BCP47[locale])
-                    }
-                    onClick={(event) => handleClick(event, item)}
+                    title={`${location ? `${location.path} · ` : ""}${new Date(
+                      at,
+                    ).toLocaleString(LOCALE_BCP47[locale])}`}
+                    onClick={() => setSelectedKey(key)}
                     onDoubleClick={(event) => {
-                      cancelReveal();
-                      if (reachable) onOpen(item, event.currentTarget);
+                      if (location) onOpen(location, event.currentTarget);
                     }}
                     onKeyDown={(event) => {
-                      if (
-                        reachable &&
-                        (event.key === "ContextMenu" ||
-                          (event.shiftKey && event.key === "F10"))
+                      if (!location) return;
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        setSelectedKey(key);
+                        onReveal(location, event.currentTarget);
+                      } else if (
+                        event.key === "ContextMenu" ||
+                        (event.shiftKey && event.key === "F10")
                       ) {
                         event.preventDefault();
-                        onKeyboardMenu(event.currentTarget, item);
+                        onKeyboardMenu(event.currentTarget, location);
                       }
                     }}
                   >
@@ -312,6 +291,19 @@ export default function RecentFilesWindow({
                       <span className={styles.recentActor}>{actor}</span>
                     </span>
                   </button>
+                  {location && (
+                    <button
+                      type="button"
+                      className={styles.recentReveal}
+                      aria-label={t("{name} 위치 열기", { name: item.name })}
+                      onClick={(event) => {
+                        setSelectedKey(key);
+                        onReveal(location, event.currentTarget);
+                      }}
+                    >
+                      {t("위치 열기")}
+                    </button>
+                  )}
                 </li>
               );
             })}

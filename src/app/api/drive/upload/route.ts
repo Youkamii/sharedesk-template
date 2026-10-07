@@ -75,11 +75,8 @@ export async function POST(req: NextRequest) {
       recordActivityAfter(session, "upload", entry.name);
       // 속성 창(#14)이 "누가 올렸는지"를 보여주려면 항목별로도 남겨야 한다 —
       // activity.json은 최근 200건이라 오래된 파일은 밀려난다. 최근 파일 창
-      // (#16 C-1)이 지금 화면 이름과 지워진 뒤의 이름을 찾게 id·이름도 함께.
-      recordEntryUploadAfter(entry.layoutKey, session.name, {
-        userId: session.userId,
-        name: entry.name,
-      });
+      // (#16 C-1)이 쓰는 userId·이름도 함께 남는다.
+      recordEntryUploadAfter(entry, session);
       return NextResponse.json({ entry }, { status: 201 });
     } catch (e) {
       await finishUploadReservation(

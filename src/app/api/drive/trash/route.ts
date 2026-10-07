@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryChangeAfter } from "@/lib/entry-audit";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithEditRights, runWithSession } from "@/lib/api";
 import { pruneDrivePermissionsForFiles } from "@/lib/drive-shares";
@@ -104,6 +105,9 @@ export async function POST(req: NextRequest) {
           }
         }
         recordActivityAfter(session, "restore", restored.name);
+        // 최근 파일 창(#16 C-1)의 "지워짐" 표시를 거둔다(열쇠는 휴지통을 다녀와도
+        // 같다). 완전 삭제·비우기는 이미 "deleted"가 남아 있어 따로 적지 않는다.
+        recordEntryChangeAfter(restored, session, "restored");
         return NextResponse.json({ entry: restored });
       }
       if (action === "purge") {

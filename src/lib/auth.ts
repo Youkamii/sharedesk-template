@@ -20,6 +20,10 @@ import {
 
 export { COOKIE_NAME, MAX_AGE_SECONDS } from "@/lib/session-token";
 
+// 접속 키 손님 세션의 userId 머리. 기록(entry-audit)에 남은 id로 손님을 가릴 때도
+// 같은 값을 쓴다(#16 C-1).
+export const KEY_GUEST_ID_PREFIX = "key:";
+
 export interface SessionInfo {
   userId: string;
   email: string;
@@ -127,7 +131,7 @@ export async function resolveSession(
   for (const key of getAccessKeys()) {
     if ((await sha256Hex(key)).slice(0, 32) === claims.k) {
       return {
-        userId: "key:" + claims.k.slice(0, 8),
+        userId: KEY_GUEST_ID_PREFIX + claims.k.slice(0, 8),
         email: "",
         name: "손님",
         isAdmin: false,

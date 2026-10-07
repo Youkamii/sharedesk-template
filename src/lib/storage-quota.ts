@@ -34,6 +34,10 @@ export interface UploadReservation {
   transport: "direct" | "proxy";
   claimedAt: string | null;
   expiresAt: string;
+  // 예약을 만든 시각(#16 C-1). expiresAt은 하트비트로 늘어나 생성 시각을 알 수
+  // 없다 — 직행 완료가 가리키는 파일이 이 예약 뒤에 생겼는지 가르는 데 쓴다.
+  // 필드 도입 전 예약은 null.
+  createdAt: string | null;
 }
 
 interface ReservationFile {
@@ -80,7 +84,15 @@ function normalize(value: unknown, now = Date.now()): ReservationFile {
             Date.parse(entry.expiresAt) > now
           );
         })
-        .map((entry) => ({ ...entry, publicFolderId: entry.publicFolderId ?? null }))
+        .map((entry) => ({
+          ...entry,
+          publicFolderId: entry.publicFolderId ?? null,
+          createdAt:
+            typeof entry.createdAt === "string" &&
+            Number.isFinite(Date.parse(entry.createdAt))
+              ? entry.createdAt
+              : null,
+        }))
         .slice(0, MAX_RESERVATIONS)
     : [];
   const completedUploads = Array.isArray(raw?.completedUploads)
@@ -286,6 +298,7 @@ export async function reserveUpload(input: {
           expiresAt: new Date(
             Date.now() + reservationTtl(input.transport),
           ).toISOString(),
+          createdAt: new Date().toISOString(),
         },
       ],
       completedUploads: file.completedUploads,
