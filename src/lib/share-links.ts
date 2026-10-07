@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { forgetShareLinkDownloads } from "@/lib/share-link-downloads";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
 
@@ -111,6 +112,12 @@ async function mutate<T>(
   throw lastError ?? new StorageError("CONFLICT", "잠시 후 다시 시도해 주세요");
 }
 
+// 장부에서 빠진 링크의 "받아 간 횟수" 기록도 지운다(#17 B-7). 최선 노력 —
+// 실패해도 링크 관리 자체는 성공이고, 남은 기록은 장부 상한에서 먼저 버려진다.
+async function forgetDownloads(linkIds: readonly string[]): Promise<void> {
+  await forgetShareLinkDownloads(linkIds).catch(() => undefined);
+}
+
 async function readFile(): Promise<ShareLinkFile> {
   return normalize(await getAdapter().readState<ShareLinkFile>(FILE));
 }
@@ -148,7 +155,10 @@ export async function createShareLink(
     deleteOnExpire:
       options.quick === true && options.deleteOnExpire === true,
   };
-  return mutate((file) => {
+  // 새 링크를 넣으면서 만료 링크를 장부에서 떼어 낸다 — 그 링크들의
+  // 받아 간 기록도 지우려고 마지막 시도에서 뗀 id를 기억한다.
+  let droppedLinkIds: string[] = [];
+  const created = await mutate((file) => {
     if (file.pendingDeletes.some((pending) => pending.fileId === fileId)) {
       throw new StorageError(
         "CONFLICT",
@@ -156,6 +166,9 @@ export async function createShareLink(
       );
     }
     const links = activeLinks(file, now);
+    droppedLinkIds = file.links
+      .filter((existing) => Date.parse(existing.expiresAt) <= now)
+      .map((existing) => existing.linkId);
     if (links.length >= MAX_LINKS) {
       throw new StorageError(
         "CONFLICT",
@@ -202,6 +215,8 @@ export async function createShareLink(
       result: link,
     };
   });
+  await forgetDownloads(droppedLinkIds);
+  return created;
 }
 
 export async function listShareLinks(fileId?: string): Promise<ShareLink[]> {
@@ -215,7 +230,7 @@ export async function getShareLink(linkId: string): Promise<ShareLink | null> {
 }
 
 export async function revokeShareLink(linkId: string): Promise<boolean> {
-  return mutate((file) => {
+  const removed = await mutate((file) => {
     const target = file.links.find((link) => link.linkId === linkId);
     const pendingDeletes = target?.deleteOnExpire
       ? [
@@ -237,6 +252,8 @@ export async function revokeShareLink(linkId: string): Promise<boolean> {
       result: !!target,
     };
   });
+  if (removed) await forgetDownloads([linkId]);
+  return removed;
 }
 
 export async function keepQuickLinkFile(
@@ -351,6 +368,7 @@ export async function cleanupExpiredShareLinks(
             file: next,
             result: {
               expired: expired.length,
+              expiredLinkIds: expired.map((link) => link.linkId),
               due: next.pendingDeletes
                 .filter(
                   (item) =>
@@ -361,7 +379,8 @@ export async function cleanupExpiredShareLinks(
             },
           };
         })
-      : { expired: 0, due: [] as PendingDelete[] };
+      : { expired: 0, expiredLinkIds: [] as string[], due: [] as PendingDelete[] };
+  await forgetDownloads(claimed.expiredLinkIds);
 
   let failed = 0;
   if (options.sweepOrphans === true) {

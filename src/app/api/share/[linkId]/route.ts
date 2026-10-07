@@ -134,11 +134,15 @@ export async function GET(
     // 다른 데스크가 복사해 갈 때는 사람이 보는 HTML 대신 기계가 읽을 목록이
     // 필요하다. 노출 범위는 HTML 목록과 같다 — 링크를 아는 쪽만 볼 수 있다.
     const wantsManifest = req.nextUrl.searchParams.get("format") === "json";
-    // "받아 갔는지"(#17 B-7)는 통짜 내려받기만 센다 — 범위 요청은 한 번의
-    // 내려받기가 쪼개진 것이고(데스크·공개 폴더와 같은 기준), HEAD는 GET이
+    // "받아 갔는지"(#17 B-7) = 저장소가 파일 본문 전송을 시작한 것. 끝까지
+    // 받았는지는 보지 않는다(중간에 끊긴 내려받기도 센다 — 데스크·공개 폴더
+    // 기록과 같은 설계). 처음부터 받는 요청만 센다: Range 없음, 또는
+    // "bytes=0-"(브라우저·다운로드 관리자가 처음부터 받으며 붙인다). 그 밖의
+    // 범위 요청은 한 번의 내려받기가 쪼개진 이어받기라 세지 않고, HEAD는 GET이
     // 자동으로 대신 받지만 본문을 가져가지 않는다. 목록(HTML·manifest)은
     // 파일을 받은 것이 아니라 세지 않는다.
-    const countsAsDownload = !range && req.method !== "HEAD";
+    const fromStart = !range || range.replace(/\s+/g, "") === "bytes=0-";
+    const countsAsDownload = fromStart && req.method !== "HEAD";
     try {
       const adapter = getAdapter();
       if (link.kind === "folder") {

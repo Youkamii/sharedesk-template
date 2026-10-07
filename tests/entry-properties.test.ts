@@ -39,7 +39,7 @@ test("공개 링크로 받아 간 것도 기록하되 방문자로 표시한다 
   assert.match(source, /if \(!open && !range\) \{/);
   assert.match(
     source,
-    /recordEntryDownloadAfter\(\s*entry\.layoutKey,\s*resolved\.folder\.name,\s*true,?\s*\)/,
+    /recordEntryDownloadAfter\(\s*entry\.layoutKey,\s*resolved\.folder\.name,\s*\{\s*via: "public",?\s*\},?\s*\)/,
   );
 });
 

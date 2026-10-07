@@ -71,7 +71,9 @@ export async function GET(
       // 속성 창(#14)의 다운로드 기록 — 공개 링크로 받아 간 것도 남긴다.
       // 미리보기로 연 것(open)과 범위 요청은 데스크 쪽과 같은 기준으로 뺀다.
       if (!open && !range) {
-        recordEntryDownloadAfter(entry.layoutKey, resolved.folder.name, true);
+        recordEntryDownloadAfter(entry.layoutKey, resolved.folder.name, {
+          via: "public",
+        });
       }
       return downloadResponse(await adapter.download(id, range), open);
     } catch {

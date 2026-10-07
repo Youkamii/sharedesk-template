@@ -409,8 +409,6 @@ type EntryDownloadRecord = {
   at: string;
   by: string;
   viaPublicLink?: boolean;
-  // 공유 링크(간이 링크 포함)로 받아 간 무로그인 방문자(#17 B-7).
-  viaShareLink?: boolean;
 };
 
 type EntryProperties = {
@@ -429,9 +427,10 @@ type EntryProperties = {
   // 관리자가 아니면 null — 화면에서 줄 자체를 감춘다.
   downloadCount: number | null;
   downloads: EntryDownloadRecord[] | null;
-  // 그중 공유 링크로 받아 간 횟수·마지막 시각(#17 B-7). 관리자가 아니면 null.
-  linkDownloadCount?: number | null;
-  lastLinkDownloadAt?: string | null;
+  // 공유 링크로 받아 간 횟수·마지막 시각(#17 B-7) — downloads 목록과 따로
+  // 센다. 관리자가 아니면 null.
+  linkDownloadCount: number | null;
+  lastLinkDownloadAt: string | null;
 };
 
 type PropertiesState = {
@@ -10175,9 +10174,7 @@ export default function FilesView({
                               <li key={`${record.at}-${index}`}>
                                 {record.viaPublicLink
                                   ? t("공개 링크 방문자")
-                                  : record.viaShareLink
-                                    ? t("공유 링크 방문자")
-                                    : record.by}
+                                  : record.by}
                                 {" · "}
                                 {formatDate(record.at, dateLocale)}
                               </li>

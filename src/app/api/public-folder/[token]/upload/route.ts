@@ -3,6 +3,7 @@ import { recordActivityAfter } from "@/lib/activity";
 import { errorResponse } from "@/lib/api";
 import { recordEntryGuestUploadAfter } from "@/lib/entry-audit";
 import { parseGuestName } from "@/lib/nickname";
+import { createWindowLimiter } from "@/lib/rate-window";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
@@ -21,33 +22,11 @@ export const runtime = "nodejs";
 // 무세션 공개 쓰기 입구의 관례(auth·invitations 패턴): 프로세스 메모리
 // rate limit — IP당 + 전역 창. IP는 위조 가능하므로 총량 상한을 병행한다.
 // 본질 방어는 reserveUpload의 폴더별 상한·폴더당 공개 예약 상한이다.
-const WINDOW_MS = 60_000;
-const MAX_ATTEMPTS_PER_IP = 10;
-const MAX_ATTEMPTS_TOTAL = 60;
-const attempts = new Map<string, { count: number; resetAt: number }>();
-let totalWindow = { count: 0, resetAt: 0 };
-
-function tooManyAttempts(ip: string): boolean {
-  const now = Date.now();
-  if (now > totalWindow.resetAt) {
-    totalWindow = { count: 0, resetAt: now + WINDOW_MS };
-  }
-  totalWindow.count++;
-  if (totalWindow.count > MAX_ATTEMPTS_TOTAL) return true;
-
-  const entry = attempts.get(ip);
-  if (!entry || now > entry.resetAt) {
-    attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    if (attempts.size > 1000) {
-      for (const [key, value] of attempts) {
-        if (now > value.resetAt) attempts.delete(key);
-      }
-    }
-    return false;
-  }
-  entry.count++;
-  return entry.count > MAX_ATTEMPTS_PER_IP;
-}
+const tooManyAttempts = createWindowLimiter({
+  windowMs: 60_000,
+  perKey: 10,
+  total: 60,
+});
 
 function clientIp(req: NextRequest): string {
   const forwarded = req.headers.get("x-forwarded-for");

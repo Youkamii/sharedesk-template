@@ -27,30 +27,18 @@ type Props = {
 // 목록 응답의 링크 — 받아 간 횟수·마지막 시각(#17 B-7)이 붙어 온다.
 type ListedShareLink = ShareLink & ShareLinkDownloadSummary;
 
-function isShareLink(value: unknown): value is ShareLink {
-  const link = value as Partial<ShareLink> | null;
+function isShareLink(value: unknown): value is ListedShareLink {
+  const link = value as Partial<ListedShareLink> | null;
   return (
     !!link &&
     typeof link.linkId === "string" &&
     typeof link.fileId === "string" &&
     typeof link.name === "string" &&
     typeof link.createdBy === "string" &&
-    typeof link.expiresAt === "string"
+    typeof link.expiresAt === "string" &&
+    typeof link.downloadCount === "number" &&
+    (link.lastDownloadAt === null || typeof link.lastDownloadAt === "string")
   );
-}
-
-// 옛 서버가 횟수를 안 주더라도 화면이 깨지지 않게 0·null로 채운다.
-function toListedShareLink(link: ShareLink): ListedShareLink {
-  const summary = link as Partial<ShareLinkDownloadSummary>;
-  return {
-    ...link,
-    downloadCount:
-      typeof summary.downloadCount === "number" && summary.downloadCount > 0
-        ? summary.downloadCount
-        : 0,
-    lastDownloadAt:
-      typeof summary.lastDownloadAt === "string" ? summary.lastDownloadAt : null,
-  };
 }
 
 export default function ShareLinksWindow({
@@ -96,11 +84,7 @@ export default function ShareLinksWindow({
             : t("공유 링크를 불러오지 못했습니다"),
         );
       }
-      setLinks(
-        Array.isArray(body?.links)
-          ? body.links.filter(isShareLink).map(toListedShareLink)
-          : [],
-      );
+      setLinks(Array.isArray(body?.links) ? body.links.filter(isShareLink) : []);
     } catch (caught) {
       setError(
         caught instanceof Error

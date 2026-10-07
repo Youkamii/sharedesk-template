@@ -22,10 +22,11 @@ export interface EntryDownload {
   // 공개 폴더 링크로 들어온 무로그인 방문자. 이름 대신 화면에서 문구로
   // 바꿔 보여주려고 표시만 남긴다(이름 문자열을 번역하지 않기 위해).
   viaPublicLink?: boolean;
-  // 공유 링크(/api/share/<linkId> — 간이 링크 포함)로 받아 간 무로그인
-  // 방문자(#17 B-7). viaPublicLink와 같은 이유로 표시만 남긴다.
-  viaShareLink?: boolean;
 }
+
+// 내려받기 경로. 없으면 데스크 멤버(세션 이름). public은 공개 폴더 방문자,
+// share는 공유 링크(/api/share/<linkId> — 간이 링크 포함) 방문자다.
+export type EntryDownloadVia = "public" | "share";
 
 export interface EntryAudit {
   uploadedBy?: string;
@@ -37,8 +38,9 @@ export interface EntryAudit {
   downloadCount?: number;
   // 최근 것부터. 전체 횟수는 downloadCount가 따로 센다.
   downloads?: EntryDownload[];
-  // 공유 링크로 받아 간 횟수와 마지막 시각(#17 B-7). downloads는 최근 20건만
-  // 기억하므로 "링크로 몇 번 받았나"는 따로 센다.
+  // 공유 링크로 받아 간 횟수와 마지막 시각(#17 B-7). 익명 링크 방문은
+  // downloads(최근 20건)에 넣지 않는다 — 링크를 반복해 열어 멤버·공개 폴더
+  // 내려받기 기록을 밀어내 지우지 못하게, 횟수와 마지막 시각만 센다.
   linkDownloadCount?: number;
   lastLinkDownloadAt?: string;
 }
@@ -71,9 +73,7 @@ function cleanDownloads(value: unknown): EntryDownload[] | undefined {
     downloads.push(
       (raw as EntryDownload).viaPublicLink === true
         ? { at, by, viaPublicLink: true }
-        : (raw as EntryDownload).viaShareLink === true
-          ? { at, by, viaShareLink: true }
-          : { at, by },
+        : { at, by },
     );
     if (downloads.length >= MAX_DOWNLOADS) break;
   }
@@ -118,7 +118,6 @@ function lastTouchedAt(audit: EntryAudit): number {
   const times = [
     audit.uploadedAt ? Date.parse(audit.uploadedAt) : 0,
     audit.downloads?.[0]?.at ? Date.parse(audit.downloads[0].at) : 0,
-    audit.lastLinkDownloadAt ? Date.parse(audit.lastLinkDownloadAt) : 0,
   ].filter((time) => Number.isFinite(time));
   return Math.max(0, ...times);
 }
@@ -214,46 +213,43 @@ export async function recordEntryGuestUpload(
   });
 }
 
+// by는 받아 간 사람 이름(공개 폴더는 폴더 이름 — 화면이 문구로 바꾼다).
+// via "share"는 링크 경유 횟수·마지막 시각만 올리고 by는 쓰지 않는다
+// (EntryAudit.linkDownloadCount 주석 참조).
 export async function recordEntryDownload(
   layoutKey: string,
-  actorName: string,
-  viaPublicLink = false,
+  by: string,
+  options: { via?: EntryDownloadVia } = {},
 ): Promise<void> {
-  const by = cleanName(actorName);
-  if (!by) return;
   const at = new Date().toISOString();
-  const record: EntryDownload = viaPublicLink
-    ? { at, by, viaPublicLink: true }
-    : { at, by };
+  if (options.via === "share") {
+    await mutate(layoutKey, (audit) => ({
+      ...audit,
+      linkDownloadCount: Math.min(
+        (audit.linkDownloadCount ?? 0) + 1,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      lastLinkDownloadAt: at,
+    }));
+    return;
+  }
+  const name = cleanName(by);
+  if (!name) return;
+  const record: EntryDownload =
+    options.via === "public"
+      ? { at, by: name, viaPublicLink: true }
+      : { at, by: name };
   await mutate(layoutKey, (audit) => ({
     ...audit,
     downloadCount: (audit.downloadCount ?? 0) + 1,
     downloads: [record, ...(audit.downloads ?? [])].slice(0, MAX_DOWNLOADS),
-  }));
-}
-
-// 공유 링크로 받아 간 기록(#17 B-7). 무로그인 방문자라 이름이 없으므로
-// by에는 링크 이름을 남기고 viaShareLink로 표시한다(공개 폴더의 viaPublicLink
-// 선례). 전체 내려받기 수와 함께 링크 경유 수·마지막 시각도 센다.
-export async function recordEntryLinkDownload(
-  layoutKey: string,
-  linkName: string,
-): Promise<void> {
-  const by = cleanName(linkName);
-  if (!by) return;
-  const at = new Date().toISOString();
-  const record: EntryDownload = { at, by, viaShareLink: true };
-  await mutate(layoutKey, (audit) => ({
-    ...audit,
-    downloadCount: (audit.downloadCount ?? 0) + 1,
-    downloads: [record, ...(audit.downloads ?? [])].slice(0, MAX_DOWNLOADS),
-    linkDownloadCount: (audit.linkDownloadCount ?? 0) + 1,
-    lastLinkDownloadAt: at,
   }));
 }
 
 // 기록은 최선 노력이다 — 실패해도 본 작업(업로드·다운로드)을 막지 않는다.
-function bestEffort(work: () => Promise<void>) {
+// 응답 뒤(after)에 돌리고, Next 요청 문맥 밖(핸들러를 직접 부르는 테스트
+// 등)에서는 after()가 던지므로 기다리지 않는 호출로 대신한다.
+export function bestEffort(work: () => Promise<unknown>) {
   const run = () => work().catch(() => undefined);
   try {
     after(run);
@@ -275,8 +271,8 @@ export function recordEntryGuestUploadAfter(
 
 export function recordEntryDownloadAfter(
   layoutKey: string,
-  actorName: string,
-  viaPublicLink = false,
+  by: string,
+  options: { via?: EntryDownloadVia } = {},
 ) {
-  bestEffort(() => recordEntryDownload(layoutKey, actorName, viaPublicLink));
+  bestEffort(() => recordEntryDownload(layoutKey, by, options));
 }
