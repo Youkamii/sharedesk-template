@@ -2064,52 +2064,75 @@
   box-shadow: inset 2px 2px 0 #b9e1cf, inset -2px -2px 0 #2d5c5b;
 }
 
-/* 공개 폴더 안내문(#17 B-5) — 폴더 메모를 읽기 전용 쪽지로. 마크다운 없이
-   줄바꿈만 살리고, 길면 쪽지 안에서 스크롤한다. 아이콘이 왼쪽부터 채워지므로
-   오른쪽 위에 둔다. */
-.publicNote {
+/* 공개 폴더 화면의 본문(#17 B-5) — 머리줄과 작업표시줄 사이를 세로로 나눈다.
+   안내문 띠가 있으면 그 높이만큼 아이콘 판이 내려간다(띠가 아이콘을 가리지 않는다). */
+.publicStage {
   position: absolute;
-  top: 46px;
-  right: 16px;
-  z-index: 900;
+  inset: 34px 0 48px;
+  z-index: 1;
   display: flex;
-  width: min(320px, calc(100% - 32px));
-  max-height: calc(100% - 140px);
   flex-direction: column;
+}
+
+.publicStage > .rootCanvas {
+  position: relative;
+  inset: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+/* 공개 폴더 안내문 띠 — 폴더 메모를 읽기 전용으로. 마크다운 없이 줄바꿈만
+   살리고, 처음엔 6줄까지(넘치면 "더 보기"), 펼치면 띠 안에서 스크롤한다. */
+.publicNote {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 14px 8px;
   color: #2d2a34;
-  border: 2px solid #1b1b2f;
-  box-shadow: 4px 4px 0 rgb(5 9 20 / 55%);
+  background: #fff9c9;
+  border-bottom: 2px solid #1b1b2f;
+  box-shadow: 0 2px 0 rgb(5 9 20 / 45%);
   user-select: text;
 }
 
 .publicNote strong {
   display: flex;
-  flex: none;
   align-items: center;
   gap: 7px;
-  padding: 6px 10px;
-  color: #fff4d2;
-  background: #2d5c5b;
-  border-bottom: 2px solid #1b1b2f;
   font-size: 12px;
 }
 
 .publicNote p {
-  min-height: 48px;
   margin: 0;
-  padding: 0 12px;
-  overflow: auto;
-  background: repeating-linear-gradient(
-    to bottom,
-    #fff9c9 0,
-    #fff9c9 23px,
-    #dccb88 24px
-  );
-  background-attachment: local;
   font-size: 12px;
-  line-height: 24px;
+  line-height: 20px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.publicNote p[data-collapsed="true"] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+
+.publicNote p[data-collapsed="false"] {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.publicNote button {
+  align-self: flex-start;
+  padding: 2px 9px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #10172b;
+  box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f;
+  font: inherit;
+  font-size: 11px;
 }
 
 /* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 다운로드 우선 칸과 같은 틀. */

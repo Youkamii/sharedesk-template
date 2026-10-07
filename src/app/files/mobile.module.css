@@ -218,11 +218,13 @@
   background: #fff4d2;
 }
 
-/* 공개 폴더 안내문(#17 B-5) — 머리줄 아래 읽기 전용, 줄바꿈만 살린다. */
+/* 공개 폴더 안내문(#17 B-5) — 머리줄 아래 읽기 전용 띠, 줄바꿈만 살린다.
+   처음엔 6줄까지(넘치면 "더 보기"), 펼치면 띠 안에서 스크롤한다. */
 .publicNote {
+  display: flex;
   flex: none;
-  max-height: 30vh;
-  overflow-y: auto;
+  flex-direction: column;
+  gap: 4px;
   padding: 8px 12px;
   color: #2d2a34;
   background: #fff9c9;
@@ -232,10 +234,42 @@
   user-select: text;
 }
 
+.publicNote strong {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
 .publicNote p {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.publicNote p[data-collapsed="true"] {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+
+.publicNote p[data-collapsed="false"] {
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.publicNote button {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 2px 12px;
+  color: #10172b;
+  background: #ffd27d;
+  border: 2px solid #080d1c;
+  border-radius: 0;
+  font: inherit;
+  font-size: 12px;
 }
 
 /* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 올리기 버튼 옆. */

@@ -25,8 +25,8 @@ interface AdminPublicFolder {
   maxFiles: number | null;
   minRole: UserRole | null;
   userIds: string[];
-  // 안내문 보이기(#17 B-5). 옛 서버 응답에는 없을 수 있다 — 꺼짐으로 본다.
-  showNote?: boolean;
+  // 안내문 보이기(#17 B-5).
+  showNote: boolean;
   url: string;
   missing: boolean;
 }
@@ -87,7 +87,7 @@ interface SettingsFormState {
 function formStateOf(folder: AdminPublicFolder): SettingsFormState {
   return {
     enabled: folder.enabled,
-    showNote: folder.showNote === true,
+    showNote: folder.showNote,
     opensAt: isoToLocalInput(folder.opensAt),
     closesAt: isoToLocalInput(folder.closesAt),
     maxTotalGiB: bytesAsInputGiB(folder.maxTotalBytes),

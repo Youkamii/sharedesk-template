@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { SessionInfo } from "@/lib/auth";
 import { getFolderNote } from "@/lib/folder-note";
 import { roleAtLeast, resolveUserRole, type UserRole } from "@/lib/roles";
@@ -411,6 +411,14 @@ export async function updatePublicFolder(
  * 호출자는 접근 판정·대상 실체 확인(resolveOpenPublicFolder /
  * resolvePublicFolderTarget)을 마친 등록만 넘긴다.
  */
+/**
+ * 안내문 지문 — 공개 목록 API가 메모 본문 대신 매번 싣는 값(#17 B-5). 화면은
+ * 아는 지문을 폴링에 실어 보내고, 다를 때만 본문을 다시 받는다.
+ */
+export function publicFolderNoteHash(note: string): string {
+  return createHash("sha256").update(note, "utf8").digest("hex").slice(0, 32);
+}
+
 export async function readPublicFolderNote(
   folder: Pick<PublicFolder, "showNote" | "folderId">,
 ): Promise<string | null> {

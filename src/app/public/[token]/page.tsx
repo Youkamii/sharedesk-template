@@ -5,6 +5,7 @@ import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
 import {
   getPublicFolder,
   publicFolderAccess,
+  publicFolderNoteHash,
   readPublicFolderNote,
   resolvePublicFolderTarget,
 } from "@/lib/public-folders";
@@ -58,6 +59,9 @@ export default async function PublicFolderPage({
       token={token}
       name={resolved.folder.name}
       initialNote={resolved.note}
+      initialNoteHash={
+        resolved.note === null ? null : publicFolderNoteHash(resolved.note)
+      }
       isDeskUser={resolved.isDeskUser}
       isAdmin={resolved.isAdmin}
       locale={locale}

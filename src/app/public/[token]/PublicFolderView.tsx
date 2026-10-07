@@ -39,8 +39,63 @@ interface Listing {
   name: string;
   entries: PublicEntry[];
   positions: Record<string, { x: number; y: number }>;
-  // 안내문(#17 B-5) — 관리자가 켠 폴더만 서버가 싣는다(꺼져 있으면 키가 없다).
-  note?: string;
+}
+
+// 목록 응답의 안내문(#17 B-5). 관리자가 켠 폴더만 noteHash가 오고, 본문(note)은
+// 화면이 아는 해시(?noteHash=)와 다를 때만 온다 — 30초 폴링마다 메모 전체를
+// 다시 받지 않게. 꺼져 있으면 둘 다 없다.
+interface ListingNote {
+  noteHash?: unknown;
+  note?: unknown;
+}
+
+// 안내문 띠(#17 B-5). 처음엔 6줄까지만 보이고, 넘치면 "더 보기/접기".
+// 마크다운 해석 없이 글자 그대로, 줄바꿈만 살린다(CSS pre-wrap).
+type Translate = (text: string, vars?: Record<string, string | number>) => string;
+
+function PublicNoteBand({
+  note,
+  className,
+  t,
+}: {
+  note: string;
+  className: string;
+  t: Translate;
+}) {
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  // 잘렸는지는 그려진 크기로만 안다 — 크기가 바뀔 때마다(글·폭·펼침) 다시 잰다.
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (element.dataset.collapsed !== "true") return;
+      setClipped(element.scrollHeight > element.clientHeight + 1);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [note]);
+  return (
+    <section className={className} aria-label={t("안내문")}>
+      <strong>
+        <span className={desktopStyles.folderNoteGlyph} aria-hidden="true" />
+        {t("안내문")}
+      </strong>
+      <p ref={textRef} data-collapsed={expanded ? "false" : "true"}>
+        {note}
+      </p>
+      {(clipped || expanded) && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? t("접기") : t("더 보기")}
+        </button>
+      )}
+    </section>
+  );
 }
 
 // FilesView와 같은 6열 기본 격자(좌표가 저장되지 않은 항목의 배치).
@@ -120,15 +175,17 @@ export default function PublicFolderView({
   token,
   name,
   initialNote,
+  initialNoteHash,
   isDeskUser,
   isAdmin,
   locale,
 }: {
   token: string;
   name: string;
-  // 첫 화면의 안내문(서버가 같은 판정으로 읽은 값). 목록을 받은 뒤에는 목록의
-  // note를 따른다 — 관리자가 끄면 다음 폴링에서 사라진다.
+  // 첫 화면의 안내문과 그 해시(서버가 같은 판정으로 읽은 값). 이후 폴링은
+  // 해시만 맞춰 보고, 바뀌면 새 글을, 꺼지면 사라진다.
   initialNote: string | null;
+  initialNoteHash: string | null;
   isDeskUser: boolean;
   // 관리자만 아이콘을 끌어 배치를 바꾼다(방문자가 보는 위치가 된다).
   isAdmin: boolean;
@@ -228,12 +285,9 @@ export default function PublicFolderView({
   );
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
-  // 안내문: 마크다운 해석 없이 글자 그대로, 줄바꿈만 살린다(CSS pre-wrap).
-  const note = listing
-    ? typeof listing.note === "string" && listing.note.trim()
-      ? listing.note
-      : null
-    : initialNote;
+  // 안내문: 글과 해시를 함께 들고, 폴링에는 아는 해시를 실어 보낸다.
+  const [note, setNote] = useState<string | null>(initialNote);
+  const noteHashRef = useRef<string | null>(initialNoteHash);
 
   // 메뉴는 바깥을 누르거나 Esc로 닫는다(데스크와 같은 규칙). 메뉴 안을
   // 누른 것까지 닫아 버리면 pointerdown이 click보다 먼저라 항목이 눌리지
@@ -263,9 +317,13 @@ export default function PublicFolderView({
     let alive = true;
     void (async () => {
       try {
-        const response = await fetch(`/api/public-folder/${token}`, {
-          cache: "no-store",
-        });
+        const knownHash = noteHashRef.current;
+        const response = await fetch(
+          `/api/public-folder/${token}${
+            knownHash ? `?noteHash=${encodeURIComponent(knownHash)}` : ""
+          }`,
+          { cache: "no-store" },
+        );
         if (!alive) return;
         if (response.status === 404) {
           setClosed(true);
@@ -273,7 +331,7 @@ export default function PublicFolderView({
         }
         const body = (await response
           .json()
-          .catch(() => null)) as Listing | null;
+          .catch(() => null)) as (Listing & ListingNote) | null;
         if (!alive) return;
         if (!response.ok || !body || !Array.isArray(body.entries)) {
           setError(t("목록을 불러오지 못했습니다"));
@@ -281,6 +339,13 @@ export default function PublicFolderView({
         }
         setError(null);
         setListing(body);
+        if (typeof body.noteHash !== "string") {
+          noteHashRef.current = null;
+          setNote(null);
+        } else if (typeof body.note === "string") {
+          noteHashRef.current = body.noteHash;
+          setNote(body.note);
+        }
         // 폴링이 다시 200을 받으면(관리자가 기간 연장·재개) 닫힘 화면을
         // 푼다 — 새로고침 없이 복구된다.
         setClosed(false);
@@ -559,9 +624,7 @@ export default function PublicFolderView({
           )}
         </header>
         {note && (
-          <section className={mobileStyles.publicNote} aria-label={t("안내문")}>
-            <p>{note}</p>
-          </section>
+          <PublicNoteBand note={note} className={mobileStyles.publicNote} t={t} />
         )}
         {notice && (
           <p className={mobileStyles.notice} role="status">
@@ -668,190 +731,185 @@ export default function PublicFolderView({
           </div>
         </header>
 
-        {/* 안내문(#17 B-5) — 폴더 메모를 읽기 전용 쪽지로. 아이콘이 왼쪽부터
-            채워지므로 오른쪽 위에 둔다. */}
-        {note && (
-          <aside className={desktopStyles.publicNote} aria-label={t("안내문")}>
-            <strong>
-              <span className={desktopStyles.folderNoteGlyph} aria-hidden="true" />
-              {t("안내문")}
-            </strong>
-            <p>{note}</p>
-          </aside>
-        )}
-
-        <div
-          className={`${desktopStyles.iconCanvas} ${desktopStyles.rootCanvas}`}
-          role="region"
-          aria-label={t("공개폴더: {name}", { name: listing?.name ?? name })}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={(event) => {
-            if (event.target === event.currentTarget) setDragOver(false);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDragOver(false);
-            if (uploading) return;
-            if (hasDroppedDirectory(event.dataTransfer)) {
-              setNotice(t("폴더는 올릴 수 없습니다 — 파일만 올려 주세요"));
-              return;
-            }
-            void uploadFiles(Array.from(event.dataTransfer.files ?? []));
-          }}
-          onPointerDown={(event) => {
-            // 빈 바탕을 누르면 고른 것을 놓는다 — 데스크와 같다.
-            if (event.target === event.currentTarget) setSelectedId(null);
-          }}
-        >
-          <div className={desktopStyles.iconPlane}>
-            {visibleFiles.map((entry) => {
-              const placement = placements[entry.id];
-              const selected = selectedId === entry.id;
-              const dragging = drag?.id === entry.id;
-              return (
-                <div
-                  key={entry.id}
-                  className={`${desktopStyles.desktopIcon} ${
-                    selected ? desktopStyles.iconSelected : ""
-                  }`}
-                  style={{
-                    left: dragging ? drag.x : placement.x,
-                    top: dragging ? drag.y : placement.y,
-                    ...(isAdmin
-                      ? {
-                          touchAction: "none" as const,
-                          cursor: dragging ? "grabbing" : "grab",
-                        }
-                      : {}),
-                    ...(dragging ? { zIndex: 5 } : {}),
-                  }}
-                  // 관리자만 끌어 배치를 바꾼다 — 방문자에게는 핸들러 자체가
-                  // 붙지 않는다. 4px 넘게 움직여야 끌기로 본다(클릭과 구분).
-                  onPointerDown={
-                    isAdmin
-                      ? (event) => {
-                          if (event.button !== 0) return;
-                          setSelectedId(entry.id);
-                          dragRef.current = {
-                            id: entry.id,
-                            startX: event.clientX,
-                            startY: event.clientY,
-                            originX: placement.x,
-                            originY: placement.y,
-                            moved: false,
-                          };
-                          try {
-                            event.currentTarget.setPointerCapture(event.pointerId);
-                          } catch {
-                            // 이미 놓인 포인터(합성 이벤트 등)면 캡처 없이 진행한다.
+        {/* 머리줄과 작업표시줄 사이(#17 B-5). 안내문은 아이콘 판 위의 띠로 흐름 안에
+            두어, 띠 높이만큼 판이 내려간다 — 아이콘을 가리지 않는다. */}
+        <div className={desktopStyles.publicStage}>
+          {note && (
+            <PublicNoteBand note={note} className={desktopStyles.publicNote} t={t} />
+          )}
+          <div
+            className={`${desktopStyles.iconCanvas} ${desktopStyles.rootCanvas}`}
+            role="region"
+            aria-label={t("공개폴더: {name}", { name: listing?.name ?? name })}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={(event) => {
+              if (event.target === event.currentTarget) setDragOver(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragOver(false);
+              if (uploading) return;
+              if (hasDroppedDirectory(event.dataTransfer)) {
+                setNotice(t("폴더는 올릴 수 없습니다 — 파일만 올려 주세요"));
+                return;
+              }
+              void uploadFiles(Array.from(event.dataTransfer.files ?? []));
+            }}
+            onPointerDown={(event) => {
+              // 빈 바탕을 누르면 고른 것을 놓는다 — 데스크와 같다.
+              if (event.target === event.currentTarget) setSelectedId(null);
+            }}
+          >
+            <div className={desktopStyles.iconPlane}>
+              {visibleFiles.map((entry) => {
+                const placement = placements[entry.id];
+                const selected = selectedId === entry.id;
+                const dragging = drag?.id === entry.id;
+                return (
+                  <div
+                    key={entry.id}
+                    className={`${desktopStyles.desktopIcon} ${
+                      selected ? desktopStyles.iconSelected : ""
+                    }`}
+                    style={{
+                      left: dragging ? drag.x : placement.x,
+                      top: dragging ? drag.y : placement.y,
+                      ...(isAdmin
+                        ? {
+                            touchAction: "none" as const,
+                            cursor: dragging ? "grabbing" : "grab",
                           }
-                        }
-                      : undefined
-                  }
-                  onPointerMove={
-                    isAdmin
-                      ? (event) => {
-                          const current = dragRef.current;
-                          if (!current || current.id !== entry.id) return;
-                          const dx = (event.clientX - current.startX) / uiScale;
-                          const dy = (event.clientY - current.startY) / uiScale;
-                          if (!current.moved && Math.hypot(dx, dy) < 4) return;
-                          current.moved = true;
-                          setDrag({
-                            id: entry.id,
-                            x: Math.max(0, current.originX + dx),
-                            y: Math.max(0, current.originY + dy),
-                          });
-                        }
-                      : undefined
-                  }
-                  onPointerUp={
-                    isAdmin
-                      ? (event) => {
-                          const current = dragRef.current;
-                          dragRef.current = null;
-                          setDrag(null);
-                          if (!current || current.id !== entry.id || !current.moved) {
-                            return;
+                        : {}),
+                      ...(dragging ? { zIndex: 5 } : {}),
+                    }}
+                    // 관리자만 끌어 배치를 바꾼다 — 방문자에게는 핸들러 자체가
+                    // 붙지 않는다. 4px 넘게 움직여야 끌기로 본다(클릭과 구분).
+                    onPointerDown={
+                      isAdmin
+                        ? (event) => {
+                            if (event.button !== 0) return;
+                            setSelectedId(entry.id);
+                            dragRef.current = {
+                              id: entry.id,
+                              startX: event.clientX,
+                              startY: event.clientY,
+                              originX: placement.x,
+                              originY: placement.y,
+                              moved: false,
+                            };
+                            try {
+                              event.currentTarget.setPointerCapture(event.pointerId);
+                            } catch {
+                              // 이미 놓인 포인터(합성 이벤트 등)면 캡처 없이 진행한다.
+                            }
                           }
-                          const target = nearestFreeCell(
-                            current.originX +
-                              (event.clientX - current.startX) / uiScale,
-                            current.originY +
-                              (event.clientY - current.startY) / uiScale,
-                            entry.id,
-                          );
-                          if (
-                            !target ||
-                            (target.x === current.originX &&
-                              target.y === current.originY)
-                          ) {
-                            return;
-                          }
-                          void placeIcon(entry, target);
-                        }
-                      : undefined
-                  }
-                  onPointerCancel={
-                    isAdmin
-                      ? () => {
-                          dragRef.current = null;
-                          setDrag(null);
-                        }
-                      : undefined
-                  }
-                >
-                  <button
-                    type="button"
-                    className={desktopStyles.iconMain}
-                    aria-pressed={selected}
-                    title={
-                      downloadFirst
-                        ? t("두 번 눌러 내려받기")
-                        : t("두 번 눌러 열기")
+                        : undefined
                     }
-                    onClick={() => setSelectedId(entry.id)}
-                    onDoubleClick={() => activate(entry)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      setSelectedId(entry.id);
-                      if (event.key === "Enter") activate(entry);
-                    }}
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setSelectedId(entry.id);
-                      setMenu({
-                        x: event.clientX / uiScale,
-                        y: event.clientY / uiScale,
-                        entry,
-                      });
-                    }}
+                    onPointerMove={
+                      isAdmin
+                        ? (event) => {
+                            const current = dragRef.current;
+                            if (!current || current.id !== entry.id) return;
+                            const dx = (event.clientX - current.startX) / uiScale;
+                            const dy = (event.clientY - current.startY) / uiScale;
+                            if (!current.moved && Math.hypot(dx, dy) < 4) return;
+                            current.moved = true;
+                            setDrag({
+                              id: entry.id,
+                              x: Math.max(0, current.originX + dx),
+                              y: Math.max(0, current.originY + dy),
+                            });
+                          }
+                        : undefined
+                    }
+                    onPointerUp={
+                      isAdmin
+                        ? (event) => {
+                            const current = dragRef.current;
+                            dragRef.current = null;
+                            setDrag(null);
+                            if (!current || current.id !== entry.id || !current.moved) {
+                              return;
+                            }
+                            const target = nearestFreeCell(
+                              current.originX +
+                                (event.clientX - current.startX) / uiScale,
+                              current.originY +
+                                (event.clientY - current.startY) / uiScale,
+                              entry.id,
+                            );
+                            if (
+                              !target ||
+                              (target.x === current.originX &&
+                                target.y === current.originY)
+                            ) {
+                              return;
+                            }
+                            void placeIcon(entry, target);
+                          }
+                        : undefined
+                    }
+                    onPointerCancel={
+                      isAdmin
+                        ? () => {
+                            dragRef.current = null;
+                            setDrag(null);
+                          }
+                        : undefined
+                    }
                   >
-                    <PixelFileIcon entry={entry} size={54} />
-                    <span className={desktopStyles.iconName}>{entry.name}</span>
+                    <button
+                      type="button"
+                      className={desktopStyles.iconMain}
+                      aria-pressed={selected}
+                      title={
+                        downloadFirst
+                          ? t("두 번 눌러 내려받기")
+                          : t("두 번 눌러 열기")
+                      }
+                      onClick={() => setSelectedId(entry.id)}
+                      onDoubleClick={() => activate(entry)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        setSelectedId(entry.id);
+                        if (event.key === "Enter") activate(entry);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSelectedId(entry.id);
+                        setMenu({
+                          x: event.clientX / uiScale,
+                          y: event.clientY / uiScale,
+                          entry,
+                        });
+                      }}
+                    >
+                      <PixelFileIcon entry={entry} size={54} />
+                      <span className={desktopStyles.iconName}>{entry.name}</span>
+                    </button>
+                  </div>
+                );
+              })}
+              {error && (
+                <div className={desktopStyles.canvasMessage} role="alert">
+                  <strong>{error}</strong>
+                  <button type="button" onClick={reload}>
+                    {t("다시 시도")}
                   </button>
                 </div>
-              );
-            })}
-            {error && (
-              <div className={desktopStyles.canvasMessage} role="alert">
-                <strong>{error}</strong>
-                <button type="button" onClick={reload}>
-                  {t("다시 시도")}
-                </button>
+              )}
+            </div>
+            {dragOver && (
+              <div className={desktopStyles.dropOverlay} aria-hidden="true">
+                {t("여기에 놓아 주세요")}
               </div>
             )}
           </div>
-          {dragOver && (
-            <div className={desktopStyles.dropOverlay} aria-hidden="true">
-              {t("여기에 놓아 주세요")}
-            </div>
-          )}
         </div>
 
         <footer className={desktopStyles.taskBar}>
