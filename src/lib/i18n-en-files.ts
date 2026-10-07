@@ -692,4 +692,6 @@ export const EN_FILES: Record<string, string> = {
   "보내는 사람 (선택)": "From (optional)",
   "이름 (선택)": "Name (optional)",
   "보내는 사람 이름은 40자까지 쓸 수 있습니다": "The sender name can be up to 40 characters",
+  // 공개 폴더 안내문 (#17 B-5)
+  "안내문": "Notice",
 };

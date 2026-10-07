@@ -87,6 +87,11 @@ export function parseSettingsPatch(
     if (typeof body.enabled !== "boolean") return { error: "잘못된 요청입니다" };
     patch.enabled = body.enabled;
   }
+  // 안내문 보이기(#17 B-5) — 폴더 메모를 방문자 화면에 보일지.
+  if ("showNote" in body) {
+    if (typeof body.showNote !== "boolean") return { error: "잘못된 요청입니다" };
+    patch.showNote = body.showNote;
+  }
   for (const key of ["opensAt", "closesAt"] as const) {
     if (!(key in body)) continue;
     const parsed = parsePublicFolderTime(body[key]);

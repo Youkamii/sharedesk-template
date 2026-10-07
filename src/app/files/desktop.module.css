@@ -2064,6 +2064,54 @@
   box-shadow: inset 2px 2px 0 #b9e1cf, inset -2px -2px 0 #2d5c5b;
 }
 
+/* 공개 폴더 안내문(#17 B-5) — 폴더 메모를 읽기 전용 쪽지로. 마크다운 없이
+   줄바꿈만 살리고, 길면 쪽지 안에서 스크롤한다. 아이콘이 왼쪽부터 채워지므로
+   오른쪽 위에 둔다. */
+.publicNote {
+  position: absolute;
+  top: 46px;
+  right: 16px;
+  z-index: 900;
+  display: flex;
+  width: min(320px, calc(100% - 32px));
+  max-height: calc(100% - 140px);
+  flex-direction: column;
+  color: #2d2a34;
+  border: 2px solid #1b1b2f;
+  box-shadow: 4px 4px 0 rgb(5 9 20 / 55%);
+  user-select: text;
+}
+
+.publicNote strong {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  color: #fff4d2;
+  background: #2d5c5b;
+  border-bottom: 2px solid #1b1b2f;
+  font-size: 12px;
+}
+
+.publicNote p {
+  min-height: 48px;
+  margin: 0;
+  padding: 0 12px;
+  overflow: auto;
+  background: repeating-linear-gradient(
+    to bottom,
+    #fff9c9 0,
+    #fff9c9 23px,
+    #dccb88 24px
+  );
+  background-attachment: local;
+  font-size: 12px;
+  line-height: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 공개 폴더 방문자의 "보내는 사람" 입력(#17 B-4) — 다운로드 우선 칸과 같은 틀. */
 .publicSender {
   display: inline-flex;

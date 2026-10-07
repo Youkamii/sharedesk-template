@@ -229,4 +229,7 @@ export const EN_ADMIN: Record<string, string> = {
   "업데이트를 시작했습니다. 완료되면 데스크가 새 버전으로 다시 시작됩니다.": "Update started. The desk restarts on the new version when it finishes.",
   "공개 폴더 관리는 기본 데스크에서만 쓸 수 있습니다": "Public folder management is only available on the main desk",
   "닉네임 변경": "Nickname change",
+  // 공개 폴더 안내문 보이기 (#17 B-5)
+  "안내문 보이기": "Show notice",
+  "켜면 이 폴더의 메모를 방문자 화면 위쪽에 읽기 전용으로 보여 줍니다. 메모는 데스크에서 이 폴더를 열고 ‘폴더 메모’로 씁니다.": "When on, this folder's note appears read-only at the top of the visitor screen. Write it on the desk: open this folder and use ‘Folder note’.",
 };

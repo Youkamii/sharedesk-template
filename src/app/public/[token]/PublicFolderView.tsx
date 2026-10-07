@@ -39,6 +39,8 @@ interface Listing {
   name: string;
   entries: PublicEntry[];
   positions: Record<string, { x: number; y: number }>;
+  // 안내문(#17 B-5) — 관리자가 켠 폴더만 서버가 싣는다(꺼져 있으면 키가 없다).
+  note?: string;
 }
 
 // FilesView와 같은 6열 기본 격자(좌표가 저장되지 않은 항목의 배치).
@@ -126,12 +128,16 @@ function hasDroppedDirectory(dataTransfer: DataTransfer): boolean {
 export default function PublicFolderView({
   token,
   name,
+  initialNote,
   isDeskUser,
   isAdmin,
   locale,
 }: {
   token: string;
   name: string;
+  // 첫 화면의 안내문(서버가 같은 판정으로 읽은 값). 목록을 받은 뒤에는 목록의
+  // note를 따른다 — 관리자가 끄면 다음 폴링에서 사라진다.
+  initialNote: string | null;
   isDeskUser: boolean;
   // 관리자만 아이콘을 끌어 배치를 바꾼다(방문자가 보는 위치가 된다).
   isAdmin: boolean;
@@ -219,6 +225,12 @@ export default function PublicFolderView({
   );
 
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
+  // 안내문: 마크다운 해석 없이 글자 그대로, 줄바꿈만 살린다(CSS pre-wrap).
+  const note = listing
+    ? typeof listing.note === "string" && listing.note.trim()
+      ? listing.note
+      : null
+    : initialNote;
 
   // 메뉴는 바깥을 누르거나 Esc로 닫는다(데스크와 같은 규칙). 메뉴 안을
   // 누른 것까지 닫아 버리면 pointerdown이 click보다 먼저라 항목이 눌리지
@@ -541,6 +553,11 @@ export default function PublicFolderView({
             </a>
           )}
         </header>
+        {note && (
+          <section className={mobileStyles.publicNote} aria-label={t("안내문")}>
+            <p>{note}</p>
+          </section>
+        )}
         {notice && (
           <p className={mobileStyles.notice} role="status">
             {notice}
@@ -645,6 +662,18 @@ export default function PublicFolderView({
             </span>
           </div>
         </header>
+
+        {/* 안내문(#17 B-5) — 폴더 메모를 읽기 전용 쪽지로. 아이콘이 왼쪽부터
+            채워지므로 오른쪽 위에 둔다. */}
+        {note && (
+          <aside className={desktopStyles.publicNote} aria-label={t("안내문")}>
+            <strong>
+              <span className={desktopStyles.folderNoteGlyph} aria-hidden="true" />
+              {t("안내문")}
+            </strong>
+            <p>{note}</p>
+          </aside>
+        )}
 
         <div
           className={`${desktopStyles.iconCanvas} ${desktopStyles.rootCanvas}`}

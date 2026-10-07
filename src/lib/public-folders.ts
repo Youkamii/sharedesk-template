@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { SessionInfo } from "@/lib/auth";
+import { getFolderNote } from "@/lib/folder-note";
 import { roleAtLeast, resolveUserRole, type UserRole } from "@/lib/roles";
 import { getAdapter } from "@/lib/storage";
 import { StorageError, type Entry } from "@/lib/storage/types";
@@ -49,6 +50,10 @@ export interface PublicFolder {
   // 설정하면 명단 멤버 중 (역할 ≥ minRole) OR (userIds 포함)만.
   minRole: UserRole | null;
   userIds: string[];
+  // 안내문 보이기(#17 B-5): 켜면 대상 폴더의 메모(folder-note)를 방문자 화면
+  // 위쪽에 읽기 전용으로 보여 준다. 기본 꺼짐 — 메모는 원래 데스크 안쪽 글이라
+  // 관리자가 켜기 전에는 공개 표면에 절대 나가지 않는다(readPublicFolderNote).
+  showNote: boolean;
   createdAt: string;
   createdByUserId: string;
 }
@@ -156,6 +161,8 @@ function normalize(value: unknown): PublicFolderFile {
               (id): id is string => typeof id === "string" && id.length > 0,
             )
           : [],
+        // 옛 레코드에는 없다 — true일 때만 켜짐(기본 꺼짐).
+        showNote: candidate.showNote === true,
         createdAt: candidate.createdAt,
         createdByUserId: candidate.createdByUserId,
       });
@@ -314,6 +321,7 @@ export async function addPublicFolder(input: {
   maxFiles?: number | null;
   minRole?: UserRole | null;
   userIds?: string[];
+  showNote?: boolean;
 }): Promise<PublicFolder> {
   const name = parsePublicFolderName(input.name);
   if (!name) {
@@ -335,6 +343,7 @@ export async function addPublicFolder(input: {
     maxFiles: input.maxFiles ?? null,
     minRole: input.minRole ?? null,
     userIds: input.userIds ?? [],
+    showNote: input.showNote === true,
     createdAt: new Date().toISOString(),
     createdByUserId: input.createdByUserId,
   };
@@ -364,6 +373,7 @@ export type PublicFolderPatch = Partial<
     | "maxFiles"
     | "minRole"
     | "userIds"
+    | "showNote"
   >
 >;
 
@@ -388,6 +398,29 @@ export async function updatePublicFolder(
       result: updated,
     };
   });
+}
+
+/**
+ * 방문자에게 보여 줄 안내문(#17 B-5) — 공개 표면(방문자 페이지·공개 목록
+ * API)이 폴더 메모를 읽는 유일한 입구다. showNote가 꺼져 있으면 메모를 읽지도
+ * 않고 null이다. 켜져 있어도 메모가 비었거나 읽지 못하면 null — 안내문 때문에
+ * 방문자 화면이 깨지지 않게 한다. 길이 상한은 메모 상한(100 KiB) 그대로다
+ * (folder-note가 저장·읽기 양쪽에서 지킨다). 마크다운 해석 없이 원문 그대로
+ * 돌려주고, 화면은 줄바꿈만 살려 글자로 그린다.
+ *
+ * 호출자는 접근 판정·대상 실체 확인(resolveOpenPublicFolder /
+ * resolvePublicFolderTarget)을 마친 등록만 넘긴다.
+ */
+export async function readPublicFolderNote(
+  folder: Pick<PublicFolder, "showNote" | "folderId">,
+): Promise<string | null> {
+  if (folder.showNote !== true) return null;
+  try {
+    const { content } = await getFolderNote(folder.folderId);
+    return content.trim() ? content : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 등록만 해제한다. 폴더·파일은 데스크에 남는다(spaces 관례). */

@@ -5,6 +5,7 @@ import { LOCALE_COOKIE, resolveEffectiveLocale } from "@/lib/i18n";
 import {
   getPublicFolder,
   publicFolderAccess,
+  readPublicFolderNote,
   resolvePublicFolderTarget,
 } from "@/lib/public-folders";
 import { runWithSpace } from "@/lib/space-context";
@@ -37,6 +38,9 @@ export default async function PublicFolderPage({
     const settings = await getDeskSettingsOrDefault();
     return {
       folder,
+      // 안내문(#17 B-5)은 첫 화면부터 보이게 서버에서 함께 그린다 — 공개 목록
+      // API와 같은 입구(readPublicFolderNote)라 꺼져 있으면 null이다.
+      note: await readPublicFolderNote(folder),
       isDeskUser: session !== null,
       // 관리자는 이 화면에서 아이콘을 끌어 방문자가 보는 배치를 바꾼다.
       isAdmin: session?.isAdmin === true,
@@ -53,6 +57,7 @@ export default async function PublicFolderPage({
     <PublicFolderView
       token={token}
       name={resolved.folder.name}
+      initialNote={resolved.note}
       isDeskUser={resolved.isDeskUser}
       isAdmin={resolved.isAdmin}
       locale={locale}

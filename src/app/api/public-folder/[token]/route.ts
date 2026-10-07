@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getLayoutSnapshot } from "@/lib/desktop-layout";
+import { readPublicFolderNote } from "@/lib/public-folders";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
 import { missing, resolveOpenPublicFolder } from "./shared";
@@ -33,6 +34,10 @@ export async function GET(
     } catch {
       // 레이아웃 파일이 없거나 깨졌으면 기본 배치로 그린다.
     }
+    // 안내문(#17 B-5) — 관리자가 "안내문 보이기"를 켠 폴더만, 켜져 있을 때만.
+    // 꺼져 있으면 note 키 자체가 없다(메모를 읽지도 않는다). 폴링이라 관리자가
+    // 끄거나 메모를 고치면 다음 목록부터 반영된다.
+    const note = await readPublicFolderNote(resolved.folder);
     return NextResponse.json(
       {
         name: resolved.folder.name,
@@ -44,6 +49,7 @@ export async function GET(
           mimeType: entry.mimeType,
         })),
         positions,
+        ...(note !== null ? { note } : {}),
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );

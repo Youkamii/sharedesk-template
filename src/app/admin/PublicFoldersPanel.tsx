@@ -25,6 +25,8 @@ interface AdminPublicFolder {
   maxFiles: number | null;
   minRole: UserRole | null;
   userIds: string[];
+  // 안내문 보이기(#17 B-5). 옛 서버 응답에는 없을 수 있다 — 꺼짐으로 본다.
+  showNote?: boolean;
   url: string;
   missing: boolean;
 }
@@ -79,11 +81,13 @@ interface SettingsFormState {
   maxFiles: string;
   minRole: UserRole | "";
   userIds: string[];
+  showNote: boolean;
 }
 
 function formStateOf(folder: AdminPublicFolder): SettingsFormState {
   return {
     enabled: folder.enabled,
+    showNote: folder.showNote === true,
     opensAt: isoToLocalInput(folder.opensAt),
     closesAt: isoToLocalInput(folder.closesAt),
     maxTotalGiB: bytesAsInputGiB(folder.maxTotalBytes),
@@ -128,6 +132,7 @@ function patchFromForm(
   }
   const body: Record<string, unknown> = {};
   if (form.enabled !== baseline.enabled) body.enabled = form.enabled;
+  if (form.showNote !== baseline.showNote) body.showNote = form.showNote;
   if (form.opensAt !== baseline.opensAt) body.opensAt = opensAt;
   if (form.closesAt !== baseline.closesAt) body.closesAt = closesAt;
   if (form.maxTotalGiB !== baseline.maxTotalGiB) {
@@ -485,6 +490,33 @@ export default function PublicFoldersPanel({
                               <option value="on">{t("켜짐")}</option>
                               <option value="off">{t("꺼짐")}</option>
                             </select>
+                          </label>
+                          {/* 안내문 보이기(#17 B-5) — 기본 꺼짐. 켜면 이 폴더의
+                              메모가 방문자 화면 위쪽에 읽기 전용으로 보인다. */}
+                          <label className={styles.field}>
+                            <span>{t("안내문 보이기")}</span>
+                            <select
+                              className={styles.select}
+                              value={form.showNote ? "on" : "off"}
+                              onChange={(event) =>
+                                setForm((current) =>
+                                  current
+                                    ? {
+                                        ...current,
+                                        showNote: event.target.value === "on",
+                                      }
+                                    : current,
+                                )
+                              }
+                            >
+                              <option value="off">{t("꺼짐")}</option>
+                              <option value="on">{t("켜짐")}</option>
+                            </select>
+                            <small className={styles.muted}>
+                              {t(
+                                "켜면 이 폴더의 메모를 방문자 화면 위쪽에 읽기 전용으로 보여 줍니다. 메모는 데스크에서 이 폴더를 열고 ‘폴더 메모’로 씁니다.",
+                              )}
+                            </small>
                           </label>
                           <label className={styles.field}>
                             <span>{t("공개 시작")}</span>
