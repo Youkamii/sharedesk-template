@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  SHARE_LINK_ID_PATTERN,
+  formatUtcExpiry,
+  shareLandingInlineType,
+  shareLandingPath,
+  wantsShareLanding,
+} from "@/lib/share-landing";
 import { recordShareLinkDownloadAfter } from "@/lib/share-link-downloads";
 import { resolveShareLink } from "@/lib/share-links";
 import { runWithSpace } from "@/lib/space-context";
@@ -24,7 +31,13 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function downloadResponse(file: DownloadResult, downloadName = file.name): Response {
+// inlineType이 있으면(받기 화면의 미리보기) 그 형식으로 inline, 없으면 지금까지처럼
+// attachment 고정이다.
+function downloadResponse(
+  file: DownloadResult,
+  downloadName = file.name,
+  inlineType: string | null = null,
+): Response {
   const asciiName = downloadName
     .replace(/[^\x20-\x7e]/g, "_")
     .replace(/["\\]/g, "'");
@@ -34,10 +47,12 @@ function downloadResponse(file: DownloadResult, downloadName = file.name): Respo
       "%" + character.charCodeAt(0).toString(16).toUpperCase(),
   );
   const headers = new Headers({
-    "Content-Type": file.mimeType,
+    "Content-Type": inlineType ?? file.mimeType,
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": "private, no-store",
-    "Content-Disposition": `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
+    "Content-Disposition": inlineType
+      ? `inline; filename="${asciiName}"; filename*=UTF-8''${encodedName}`
+      : `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`,
   });
   if (file.acceptRanges !== false) headers.set("Accept-Ranges", "bytes");
   const length = file.contentLength ?? file.size;
@@ -48,9 +63,28 @@ function downloadResponse(file: DownloadResult, downloadName = file.name): Respo
   return new Response(file.stream, { status: file.status, headers });
 }
 
+// 받기 화면(#17 B-3)의 작은 미리보기. 링크·폴더 범위 가드는 내려받기와 같은
+// 길을 지난 뒤에만 여기 온다. 이미지·PDF·텍스트(텍스트는 text/plain 강제)만
+// inline으로 내고, 그 밖의 형식은 내주지 않는다 — 미리보기는 받아 간 횟수에
+// 세지 않으므로, 세지 않는 내려받기 통로가 되지 않게 한다.
+function previewResponse(file: DownloadResult, name: string): Response | null {
+  const inlineType = shareLandingInlineType({ name, mimeType: file.mimeType });
+  if (!inlineType) return null;
+  return downloadResponse(file, name, inlineType);
+}
+
+function previewUnsupported(file: DownloadResult): Response {
+  void file.stream.cancel().catch(() => undefined);
+  return NextResponse.json(
+    { error: "미리보기를 지원하지 않는 형식입니다" },
+    { status: 415, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 function folderPage(
   linkId: string,
   rootName: string,
+  expiresAt: string,
   current: Entry,
   entries: Entry[],
 ): Response {
@@ -65,7 +99,7 @@ function folderPage(
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(rootName)} · ShareDesk</title>
 <style>body{margin:0;background:#10172b;color:#111629;font:14px system-ui,sans-serif}.window{width:min(720px,calc(100% - 24px));margin:32px auto;background:#f4e7c5;border:2px solid #080d1c;box-shadow:6px 6px 0 #070b16}.title{padding:10px 12px;color:#fff4d2;background:#2d5c5b;font-weight:700}.path{display:flex;gap:8px;padding:10px 12px;background:#fff8e7;border-bottom:2px solid #7d7180}.path a{color:#2d5c5b}.list{min-height:180px;margin:0;padding:10px;list-style:none}.list li{border-bottom:1px solid #d8c7a5}.list a{display:flex;gap:9px;padding:10px;color:#111629;text-decoration:none}.list a:hover{background:#ffd27d}.empty{padding:28px;text-align:center;color:#686474}.foot{padding:8px 12px;color:#cdd5e8;background:#182446;font-size:12px}</style></head>
-<body><main class="window"><header class="title">ShareDesk · ${escapeHtml(rootName)}</header><nav class="path"><a href="${base}">맨 위</a><span>/</span><strong>${escapeHtml(current.name)}</strong></nav>${rows ? `<ul class="list">${rows}</ul>` : '<p class="empty">빈 폴더입니다.</p>'}<footer class="foot">이 링크는 정해진 시간이 지나면 자동으로 닫힙니다.</footer></main></body></html>`;
+<body><main class="window"><header class="title">ShareDesk · ${escapeHtml(rootName)}</header><nav class="path"><a href="${base}">맨 위</a><span>/</span><strong>${escapeHtml(current.name)}</strong></nav>${rows ? `<ul class="list">${rows}</ul>` : '<p class="empty">빈 폴더입니다.</p>'}<footer class="foot">이 링크는 ${escapeHtml(formatUtcExpiry(expiresAt))}에 닫힙니다.</footer></main></body></html>`;
   return new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -123,6 +157,28 @@ export async function GET(
 ) {
   return runWithSpace(null, async () => {
     const { linkId } = await params;
+    // 사람이 브라우저로 연 링크(#17 B-3)는 받기 화면으로 보낸다 — 이름·크기·
+    // 보낸 사람·남은 시간을 보고 "받기"를 누르게. 화면이 링크·항목 판정을
+    // 직접 하므로 여기서는 저장소를 읽지 않는다. curl·다운로드 관리자처럼
+    // html을 바라지 않는 요청, format=json·download=1·preview=1은 지금까지처럼
+    // 아래에서 바로 처리한다. Location은 상대 경로 — 터널·프록시 뒤에서도 같은
+    // 호스트로 돌아온다.
+    if (
+      SHARE_LINK_ID_PATTERN.test(linkId) &&
+      wantsShareLanding(req.headers.get("accept"), req.nextUrl.searchParams)
+    ) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: shareLandingPath(
+            linkId,
+            req.nextUrl.searchParams.get("entryId"),
+          ),
+          "Cache-Control": "private, no-store",
+          Vary: "Accept",
+        },
+      });
+    }
     const link = await resolveShareLink(linkId).catch(() => null);
     if (!link) return missing();
 
@@ -134,6 +190,8 @@ export async function GET(
     // 다른 데스크가 복사해 갈 때는 사람이 보는 HTML 대신 기계가 읽을 목록이
     // 필요하다. 노출 범위는 HTML 목록과 같다 — 링크를 아는 쪽만 볼 수 있다.
     const wantsManifest = req.nextUrl.searchParams.get("format") === "json";
+    // 받기 화면의 미리보기(#17 B-3) — 받아 간 횟수에 세지 않는다.
+    const wantsPreview = req.nextUrl.searchParams.get("preview") === "1";
     // "받아 갔는지"(#17 B-7) = 저장소가 파일 본문 전송을 시작한 것. 끝까지
     // 받았는지는 보지 않는다(중간에 끊긴 내려받기도 센다 — 데스크·공개 폴더
     // 기록과 같은 설계). 처음부터 받는 요청만 센다: Range 없음, 또는
@@ -154,9 +212,13 @@ export async function GET(
           if (wantsManifest) {
             return manifestResponse(link.expiresAt, entry, children);
           }
-          return folderPage(link.linkId, link.name, entry, children);
+          return folderPage(link.linkId, link.name, link.expiresAt, entry, children);
         }
         if (wantsManifest) return manifestResponse(link.expiresAt, entry, null);
+        if (wantsPreview) {
+          const preview = await adapter.download(entry.id, range);
+          return previewResponse(preview, entry.name) ?? previewUnsupported(preview);
+        }
         const file = await adapter.download(entry.id, range);
         // 폴더 링크 안의 개별 파일도 기록한다 — 링크 횟수와 그 파일의 내력.
         if (countsAsDownload) {
@@ -177,6 +239,10 @@ export async function GET(
           { ...entry, name: link.name },
           null,
         );
+      }
+      if (wantsPreview) {
+        const preview = await adapter.download(link.fileId, range);
+        return previewResponse(preview, link.name) ?? previewUnsupported(preview);
       }
       const file = await adapter.download(link.fileId, range);
       // 저장소가 파일을 내주기 시작했을 때만 센다(없는 파일은 아래 catch가 404로 접는다).

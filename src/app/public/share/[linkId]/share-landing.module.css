@@ -1,0 +1,380 @@
+/* 공유·간이 링크 받기 화면(#17 B-3). Dusk Room OS(DESIGN.md) 도트 문법 —
+   밤 배경 가운데 크림 창, 청록 제목줄, 2px 빛/어둠 프레임, 복숭아 주 단추.
+   입장 화면(auth.module.css)·공개 폴더 화면(desktop.module.css)과 같은 팔레트. */
+
+.screen {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  color: #1b1b2f;
+  background: #10172b;
+  font-family: var(--font-pixel), var(--font-geist-sans), sans-serif;
+  font-size: 13px;
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  min-width: 0;
+  background: #f4e7c5;
+  border: 2px solid #080d1c;
+  box-shadow: inset 2px 2px 0 #fff8e7, inset -2px -2px 0 #9c8c78, 7px 7px 0 rgb(5 9 20 / 70%);
+}
+
+.titleBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  color: #fff4d2;
+  background: #2d5c5b;
+  box-shadow: inset 0 -2px 0 #1b3a39;
+}
+
+.titleBar strong {
+  font-weight: 400;
+}
+
+.titleLabel {
+  overflow: hidden;
+  padding-left: 8px;
+  color: #cfe3dc;
+  border-left: 1px solid #5f8f8d;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.brandMark {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: #0b1021;
+  border: 2px solid #f2a56f;
+  box-shadow: 2px 2px 0 #080b17;
+}
+
+.brandMark i:nth-child(1) { background: #ffd27d; }
+.brandMark i:nth-child(2) { background: #61b3a6; }
+.brandMark i:nth-child(3) { background: #e96872; }
+.brandMark i:nth-child(4) { background: #79a8e8; }
+
+.path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 12px;
+  background: #fff8e7;
+  border-bottom: 2px solid #9c8c78;
+  font-size: 12px;
+}
+
+.path a {
+  color: #2d5c5b;
+  overflow-wrap: anywhere;
+}
+
+.path strong {
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 16px;
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.heroIcon {
+  display: flex;
+  flex: none;
+}
+
+.heroText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  color: #1b1b2f;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  margin: 0;
+  color: #5e5361;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+}
+
+.note {
+  margin: 0;
+  color: #4a4a5c;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 10px 12px;
+  background: #fff8e7;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+  font-size: 12px;
+}
+
+.facts dt {
+  color: #5e5361;
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.countdown {
+  color: #2d5c5b;
+  font-family: var(--font-geist-mono), monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.countdown[data-closed="true"] {
+  color: #a53c46;
+}
+
+.closed {
+  margin: 0;
+  padding: 6px 8px;
+  color: #fff8e7;
+  background: #a53c46;
+  font-size: 12px;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 6px;
+  background: #fff8e7;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+}
+
+.preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 280px;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.preview iframe {
+  display: block;
+  width: 100%;
+  height: 340px;
+  border: 0;
+  background: #ffffff;
+}
+
+.preview pre {
+  max-height: 240px;
+  margin: 0;
+  overflow: auto;
+  color: #1b1b2f;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.preview figcaption {
+  color: #5e5361;
+  font-size: 11px;
+}
+
+.primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: var(--peach);
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset -2px -2px 0 #a9633c, inset 2px 2px 0 #ffd0b0, 3px 3px 0 #10172b;
+  font-size: 15px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: #ffb787;
+}
+
+.primary:active {
+  transform: translate(1px, 1px);
+  box-shadow: inset 2px 2px 0 #a9633c, inset -2px -2px 0 #ffd0b0, 2px 2px 0 #10172b;
+}
+
+.primary:disabled,
+.primary[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.screen :is(a, button):focus-visible {
+  outline: 2px solid #2d5c5b;
+  outline-offset: 2px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+  background: #fff8e7;
+  box-shadow: inset 2px 2px 0 #b9a98a, inset -2px -2px 0 #fffdf6;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid #d8c7a5;
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.rowMain {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  padding: 7px 6px;
+  color: #1b1b2f;
+  text-decoration: none;
+}
+
+.rowMain:hover {
+  background: #ffd27d;
+}
+
+.rowIcon {
+  display: flex;
+  flex: none;
+}
+
+.rowName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rowMeta {
+  flex: none;
+  color: #5e5361;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 11px;
+}
+
+.rowAction {
+  flex: none;
+  margin-right: 4px;
+  padding: 5px 9px;
+  color: #fff8e7;
+  background: #2d5c5b;
+  box-shadow: inset -2px -2px 0 #1b3a39, inset 2px 2px 0 #5f8f8d;
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.rowAction:hover {
+  background: #376f6d;
+}
+
+.rowAction[aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.empty {
+  margin: 0;
+  padding: 24px;
+  color: #5e5361;
+  text-align: center;
+}
+
+.bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.status {
+  margin: 0;
+  color: #2d5c5b;
+  font-size: 12px;
+}
+
+.foot {
+  padding: 8px 12px;
+  color: #cdd5e8;
+  background: #182446;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 480px) {
+  .screen {
+    padding: 16px;
+  }
+
+  .body {
+    padding: 14px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary:active {
+    transform: none;
+  }
+}
