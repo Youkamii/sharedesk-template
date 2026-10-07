@@ -61,6 +61,14 @@ test("translate falls back per locale (own dictionary → English → Korean sou
   );
 });
 
+test("translate inserts values literally — no $-pattern expansion", () => {
+  // 문자열 치환이면 $` 는 앞부분, $' 는 뒷부분, $& 는 자리표시자로 바뀐다.
+  for (const value of ["$`", "$'", "$&", "$$", "a$`b$'c$&d"]) {
+    assert.equal(translate("ko", "앞 {name} 뒤", { name: value }), `앞 ${value} 뒤`);
+    assert.equal(translate("en", "손님 · {name}", { name: value }), `Guest · ${value}`);
+  }
+});
+
 test("dictionary entries are translated and keep placeholders", () => {
   // 한국어·번역이 같아야 하는 언어 이름 같은 예외만 허용한다.
   const allowedKoreanValues = new Set(["한국어", "한"]);

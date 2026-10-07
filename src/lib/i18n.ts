@@ -89,7 +89,9 @@ export function translate(
   }
   if (vars) {
     for (const [key, value] of Object.entries(vars)) {
-      out = out.replaceAll(`{${key}}`, String(value));
+      // 함수로 바꿔 넣는다 — 문자열을 그대로 주면 값 안의 $& $` $' $$ 를
+      // 치환 패턴으로 해석한다(무로그인 방문자 이름·파일 이름이 값으로 온다).
+      out = out.replaceAll(`{${key}}`, () => String(value));
     }
   }
   return out;
