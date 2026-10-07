@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryChangeAfter } from "@/lib/entry-audit";
 import { holdsRegisteredPublicFolder } from "@/lib/public-folders";
 import { getAdapter } from "@/lib/storage";
 import { errorResponse, runWithEditRights } from "@/lib/api";
@@ -31,6 +32,8 @@ export async function POST(req: NextRequest) {
         body.expectedVersion,
       );
       recordActivityAfter(session, "rename", entry.name);
+      // 최근 파일 창(#16 C-1)용 항목별 내력 — layoutKey는 이름이 바뀌어도 같다.
+      recordEntryChangeAfter(entry, session, "rename");
       return NextResponse.json({ entry });
     } catch (e) {
       return errorResponse(e);

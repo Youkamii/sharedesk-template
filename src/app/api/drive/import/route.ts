@@ -141,7 +141,10 @@ export async function POST(req: NextRequest) {
         throw new StorageError("CONFLICT", "업로드 완료 예약을 찾지 못했습니다");
       }
       recordActivityAfter(session, "upload", entry.name);
-      recordEntryUploadAfter(entry.layoutKey, session.name);
+      recordEntryUploadAfter(entry.layoutKey, session.name, {
+        userId: session.userId,
+        name: entry.name,
+      });
       return NextResponse.json({ entry }, { status: 201 });
     } catch (e) {
       await finishUploadReservation(

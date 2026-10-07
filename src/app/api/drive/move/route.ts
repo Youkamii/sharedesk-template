@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryChangeAfter } from "@/lib/entry-audit";
 import {
   holdsRegisteredPublicFolder,
   isRegisteredPublicFolder,
@@ -70,6 +71,8 @@ export async function POST(req: NextRequest) {
             ? `${entry.name} (→ ${toName})`
             : entry.name,
       );
+      // 최근 파일 창(#16 C-1)용 항목별 내력 — 지금 위치는 읽을 때 목록에서 찾는다.
+      recordEntryChangeAfter(entry, session, "move");
       return NextResponse.json({ entry });
     } catch (e) {
       return errorResponse(e);

@@ -1,4 +1,5 @@
 import { recordActivityAfter } from "@/lib/activity";
+import { recordEntryChangeAfter } from "@/lib/entry-audit";
 import {
   listPublicFolders,
   resolvePublicFolderTarget,
@@ -141,6 +142,11 @@ export async function PATCH(req: Request) {
         );
         await finishUploadReservation(reservationId, session.userId);
         recordActivityAfter(session, "edit", entry.name);
+        // 최근 파일 창(#16 C-1)용 항목별 내력. local은 본문을 바꾸면 파일
+        // identity(layoutKey)가 새로 생기므로 앞 열쇠의 기록을 옮겨 붙인다.
+        recordEntryChangeAfter(entry, session, "edit", {
+          previousLayoutKey: current.layoutKey,
+        });
         return Response.json({ entry });
       } catch (error) {
         await finishUploadReservation(

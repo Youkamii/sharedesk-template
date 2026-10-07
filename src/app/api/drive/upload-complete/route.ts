@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, runWithUploadRights } from "@/lib/api";
+import { recordEntryUploadAfter } from "@/lib/entry-audit";
 import { getAdapter } from "@/lib/storage";
 import {
   claimUploadReservation,
@@ -75,6 +76,13 @@ export async function POST(req: NextRequest) {
           { status: 409 },
         );
       }
+      // 직행 업로드(drive)도 항목별 내력에 남긴다 — 이 자리가 빠져 있으면
+      // drive 데스크의 브라우저 업로드는 속성 창(#14)의 올린 사람과 최근 파일
+      // 창(#16 C-1)에 나타나지 않는다(proxy 업로드 라우트와 같은 기록).
+      recordEntryUploadAfter(entry.layoutKey, session.name, {
+        userId: session.userId,
+        name: entry.name,
+      });
       return NextResponse.json({ ok: true });
     } catch (error) {
       return errorResponse(error);

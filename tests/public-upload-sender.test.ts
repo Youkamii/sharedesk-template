@@ -348,7 +348,11 @@ test("배선: 업로드 라우트·속성 API·화면 셋이 손님 이름을 �
   assert.ok(parseAt > 0, "헤더 이름을 parseGuestNameHeader로 정제한다");
   assert.ok(parseAt < route.indexOf("reserveUpload("), "예약 전에 거른다");
   assert.doesNotMatch(route, /searchParams\.get\("sender"\)/);
-  assert.match(route, /recordEntryGuestUploadAfter\(entry\.layoutKey, sender\)/);
+  // 이름(#16 C-1)은 지워진 뒤에도 최근 파일 창이 보여 주려고 함께 남긴다.
+  assert.match(
+    route,
+    /recordEntryGuestUploadAfter\(entry\.layoutKey, sender, \{ name: entry\.name \}\)/,
+  );
   assert.match(route, /guest: true \}/);
   assert.match(route, /group: `public:\$\{resolved\.folder\.id\}`/);
 

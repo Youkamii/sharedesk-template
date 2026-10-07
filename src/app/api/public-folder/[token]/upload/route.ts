@@ -102,7 +102,7 @@ export async function POST(
       }
       // 누가 올렸는지(#17 B-4) — 무로그인 표시와 함께 항목 내력·활동에 남긴다.
       // 최선 노력이라 실패해도 업로드는 성공이다.
-      recordEntryGuestUploadAfter(entry.layoutKey, sender);
+      recordEntryGuestUploadAfter(entry.layoutKey, sender, { name: entry.name });
       // 활동 기록은 같은 공개 폴더에 이어 올라온 손님 업로드를 한 줄로 합친다
       // (activity.appendActivity) — 파일별 기록은 위 entry-audit에 그대로 남는다.
       recordActivityAfter(
