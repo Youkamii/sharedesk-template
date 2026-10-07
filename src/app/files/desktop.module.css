@@ -3476,6 +3476,191 @@ button.userName {
 .shareLinksBody li small.shareLinkDownloaded { color: #2d5c5b; font-weight: 700; }
 .shareLinksBody li > span:last-child { display: flex; gap: 6px; }
 
+/* 최근 파일 창(#16 C-1) — 생성된 링크 창의 틀(.shareLinksWindow)을 그대로 쓰고
+   제목줄 아래에 기간 칩 줄을 하나 더 둔다. 줄은 검색 결과와 같은 도트 칸. */
+.recentFilesWindow {
+  left: calc(50% + 24px);
+  top: 88px;
+  width: min(660px, calc(100% - 28px));
+  height: min(480px, calc(100% - 152px));
+  grid-template-rows: 32px auto minmax(0, 1fr) 28px;
+}
+
+.recentToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 6px 10px;
+  background: #e5d6b7;
+  border-bottom: 2px solid #8f806d;
+}
+
+.recentChips {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+}
+
+.recentChips button {
+  min-height: 26px;
+  padding: 3px 9px;
+  color: #1b1b2f;
+  background: #f4e7c5;
+  border: 2px solid #5e5361;
+  box-shadow: inset 1px 1px 0 #fff8e7, inset -1px -1px 0 #a89276;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.recentChips button.recentChipActive {
+  color: #10172b;
+  background: #ffd27d;
+  border-color: #10172b;
+  box-shadow: inset 2px 2px 0 #fff4d2, inset -2px -2px 0 #b5754f;
+}
+
+.recentHint {
+  min-width: 0;
+  overflow: hidden;
+  color: #686474;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentBody {
+  overflow: auto;
+  padding: 8px;
+  background: #fff8e7;
+}
+
+.recentBody > p {
+  margin: 20px;
+  color: #686474;
+  text-align: center;
+}
+
+.recentBody > p[role="alert"] {
+  color: #a3323c;
+}
+
+.recentList {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recentRow {
+  background: #f4e7c5;
+  border: 2px solid #a89276;
+  box-shadow: inset 1px 1px 0 #fff8e7;
+}
+
+.recentRow:hover {
+  border-color: #2f4670;
+  background: #f8edcf;
+}
+
+.recentMain {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 8px;
+  color: #1b1b2f;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.recentMain:focus-visible {
+  outline: 2px solid #2d5c5b;
+  outline-offset: -2px;
+}
+
+.recentMain .iconGlyph {
+  justify-self: center;
+}
+
+.recentText {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.recentText strong,
+.recentPath {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recentText strong {
+  font-size: 12px;
+}
+
+.recentPath {
+  color: #666b78;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
+.recentMeta {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: #4b5063;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.recentMeta time {
+  color: #2d5c5b;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.recentActor {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 지금 데스크에 없는 항목 — 회색 칸·흐린 아이콘·"지워짐", 누를 수 없다. */
+.recentRow.recentGone,
+.recentRow.recentGone:hover {
+  background: #e2dccb;
+  border-color: #b9b0a0;
+  box-shadow: none;
+}
+
+.recentGone .recentMain {
+  color: #7d7a80;
+  cursor: default;
+}
+
+.recentGone .recentMain svg {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.recentGone .recentText strong {
+  text-decoration: line-through;
+}
+
+.recentGone .recentPath,
+.recentGone .recentMeta,
+.recentGone .recentMeta time {
+  color: #8a8590;
+}
+
 .hiddenInput { display: none; }
 
 @media (pointer: coarse) {

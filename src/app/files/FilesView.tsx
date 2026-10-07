@@ -169,8 +169,10 @@ import QuickLinkWindow from "./QuickLinkWindow";
 import DeskImportWindow from "./DeskImportWindow";
 import MobileFilesView from "./MobileFilesView";
 import ShareLinksWindow from "./ShareLinksWindow";
+import RecentFilesWindow from "./RecentFilesWindow";
 import ChatPanel from "./ChatPanel";
 import type { ShareLink } from "@/lib/share-links";
+import type { RecentFileItem } from "@/lib/recent-files";
 import styles from "./desktop.module.css";
 import {
   fitLogicalRect,
@@ -964,6 +966,15 @@ export default function FilesView({
   // 다른 데스크의 공유 링크를 받아 이 데스크로 복사하는 창.
   const [deskImportWindow, setDeskImportWindow] =
     useState<UtilityWindowState | null>(null);
+  // 최근 파일 창(#16 C-1) — 사이드바에서 연다. 최소화하면 그리지 않아 60초 갱신도 멈춘다.
+  const [recentWindow, setRecentWindow] =
+    useState<UtilityWindowState | null>(null);
+  // 최근 파일에서 원래 자리를 연 항목 — 그 자리의 목록이 뜨면 아이콘을 보이는 곳으로 굴린다.
+  const recentRevealRef = useRef<{
+    parentId: string;
+    entryId: string;
+    until: number;
+  } | null>(null);
   // 채팅은 작업표시줄의 독립 기능이다. 처음부터 최소화 상태로 살아 있어야
   // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
   const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
@@ -1864,6 +1875,45 @@ export default function FilesView({
   useEffect(() => {
     if (newBadgesReady) syncNewBadges();
   }, [newBadgesReady, rootData, deskWindows, rootDwelled, syncNewBadges]);
+
+  // 최근 파일(#16 C-1)에서 원래 자리를 열었으면, 그 자리의 목록이 뜬 뒤 고른 아이콘을
+  // 보이는 곳으로 굴리고 초점을 준다(폴더 창은 스크롤되고, 바탕화면은 늘 화면 안이다).
+  useEffect(() => {
+    const pending = recentRevealRef.current;
+    if (!pending) return;
+    if (Date.now() > pending.until) {
+      recentRevealRef.current = null;
+      return;
+    }
+    const scopeId =
+      pending.parentId === ROOT_ID
+        ? ROOT_SCOPE
+        : deskWindows.find((item) => item.path.at(-1)?.id === pending.parentId)
+            ?.id;
+    if (!scopeId) return;
+    const data =
+      scopeId === ROOT_SCOPE
+        ? rootData
+        : deskWindows.find((item) => item.id === scopeId)?.data;
+    if (!data || data.loading) return;
+    recentRevealRef.current = null;
+    if (!data.entries.some((entry) => entry.id === pending.entryId)) return;
+    window.requestAnimationFrame(() => {
+      const canvas =
+        scopeId === ROOT_SCOPE
+          ? rootCanvasRef.current
+          : (windowCanvasRefs.current.get(scopeId) ?? null);
+      const button = Array.from(
+        canvas?.querySelectorAll<HTMLButtonElement>("button[data-entry-id]") ??
+          [],
+      ).find((candidate) => candidate.dataset.entryId === pending.entryId);
+      if (!button) return;
+      if (scopeId !== ROOT_SCOPE) {
+        button.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+      button.focus({ preventScroll: true });
+    });
+  }, [rootData, deskWindows]);
 
   // 숨었던 탭이 다시 보이면 그때 보이는 목록으로 기준을 올린다.
   useEffect(() => {
@@ -6465,6 +6515,77 @@ export default function FilesView({
     );
   }
 
+  function openRecentWindow() {
+    setSidebarOpen(false);
+    setRecentWindow((current) => ({
+      minimized: false,
+      maximized: current?.maximized ?? false,
+      z: ++zRef.current,
+    }));
+  }
+
+  function focusRecentWindow() {
+    setRecentWindow((current) =>
+      current
+        ? { ...current, minimized: false, z: ++zRef.current }
+        : current,
+    );
+  }
+
+  // 최근 파일 줄을 검색 결과 꼴로 — 열기·우클릭 메뉴·원래 위치·속성을 그대로 쓴다.
+  // 지워졌거나 위치를 확인하지 못한 줄은 null(누를 수 없다).
+  function recentSearchResult(item: RecentFileItem): SearchResult | null {
+    if (!item.entry || item.parentId === null || item.path.length === 0) {
+      return null;
+    }
+    return {
+      entry: item.entry,
+      parentId: item.parentId,
+      breadcrumbs: item.path,
+      path: `/${[
+        ...item.path.slice(1).map((crumb) => crumb.name),
+        item.entry.name,
+      ].join("/")}`,
+    };
+  }
+
+  // 한 번 누르기 — 그 폴더 창을 열고 항목을 고른다(검색의 "원래 위치"와 같은 길).
+  // 바탕화면에 있으면 다른 창과 함께 이 창도 내려 바탕화면에서 고른 것이 보이게 한다.
+  function revealRecentItem(item: RecentFileItem) {
+    const result = recentSearchResult(item);
+    if (!result) return;
+    if (result.parentId === ROOT_ID) {
+      setRecentWindow((current) =>
+        current ? { ...current, minimized: true } : current,
+      );
+    }
+    recentRevealRef.current = {
+      parentId: result.parentId,
+      entryId: result.entry.id,
+      until: Date.now() + 10_000,
+    };
+    openOriginalLocation(result);
+  }
+
+  // 두 번 누르기 — 데스크의 열기와 같다(폴더는 창으로, 파일은 미리보기 또는 다운로드).
+  function openRecentItem(item: RecentFileItem, opener: HTMLElement) {
+    const result = recentSearchResult(item);
+    if (result) openSearchResult(result, opener);
+  }
+
+  function openRecentContextMenu(
+    event: React.MouseEvent,
+    item: RecentFileItem,
+  ) {
+    const result = recentSearchResult(item);
+    if (result) openSearchContextMenu(event, result);
+  }
+
+  function openRecentKeyboardMenu(target: HTMLElement, item: RecentFileItem) {
+    const result = recentSearchResult(item);
+    if (result) openSearchKeyboardMenu(target, result);
+  }
+
   function focusChatWindow() {
     setChatWindow((current) => ({
       ...current,
@@ -7867,6 +7988,7 @@ export default function FilesView({
     deskImportWindow && !deskImportWindow.minimized
       ? deskImportWindow.z
       : 0,
+    recentWindow && !recentWindow.minimized ? recentWindow.z : 0,
     chatWindow && !chatWindow.minimized ? chatWindow.z : 0,
   );
 
@@ -9296,6 +9418,34 @@ export default function FilesView({
         />
       )}
 
+      {/* 최근 파일(#16 C-1) — 보기 전용 멤버·손님도 쓴다(올리기 권한과 무관). */}
+      {recentWindow && !recentWindow.minimized && (
+        <RecentFilesWindow
+          locale={locale}
+          maximized={recentWindow.maximized}
+          zIndex={recentWindow.z}
+          active={recentWindow.z === topManagedWindowZ}
+          newBadges={newBadges}
+          ownUploads={ownUploads}
+          onClose={() => setRecentWindow(null)}
+          onMinimize={() =>
+            setRecentWindow((current) =>
+              current ? { ...current, minimized: true } : current,
+            )
+          }
+          onToggleMaximize={() =>
+            setRecentWindow((current) =>
+              current ? { ...current, maximized: !current.maximized } : current,
+            )
+          }
+          onActivate={focusRecentWindow}
+          onReveal={revealRecentItem}
+          onOpen={openRecentItem}
+          onContextMenu={openRecentContextMenu}
+          onKeyboardMenu={openRecentKeyboardMenu}
+        />
+      )}
+
       {allowUpload && (
         <input
           ref={fileInputRef}
@@ -9370,6 +9520,13 @@ export default function FilesView({
               className={styles.sidebar}
               aria-label={t("부가 기능")}
             >
+              {/* 최근 파일(#16 C-1)은 역할과 무관하게 누구나 연다. */}
+              <nav className={styles.sidebarActions} aria-label={t("파일 기록")}>
+                <button type="button" onClick={openRecentWindow}>
+                  <span aria-hidden="true">◷</span>
+                  {t("최근 파일")}
+                </button>
+              </nav>
               {allowUpload && (
                 <nav className={styles.sidebarActions} aria-label={t("링크와 받기")}>
                   <button type="button" onClick={openQuickLinkWindow}>
@@ -9570,6 +9727,16 @@ export default function FilesView({
               <span className={styles.taskTitle}>
                 {t("다른 데스크에서 받기")}
               </span>
+            </button>
+          )}
+          {recentWindow && (
+            <button
+              type="button"
+              className={`${styles.taskButton} ${!recentWindow.minimized && recentWindow.z === topManagedWindowZ ? styles.activeTask : ""}`}
+              onClick={focusRecentWindow}
+            >
+              <span aria-hidden="true">◷</span>
+              <span className={styles.taskTitle}>{t("최근 파일")}</span>
             </button>
           )}
         </div>

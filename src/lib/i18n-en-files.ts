@@ -721,4 +721,22 @@ export const EN_FILES: Record<string, string> = {
   // 공개 폴더 여러 파일 받기 (#17 B-6)
   "고르기": "Select",
   "선택 {count}개 받기": "Download {count} selected",
+  // 최근 파일 창 (#16 C-1)
+  "최근 파일": "Recent files",
+  "파일 기록": "File history",
+  "기간": "Period",
+  "{count}일": "{count}d",
+  "한 번 누르면 원래 자리, 두 번 누르면 열기": "Click: show where it is · Double-click: open",
+  "최근 파일을 불러오는 중입니다…": "Loading recent files…",
+  "최근 {days}일 동안 올리거나 바꾼 파일이 없습니다.": "No files were uploaded or changed in the last {days} days.",
+  "최근 파일을 불러오지 못했습니다": "Couldn't load recent files",
+  "지워짐": "Deleted",
+  "위치를 확인하지 못했습니다": "Couldn't confirm the location",
+  "일부 위치는 확인하지 못했습니다": "Some locations couldn't be confirmed",
+  "알 수 없음": "Unknown",
+  "{count}회": "{count} times",
+  "방금 전": "Just now",
+  "{count}분 전": "{count} min ago",
+  "{count}시간 전": "{count} hr ago",
+  "어제 {time}": "Yesterday {time}",
 };

@@ -542,6 +542,216 @@ test("배선: 최근 파일 API는 세션만 요구하고 쓰기 라우트가 �
   );
 });
 
+test("상대 시각 문구 — 방금·n분 전·n시간 전·어제 14:02·날짜 (#16 C-1)", async () => {
+  const { recentTimeParts, formatRecentTime } = await import(
+    "../src/lib/client/recent-files-view"
+  );
+  const { translate } = await import("../src/lib/i18n");
+  // 날짜 경계는 지역 시간대 기준 — 지역 시각으로 만들면 어느 시간대에서도 같다.
+  const now = new Date(2026, 9, 7, 14, 2).getTime();
+  assert.deepEqual(recentTimeParts(now - 30_000, now), { kind: "now" });
+  assert.deepEqual(recentTimeParts(now + 5 * 60_000, now), { kind: "now" }, "앞날짜도 방금");
+  assert.deepEqual(recentTimeParts(now - 3 * 60_000, now), { kind: "minutes", count: 3 });
+  assert.deepEqual(recentTimeParts(now - 59 * 60_000, now), { kind: "minutes", count: 59 });
+  assert.deepEqual(recentTimeParts(new Date(2026, 9, 7, 9, 0).getTime(), now), {
+    kind: "hours",
+    count: 5,
+  });
+  assert.deepEqual(recentTimeParts(new Date(2026, 9, 6, 14, 2).getTime(), now), {
+    kind: "yesterday",
+  });
+  assert.deepEqual(recentTimeParts(new Date(2026, 9, 5, 23, 59).getTime(), now), {
+    kind: "date",
+  });
+  // 자정을 넘어도 한 시간 안이면 n분 전.
+  const afterMidnight = new Date(2026, 9, 7, 0, 30).getTime();
+  assert.deepEqual(
+    recentTimeParts(new Date(2026, 9, 6, 23, 50).getTime(), afterMidnight),
+    { kind: "minutes", count: 40 },
+  );
+  assert.deepEqual(
+    recentTimeParts(new Date(2026, 9, 6, 22, 0).getTime(), afterMidnight),
+    { kind: "yesterday" },
+  );
+
+  const ko = (text: string, vars?: Record<string, string | number>) =>
+    translate("ko", text, vars);
+  const en = (text: string, vars?: Record<string, string | number>) =>
+    translate("en", text, vars);
+  assert.equal(formatRecentTime(now - 3 * 60_000, now, "ko", ko), "3분 전");
+  assert.equal(formatRecentTime(now, now, "ko", ko), "방금 전");
+  assert.equal(
+    formatRecentTime(new Date(2026, 9, 6, 14, 2).getTime(), now, "ko", ko),
+    "어제 14:02",
+  );
+  assert.equal(
+    formatRecentTime(new Date(2026, 9, 7, 9, 0).getTime(), now, "ko", ko),
+    "5시간 전",
+  );
+  assert.equal(formatRecentTime(now - 3 * 60_000, now, "en", en), "3 min ago");
+  assert.equal(
+    formatRecentTime(new Date(2026, 9, 6, 14, 2).getTime(), now, "en", en),
+    "Yesterday 14:02",
+  );
+  assert.match(
+    formatRecentTime(new Date(2026, 8, 30, 8, 5).getTime(), now, "ko", ko),
+    /9월 30일 08:05/,
+  );
+});
+
+test("NEW 점 — 데스크의 NEW 배지와 같은 판정, 사라진 항목·폴더는 점이 없다 (#16 C-1·C-2)", async () => {
+  const { recentItemIsNew, parseRecentResponse, serverClockOffset, recentActionLabel } =
+    await import("../src/lib/client/recent-files-view");
+  const { ownUploadIndex } = await import("../src/lib/client/new-badges");
+  const seenAt = Date.parse("2026-10-07T10:00:00.000Z");
+  const state = { since: seenAt - DAY, seen: { root: seenAt }, own: [] };
+  const entry = (id: string, modifiedAt: string, isFolder = false) => ({
+    id,
+    isFolder,
+    modifiedAt,
+  });
+  const later = "2026-10-07T11:00:00.000Z";
+  const earlier = "2026-10-07T09:00:00.000Z";
+  const none = ownUploadIndex(null);
+  const item = (value: object) => ({ exists: true, parentId: "root", ...value }) as never;
+
+  assert.equal(recentItemIsNew(item({ entry: entry("a", later) }), state, none), true);
+  assert.equal(recentItemIsNew(item({ entry: entry("a", earlier) }), state, none), false);
+  // 그 폴더를 본 기록이 없으면 처음 온 기준(since)으로 판정한다.
+  assert.equal(
+    recentItemIsNew(item({ entry: entry("a", earlier), parentId: "f1" }), state, none),
+    true,
+  );
+  // 내가 올린 그 버전이면 NEW가 아니다.
+  const mine = ownUploadIndex({ ...state, own: [{ id: "a", at: Date.parse(later) }] });
+  assert.equal(recentItemIsNew(item({ entry: entry("a", later) }), state, mine), false);
+  assert.equal(recentItemIsNew(item({ entry: entry("a", later, true) }), state, none), false);
+  assert.equal(
+    recentItemIsNew(item({ entry: null, exists: false }), state, none),
+    false,
+  );
+  assert.equal(recentItemIsNew(item({ entry: entry("a", later) }), null, none), false);
+
+  assert.equal(recentActionLabel("upload"), "업로드");
+  assert.equal(recentActionLabel("edit"), "내용 수정");
+  assert.equal(recentActionLabel("rename"), "이름 변경");
+  assert.equal(recentActionLabel("move"), "이동");
+
+  assert.equal(serverClockOffset("2026-10-07T10:00:05.000Z", seenAt), 5_000);
+  assert.equal(serverClockOffset("엉터리", seenAt), 0);
+  assert.equal(serverClockOffset(undefined, seenAt), 0);
+
+  assert.equal(parseRecentResponse(null), null);
+  assert.equal(parseRecentResponse({ items: "x" }), null);
+  const parsed = parseRecentResponse({
+    now: "2026-10-07T10:00:00.000Z",
+    days: 7,
+    truncated: false,
+    items: [
+      {
+        layoutKey: "k",
+        id: null,
+        name: "a.txt",
+        isFolder: false,
+        mimeType: null,
+        at: "2026-10-07T09:00:00.000Z",
+        action: "edit",
+        count: 1,
+        actor: { name: null, guest: true },
+        exists: false,
+        entry: null,
+        parentId: null,
+        path: [],
+      },
+      { layoutKey: "bad", action: "delete" },
+      null,
+    ],
+  });
+  assert.equal(parsed?.items.length, 1, "꼴이 어긋난 줄은 버린다");
+  assert.equal(parsed?.days, 7);
+});
+
+test("배선: 사이드바 → 최근 파일 창(최소화·최대화·작업표시줄), 누르면 원래 자리·두 번은 열기 (#16 C-1)", async () => {
+  const [view, recentWindow, css, i18n] = await Promise.all([
+    read("src/app/files/FilesView.tsx"),
+    read("src/app/files/RecentFilesWindow.tsx"),
+    read("src/app/files/desktop.module.css"),
+    import("../src/lib/i18n"),
+  ]);
+
+  // 사이드바: 올리기 권한과 무관한 항목(allowUpload 묶음보다 앞).
+  const sidebar = view.slice(view.indexOf('id="desk-sidebar"'));
+  const recentButton = sidebar.indexOf("onClick={openRecentWindow}");
+  assert.ok(recentButton > 0, "사이드바에 최근 파일 항목이 있다");
+  assert.ok(
+    recentButton < sidebar.indexOf("{allowUpload && ("),
+    "올리기 권한 묶음 밖(누구나)",
+  );
+  // 창: 기존 유틸리티 창과 같은 틀·작업표시줄 복원·맨 위 창 판정.
+  assert.match(view, /\{recentWindow && !recentWindow\.minimized && \(\s*<RecentFilesWindow/);
+  assert.match(view, /onClick=\{focusRecentWindow\}/);
+  assert.match(view, /recentWindow && !recentWindow\.minimized \? recentWindow\.z : 0/);
+  assert.match(view, /newBadges=\{newBadges\}/);
+  // 한 번 누르기는 검색의 "원래 위치"와 같은 길, 바탕화면이면 이 창도 내린다.
+  const reveal = view.slice(view.indexOf("function revealRecentItem"));
+  assert.match(reveal, /result\.parentId === ROOT_ID/);
+  assert.match(reveal, /openOriginalLocation\(result\)/);
+  assert.match(view, /function openRecentItem[\s\S]*?openSearchResult\(result, opener\)/);
+  assert.match(view, /function openRecentContextMenu[\s\S]*?openSearchContextMenu\(event, result\)/);
+  assert.match(view, /function openRecentKeyboardMenu[\s\S]*?openSearchKeyboardMenu\(target, result\)/);
+  // 원래 자리의 목록이 뜬 뒤 아이콘을 굴려 보인다.
+  assert.match(view, /recentRevealRef\.current/);
+  assert.match(view, /scrollIntoView\(\{ block: "nearest", inline: "nearest" \}\)/);
+
+  // 창 컴포넌트: 최소화·최대화·닫기, 기간 칩, 60초 갱신(열려 있고 탭이 보일 때만).
+  assert.match(recentWindow, /aria-label=\{t\("최소화"\)\}/);
+  assert.match(recentWindow, /maximized \? t\("복원"\) : t\("최대화"\)/);
+  assert.match(recentWindow, /styles\.utilityMaximized/);
+  assert.match(
+    recentWindow,
+    /\/api\/drive\/recent\?days=\$\{requestedDays\}&limit=\$\{MAX_RECENT_LIMIT\}/,
+  );
+  assert.match(recentWindow, /RECENT_DAY_CHOICES\.map/);
+  assert.match(recentWindow, /aria-pressed=\{days === choice\}/);
+  assert.match(recentWindow, /setInterval\([\s\S]*?visibilityState !== "visible"[\s\S]*?RECENT_REFRESH_MS/);
+  // 한 번(미뤄서)·두 번 누르기를 가른다 — 첫 클릭에 열린 창이 두 번째 클릭을 뺏지 않게.
+  assert.match(recentWindow, /event\.detail === 0/);
+  assert.match(recentWindow, /RECENT_REVEAL_DELAY_MS/);
+  assert.match(recentWindow, /onDoubleClick=\{[\s\S]*?cancelReveal\(\);[\s\S]*?onOpen\(item, event\.currentTarget\)/);
+  // 지워진 항목은 회색 "지워짐", NEW 점은 데스크와 같은 판정, 손님 표시는 같은 함수.
+  assert.match(recentWindow, /gone \? styles\.recentGone : ""/);
+  assert.match(recentWindow, /t\("지워짐"\)/);
+  assert.match(recentWindow, /recentItemIsNew\(item, newBadges, ownUploads\)/);
+  assert.match(recentWindow, /styles\.newDot/);
+  assert.match(recentWindow, /guestDisplayName\(item\.actor\.name, t\)/);
+
+  assert.match(css, /\.recentFilesWindow \{[\s\S]*?grid-template-rows: 32px auto minmax\(0, 1fr\) 28px;/);
+  assert.match(css, /\.recentRow\.recentGone,/);
+
+  // 창이 쓰는 문구는 모두 영어 사전에 있고 ja·hi·zh도 번역한다.
+  const english = i18n.englishDictionary();
+  const literals = [
+    ...recentWindow.matchAll(/\bt\(\s*"([^"]+)"/g),
+    ...view.matchAll(/\bt\("(최근 파일|파일 기록)"\)/g),
+  ].map(([, key]) => key);
+  const { recentActionLabel } = await import("../src/lib/client/recent-files-view");
+  for (const action of ["upload", "edit", "rename", "move"] as const) {
+    literals.push(recentActionLabel(action));
+  }
+  literals.push("방금 전", "{count}분 전", "{count}시간 전", "어제 {time}");
+  assert.ok(literals.length > 15, "문구를 찾았다");
+  for (const key of new Set(literals)) {
+    assert.ok(key in english, `영어 사전에 없음: ${key}`);
+    for (const locale of ["ja", "hi", "zh"] as const) {
+      assert.notEqual(
+        i18n.translate(locale, key),
+        english[key],
+        `${locale} 번역이 영어 그대로: ${key}`,
+      );
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 실제 HTTP — 세션·스페이스 범위·limit. 다른 통합 테스트와 같은 방식으로
 // next dev를 임시 저장소에 띄운다(실행 전 개발 서버를 꺼 둘 것).
