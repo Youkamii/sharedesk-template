@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
         // 내려받기 기록은 "누가 내 파일을 가져갔나"라서 관리자만 본다.
         downloadCount: admin ? (audit?.downloadCount ?? 0) : null,
         downloads: admin ? (audit?.downloads ?? []) : null,
+        // 그중 공유 링크로 받아 간 횟수·마지막 시각(#17 B-7).
+        linkDownloadCount: admin ? (audit?.linkDownloadCount ?? 0) : null,
+        lastLinkDownloadAt: admin ? (audit?.lastLinkDownloadAt ?? null) : null,
       });
     } catch (error) {
       return errorResponse(error);

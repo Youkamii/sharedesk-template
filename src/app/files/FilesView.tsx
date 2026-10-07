@@ -408,6 +408,8 @@ type EntryDownloadRecord = {
   at: string;
   by: string;
   viaPublicLink?: boolean;
+  // 공유 링크(간이 링크 포함)로 받아 간 무로그인 방문자(#17 B-7).
+  viaShareLink?: boolean;
 };
 
 type EntryProperties = {
@@ -424,6 +426,9 @@ type EntryProperties = {
   // 관리자가 아니면 null — 화면에서 줄 자체를 감춘다.
   downloadCount: number | null;
   downloads: EntryDownloadRecord[] | null;
+  // 그중 공유 링크로 받아 간 횟수·마지막 시각(#17 B-7). 관리자가 아니면 null.
+  linkDownloadCount?: number | null;
+  lastLinkDownloadAt?: string | null;
 };
 
 type PropertiesState = {
@@ -10162,7 +10167,9 @@ export default function FilesView({
                               <li key={`${record.at}-${index}`}>
                                 {record.viaPublicLink
                                   ? t("공개 링크 방문자")
-                                  : record.by}
+                                  : record.viaShareLink
+                                    ? t("공유 링크 방문자")
+                                    : record.by}
                                 {" · "}
                                 {formatDate(record.at, dateLocale)}
                               </li>
@@ -10173,6 +10180,25 @@ export default function FilesView({
                         t("아직 없음")
                       )}
                     </dd>
+                    {/* 공유 링크로 "받아 갔는지"(#17 B-7). 폴더 링크로 받은
+                        것은 그 안의 파일에 기록되므로 파일에만 보인다. */}
+                    {!properties.entry.isFolder && (
+                      <>
+                        <dt>{t("링크로 받음")}</dt>
+                        <dd>
+                          {properties.data.linkDownloadCount &&
+                          properties.data.lastLinkDownloadAt
+                            ? t("{count}회 · 마지막 {time}", {
+                                count: properties.data.linkDownloadCount,
+                                time: formatDate(
+                                  properties.data.lastLinkDownloadAt,
+                                  dateLocale,
+                                ),
+                              })
+                            : t("아직 없음")}
+                        </dd>
+                      </>
+                    )}
                   </>
                 )}
               </dl>

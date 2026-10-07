@@ -3337,6 +3337,8 @@ button.userName {
 }
 
 .shareLinksBody li small { color: #686474; }
+/* 받아 간 링크(#17 B-7)는 한눈에 구분되게 짙은 청록. */
+.shareLinksBody li small.shareLinkDownloaded { color: #2d5c5b; font-weight: 700; }
 .shareLinksBody li > span:last-child { display: flex; gap: 6px; }
 
 .hiddenInput { display: none; }

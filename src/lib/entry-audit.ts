@@ -22,6 +22,9 @@ export interface EntryDownload {
   // 공개 폴더 링크로 들어온 무로그인 방문자. 이름 대신 화면에서 문구로
   // 바꿔 보여주려고 표시만 남긴다(이름 문자열을 번역하지 않기 위해).
   viaPublicLink?: boolean;
+  // 공유 링크(/api/share/<linkId> — 간이 링크 포함)로 받아 간 무로그인
+  // 방문자(#17 B-7). viaPublicLink와 같은 이유로 표시만 남긴다.
+  viaShareLink?: boolean;
 }
 
 export interface EntryAudit {
@@ -30,6 +33,10 @@ export interface EntryAudit {
   downloadCount?: number;
   // 최근 것부터. 전체 횟수는 downloadCount가 따로 센다.
   downloads?: EntryDownload[];
+  // 공유 링크로 받아 간 횟수와 마지막 시각(#17 B-7). downloads는 최근 20건만
+  // 기억하므로 "링크로 몇 번 받았나"는 따로 센다.
+  linkDownloadCount?: number;
+  lastLinkDownloadAt?: string;
 }
 
 interface EntryAuditFile {
@@ -60,7 +67,9 @@ function cleanDownloads(value: unknown): EntryDownload[] | undefined {
     downloads.push(
       (raw as EntryDownload).viaPublicLink === true
         ? { at, by, viaPublicLink: true }
-        : { at, by },
+        : (raw as EntryDownload).viaShareLink === true
+          ? { at, by, viaShareLink: true }
+          : { at, by },
     );
     if (downloads.length >= MAX_DOWNLOADS) break;
   }
@@ -83,6 +92,18 @@ function cleanAudit(value: unknown): EntryAudit | null {
       Number.MAX_SAFE_INTEGER,
     );
   }
+  const lastLinkDownloadAt = cleanTime(raw.lastLinkDownloadAt);
+  if (
+    typeof raw.linkDownloadCount === "number" &&
+    raw.linkDownloadCount > 0 &&
+    lastLinkDownloadAt
+  ) {
+    audit.linkDownloadCount = Math.min(
+      Math.floor(raw.linkDownloadCount),
+      Number.MAX_SAFE_INTEGER,
+    );
+    audit.lastLinkDownloadAt = lastLinkDownloadAt;
+  }
   return Object.keys(audit).length > 0 ? audit : null;
 }
 
@@ -92,6 +113,7 @@ function lastTouchedAt(audit: EntryAudit): number {
   const times = [
     audit.uploadedAt ? Date.parse(audit.uploadedAt) : 0,
     audit.downloads?.[0]?.at ? Date.parse(audit.downloads[0].at) : 0,
+    audit.lastLinkDownloadAt ? Date.parse(audit.lastLinkDownloadAt) : 0,
   ].filter((time) => Number.isFinite(time));
   return Math.max(0, ...times);
 }
@@ -179,6 +201,26 @@ export async function recordEntryDownload(
     ...audit,
     downloadCount: (audit.downloadCount ?? 0) + 1,
     downloads: [record, ...(audit.downloads ?? [])].slice(0, MAX_DOWNLOADS),
+  }));
+}
+
+// 공유 링크로 받아 간 기록(#17 B-7). 무로그인 방문자라 이름이 없으므로
+// by에는 링크 이름을 남기고 viaShareLink로 표시한다(공개 폴더의 viaPublicLink
+// 선례). 전체 내려받기 수와 함께 링크 경유 수·마지막 시각도 센다.
+export async function recordEntryLinkDownload(
+  layoutKey: string,
+  linkName: string,
+): Promise<void> {
+  const by = cleanName(linkName);
+  if (!by) return;
+  const at = new Date().toISOString();
+  const record: EntryDownload = { at, by, viaShareLink: true };
+  await mutate(layoutKey, (audit) => ({
+    ...audit,
+    downloadCount: (audit.downloadCount ?? 0) + 1,
+    downloads: [record, ...(audit.downloads ?? [])].slice(0, MAX_DOWNLOADS),
+    linkDownloadCount: (audit.linkDownloadCount ?? 0) + 1,
+    lastLinkDownloadAt: at,
   }));
 }
 

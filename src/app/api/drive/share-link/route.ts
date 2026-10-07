@@ -5,6 +5,10 @@ import {
   runWithUploadRights,
 } from "@/lib/api";
 import {
+  readShareLinkDownloads,
+  withShareLinkDownloads,
+} from "@/lib/share-link-downloads";
+import {
   createShareLink,
   cleanupExpiredShareLinks,
   getShareLink,
@@ -31,12 +35,13 @@ export async function GET(req: NextRequest) {
     try {
       await cleanupExpiredShareLinks(10);
       const links = await listShareLinks(fileId);
+      const visible = session.isAdmin
+        ? links
+        : links.filter((link) => link.createdByUserId === session.userId);
+      // 받아 간 횟수·마지막 시각(#17 B-7). 기록을 못 읽어도 목록은 준다.
+      const downloads = await readShareLinkDownloads().catch(() => ({}));
       return NextResponse.json(
-        {
-          links: session.isAdmin
-            ? links
-            : links.filter((link) => link.createdByUserId === session.userId),
-        },
+        { links: withShareLinkDownloads(visible, downloads) },
         { headers: { "Cache-Control": "no-store" } },
       );
     } catch (error) {

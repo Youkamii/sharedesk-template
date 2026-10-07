@@ -4,6 +4,7 @@ import { apiPath } from "@/lib/client/api-path";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LOCALE_BCP47, translate, type Locale } from "@/lib/i18n";
+import type { ShareLinkDownloadSummary } from "@/lib/share-link-downloads";
 import type { ShareLink } from "@/lib/share-links";
 import ShareOutButton from "../ShareOutButton";
 import QrCodeToggle from "../QrCodeToggle";
@@ -23,6 +24,9 @@ type Props = {
   onActivate: () => void;
 };
 
+// 목록 응답의 링크 — 받아 간 횟수·마지막 시각(#17 B-7)이 붙어 온다.
+type ListedShareLink = ShareLink & ShareLinkDownloadSummary;
+
 function isShareLink(value: unknown): value is ShareLink {
   const link = value as Partial<ShareLink> | null;
   return (
@@ -33,6 +37,20 @@ function isShareLink(value: unknown): value is ShareLink {
     typeof link.createdBy === "string" &&
     typeof link.expiresAt === "string"
   );
+}
+
+// 옛 서버가 횟수를 안 주더라도 화면이 깨지지 않게 0·null로 채운다.
+function toListedShareLink(link: ShareLink): ListedShareLink {
+  const summary = link as Partial<ShareLinkDownloadSummary>;
+  return {
+    ...link,
+    downloadCount:
+      typeof summary.downloadCount === "number" && summary.downloadCount > 0
+        ? summary.downloadCount
+        : 0,
+    lastDownloadAt:
+      typeof summary.lastDownloadAt === "string" ? summary.lastDownloadAt : null,
+  };
 }
 
 export default function ShareLinksWindow({
@@ -49,7 +67,7 @@ export default function ShareLinksWindow({
   onActivate,
 }: Props) {
   const router = useRouter();
-  const [links, setLinks] = useState<ShareLink[]>([]);
+  const [links, setLinks] = useState<ListedShareLink[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,7 +96,11 @@ export default function ShareLinksWindow({
             : t("공유 링크를 불러오지 못했습니다"),
         );
       }
-      setLinks(Array.isArray(body?.links) ? body.links.filter(isShareLink) : []);
+      setLinks(
+        Array.isArray(body?.links)
+          ? body.links.filter(isShareLink).map(toListedShareLink)
+          : [],
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -187,6 +209,17 @@ export default function ShareLinksWindow({
                     {" · "}
                     {t("{time} 만료", { time: formatDate(link.expiresAt) })}
                   </small>
+                  {/* 받아 갔는지(#17 B-7) — 폴더 링크는 안의 파일을 받은 횟수. */}
+                  {link.downloadCount > 0 && link.lastDownloadAt ? (
+                    <small className={styles.shareLinkDownloaded}>
+                      {t("받아 감 {count}회 · 마지막 {time}", {
+                        count: link.downloadCount,
+                        time: formatDate(link.lastDownloadAt),
+                      })}
+                    </small>
+                  ) : (
+                    <small>{t("아직 받아 간 기록 없음")}</small>
+                  )}
                 </span>
                 <span>
                   <button type="button" onClick={() => void copy(link)}>

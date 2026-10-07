@@ -681,4 +681,10 @@ export const EN_FILES: Record<string, string> = {
   "라벨로 거르기": "Filter by label",
   "모두": "All",
   "라벨 색을 저장하지 못했습니다": "Couldn't save the label color",
+  // 공유 링크 받아 갔는지 (#17 B-7)
+  "공유 링크 방문자": "Share link visitor",
+  "링크로 받음": "Via share link",
+  "{count}회 · 마지막 {time}": "{count} times · last {time}",
+  "받아 감 {count}회 · 마지막 {time}": "Downloaded {count} times · last {time}",
+  "아직 받아 간 기록 없음": "Not downloaded yet",
 };

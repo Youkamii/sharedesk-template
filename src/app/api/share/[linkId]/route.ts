@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { recordShareLinkDownloadAfter } from "@/lib/share-link-downloads";
 import { resolveShareLink } from "@/lib/share-links";
 import { runWithSpace } from "@/lib/space-context";
 import { getAdapter } from "@/lib/storage";
@@ -133,6 +134,11 @@ export async function GET(
     // 다른 데스크가 복사해 갈 때는 사람이 보는 HTML 대신 기계가 읽을 목록이
     // 필요하다. 노출 범위는 HTML 목록과 같다 — 링크를 아는 쪽만 볼 수 있다.
     const wantsManifest = req.nextUrl.searchParams.get("format") === "json";
+    // "받아 갔는지"(#17 B-7)는 통짜 내려받기만 센다 — 범위 요청은 한 번의
+    // 내려받기가 쪼개진 것이고(데스크·공개 폴더와 같은 기준), HEAD는 GET이
+    // 자동으로 대신 받지만 본문을 가져가지 않는다. 목록(HTML·manifest)은
+    // 파일을 받은 것이 아니라 세지 않는다.
+    const countsAsDownload = !range && req.method !== "HEAD";
     try {
       const adapter = getAdapter();
       if (link.kind === "folder") {
@@ -147,7 +153,17 @@ export async function GET(
           return folderPage(link.linkId, link.name, entry, children);
         }
         if (wantsManifest) return manifestResponse(link.expiresAt, entry, null);
-        return downloadResponse(await adapter.download(entry.id, range));
+        const file = await adapter.download(entry.id, range);
+        // 폴더 링크 안의 개별 파일도 기록한다 — 링크 횟수와 그 파일의 내력.
+        if (countsAsDownload) {
+          recordShareLinkDownloadAfter({
+            linkId: link.linkId,
+            linkName: link.name,
+            fileId: entry.id,
+            layoutKey: entry.layoutKey,
+          });
+        }
+        return downloadResponse(file);
       }
       if (wantsManifest) {
         const entry = await adapter.getEntry(link.fileId);
@@ -158,10 +174,16 @@ export async function GET(
           null,
         );
       }
-      return downloadResponse(
-        await adapter.download(link.fileId, range),
-        link.name,
-      );
+      const file = await adapter.download(link.fileId, range);
+      // 저장소가 파일을 내주기 시작했을 때만 센다(없는 파일은 아래 catch가 404로 접는다).
+      if (countsAsDownload) {
+        recordShareLinkDownloadAfter({
+          linkId: link.linkId,
+          linkName: link.name,
+          fileId: link.fileId,
+        });
+      }
+      return downloadResponse(file, link.name);
     } catch {
       return missing();
     }
