@@ -11,14 +11,15 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test --test-concurrency=1 tests/i18n.test.ts tests/roles.test.ts tests/invitations.test.ts tests/device-sessions.test.ts tests/admin-invitations-api.test.ts tests/drive-sharing.test.ts tests/setup-state.test.ts tests/desktop-layout.test.ts tests/storage-content-notes.test.ts tests/storage-quota.test.ts tests/share-links.test.ts tests/chat.test.ts tests/window-controls.test.ts tests/presence.test.ts tests/transfer-progress.test.ts tests/files-move-ui.test.ts tests/public-origin.test.ts tests/own-desk-onboarding.test.ts tests/entry-screens.test.ts tests/onboarding-docs.test.ts tests/wallpaper-assets.test.ts tests/notice-timeout.test.ts tests/search.test.ts tests/update-flow.test.ts tests/office-preview.test.ts tests/desktop-keyboard-selection.test.ts tests/folder-side-preview.test.ts tests/root-desktop-layout.test.ts tests/desk-transfer.test.ts tests/desk-transfer-manifest.test.ts tests/desk-import.test.ts tests/mobile-layout.test.ts tests/spaces.test.ts tests/space-adapter.test.ts tests/space-routing.test.ts tests/space-membership.test.ts tests/nickname.test.ts tests/public-folders.test.ts tests/public-upload-sender.test.ts tests/public-folder-note.test.ts tests/public-folder-batch-download.test.ts tests/entry-properties.test.ts tests/share-link-downloads.test.ts tests/share-landing.test.ts tests/new-badges.test.ts tests/label-filter.test.ts tests/quick-link-paste.test.ts tests/qr-code.test.ts tests/upload-resume.test.ts tests/widget-mode.test.ts tests/widget.test.ts tests/widget-release.test.ts tests/recent-files.test.ts && npm run test:owner-registry",
+    "test": "tsx --test --test-concurrency=1 tests/i18n.test.ts tests/roles.test.ts tests/invitations.test.ts tests/device-sessions.test.ts tests/admin-invitations-api.test.ts tests/drive-sharing.test.ts tests/setup-state.test.ts tests/desktop-layout.test.ts tests/storage-content-notes.test.ts tests/storage-quota.test.ts tests/share-links.test.ts tests/chat.test.ts tests/window-controls.test.ts tests/presence.test.ts tests/transfer-progress.test.ts tests/files-move-ui.test.ts tests/public-origin.test.ts tests/own-desk-onboarding.test.ts tests/entry-screens.test.ts tests/onboarding-docs.test.ts tests/wallpaper-assets.test.ts tests/notice-timeout.test.ts tests/search.test.ts tests/update-flow.test.ts tests/office-preview.test.ts tests/desktop-keyboard-selection.test.ts tests/folder-side-preview.test.ts tests/root-desktop-layout.test.ts tests/desk-transfer.test.ts tests/desk-transfer-manifest.test.ts tests/desk-import.test.ts tests/mobile-layout.test.ts tests/spaces.test.ts tests/space-adapter.test.ts tests/space-routing.test.ts tests/space-membership.test.ts tests/nickname.test.ts tests/public-folders.test.ts tests/public-upload-sender.test.ts tests/public-folder-note.test.ts tests/public-folder-batch-download.test.ts tests/entry-properties.test.ts tests/share-link-downloads.test.ts tests/share-landing.test.ts tests/new-badges.test.ts tests/label-filter.test.ts tests/quick-link-paste.test.ts tests/qr-code.test.ts tests/upload-resume.test.ts tests/widget-mode.test.ts tests/widget.test.ts tests/widget-release.test.ts tests/cli.test.ts tests/recent-files.test.ts && npm run test:owner-registry",
     "test:owner-registry": "tsx --test tests/owner-registry.test.ts",
     "test:drive-operations": "node --env-file=.env.local --import tsx scripts/verify-drive-operations.ts --live",
     "test:drive-preview": "node --env-file=.env.local --import tsx scripts/verify-drive-preview.ts --live",
     "test:drive-sharing": "node --env-file=.env.local --import tsx scripts/verify-drive-sharing.ts --live",
     "setup": "node scripts/setup.mjs",
     "setup:finish": "node scripts/setup.mjs --finish",
-    "setup:restart": "node scripts/setup.mjs --restart"
+    "setup:restart": "node scripts/setup.mjs --restart",
+    "desk": "node cli/sharedesk.mjs"
   },
   "dependencies": {
     "next": "16.3.0",
@@ -36,5 +37,8 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5"
+  },
+  "bin": {
+    "sharedesk": "cli/sharedesk.mjs"
   }
 }

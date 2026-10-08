@@ -1103,6 +1103,29 @@ export async function revokeDeviceSession(
   });
 }
 
+// CLI 토큰(#34) — 브라우저 로그인과 같은 기기 세션을 하나 더 붙인다. 토큰
+// 서명은 호출자(auth.ts createUserSession)가 하고, 여기서는 명단에 세션만
+// 남긴다. 그래서 관리자 화면의 기기 세션 끊기·전체 끊기가 그대로 CLI 토큰도
+// 무효화한다. 승인된 멤버만 — 손님(접속 키)은 명단에 없어 호출 자체가 없다.
+export async function issueUserSession(
+  id: string,
+  deviceLabel: string,
+): Promise<{ user: User; session: UserSession } | null> {
+  const label = cleanStoredDeviceLabel(deviceLabel);
+  if (!label) throw new Error("올바르지 않은 기기 이름입니다");
+  return mutate((file) => {
+    const user = file.users.find((item) => item.id === id);
+    if (!user || user.status !== "approved") return null;
+    const session: UserSession = {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      deviceLabel: label,
+    };
+    appendSession(user, session);
+    return { user, session };
+  });
+}
+
 export async function removeUser(id: string): Promise<boolean> {
   return mutate((file) => {
     const index = file.users.findIndex((user) => user.id === id);

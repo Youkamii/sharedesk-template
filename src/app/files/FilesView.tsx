@@ -165,6 +165,7 @@ import LanguageMenu from "../LanguageToggle";
 import PixelFileIcon from "./PixelFileIcon";
 import ShareDialog from "./ShareDialog";
 import ShareLinkDialog from "./ShareLinkDialog";
+import CliTokenDialog from "./CliTokenDialog";
 import QuickLinkWindow from "./QuickLinkWindow";
 import DeskImportWindow from "./DeskImportWindow";
 import MobileFilesView from "./MobileFilesView";
@@ -958,6 +959,8 @@ export default function FilesView({
   const [shareEntry, setShareEntry] = useState<Entry | null>(null);
   // 외부 공유 링크 창의 대상 파일 (관리자·수정 가능 역할 전용).
   const [shareLinkEntry, setShareLinkEntry] = useState<Entry | null>(null);
+  // CLI 연결 창(#34) — 사이드바에서 연다. 손님은 토큰을 만들 수 없어 항목이 없다.
+  const [cliTokenOpen, setCliTokenOpen] = useState(false);
   const [properties, setProperties] = useState<PropertiesState | null>(null);
   const [quickLinkWindow, setQuickLinkWindow] =
     useState<UtilityWindowState | null>(null);
@@ -9502,6 +9505,16 @@ export default function FilesView({
                     <span aria-hidden="true">◷</span>
                     {t("최근 파일")}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSidebarOpen(false);
+                      setCliTokenOpen(true);
+                    }}
+                  >
+                    <span aria-hidden="true">▶_</span>
+                    {t("CLI 연결")}
+                  </button>
                 </nav>
               )}
               {allowUpload && (
@@ -10376,6 +10389,14 @@ export default function FilesView({
           locale={locale}
           onClose={closeShareLinkDialog}
           onLinksChanged={() => setShareLinksRevision((current) => current + 1)}
+          onNotice={setNotice}
+        />
+      )}
+
+      {!isGuest && cliTokenOpen && (
+        <CliTokenDialog
+          locale={locale}
+          onClose={() => setCliTokenOpen(false)}
           onNotice={setNotice}
         />
       )}
