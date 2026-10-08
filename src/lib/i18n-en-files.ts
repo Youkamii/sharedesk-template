@@ -751,7 +751,6 @@ export const EN_FILES: Record<string, string> = {
   "로그인 명령 복사": "Copy login command",
   "토큰을 복사했습니다.": "Token copied.",
   "로그인 명령을 복사했습니다.": "Login command copied.",
-  "저장소 폴더에서 이 명령으로 연결합니다:": "Run this in your repository folder to connect:",
   "그 다음부터는 ls · get · put · mkdir 로 씁니다. 자세한 사용법은 docs/CLI.md 에 있습니다.": "Then use ls · get · put · mkdir. Full usage is in docs/CLI.md.",
   "새 CLI 토큰": "New CLI token",
   "어디서 쓰는 토큰인지 (선택)": "Where this token is used (optional)",
@@ -762,5 +761,9 @@ export const EN_FILES: Record<string, string> = {
   "손님 세션은 CLI 토큰을 만들 수 없습니다": "Guest sessions cannot create CLI tokens",
   "라벨은 1~74자이고 제어 문자를 쓸 수 없습니다": "The label must be 1–74 characters without control characters",
   "승인된 멤버만 CLI 토큰을 만들 수 있습니다": "Only approved members can create CLI tokens",
+
+  "저장소 폴더에서 이 명령을 치고, 토큰을 묻는 자리에 붙여 넣습니다:": "Run this in your repository folder and paste the token when asked:",
+  "에이전트에게는 토큰을 SHAREDESK_TOKEN 환경변수로 주세요 — 명령 인자나 채팅에 넣으면 기록에 남습니다.": "Give agents the token through the SHAREDESK_TOKEN environment variable — command arguments and chat messages leave it in logs.",
+  "CLI 토큰은 5개까지 만들 수 있습니다. 관리자에게 오래된 토큰을 끊어 달라고 하세요": "You can have up to 5 CLI tokens. Ask an admin to revoke an old one",
 
 };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,6 +37,7 @@ async function startFakeDesk(options: {
   mode: "direct" | "proxy";
   token: string;
   failFirstChunk?: boolean;
+  alwaysFailChunks?: boolean;
 }): Promise<FakeDesk> {
   const log: string[] = [];
   const putRanges: string[] = [];
@@ -102,7 +103,7 @@ async function startFakeDesk(options: {
         res.writeHead(308, { Range: received > 0 ? `bytes=0-${received - 1}` : "" });
         return res.end();
       }
-      if (options.failFirstChunk && !firstChunkFailed) {
+      if (options.alwaysFailChunks || (options.failFirstChunk && !firstChunkFailed)) {
         firstChunkFailed = true;
         return send(503, { error: "일시 오류" });
       }
@@ -240,6 +241,75 @@ test("CLI: 직행 모드 업로드는 조각을 PUT하고 308을 이어 가며 �
   }
 });
 
+test("CLI: 직행 모드에서 조각 전송이 계속 실패하면 끝없이 돌지 않고 멈춘다", async () => {
+  const cli = await loadCli();
+  const desk = await startFakeDesk({ mode: "direct", token: "tok", alwaysFailChunks: true });
+  try {
+    const dir = await mkdtemp(path.join(tmpdir(), "sharedesk-cli-"));
+    const local = path.join(dir, "small.bin");
+    await writeFile(local, Buffer.alloc(1024, 1));
+    const client = new cli.DeskClient({ url: desk.url, token: "tok" });
+    await assert.rejects(client.upload(local, ""), /HTTP 503/);
+    // 조각 PUT 4번(처음 + 재시도 3번)과 그 사이 위치 조회 — 유한하다.
+    const chunkPuts = desk.putRanges.filter((range) => range.startsWith("bytes 0-"));
+    assert.equal(chunkPuts.length, 4, desk.putRanges.join(", "));
+    assert.ok(!desk.log.some((line) => line.startsWith("complete")));
+  } finally {
+    await desk.close();
+  }
+});
+
+test("CLI 토큰 세션: 한 사람 5개 상한, 관리자 계정도 CLI 세션만은 끊긴다 (#34)", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "sharedesk-cli-sessions-"));
+  await mkdir(path.join(root, ".sharedesk"), { recursive: true });
+  await writeFile(
+    path.join(root, ".sharedesk", "users.json"),
+    JSON.stringify({
+      version: 1,
+      rev: 1,
+      users: [
+        { id: "admin-sub", email: "admin@example.com", name: "관리자", status: "approved", isAdmin: true, createdAt: "2025-01-01T00:00:00.000Z", sessionsValidFrom: 0, sessionVersion: 0, sessions: [
+          { id: "browser-session-000000000000000000", createdAt: "2025-01-01T00:00:00.000Z", deviceLabel: "Chrome · Windows" },
+        ] },
+        { id: "member-sub", email: "member@example.com", name: "멤버", status: "approved", isAdmin: false, createdAt: "2025-01-01T00:00:00.000Z", sessionsValidFrom: 0, sessionVersion: 0, sessions: [] },
+        { id: "pending-sub", email: "pending@example.com", name: "대기", status: "pending", isAdmin: false, createdAt: "2025-01-01T00:00:00.000Z", sessionsValidFrom: 0, sessionVersion: 0, sessions: [] },
+      ],
+    }),
+  );
+  process.env.STORAGE_DRIVER = "local";
+  process.env.LOCAL_STORAGE_ROOT = root;
+  // 서명용 임시 값 — 길이만 맞으면 된다(비밀 아님).
+  process.env.SESSION_SECRET = ["cli", "test", "signing"].join("-").padEnd(40, "0");
+  process.env.ADMIN_EMAILS = "admin@example.com";
+  const users = await import("@/lib/users");
+  const auth = await import("@/lib/auth");
+
+  // 승인 안 된 사용자는 발급 불가.
+  assert.equal(await users.issueUserSession("pending-sub", users.CLI_SESSION_LABEL_PREFIX + "x"), null);
+
+  // 멤버: 5개까지, 6번째는 limit.
+  for (let index = 0; index < users.MAX_CLI_SESSIONS; index++) {
+    const issued = await users.issueUserSession("member-sub", users.CLI_SESSION_LABEL_PREFIX + "에이전트 " + index);
+    assert.ok(issued && !("error" in issued), "issue " + index);
+  }
+  const sixth = await users.issueUserSession("member-sub", users.CLI_SESSION_LABEL_PREFIX + "하나 더");
+  assert.deepEqual(sixth, { error: "limit" });
+  const member = await users.findUserById("member-sub", { fresh: true });
+  assert.equal(member?.sessions.filter(users.isCliSession).length, users.MAX_CLI_SESSIONS);
+
+  // 발급된 세션의 토큰은 실제로 통하고, 끊으면 바로 막힌다.
+  const issued = await users.issueUserSession("admin-sub", users.CLI_SESSION_LABEL_PREFIX + "집 PC");
+  assert.ok(issued && !("error" in issued));
+  const token = await auth.createUserSession(issued.user.id, issued.user.sessionVersion, issued.session.id);
+  assert.equal((await auth.resolveSession(token, { fresh: true }))?.userId, "admin-sub");
+  // 관리자의 브라우저 세션은 여전히 못 끊지만, CLI 세션은 끊긴다.
+  await assert.rejects(users.revokeDeviceSession("admin-sub", "browser-session-000000000000000000"), /관리자 계정/);
+  const revoked = await users.revokeDeviceSession("admin-sub", issued.session.id);
+  assert.equal(revoked?.revoked, true);
+  assert.equal(await auth.resolveSession(token, { fresh: true }), null);
+  await rm(root, { recursive: true, force: true });
+});
+
 test("CLI 토큰 발급과 화면 배선 (#34)", async () => {
   const [route, users, dialog, filesView, pkg] = await Promise.all([
     readFile(new URL("../src/app/api/me/cli-token/route.ts", import.meta.url), "utf8"),
@@ -259,6 +329,10 @@ test("CLI 토큰 발급과 화면 배선 (#34)", async () => {
   // 창: 토큰 입력은 읽기 전용, 사이드바 항목은 손님에게 없다.
   assert.match(dialog, /\/api\/me\/cli-token/);
   assert.match(dialog, /readOnly/);
+  // 로그인 명령에 토큰을 넣지 않는다(셸 기록 노출).
+  assert.ok(!/login ${origin} ${token}/.test(dialog), "로그인 명령에 토큰이 들어간다");
+  const admin = await readFile(new URL("../src/app/admin/AdminView.tsx", import.meta.url), "utf8");
+  assert.match(admin, /!user.isAdmin || isCliSession(session)/);
   assert.match(filesView, /\{!isGuest && cliTokenOpen && \(/);
   // 실행 진입점.
   assert.equal(JSON.parse(pkg).bin.sharedesk, "cli/sharedesk.mjs");

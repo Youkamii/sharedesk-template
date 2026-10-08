@@ -128,7 +128,7 @@ export default function CliTokenDialog({ locale, onClose, onNotice }: Props) {
     if (event.key !== "Tab") return;
     const focusable = Array.from(
       event.currentTarget.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        'button:not([disabled]), select:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])',
       ),
     );
     if (!focusable.length) {
@@ -147,9 +147,9 @@ export default function CliTokenDialog({ locale, onClose, onNotice }: Props) {
     }
   }
 
-  const loginCommand = token
-    ? `node cli/sharedesk.mjs login ${origin} ${token}`
-    : `node cli/sharedesk.mjs login ${origin} <토큰>`;
+  // 토큰은 명령에 넣지 않는다 — 인자로 넘기면 셸 기록·프로세스 목록에 남는다.
+  // CLI가 물어볼 때 붙여 넣거나, 에이전트는 SHAREDESK_TOKEN 환경변수로 준다.
+  const loginCommand = `node cli/sharedesk.mjs login ${origin}`;
 
   return (
     <div
@@ -245,8 +245,9 @@ export default function CliTokenDialog({ locale, onClose, onNotice }: Props) {
                   {t("로그인 명령 복사")}
                 </button>
               </div>
-              <span>{t("저장소 폴더에서 이 명령으로 연결합니다:")}</span>
+              <span>{t("저장소 폴더에서 이 명령을 치고, 토큰을 묻는 자리에 붙여 넣습니다:")}</span>
               <pre style={codeStyle}>{loginCommand}</pre>
+              <span>{t("에이전트에게는 토큰을 SHAREDESK_TOKEN 환경변수로 주세요 — 명령 인자나 채팅에 넣으면 기록에 남습니다.")}</span>
               <span>{t("그 다음부터는 ls · get · put · mkdir 로 씁니다. 자세한 사용법은 docs/CLI.md 에 있습니다.")}</span>
             </div>
           ) : (

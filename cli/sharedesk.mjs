@@ -30,6 +30,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 
 export const COOKIE_NAME = "sharedesk_session";
 export const CHUNK_SIZE = 8 * 1024 * 1024;
@@ -224,7 +225,8 @@ export class DeskClient {
     });
     if (session.mode === "direct") {
       const fileId = await this.uploadResumable(session.url, localPath, info.size, onProgress);
-      if (!session.reservationId) return { id: fileId, name: fileName, size: info.size };
+      // 완료 보고는 파일 id가 있어야 한다. 없으면 예약이 TTL까지 남지만 파일은 올라갔다.
+      if (!session.reservationId || !fileId) return { id: fileId, name: fileName, size: info.size };
       await this.json("/api/drive/upload-complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -256,15 +258,11 @@ export class DeskClient {
       for (;;) {
         let response;
         try {
-          if (recovering) {
+          if (recovering || total === 0) {
+            // 위치 조회 — 빈 파일은 이 한 번의 PUT이 곧 완료 요청이다.
             response = await this.fetch(sessionUrl, {
               method: "PUT",
               headers: { "Content-Range": `bytes */${total}` },
-            });
-          } else if (total === 0) {
-            response = await this.fetch(sessionUrl, {
-              method: "PUT",
-              headers: { "Content-Range": `bytes */0` },
             });
           } else {
             const end = Math.min(offset + CHUNK_SIZE, total) - 1;
@@ -288,11 +286,16 @@ export class DeskClient {
         if (response.status === 308) {
           const next = resumableOffsetFromRange(response.headers.get("range"));
           if (next > total) throw new CliError("서버의 업로드 위치가 파일 크기를 넘었습니다");
-          if (!recovering && next <= offset) {
-            if (retries >= 3) throw new CliError("드라이브 업로드가 더 진행되지 않습니다");
-            retries += 1;
-          } else {
-            retries = 0;
+          // 위치 조회(recovering) 뒤에는 재시도 횟수를 건드리지 않는다 — 조각
+          // 전송이 실패할 때마다 셌다가 조회 성공으로 0이 되면 끝없이 돈다.
+          if (!recovering) {
+            if (next > offset) {
+              retries = 0;
+            } else if (retries >= 3) {
+              throw new CliError("드라이브 업로드가 더 진행되지 않습니다");
+            } else {
+              retries += 1;
+            }
           }
           offset = next;
           recovering = false;
@@ -302,9 +305,8 @@ export class DeskClient {
         if (response.status === 200 || response.status === 201) {
           onProgress?.(total, total);
           const body = await response.json().catch(() => null);
-          const fileId = body && typeof body.id === "string" ? body.id : null;
-          if (!fileId) throw new CliError("드라이브가 파일 id를 주지 않았습니다");
-          return fileId;
+          // 브라우저와 같이 id가 없어도 실패로 보지 않는다 — 파일은 이미 Drive에 있다.
+          return body && typeof body.id === "string" ? body.id : null;
         }
         if (response.status === 404 || response.status === 410) {
           throw new CliError("드라이브 업로드 세션이 만료되었습니다. 다시 올려 주세요.");
@@ -347,7 +349,7 @@ export function parseArgs(argv) {
 
 const USAGE = `ShareDesk CLI
 
-  login <주소> <토큰>              데스크에 연결한다 (토큰은 데스크 사이드바 'CLI 연결')
+  login <주소>                     데스크에 연결한다 (토큰은 물어볼 때 붙여 넣거나 SHAREDESK_TOKEN 환경변수로)
   status                           연결 상태를 확인한다
   ls [폴더 경로] [--json]          폴더 안 항목을 본다 (기본: 바탕화면)
   get <파일 경로> [저장 위치]      파일을 받는다
@@ -357,7 +359,42 @@ const USAGE = `ShareDesk CLI
 환경변수 SHAREDESK_URL / SHAREDESK_TOKEN 이 설정 파일(~/.sharedesk/config.json)보다 우선한다.
 경로는 바탕화면 기준이며 '/'로 나눈다. 예: 보고서/2026/요약.pdf`;
 
-export async function main(argv = process.argv.slice(2), io = { out: console.log, err: console.error }) {
+// 터미널이면 화면에 안 보이게 한 줄을 읽고, 파이프면 stdin 한 줄을 그대로 읽는다.
+async function readSecret(prompt) {
+  const { stdin, stderr } = process;
+  if (!stdin.isTTY) {
+    let data = "";
+    stdin.setEncoding("utf8");
+    for await (const chunk of stdin) data += chunk;
+    return data.split(/\r?\n/)[0].trim();
+  }
+  stderr.write(prompt);
+  stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+  let line = "";
+  try {
+    for await (const chunk of stdin) {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") {
+          stderr.write("\n");
+          return line.trim();
+        }
+        if (ch === "\u0003") throw new CliError("취소했습니다", { exitCode: 130 });
+        if (ch === "\u007f" || ch === "\b") line = line.slice(0, -1);
+        else line += ch;
+      }
+    }
+    return line.trim();
+  } finally {
+    stdin.setRawMode(false);
+    stdin.pause();
+  }
+}
+
+const defaultIo = { out: console.log, err: console.error, secret: readSecret };
+
+export async function main(argv = process.argv.slice(2), io = defaultIo) {
   const { positional, flags } = parseArgs(argv);
   const [command, ...rest] = positional;
   if (!command || flags.help) {
@@ -367,9 +404,20 @@ export async function main(argv = process.argv.slice(2), io = { out: console.log
   const emit = (data, text) => io.out(flags.json ? JSON.stringify(data) : text);
 
   if (command === "login") {
-    const [url, token] = rest;
-    if (!url || !token) throw new CliError("사용법: login <주소> <토큰>", { exitCode: 2 });
+    const [url, argToken] = rest;
+    if (!url) throw new CliError("사용법: login <주소>  (토큰은 물어보거나 SHAREDESK_TOKEN 환경변수로)", { exitCode: 2 });
+    // 토큰은 인자보다 환경변수·입력으로 받는 쪽을 권한다 — 인자로 주면 셸
+    // 기록과 프로세스 목록에 남는다. 인자도 받지만 경고한다.
+    let token = process.env.SHAREDESK_TOKEN || argToken;
+    if (argToken && !process.env.SHAREDESK_TOKEN) {
+      io.err("주의: 토큰을 명령 인자로 주면 셸 기록에 남습니다. 다음부터는 `login <주소>`만 치고 물어볼 때 붙여 넣으세요.");
+    }
+    if (!token) token = await io.secret("토큰: ");
+    if (!token) throw new CliError("토큰이 비어 있습니다", { exitCode: 2 });
     const client = new DeskClient({ url, token });
+    if (client.url.startsWith("http://") && !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(client.url)) {
+      io.err("주의: http 주소라 토큰이 암호화되지 않은 채 전송됩니다.");
+    }
     await client.list("");
     await saveConfig({ url: client.url, token });
     emit({ ok: true, url: client.url }, `연결됐습니다: ${client.url}`);
@@ -432,17 +480,27 @@ export async function main(argv = process.argv.slice(2), io = { out: console.log
   }
 }
 
-const invokedDirectly =
-  process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// bin 심볼릭 링크(node_modules/.bin/sharedesk)로 불려도 실경로로 비교한다.
+function samePath(candidate) {
+  try {
+    return realpathSync(candidate) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+const invokedDirectly = Boolean(process.argv[1]) && samePath(process.argv[1]);
 if (invokedDirectly) {
+  // process.exit 대신 exitCode — 파이프로 보낸 큰 --json 출력이 잘리지 않게.
   main().then(
-    (code) => process.exit(code),
+    (code) => {
+      process.exitCode = code;
+    },
     (error) => {
-      const json = process.argv.includes("--json");
+      const json = parseArgs(process.argv.slice(2)).flags.json === true;
       const message = error instanceof CliError ? error.message : `오류: ${error?.message ?? error}`;
       if (json) console.log(JSON.stringify({ ok: false, error: message, status: error?.status ?? null }));
       else console.error(message);
-      process.exit(error instanceof CliError ? error.exitCode : 1);
+      process.exitCode = error instanceof CliError ? error.exitCode : 1;
     },
   );
 }

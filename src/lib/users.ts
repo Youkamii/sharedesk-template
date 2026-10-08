@@ -1091,7 +1091,10 @@ export async function revokeDeviceSession(
   return mutate((file) => {
     const user = file.users.find((item) => item.id === id);
     if (!user) return null;
-    if (isAdminEmail(user.email)) {
+    // 관리자의 브라우저 로그인은 다른 관리자가 끊을 수 없지만, CLI 토큰(#34)은
+    // 파일로 복제되는 자격증명이라 끊을 길이 있어야 한다 — 그 세션만 허용.
+    const target = user.sessions.find((session) => session.id === sessionId);
+    if (isAdminEmail(user.email) && !(target && isCliSession(target))) {
       throw new Error("관리자 계정의 세션은 끊을 수 없습니다");
     }
     const sessions = user.sessions.filter((session) => session.id !== sessionId);
@@ -1107,23 +1110,45 @@ export async function revokeDeviceSession(
 // 서명은 호출자(auth.ts createUserSession)가 하고, 여기서는 명단에 세션만
 // 남긴다. 그래서 관리자 화면의 기기 세션 끊기·전체 끊기가 그대로 CLI 토큰도
 // 무효화한다. 승인된 멤버만 — 손님(접속 키)은 명단에 없어 호출 자체가 없다.
+// 라벨 접두로 CLI 세션을 알아본다: 관리자 계정도 이 세션만은 끊을 수 있고
+// (revokeDeviceSession), 한 사람당 MAX_CLI_SESSIONS개까지만 — 그 이상 만들면
+// 기기 세션 상한(MAX_DEVICE_SESSIONS)에 밀려 자기 브라우저 로그인이 조용히
+// 끊기기 때문이다.
+export const CLI_SESSION_LABEL_PREFIX = "CLI · ";
+export const MAX_CLI_SESSIONS = 5;
+
+export function isCliSession(session: Pick<UserSession, "deviceLabel">): boolean {
+  return session.deviceLabel.startsWith(CLI_SESSION_LABEL_PREFIX);
+}
+
 export async function issueUserSession(
   id: string,
   deviceLabel: string,
-): Promise<{ user: User; session: UserSession } | null> {
+): Promise<
+  { user: User; session: UserSession } | { error: "limit" } | null
+> {
   const label = cleanStoredDeviceLabel(deviceLabel);
   if (!label) throw new Error("올바르지 않은 기기 이름입니다");
-  return mutate((file) => {
-    const user = file.users.find((item) => item.id === id);
-    if (!user || user.status !== "approved") return null;
-    const session: UserSession = {
+  return mutate(
+    (file) => {
+      const user = file.users.find((item) => item.id === id);
+      if (!user || user.status !== "approved") return null;
+      if (
+        label.startsWith(CLI_SESSION_LABEL_PREFIX) &&
+        user.sessions.filter(isCliSession).length >= MAX_CLI_SESSIONS
+      ) {
+        return { error: "limit" as const };
+      }
+      const session: UserSession = {
       id: randomUUID(),
       createdAt: new Date().toISOString(),
       deviceLabel: label,
     };
-    appendSession(user, session);
-    return { user, session };
-  });
+      appendSession(user, session);
+      return { user, session };
+    },
+    (result) => result !== null && !("error" in result),
+  );
 }
 
 export async function removeUser(id: string): Promise<boolean> {

@@ -28,7 +28,7 @@ import {
   resolveUserRole,
   type UserRole,
 } from "@/lib/roles";
-import type { User } from "@/lib/users";
+import { isCliSession, type User } from "@/lib/users";
 import styles from "./admin.module.css";
 import PublicFoldersPanel from "./PublicFoldersPanel";
 import type { ActivityAction, ActivityEntry } from "@/lib/activity";
@@ -1655,7 +1655,8 @@ export default function AdminView({ locale }: { locale: Locale }) {
                                             {formatDate(session.createdAt, locale)}
                                           </span>
                                         </span>
-                                        {!user.isAdmin ? (
+                                        {/* 관리자의 브라우저 로그인은 못 끊지만 CLI 토큰(#34)은 끊는다. */}
+                                        {!user.isAdmin || isCliSession(session) ? (
                                           <button
                                             disabled={busyId !== null}
                                             onClick={() =>

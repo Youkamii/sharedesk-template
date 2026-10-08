@@ -142,6 +142,7 @@ Hosts start here:
 - **Already installed:** [Update guide](./docs/UPDATE.md) — a star on the taskbar's `Update` button tells the admin a new version is out
 - **Just for yourself on your own computer:** [Local personal use](./docs/LOCAL.md)
 - **Optional:** [Desktop widget](./docs/WIDGET.md)
+- **Optional:** [Using the desk from the CLI — terminals and AI agents](./docs/CLI.md)
 
 <br />
 

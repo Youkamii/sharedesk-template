@@ -157,8 +157,12 @@ export default function RecentFilesWindow({
     return () => window.clearInterval(timer);
   }, [load, days]);
 
+  // 창을 연 뒤 tick이 "바뀔 때"만 읽는다 — 마운트 시점의 tick 값에 반응하면
+  // 위의 첫 읽기와 겹쳐 같은 요청이 두 번 나간다.
+  const seenTickRef = useRef(refreshTick);
   useEffect(() => {
-    if (refreshTick === 0) return;
+    if (seenTickRef.current === refreshTick) return;
+    seenTickRef.current = refreshTick;
     const timer = window.setTimeout(() => void load(days, true), 0);
     return () => window.clearTimeout(timer);
     // days는 바뀔 때 위 효과가 이미 다시 읽으므로 여기서는 tick에만 반응한다.

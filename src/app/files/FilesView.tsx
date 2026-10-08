@@ -5825,14 +5825,15 @@ export default function FilesView({
   async function refreshAll() {
     if (refreshing) return;
     setRefreshing(true);
+    // 채팅·최근 파일은 tick으로 먼저 깨운다 — 목록 갱신이 끝나길 기다리면 그만큼
+    // 늦어진다. 접속자는 POST 하나로 수·명단이 같이 온다(readPresence와 같은 스냅숏).
+    setRefreshTick((current) => current + 1);
     try {
       await Promise.allSettled([
         refreshEverything(),
         refreshFolderBadgesRef.current(),
         refreshPresence(),
-        presence.open ? readPresence() : Promise.resolve(),
       ]);
-      setRefreshTick((current) => current + 1);
     } finally {
       setRefreshing(false);
     }
@@ -9512,7 +9513,7 @@ export default function FilesView({
                       setCliTokenOpen(true);
                     }}
                   >
-                    <span aria-hidden="true">▶_</span>
+                    <span aria-hidden="true">⌨</span>
                     {t("CLI 연결")}
                   </button>
                 </nav>
