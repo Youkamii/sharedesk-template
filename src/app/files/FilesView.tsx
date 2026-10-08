@@ -974,6 +974,10 @@ export default function FilesView({
   // 창을 열기 전 도착한 새 메시지도 낮은 빈도의 폴링으로 알릴 수 있다.
   const [chatWindow, setChatWindow] = useState({ minimized: true, z: 0 });
   const [chatUnread, setChatUnread] = useState(0);
+  // 상단 바 새로고침 단추(#33) — 목록·배지·접속자는 직접 다시 읽고, 자기
+  // 폴링을 가진 채팅·최근 파일 창에는 tick을 올려 즉시 읽게 한다.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   // 우측 가장자리 사이드바(#11) — 링크·데스크 임포트·공개 폴더 입장.
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [publicFolders, setPublicFolders] = useState<
@@ -5812,6 +5816,25 @@ export default function FilesView({
     await Promise.all(jobs);
   }
 
+  // 상단 바 새로고침(#33). 폴링 주기(목록 30초·채팅 최대 60초·접속자 30초)를
+  // 기다리지 않고 한 번에 다 읽는다. 하나가 실패해도 나머지는 끝까지 간다 —
+  // 각 함수가 자기 오류를 화면에 알리므로 여기서는 삼킨다.
+  async function refreshAll() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.allSettled([
+        refreshEverything(),
+        refreshFolderBadgesRef.current(),
+        refreshPresence(),
+        presence.open ? readPresence() : Promise.resolve(),
+      ]);
+      setRefreshTick((current) => current + 1);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   async function trashAction(
     action: "restore" | "purge" | "empty",
     id?: string,
@@ -8178,6 +8201,19 @@ export default function FilesView({
             </div>
           )}
         </div>
+        <button
+          type="button"
+          className={`${styles.connection} ${styles.refreshButton}`}
+          aria-label={t("새로고침")}
+          title={t("새로고침")}
+          aria-busy={refreshing}
+          disabled={refreshing}
+          onClick={() => void refreshAll()}
+        >
+          <span className={styles.refreshGlyph} aria-hidden="true">
+            ↻
+          </span>
+        </button>
       </header>
 
       {renderCanvas(ROOT_SCOPE)}
@@ -9301,6 +9337,7 @@ export default function FilesView({
           }
           onUnreadChange={setChatUnread}
           onActivate={focusChatWindow}
+          refreshTick={refreshTick}
         />
       )}
 
@@ -9378,6 +9415,7 @@ export default function FilesView({
           onReveal={revealRecentLocation}
           onOpen={openSearchResult}
           onContextMenu={openSearchContextMenu}
+          refreshTick={refreshTick}
           onKeyboardMenu={openSearchKeyboardMenu}
         />
       )}

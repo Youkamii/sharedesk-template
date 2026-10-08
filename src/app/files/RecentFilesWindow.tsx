@@ -46,6 +46,8 @@ type Props = {
   onOpen: (location: Location, opener: HTMLElement) => void;
   onContextMenu: (event: React.MouseEvent, location: Location) => void;
   onKeyboardMenu: (target: HTMLElement, location: Location) => void;
+  // 상단 바 새로고침(#33) — 값이 바뀌면 60초 주기를 기다리지 않고 조용히 다시 읽는다.
+  refreshTick?: number;
 };
 
 const rowKey = (item: RecentFileItem) =>
@@ -66,6 +68,7 @@ export default function RecentFilesWindow({
   onOpen,
   onContextMenu,
   onKeyboardMenu,
+  refreshTick = 0,
 }: Props) {
   const router = useRouter();
   const [days, setDays] = useState<number>(DEFAULT_RECENT_DAYS);
@@ -153,6 +156,14 @@ export default function RecentFilesWindow({
     }, RECENT_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [load, days]);
+
+  useEffect(() => {
+    if (refreshTick === 0) return;
+    const timer = window.setTimeout(() => void load(days, true), 0);
+    return () => window.clearTimeout(timer);
+    // days는 바뀔 때 위 효과가 이미 다시 읽으므로 여기서는 tick에만 반응한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshTick]);
 
   useEffect(() => {
     return () => requestRef.current?.abort();

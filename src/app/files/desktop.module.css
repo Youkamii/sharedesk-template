@@ -352,6 +352,38 @@
   margin-right: 6px;
 }
 
+/* 새로고침 단추(#33) — 접속자 버튼 오른쪽. 갱신 중에는 글리프만 돈다. */
+.refreshButton {
+  flex: none;
+  min-width: 32px;
+  margin-left: 6px;
+  padding-inline: 8px;
+  justify-content: center;
+}
+
+.refreshButton:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+
+.refreshGlyph {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.refreshButton[aria-busy="true"] .refreshGlyph {
+  animation: refreshSpin 0.9s steps(8) infinite;
+}
+
+@keyframes refreshSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .refreshButton[aria-busy="true"] .refreshGlyph { animation: none; }
+}
+
 .connection:hover,
 .connection[aria-expanded="true"] {
   color: #fff8e7;

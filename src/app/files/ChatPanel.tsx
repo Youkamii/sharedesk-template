@@ -34,6 +34,8 @@ type Props = {
   onMinimize: () => void;
   onUnreadChange: (count: number) => void;
   onActivate: () => void;
+  // 상단 바 새로고침(#33) — 값이 바뀔 때마다 예약된 폴링을 끊고 바로 읽는다.
+  refreshTick?: number;
 };
 
 function isMessage(value: unknown): value is ClientChatMessage {
@@ -56,6 +58,7 @@ export default function ChatPanel({
   onMinimize,
   onUnreadChange,
   onActivate,
+  refreshTick = 0,
 }: Props) {
   const router = useRouter();
   const [messages, setMessages] = useState<ClientChatMessage[]>([]);
@@ -182,7 +185,9 @@ export default function ChatPanel({
       controller?.abort();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [minimized, onUnreadChange, router, t]);
+    // refreshTick은 이 효과를 다시 돌려 즉시 poll()하게 하는 용도다 —
+    // lastIdRef가 남아 있어 마지막 메시지 이후만 받는다.
+  }, [minimized, onUnreadChange, refreshTick, router, t]);
 
   useEffect(() => {
     if (!minimized) listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
