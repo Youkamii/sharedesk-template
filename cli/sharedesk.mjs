@@ -107,7 +107,7 @@ export async function loadConfig({ env = process.env, configFile = CONFIG_FILE }
   const token = env.SHAREDESK_TOKEN || stored.token;
   if (!url || !token) {
     throw new CliError(
-      "연결 정보가 없습니다. 데스크 사이드바 'CLI 연결'에서 토큰을 받아 `login <주소> <토큰>`을 먼저 실행하세요.",
+      "연결 정보가 없습니다. 데스크 사이드바 'CLI 연결'에서 토큰을 받아 `login <주소>`를 먼저 실행하고, 물어볼 때 토큰을 붙여 넣으세요.",
       { exitCode: 2 },
     );
   }
