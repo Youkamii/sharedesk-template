@@ -889,11 +889,12 @@ test("텍스트 저장, 폴더 메모, 루트 기준 주소 API", async (t) => {
         }
         if (
           url.includes(
-            "/drive/v3/files/drive-text?fields=id,parents,trashed",
+            "/drive/v3/files/drive-text?fields=id,name,parents,trashed",
           )
         ) {
           return Response.json({
             id: "drive-text",
+            name: "notes.txt",
             parents: ["drive-root"],
             trashed: false,
           });

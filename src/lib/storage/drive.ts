@@ -31,8 +31,8 @@ import { createOfficePreviewFallback } from "@/lib/office-preview-fallback";
 import { currentSpaceFolderId } from "@/lib/space-store";
 
 // Google Drive v3 REST 어댑터 — googleapis 패키지 없이 fetch만 사용.
-// drive.file scope라 이 앱이 만든 파일·폴더만 보인다. 접근 범위 격리는
-// scope가 담당하고, 루트 폴더 밖 id는 애초에 조회가 실패한다.
+// drive.file은 앱에 허용된 파일을 제한한다. 데스크·내부 영역 격리는
+// 별도의 조상 검사로 집행한다 — 다른 스페이스도 같은 OAuth 앱을 쓴다.
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
@@ -445,9 +445,20 @@ async function createStateFile(
 
 type AncestryMeta = {
   id: string;
+  name: string;
   parents?: string[];
   trashed?: boolean;
 };
+
+function assertNotInternalArea(meta: AncestryMeta): void {
+  assertNotStateArea(meta.id);
+  // 기본 데스크의 자손에는 .spaces 아래의 모든 스페이스도 포함된다.
+  // 목록에서 숨기는 것만으로는 알려진 파일 ID를 통한 접근을 막지 못한다.
+  // 현재 루트에 도달하기 전 만나는 예약 영역은 자손 전체와 함께 차단한다.
+  if (meta.name === STATE_DIR || meta.name === SPACES_DIR) {
+    throw stateAccessDenied();
+  }
+}
 
 async function assertInsideRoot(
   id: string,
@@ -467,9 +478,10 @@ async function assertInsideRoot(
         ? initialMeta
         : ((await (
             await driveFetch(
-              `${API}/files/${current}?fields=id,parents,trashed`,
+              `${API}/files/${current}?fields=id,name,parents,trashed`,
             )
           ).json()) as AncestryMeta);
+    assertNotInternalArea(meta);
     if (meta.trashed && !allowTrashed) {
       throw new StorageError("NOT_FOUND", "대상이 휴지통에 있습니다");
     }
@@ -1068,9 +1080,10 @@ export class DriveAdapter implements StorageAdapter {
     let current = real;
     for (let hop = 0; hop < MAX_ANCESTOR_HOPS; hop += 1) {
       const response = await driveFetch(
-        `${API}/files/${current}?fields=id,parents,trashed`,
+        `${API}/files/${current}?fields=id,name,parents,trashed`,
       );
       const meta = (await response.json()) as AncestryMeta;
+      assertNotInternalArea(meta);
       if (meta.trashed) return false;
       const parent = meta.parents?.[0];
       if (!parent) return false;
@@ -1105,7 +1118,7 @@ export class DriveAdapter implements StorageAdapter {
       throw new StorageError("BAD_ID", "스페이스 주소가 올바르지 않습니다");
     }
     const root = rootFolderId();
-    const container = await findOrCreateChildFolder(root, ".spaces");
+    const container = await findOrCreateChildFolder(root, SPACES_DIR);
     return findOrCreateChildFolder(container, slug);
   }
 
@@ -1179,7 +1192,7 @@ export class DriveAdapter implements StorageAdapter {
         `${API}/files/${real}?fields=id,name,mimeType,parents,trashed`,
       ),
       driveFetch(
-        `${API}/files/${target}?fields=id,mimeType,parents,trashed`,
+        `${API}/files/${target}?fields=id,name,mimeType,parents,trashed`,
       ),
     ]);
     const meta = (await metaRes.json()) as DriveFile & { parents?: string[] };
@@ -1315,11 +1328,7 @@ export class DriveAdapter implements StorageAdapter {
         continue;
       }
       try {
-        await assertInsideRoot(
-          file.id,
-          { id: file.id, parents: file.parents, trashed: file.trashed },
-          true,
-        );
+        await assertInsideRoot(file.id, file, true);
         insideRoot.push(file);
       } catch (error) {
         if (!(error instanceof StorageError && error.code === "NOT_FOUND")) {
