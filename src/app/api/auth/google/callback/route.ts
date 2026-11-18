@@ -4,7 +4,7 @@ import { COOKIE_NAME, MAX_AGE_SECONDS, createUserSession } from "@/lib/auth";
 import { LANDING_PATH } from "@/lib/space-access";
 import { runWithSpace } from "@/lib/space-context";
 import { loginWithGoogle } from "@/lib/users";
-import { STATE_COOKIE, loginRedirectUri } from "../route";
+import { STATE_COOKIE, loginRedirectUri } from "@/lib/google-oauth";
 
 const OAUTH_TIMEOUT_MS = 10_000;
 

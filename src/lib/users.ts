@@ -6,6 +6,13 @@ import { isValidSessionId } from "@/lib/session-token";
 import { currentSpaceFolderId, runWithSpace } from "@/lib/space-store";
 import { getAdapter } from "@/lib/storage";
 import { StorageError } from "@/lib/storage/types";
+import {
+  CLI_SESSION_LABEL_PREFIX,
+  MAX_CLI_SESSIONS,
+  isCliSession,
+} from "@/lib/cli-session";
+
+export { CLI_SESSION_LABEL_PREFIX, MAX_CLI_SESSIONS, isCliSession };
 
 // 사용자와 초대 명단은 저장소(.sharedesk/users.json)에 함께 둔다.
 // 초대 소비와 사용자 승인이 같은 CAS 쓰기로 끝나야 한 코드가 정확히 한 번만 쓰인다.
@@ -1114,13 +1121,6 @@ export async function revokeDeviceSession(
 // (revokeDeviceSession), 한 사람당 MAX_CLI_SESSIONS개까지만 — 그 이상 만들면
 // 기기 세션 상한(MAX_DEVICE_SESSIONS)에 밀려 자기 브라우저 로그인이 조용히
 // 끊기기 때문이다.
-export const CLI_SESSION_LABEL_PREFIX = "CLI · ";
-export const MAX_CLI_SESSIONS = 5;
-
-export function isCliSession(session: Pick<UserSession, "deviceLabel">): boolean {
-  return session.deviceLabel.startsWith(CLI_SESSION_LABEL_PREFIX);
-}
-
 export async function issueUserSession(
   id: string,
   deviceLabel: string,

@@ -759,9 +759,10 @@ test("Drive 어댑터가 직접 권한과 알림 기본값을 지킨다", async 
     if (url.includes("/drive/v3/files/state-dir-b") && method === "PATCH") {
       return Response.json({ id: "state-dir-b", trashed: true });
     }
-    if (url.includes("/drive/v3/files/file-id?fields=id,parents,trashed")) {
+    if (url.includes("/drive/v3/files/file-id?fields=id,name,parents,trashed")) {
       return Response.json({
         id: "file-id",
+        name: "report.txt",
         parents: fileInsideRoot ? ["root-folder"] : [],
         trashed: false,
       });
@@ -781,11 +782,12 @@ test("Drive 어댑터가 직접 권한과 알림 기본값을 지킨다", async 
     }
     if (
       url.includes(
-        "/drive/v3/files/root-folder?fields=id,mimeType,parents,trashed",
+        "/drive/v3/files/root-folder?fields=id,name,mimeType,parents,trashed",
       )
     ) {
       return Response.json({
         id: "root-folder",
+        name: "ShareDesk",
         mimeType: "application/vnd.google-apps.folder",
         parents: [],
         trashed: false,
@@ -817,16 +819,17 @@ test("Drive 어댑터가 직접 권한과 알림 기본값을 지킨다", async 
         size: "10",
       });
     }
-    if (url.includes("/drive/v3/files/outside?fields=id,parents,trashed")) {
-      return Response.json({ id: "outside", parents: [], trashed: false });
+    if (url.includes("/drive/v3/files/outside?fields=id,name,parents,trashed")) {
+      return Response.json({ id: "outside", name: "outside.txt", parents: [], trashed: false });
     }
     if (
       url.includes(
-        "/drive/v3/files/outside-parent?fields=id,parents,trashed",
+        "/drive/v3/files/outside-parent?fields=id,name,parents,trashed",
       )
     ) {
       return Response.json({
         id: "outside-parent",
+        name: "outside",
         parents: [],
         trashed: false,
       });

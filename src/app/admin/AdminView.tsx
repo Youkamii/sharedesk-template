@@ -28,7 +28,8 @@ import {
   resolveUserRole,
   type UserRole,
 } from "@/lib/roles";
-import { isCliSession, type User } from "@/lib/users";
+import type { User } from "@/lib/users";
+import { isCliSession } from "@/lib/cli-session";
 import styles from "./admin.module.css";
 import PublicFoldersPanel from "./PublicFoldersPanel";
 import type { ActivityAction, ActivityEntry } from "@/lib/activity";

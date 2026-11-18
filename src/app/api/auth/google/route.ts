@@ -1,21 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, createHash } from "node:crypto";
-import { resolvePublicOrigin } from "@/lib/public-origin";
+import {
+  LOGIN_OAUTH_SCOPES,
+  STATE_COOKIE,
+  loginRedirectUri,
+} from "@/lib/google-oauth";
 import { runWithSpace } from "@/lib/space-context";
 
 // 구글 로그인 시작 — 동의 화면으로 보낸다.
 // state와 PKCE 검증값은 짧은 수명의 httpOnly 쿠키에 담아 콜백에서 대조한다.
-
-export const STATE_COOKIE = "sharedesk_oauth";
-export const LOGIN_OAUTH_SCOPES = [
-  "openid",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-];
-
-export function loginRedirectUri(req: NextRequest): string {
-  return `${resolvePublicOrigin(req.nextUrl.origin)}/api/auth/google/callback`;
-}
 
 // 공개 라우트 — 세션 없이 열리므로 기본 데스크 문맥을 명시한다.
 export async function GET(req: NextRequest) {

@@ -979,11 +979,24 @@ test("기간제 초대 코드 생성·전환·사용 방식", async () => {
       "@/app/api/auth/google/callback/route"
     );
     const loginRoute = await import("@/app/api/auth/google/route");
-    assert.deepEqual(loginRoute.LOGIN_OAUTH_SCOPES, [
+    const loginResponse = await loginRoute.GET(
+      new NextRequest("http://localhost:3000/api/auth/google"),
+    );
+    assert.equal(loginResponse.status, 307);
+    const authorizationUrl = new URL(loginResponse.headers.get("location")!);
+    assert.deepEqual(authorizationUrl.searchParams.get("scope")?.split(" "), [
       "openid",
       "https://www.googleapis.com/auth/userinfo.email",
       "https://www.googleapis.com/auth/userinfo.profile",
     ]);
+    assert.equal(
+      authorizationUrl.searchParams.get("redirect_uri"),
+      "http://localhost:3000/api/auth/google/callback",
+    );
+    assert.equal(
+      loginResponse.cookies.get("sharedesk_oauth")?.value.split(".")[0],
+      authorizationUrl.searchParams.get("state"),
+    );
     const { getAdapter } = await import("@/lib/storage");
     const originalFetch = globalThis.fetch;
     const callbackRequest = () =>
